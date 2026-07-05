@@ -45,7 +45,14 @@ Custom domain:
 https://crimsonreporthub.com
 ```
 
-Cloudflare should point both `crimsonreporthub.com` and `www.crimsonreporthub.com` to the Vercel DNS target with DNS-only CNAME records. The app permanently redirects `www.crimsonreporthub.com` and the old Vercel production hostname to `https://crimsonreporthub.com`.
+Cloudflare should point both `crimsonreporthub.com` and `www.crimsonreporthub.com` to Vercel with DNS-only records. The current Vercel Domain Connect recommendation for this project is:
+
+```text
+CNAME  @    b6d6a250ac14c9bf.vercel-dns-017.com
+CNAME  www  b6d6a250ac14c9bf.vercel-dns-017.com
+```
+
+The app permanently redirects `www.crimsonreporthub.com` and the old Vercel production hostname to `https://crimsonreporthub.com`.
 
 ### Turnstile
 
