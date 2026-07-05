@@ -1,0 +1,70 @@
+import { ConfidenceBadge, FixStatusBadge } from "@/components/ui";
+import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
+import { getIssuesData } from "@/lib/queries";
+
+export const dynamic = "force-dynamic";
+
+export default async function IssuesPage() {
+  const { clusters, excerptsByCluster } = await getIssuesData();
+
+  return (
+    <div className="space-y-5">
+      <section className="space-y-2">
+        <p className="stat-label">Moderated public evidence</p>
+        <h1 className="text-3xl font-semibold tracking-tight">Issue clusters</h1>
+        <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          Grouped from reviewed community reports. Quotes are admin-approved excerpts only. Raw submissions are never
+          published.
+        </p>
+      </section>
+
+      {clusters.length === 0 ? (
+        <div className="panel text-sm" style={{ color: "var(--text-dim)" }}>
+          No public issue clusters yet. Once the seed migration is applied, unverified clusters appear here with zero
+          confirmed reports.
+        </div>
+      ) : (
+        <section className="space-y-3">
+          {clusters.map((cluster) => (
+            <article key={cluster.id} className="panel space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">{cluster.title}</h2>
+                  <p className="mt-1 text-sm" style={{ color: "var(--text-dim)" }}>
+                    {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category} ·{" "}
+                    {cluster.count} approved reports
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <FixStatusBadge status={cluster.fix_status} />
+                  <ConfidenceBadge confidence={cluster.confidence} />
+                </div>
+              </div>
+
+              <p className="text-sm leading-6">{cluster.description}</p>
+
+              {(excerptsByCluster[cluster.id] ?? []).length > 0 ? (
+                <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+                  <div className="stat-label">Approved excerpts</div>
+                  {(excerptsByCluster[cluster.id] ?? []).slice(0, 3).map((excerpt, index) => (
+                    <blockquote
+                      key={`${cluster.id}-${index}`}
+                      className="text-sm leading-6"
+                      style={{ color: "var(--text-dim)" }}
+                    >
+                      "{excerpt.text}" · {PLATFORM_LABELS[excerpt.platform as keyof typeof PLATFORM_LABELS] ?? excerpt.platform} player
+                    </blockquote>
+                  ))}
+                </div>
+              ) : (
+                <p className="border-t pt-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
+                  No public excerpts approved yet.
+                </p>
+              )}
+            </article>
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
