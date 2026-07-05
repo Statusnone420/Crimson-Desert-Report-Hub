@@ -339,7 +339,11 @@ describe("search planning", () => {
         }),
       }),
     );
-    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({
+    const [, init] = fetcher.mock.calls[0] as unknown as [
+      string,
+      { body: string },
+    ];
+    expect(JSON.parse(init.body)).toMatchObject({
       query: "Crimson Desert FPS",
       max_results: 5,
       search_depth: "basic",
