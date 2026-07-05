@@ -8,7 +8,7 @@ import { CURRENT_PATCH, FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { draftDossierWithAi } from "@/lib/ai";
 import { externalIdHash } from "@/lib/crypto";
-import { buildDeterministicDossier, type DossierCluster } from "@/lib/dossier";
+import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
 import { classifySignal, summarize } from "@/lib/reddit";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
@@ -45,12 +45,41 @@ type CompileSignalRow = {
 type RelatedReport<T> = T | T[] | null;
 
 type CompileVerifiedRow = {
+  report_id: string;
   excerpt_text: string;
   bug_reports: RelatedReport<{ cluster_id: string | null; issue_title: string | null; platform: string | null }>;
 };
 
 function relatedReport<T>(value: RelatedReport<T>): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function throwReadError(label: string, error: { message: string } | null): void {
+  if (error) throw new Error(`${label} read failed: ${error.message}`);
+}
+
+function distinctVerifiedReports(rows: CompileVerifiedRow[]): DossierVerifiedReport[] {
+  const reports = new Map<string, DossierVerifiedReport>();
+  for (const row of rows) {
+    if (reports.has(row.report_id)) continue;
+    const report = relatedReport(row.bug_reports);
+    reports.set(row.report_id, {
+      reportId: row.report_id,
+      title: report?.issue_title ?? "Verified report",
+      excerpt: row.excerpt_text,
+      platform: report?.platform ?? null,
+    });
+  }
+  return [...reports.values()];
+}
+
+function distinctVerifiedClusterRows(rows: CompileVerifiedRow[]): { cluster_id: string | null }[] {
+  const clustersByReport = new Map<string, { cluster_id: string | null }>();
+  for (const row of rows) {
+    if (clustersByReport.has(row.report_id)) continue;
+    clustersByReport.set(row.report_id, { cluster_id: relatedReport(row.bug_reports)?.cluster_id ?? null });
+  }
+  return [...clustersByReport.values()];
 }
 
 export async function moderateReport(formData: FormData): Promise<void> {
@@ -97,37 +126,45 @@ export async function compileDossier(formData: FormData): Promise<void> {
   const useAi = formData.get("use_ai") === "on";
   const supabase = createServiceClient();
 
-  const { data: reports } = await supabase
+  const { data: reports, error: reportsError } = await supabase
     .from("bug_reports")
     .select("category, platform, cluster_id, evidence_url, repro_steps, issue_title")
     .eq("moderation_status", "approved");
+  throwReadError("approved reports", reportsError);
   const rows = (reports ?? []) as CompileReportRow[];
 
-  const { data: clusterData } = await supabase.from("issue_clusters").select("id, title, fix_status, confidence");
+  const { data: clusterData, error: clustersError } = await supabase
+    .from("issue_clusters")
+    .select("id, title, fix_status, confidence");
+  throwReadError("issue clusters", clustersError);
   const clusterRows = (clusterData ?? []) as CompileClusterRow[];
 
-  const { data: signals } = await supabase
+  const { data: signals, error: signalsError } = await supabase
     .from("source_signals")
     .select("cluster_id, source, source_url, title, summary, category, observed_at")
     .eq("public_status", "public")
     .order("observed_at", { ascending: false });
+  throwReadError("community signals", signalsError);
   const signalRows = (signals ?? []) as CompileSignalRow[];
 
-  const { data: verified } = await supabase
+  const { data: verified, error: verifiedError } = await supabase
     .from("approved_excerpts")
-    .select("excerpt_text, bug_reports(cluster_id, issue_title, platform)")
+    .select("report_id, excerpt_text, bug_reports(cluster_id, issue_title, platform)")
     .order("created_at", { ascending: false })
     .limit(1000);
+  throwReadError("verified reports", verifiedError);
   const verifiedRows = (verified ?? []) as CompileVerifiedRow[];
+  const verifiedReports = distinctVerifiedReports(verifiedRows);
 
-  const { count: pendingCount } = await supabase
+  const { count: pendingCount, error: pendingError } = await supabase
     .from("bug_reports")
     .select("id", { count: "exact", head: true })
     .eq("moderation_status", "pending");
+  throwReadError("pending reports", pendingError);
 
   const directByCluster = countBy(rows, (report) => report.cluster_id);
   const signalByCluster = countBy(signalRows, (signal) => signal.cluster_id);
-  const verifiedByCluster = countBy(verifiedRows, (verifiedReport) => relatedReport(verifiedReport.bug_reports)?.cluster_id);
+  const verifiedByCluster = countBy(distinctVerifiedClusterRows(verifiedRows), (verifiedReport) => verifiedReport.cluster_id);
   const clusterTitleById = new Map(clusterRows.map((cluster) => [cluster.id, cluster.title]));
 
   const clusters: DossierCluster[] = clusterRows.map((cluster) => {
@@ -151,7 +188,7 @@ export async function compileDossier(formData: FormData): Promise<void> {
     patchVersion: CURRENT_PATCH,
     totalSignals: signalRows.length,
     totalDirectReports: rows.length,
-    totalVerifiedReports: verifiedRows.length,
+    totalVerifiedReports: verifiedReports.length,
     pendingCount: pendingCount ?? 0,
     byCategory: countBy(rows, (report) => report.category),
     platforms: countBy(rows, (report) => report.platform),
@@ -171,14 +208,7 @@ export async function compileDossier(formData: FormData): Promise<void> {
     directReportEvidenceUrls: [
       ...new Set(rows.map((report) => report.evidence_url).filter((url): url is string => Boolean(url))),
     ].slice(0, 30),
-    verifiedReports: verifiedRows.map((verifiedReport) => {
-      const report = relatedReport(verifiedReport.bug_reports);
-      return {
-        title: report?.issue_title ?? "Verified report excerpt",
-        excerpt: verifiedReport.excerpt_text,
-        platform: report?.platform ?? null,
-      };
-    }),
+    verifiedReports,
   });
 
   let markdown = deterministic;
@@ -196,7 +226,7 @@ export async function compileDossier(formData: FormData): Promise<void> {
       stats: {
         totalSignals: signalRows.length,
         totalDirectReports: rows.length,
-        totalVerifiedReports: verifiedRows.length,
+        totalVerifiedReports: verifiedReports.length,
         pendingCount: pendingCount ?? 0,
       },
     })

@@ -21,6 +21,7 @@ export type DossierCommunitySignal = {
 };
 
 export type DossierVerifiedReport = {
+  reportId: string;
   title: string;
   excerpt: string;
   platform: string | null;
@@ -72,7 +73,7 @@ export function buildDeterministicDossier(d: DossierInput): string {
   lines.push("");
   lines.push(
     `This dossier separates ${d.totalSignals} automated community signals, ${d.totalDirectReports} approved direct reports, ` +
-      `and ${d.totalVerifiedReports} verified report excerpts for patch ${d.patchVersion}` +
+      `and ${d.totalVerifiedReports} verified reports for patch ${d.patchVersion}` +
       (d.pendingCount > 0 ? ` (${d.pendingCount} more awaiting moderation)` : "") +
       `. The largest direct-report category is ${catEntries[0] ? label(CATEGORY_LABELS, catEntries[0][0]) : "n/a"}` +
       (catEntries[0] ? ` with ${catEntries[0][1]} reports` : "") +
@@ -140,13 +141,13 @@ export function buildDeterministicDossier(d: DossierInput): string {
   lines.push("");
   lines.push("## Verified reports");
   lines.push("");
-  lines.push(`- Total verified report excerpts: ${d.totalVerifiedReports}`);
+  lines.push(`- Total verified reports: ${d.totalVerifiedReports}`);
   for (const report of d.verifiedReports.slice(0, 15)) {
     lines.push(
       `- **${report.title}**${report.platform ? ` (${label(PLATFORM_LABELS, report.platform)})` : ""}: ${report.excerpt}`,
     );
   }
-  if (d.verifiedReports.length === 0) lines.push("- No admin-approved report excerpts yet.");
+  if (d.verifiedReports.length === 0) lines.push("- No reports with admin-approved excerpts yet.");
   lines.push("");
   lines.push("## Known confidence gaps");
   lines.push("");
@@ -158,13 +159,15 @@ export function buildDeterministicDossier(d: DossierInput): string {
           : ` with ${gap.directReportCount} direct reports and ${gap.signalCount} community signals.`),
     );
   }
-  if (gaps.length === 0) lines.push("- None — all listed clusters are backed by direct reports.");
+  if (gaps.length === 0) {
+    lines.push("- No low-confidence or unverified clusters. Signal-only clusters remain labeled separately from direct or verified evidence.");
+  }
   lines.push("");
   lines.push("## Recommended wording for Pearl Abyss");
   lines.push("");
   lines.push(
     `> Community telemetry for patch ${d.patchVersion} contains ${d.totalSignals} automated public signals, ` +
-      `${d.totalDirectReports} approved direct reports, and ${d.totalVerifiedReports} verified excerpts. It shows ` +
+      `${d.totalDirectReports} approved direct reports, and ${d.totalVerifiedReports} verified reports. It shows ` +
       `${
         catEntries[0]
           ? `${label(CATEGORY_LABELS, catEntries[0][0]).toLowerCase()} as the dominant direct-report complaint (${catEntries[0][1]}/${d.totalDirectReports} reports)`

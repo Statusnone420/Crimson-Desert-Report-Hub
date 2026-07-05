@@ -55,8 +55,13 @@ const input: DossierInput = {
   reproNotes: [{ title: "Map-open crash", steps: "Open world map during mounted combat" }],
   directReportEvidenceUrls: ["https://www.reddit.com/r/CrimsonDesert/comments/direct-report/"],
   verifiedReports: [
-    { title: "Map-open crash", excerpt: "Map still crashes during mounted combat.", platform: "ps5" },
-    { title: "FPS regression", excerpt: "Steam frame pacing dropped after patch 1.13.", platform: "pc_steam" },
+    { reportId: "report-map", title: "Map-open crash", excerpt: "Map still crashes during mounted combat.", platform: "ps5" },
+    {
+      reportId: "report-fps",
+      title: "FPS regression",
+      excerpt: "Steam frame pacing dropped after patch 1.13.",
+      platform: "pc_steam",
+    },
   ],
 };
 
@@ -98,7 +103,7 @@ describe("buildDeterministicDossier", () => {
   it("includes headline numbers", () => {
     expect(md).toContain("12 automated community signals");
     expect(md).toContain("40 approved direct reports");
-    expect(md).toContain("2 verified report excerpts");
+    expect(md).toContain("2 verified reports");
     expect(md).toContain("1.13.00");
   });
 
