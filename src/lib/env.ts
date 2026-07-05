@@ -30,7 +30,7 @@ export function features(): Features {
 export function requiredEnv(
   name: "SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY" | "ADMIN_PASSWORD" | "SESSION_SECRET",
 ): string {
-  const value = process.env[name];
-  if (!hasEnvValue(value)) throw new Error(`Missing required env var: ${name}`);
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`Missing required env var: ${name}`);
   return value;
 }
