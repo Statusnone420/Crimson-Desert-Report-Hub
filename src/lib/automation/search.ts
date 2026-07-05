@@ -31,6 +31,12 @@ export type TavilySearchOptions = {
   now?: Date;
 };
 
+type TavilyResult = {
+  title?: string;
+  url?: string;
+  content?: string;
+};
+
 const QUERY_PACK = [
   `Crimson Desert patch ${CURRENT_PATCH} FPS`,
   `Crimson Desert ${CURRENT_PATCH} crash`,
@@ -41,6 +47,23 @@ const QUERY_PACK = [
 
 export function buildSearchQueries(maxQueries: number): string[] {
   return QUERY_PACK.slice(0, Math.max(0, Math.min(QUERY_PACK.length, Math.trunc(maxQueries))));
+}
+
+function mapTavilyResult(item: TavilyResult, observedAt: string): SearchResult | null {
+  if (!item.title || !item.url) return null;
+  let sourceDomain: string;
+  try {
+    sourceDomain = new URL(item.url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+  return {
+    title: item.title,
+    url: item.url,
+    snippet: item.content ?? "",
+    sourceDomain,
+    observedAt,
+  };
 }
 
 export async function tavilySearch(query: string, options: TavilySearchOptions = {}): Promise<SearchResult[]> {
@@ -55,14 +78,9 @@ export async function tavilySearch(query: string, options: TavilySearchOptions =
   });
   if (!res.ok) throw new Error(`tavily search failed: ${res.status}`);
 
-  const data = (await res.json()) as { results?: { title?: string; url?: string; content?: string }[] };
+  const data = (await res.json()) as { results?: TavilyResult[] };
+  const observedAt = (options.now ?? new Date()).toISOString();
   return (data.results ?? [])
-    .filter((item) => item.title && item.url)
-    .map((item) => ({
-      title: item.title ?? "",
-      url: item.url ?? "",
-      snippet: item.content ?? "",
-      sourceDomain: item.url ? new URL(item.url).hostname.replace(/^www\./, "") : null,
-      observedAt: (options.now ?? new Date()).toISOString(),
-    }));
+    .map((item) => mapTavilyResult(item, observedAt))
+    .filter((item): item is SearchResult => item !== null);
 }

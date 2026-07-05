@@ -207,6 +207,8 @@ describe("automation promotion", () => {
         independentSourceCount: 1,
         directReportCount: 0,
         highestConfidence: "low",
+        hasClearCategory: true,
+        hasClearPlatform: true,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
       }).publicStatus,
@@ -219,6 +221,8 @@ describe("automation promotion", () => {
         independentSourceCount: 2,
         directReportCount: 0,
         highestConfidence: "medium",
+        hasClearCategory: true,
+        hasClearPlatform: true,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
       }).publicStatus,
@@ -231,6 +235,8 @@ describe("automation promotion", () => {
         independentSourceCount: 1,
         directReportCount: 1,
         highestConfidence: "low",
+        hasClearCategory: false,
+        hasClearPlatform: false,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
       }).publicStatus,
@@ -243,10 +249,37 @@ describe("automation promotion", () => {
         independentSourceCount: 0,
         directReportCount: 0,
         highestConfidence: "low",
+        hasClearCategory: false,
+        hasClearPlatform: false,
         hasAdminForcePublic: true,
         hasAdminForceHidden: false,
       }),
     ).toEqual({ publicStatus: "public", reason: "admin_force_public" });
+  });
+
+  it("keeps a single high-confidence source private when category or platform is unclear", () => {
+    expect(
+      shouldPromoteSignalCluster({
+        independentSourceCount: 1,
+        directReportCount: 0,
+        highestConfidence: "high",
+        hasClearCategory: false,
+        hasClearPlatform: true,
+        hasAdminForcePublic: false,
+        hasAdminForceHidden: false,
+      }).publicStatus,
+    ).toBe("private");
+    expect(
+      shouldPromoteSignalCluster({
+        independentSourceCount: 1,
+        directReportCount: 0,
+        highestConfidence: "high",
+        hasClearCategory: true,
+        hasClearPlatform: false,
+        hasAdminForcePublic: false,
+        hasAdminForceHidden: false,
+      }).publicStatus,
+    ).toBe("private");
   });
 
   it("force hidden wins over threshold", () => {
@@ -255,6 +288,8 @@ describe("automation promotion", () => {
         independentSourceCount: 3,
         directReportCount: 3,
         highestConfidence: "high",
+        hasClearCategory: true,
+        hasClearPlatform: true,
         hasAdminForcePublic: true,
         hasAdminForceHidden: true,
       }).publicStatus,
@@ -315,6 +350,43 @@ describe("search planning", () => {
         url: "https://www.example.com/fps?utm_source=news",
         snippet: "Players report FPS drops on Steam.",
         sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("skips malformed Tavily result URLs", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [
+          {
+            title: "Bad result",
+            url: "not a url",
+            content: "This malformed result should be ignored.",
+          },
+          {
+            title: "Crimson Desert crash report",
+            url: "https://reports.example/crash",
+            content: "Players report a crash when opening the map.",
+          },
+        ],
+      }),
+    }));
+
+    await expect(
+      tavilySearch("Crimson Desert crash", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+        now: new Date("2026-07-05T12:00:00Z"),
+      }),
+    ).resolves.toEqual([
+      {
+        title: "Crimson Desert crash report",
+        url: "https://reports.example/crash",
+        snippet: "Players report a crash when opening the map.",
+        sourceDomain: "reports.example",
         observedAt: "2026-07-05T12:00:00.000Z",
       },
     ]);

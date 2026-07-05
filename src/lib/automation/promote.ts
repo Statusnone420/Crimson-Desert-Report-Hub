@@ -2,6 +2,8 @@ export type PromotionInput = {
   independentSourceCount: number;
   directReportCount: number;
   highestConfidence: "low" | "medium" | "high";
+  hasClearCategory: boolean;
+  hasClearPlatform: boolean;
   hasAdminForcePublic: boolean;
   hasAdminForceHidden: boolean;
 };
@@ -16,7 +18,12 @@ export function shouldPromoteSignalCluster(input: PromotionInput): PromotionDeci
   if (input.hasAdminForcePublic) return { publicStatus: "public", reason: "admin_force_public" };
   if (input.directReportCount > 0) return { publicStatus: "public", reason: "direct_report_match" };
   if (input.independentSourceCount >= 2) return { publicStatus: "public", reason: "two_independent_sources" };
-  if (input.highestConfidence === "high" && input.independentSourceCount >= 1) {
+  if (
+    input.highestConfidence === "high" &&
+    input.independentSourceCount >= 1 &&
+    input.hasClearCategory &&
+    input.hasClearPlatform
+  ) {
     return { publicStatus: "public", reason: "single_high_confidence_source" };
   }
   return { publicStatus: "private", reason: "below_threshold" };
