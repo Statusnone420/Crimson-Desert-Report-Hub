@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { countBy, rankClusters } from "@/lib/aggregates";
+import { countBy } from "@/lib/aggregates";
 import { runAutomationMonitor } from "@/lib/automation/run";
 import { CURRENT_PATCH, FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -15,6 +15,43 @@ import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { createServiceClient } from "@/lib/supabase";
 
 const DECISIONS = ["approved", "rejected", "spam"] as const;
+
+type CompileReportRow = {
+  category: string | null;
+  platform: string | null;
+  cluster_id: string | null;
+  evidence_url: string | null;
+  repro_steps: string | null;
+  issue_title: string;
+};
+
+type CompileClusterRow = {
+  id: string;
+  title: string;
+  fix_status: string;
+  confidence: string;
+};
+
+type CompileSignalRow = {
+  cluster_id: string | null;
+  source: string;
+  source_url: string;
+  title: string | null;
+  summary: string;
+  category: string;
+  observed_at: string;
+};
+
+type RelatedReport<T> = T | T[] | null;
+
+type CompileVerifiedRow = {
+  excerpt_text: string;
+  bug_reports: RelatedReport<{ cluster_id: string | null; issue_title: string | null; platform: string | null }>;
+};
+
+function relatedReport<T>(value: RelatedReport<T>): T | null {
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
 
 export async function moderateReport(formData: FormData): Promise<void> {
   await requireAdmin();
@@ -64,24 +101,47 @@ export async function compileDossier(formData: FormData): Promise<void> {
     .from("bug_reports")
     .select("category, platform, cluster_id, evidence_url, repro_steps, issue_title")
     .eq("moderation_status", "approved");
-  const rows = reports ?? [];
+  const rows = (reports ?? []) as CompileReportRow[];
 
   const { data: clusterData } = await supabase.from("issue_clusters").select("id, title, fix_status, confidence");
+  const clusterRows = (clusterData ?? []) as CompileClusterRow[];
+
+  const { data: signals } = await supabase
+    .from("source_signals")
+    .select("cluster_id, source, source_url, title, summary, category, observed_at")
+    .eq("public_status", "public")
+    .order("observed_at", { ascending: false });
+  const signalRows = (signals ?? []) as CompileSignalRow[];
+
+  const { data: verified } = await supabase
+    .from("approved_excerpts")
+    .select("excerpt_text, bug_reports(cluster_id, issue_title, platform)")
+    .order("created_at", { ascending: false })
+    .limit(1000);
+  const verifiedRows = (verified ?? []) as CompileVerifiedRow[];
 
   const { count: pendingCount } = await supabase
     .from("bug_reports")
     .select("id", { count: "exact", head: true })
     .eq("moderation_status", "pending");
 
-  const ranked = rankClusters(clusterData ?? [], rows);
-  const clusters: DossierCluster[] = ranked.map((cluster) => {
-    const clusterRows = rows.filter((report) => report.cluster_id === cluster.id);
-    const platCounts = Object.entries(countBy(clusterRows, (report) => report.platform)).sort((a, b) => b[1] - a[1]);
+  const directByCluster = countBy(rows, (report) => report.cluster_id);
+  const signalByCluster = countBy(signalRows, (signal) => signal.cluster_id);
+  const verifiedByCluster = countBy(verifiedRows, (verifiedReport) => relatedReport(verifiedReport.bug_reports)?.cluster_id);
+  const clusterTitleById = new Map(clusterRows.map((cluster) => [cluster.id, cluster.title]));
+
+  const clusters: DossierCluster[] = clusterRows.map((cluster) => {
+    const reportsForCluster = rows.filter((report) => report.cluster_id === cluster.id);
+    const platCounts = Object.entries(countBy(reportsForCluster, (report) => report.platform)).sort((a, b) => b[1] - a[1]);
+    const directReportCount = directByCluster[cluster.id] ?? 0;
     return {
       title: cluster.title,
       fixStatus: cluster.fix_status,
       confidence: cluster.confidence,
-      count: cluster.count,
+      count: directReportCount,
+      signalCount: signalByCluster[cluster.id] ?? 0,
+      directReportCount,
+      verifiedReportCount: verifiedByCluster[cluster.id] ?? 0,
       topPlatform: platCounts[0]?.[0] ?? null,
     };
   });
@@ -89,19 +149,36 @@ export async function compileDossier(formData: FormData): Promise<void> {
   const deterministic = buildDeterministicDossier({
     generatedAt: new Date().toISOString(),
     patchVersion: CURRENT_PATCH,
-    totalApproved: rows.length,
+    totalSignals: signalRows.length,
+    totalDirectReports: rows.length,
+    totalVerifiedReports: verifiedRows.length,
     pendingCount: pendingCount ?? 0,
     byCategory: countBy(rows, (report) => report.category),
     platforms: countBy(rows, (report) => report.platform),
     clusters,
+    communitySignals: signalRows.map((signal) => ({
+      title: signal.title?.trim() || signal.summary,
+      source: signal.source,
+      url: signal.source_url,
+      summary: signal.summary,
+      category: signal.category,
+      clusterTitle: signal.cluster_id ? (clusterTitleById.get(signal.cluster_id) ?? null) : null,
+    })),
     reproNotes: rows
       .filter((report) => report.repro_steps)
       .slice(0, 15)
       .map((report) => ({ title: report.issue_title, steps: String(report.repro_steps) })),
-    evidenceUrls: [...new Set(rows.map((report) => report.evidence_url).filter((url): url is string => Boolean(url)))].slice(
-      0,
-      30,
-    ),
+    directReportEvidenceUrls: [
+      ...new Set(rows.map((report) => report.evidence_url).filter((url): url is string => Boolean(url))),
+    ].slice(0, 30),
+    verifiedReports: verifiedRows.map((verifiedReport) => {
+      const report = relatedReport(verifiedReport.bug_reports);
+      return {
+        title: report?.issue_title ?? "Verified report excerpt",
+        excerpt: verifiedReport.excerpt_text,
+        platform: report?.platform ?? null,
+      };
+    }),
   });
 
   let markdown = deterministic;
@@ -113,7 +190,16 @@ export async function compileDossier(formData: FormData): Promise<void> {
 
   const { data: run, error } = await supabase
     .from("dossier_runs")
-    .insert({ markdown, provider, stats: { totalApproved: rows.length, pendingCount: pendingCount ?? 0 } })
+    .insert({
+      markdown,
+      provider,
+      stats: {
+        totalSignals: signalRows.length,
+        totalDirectReports: rows.length,
+        totalVerifiedReports: verifiedRows.length,
+        pendingCount: pendingCount ?? 0,
+      },
+    })
     .select("id")
     .single();
   if (error) throw new Error(error.message);

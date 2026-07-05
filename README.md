@@ -14,8 +14,10 @@ Next.js App Router, Supabase Postgres with deny-all RLS and server-only access, 
 Optional, fail-closed features:
 
 - Groq or OpenRouter dossier drafting.
-- Reddit OAuth source monitor.
-- xAI/X search flag only; no paid runner is implemented.
+- Reddit OAuth community signal monitoring.
+- Tavily web search monitoring.
+- OpenRouter `:free` automation extraction.
+- xAI/X search flag only; no paid X runner is implemented.
 
 ## Development
 
@@ -48,6 +50,10 @@ Recommended:
 
 Optional:
 
+- `AUTOMATION_BUDGET_USD_MONTHLY`
+- `AUTOMATION_SUBREDDITS`
+- `TAVILY_API_KEY`
+- `OPENROUTER_FREE_MODEL`
 - `GROQ_API_KEY`
 - `OPENROUTER_API_KEY`
 - `REDDIT_CLIENT_ID`
@@ -57,11 +63,19 @@ Optional:
 
 Do not commit real `.env*` files. They are ignored by default; `.env.local.example` is the only environment file intended for source control.
 
+## Automation
+
+`AUTOMATION_BUDGET_USD_MONTHLY` is the single user-facing cost knob for automated monitoring. Set it to `5` for a small monthly cap, or `0` to disable paid search and paid LLM calls while keeping free deterministic monitoring paths available.
+
+Provider keys are optional and fail closed: Reddit monitoring uses `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, and `REDDIT_USER_AGENT`; web search uses `TAVILY_API_KEY`; OpenRouter automation extraction uses `OPENROUTER_API_KEY` plus `OPENROUTER_FREE_MODEL`. The OpenRouter automation model ID must end in `:free`.
+
+Scheduled automation runs through `/api/cron/keepalive` at most once every 6 hours. Public pages and dossiers keep three buckets separate: automated public community signals from `source_signals`, approved direct reports from `bug_reports`, and verified report excerpts from `approved_excerpts`.
+
 ## Privacy Model
 
 Public pages show only aggregate counts, issue-cluster metadata, and moderator-approved excerpts. Raw unmoderated report text never appears publicly.
 
-The server stores a salted one-way hash of submitter IPs for spam rate limiting. Raw IPs are not stored. Source-monitor raw text is retained only for short moderator review and purged by the daily cron after the configured 48-hour window; retained summaries avoid copying raw body text.
+The server stores a salted one-way hash of submitter IPs for spam rate limiting. Raw IPs are not stored. Source-monitor raw text is retained only for short moderator review and purged by the 6-hour keepalive cron after the configured 48-hour window; retained summaries avoid copying raw body text.
 
 ## Deployment
 
