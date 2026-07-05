@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 function collectConsoleProblems(page: Page): string[] {
   const problems: string[] = [];
@@ -18,6 +20,19 @@ async function expectHealthyPage(page: Page, problems: string[]) {
   await expect(page.getByText(/Application error|Unhandled Runtime Error|Failed to compile/i)).toHaveCount(0);
   expect(problems).toEqual([]);
 }
+
+const settingsXml = `
+<EngineOptionSave>
+  <EngineOptionResolution Name="_resolutionOption">
+    <OptionStringVector Name="_upscaleModeSelect" _value="NVIDIA DLSS 4.0"/>
+    <EnumSelectResolutionScale Name="_upscaleResolution" _select="AA"/>
+  </EngineOptionResolution>
+  <EngineOptionVideo Name="_videoOption">
+    <OptionBool Name="_enableFrameGeneration" _value="True"/>
+    <OptionStringVector Name="_enableVsync" _value="Off"/>
+    <OptionBool Name="_enableHDR" _value="True"/>
+  </EngineOptionVideo>
+</EngineOptionSave>`;
 
 test.describe("public surface visual regression", () => {
   test("dashboard renders moderated patch intelligence", async ({ page }) => {
@@ -94,7 +109,7 @@ test.describe("public surface visual regression", () => {
     await page
       .getByLabel("What happened?")
       .fill("After patch 1.13, performance mode drops sharply during open-field combat and does not recover.");
-    await page.getByText("Add detail Pearl Abyss can use").click();
+    await page.getByText("Add technical detail Pearl Abyss can use").click();
     await page.getByLabel("Hardware (GPU, CPU, RAM)").fill("RTX 4060, Ryzen 5 7600, 32GB RAM");
     await page.getByRole("button", { name: "Submit report" }).click();
 
@@ -102,5 +117,25 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Your report is in the moderation queue")).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("report-success.png", { fullPage: true });
+  });
+
+  test("local save import fills visible technical fields without uploading raw files", async ({ page }, testInfo) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/report");
+    const saveFolder = testInfo.outputPath("save-folder");
+    await mkdir(saveFolder, { recursive: true });
+    await writeFile(path.join(saveFolder, "user_engine_option_save.xml"), settingsXml);
+
+    await page.setInputFiles("#save_import", saveFolder);
+    await page.getByText("Add technical detail Pearl Abyss can use").click();
+
+    await expect(page.getByText("1 local file inspected in this browser.")).toBeVisible();
+    await expect(page.getByText("Raw files are not uploaded").first()).toBeVisible();
+    await expect(page.getByLabel("Graphics mode / FPS setting")).toHaveValue(
+      "NVIDIA DLSS 4.0 / AA / Frame Generation on / VSync off / HDR on",
+    );
+    await expect(page.getByLabel("Troubleshooting you tried")).toHaveValue(/settings XML parsed/);
+    await expectHealthyPage(page, problems);
+    await expect(page).toHaveScreenshot("report-import.png", { fullPage: true });
   });
 });

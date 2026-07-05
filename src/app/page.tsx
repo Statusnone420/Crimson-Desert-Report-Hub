@@ -19,6 +19,13 @@ function automationWorkSummary(run: NonNullable<Awaited<ReturnType<typeof getDas
   return `${run.search_queries_used} web searches · ${run.llm_calls_used} AI extractions · ${run.signals_inserted} signals`;
 }
 
+const EMPTY_WATCHLIST = [
+  { title: "FPS and stutter regression", category: "Performance" },
+  { title: "Map-open crashes or freezes", category: "Crashes and startup" },
+  { title: "Input, mount, or controller lockups", category: "Controls and gameplay" },
+  { title: "Upscaling artifacts and visual instability", category: "Graphics and visual" },
+];
+
 export default async function DashboardPage() {
   const d = await getDashboardData();
   const maxCluster = Math.max(...d.topClusters.map((cluster) => cluster.strengthScore), 1);
@@ -106,9 +113,26 @@ export default async function DashboardPage() {
           </div>
 
           {d.topClusters.length === 0 ? (
-            <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-              No issue clusters yet. Seed taxonomy will appear here after migration data is available.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                No public clusters yet. The scanner is rejecting low-quality sources until a real signal or direct report is
+                strong enough to publish.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {EMPTY_WATCHLIST.map((item) => (
+                  <div
+                    key={item.title}
+                    className="rounded-md border px-3 py-2"
+                    style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+                  >
+                    <p className="text-sm font-medium">{item.title}</p>
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
+                      {item.category} · waiting for confirmed signal
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="space-y-4">
               {d.topClusters.slice(0, 8).map((cluster) => (

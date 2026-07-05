@@ -45,9 +45,44 @@ body {
 
 input, select, textarea {
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text); padding: 0.5rem 0.75rem; width: 100%; font-size: 0.9rem;
+  color: var(--text); padding: 0.55rem 0.75rem; width: 100%; font-size: 0.9rem;
 }
-input:focus, select:focus, textarea:focus { outline: 2px solid var(--crimson-dim); outline-offset: 0; }
+input, select { min-height: 44px; line-height: 1.25; }
+textarea { line-height: 1.5; resize: vertical; }
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 19px,
+    calc(100% - 13px) 19px;
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
+  padding-right: 2.25rem;
+}
+input[type="file"] {
+  color: var(--text-dim);
+  padding: 0.45rem;
+}
+input[type="file"]::file-selector-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 600;
+  margin-right: 0.75rem;
+  padding: 0.45rem 0.75rem;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--crimson);
+  min-height: 1rem;
+  width: auto;
+}
+input::placeholder, textarea::placeholder { color: #8f8a80; opacity: 1; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--crimson-dim); outline-offset: 2px; }
 label { font-size: 0.8rem; color: var(--text-dim); display: block; margin-bottom: 4px; }
 
 .btn {
