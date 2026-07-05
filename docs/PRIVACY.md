@@ -32,6 +32,21 @@ The report form can collect:
 
 Submissions are anonymous. There is no account system and no email field.
 
+## Local Save/Config Helper
+
+The report page can optionally inspect selected Crimson Desert save/config files in the visitor's browser.
+
+This helper is designed to improve report quality without uploading raw save files:
+
+- Raw files are not uploaded by the helper.
+- Small XML/log/text files may be read locally in the browser.
+- Binary save files are treated as file metadata only.
+- Local folder/account-looking path segments are stripped before generated text is inserted.
+- The helper writes only visible sanitized text into normal report fields.
+- Visitors can edit or delete that generated text before submitting.
+
+The server receives only the final form submission text.
+
 ## IP Handling
 
 The app uses a salted one-way hash of the request IP for spam rate limiting.

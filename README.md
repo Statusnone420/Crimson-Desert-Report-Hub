@@ -61,6 +61,7 @@ Automation is designed to fail closed:
 
 ## Repository Docs
 
+- [docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md): one-page production launch checklist and human setup guide.
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): deployment, environment variables, manual scanner controls, and human setup steps.
 - [docs/PRIVACY.md](docs/PRIVACY.md): what is stored, what is public, and what is never collected.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute safely.
