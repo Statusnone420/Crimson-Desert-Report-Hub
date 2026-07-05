@@ -30,7 +30,7 @@ Run every SQL file in `supabase/migrations` in timestamp order, oldest first:
 5. `20260705193031_approved_excerpts_report_index.sql`
 6. `20260705194620_lock_public_tables_to_server_role.sql`
 7. `20260705201242_automation_settings.sql`
-8. `20260705224408_official_patch_notes.sql`
+8. `20260705230801_official_patch_notes.sql`
 
 Copy these values into Vercel environment variables:
 
