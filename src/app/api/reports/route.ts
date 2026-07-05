@@ -43,7 +43,9 @@ export async function POST(req: Request) {
     }
   }
 
-  const { turnstile_token: _drop, ...report } = parsed.data;
+  const report = { ...parsed.data };
+  delete report.turnstile_token;
+
   const { error } = await supabase.from("bug_reports").insert({
     ...report,
     moderation_status: "pending",

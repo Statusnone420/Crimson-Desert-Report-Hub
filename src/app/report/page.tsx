@@ -214,7 +214,7 @@ export default function ReportPage() {
           ))}
           <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-dim)" }}>
             <input type="checkbox" name="official_report_submitted" className="w-auto" />
-            I also filed this through Pearl Abyss's official report tool
+            I also filed this through Pearl Abyss&apos;s official report tool
           </label>
         </div>
       </details>
