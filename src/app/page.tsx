@@ -1,65 +1,183 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Sparkline } from "@/components/Sparkline";
+import { FixStatusBadge, MeterBar, StatCard } from "@/components/ui";
+import { CATEGORY_LABELS, CURRENT_PATCH, PLATFORM_LABELS } from "@/lib/constants";
+import { getDashboardData } from "@/lib/queries";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "no reports yet";
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+export default async function DashboardPage() {
+  const d = await getDashboardData();
+  const maxCluster = Math.max(...d.topClusters.map((cluster) => cluster.count), 1);
+  const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
+  const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
+  const persistentCount = d.topClusters.filter((cluster) => cluster.fix_status === "persists").length;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="space-y-7">
+      <section className="grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
+        <div className="space-y-2">
+          <p className="stat-label">Unofficial community evidence tracker</p>
+          <h1 className="max-w-3xl text-3xl font-semibold tracking-tight md:text-4xl">
+            Crimson Desert report hub
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+            Moderated patch {CURRENT_PATCH} reports, clustered into evidence Pearl Abyss can act on.
+            Raw submissions stay private until reviewed.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="flex flex-wrap items-center gap-3 md:justify-end">
+          <span className="badge badge-crimson">Patch {CURRENT_PATCH}</span>
+          <Link href="/report" className="btn">
+            Submit report
+          </Link>
         </div>
-      </main>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Approved reports" value={d.total} note={`+${d.weekDelta} this week`} tone="green" />
+        <StatCard label="Performance" value={d.byCategory.performance ?? 0} note="Watched category" tone="crimson" />
+        <StatCard label="Crashes / startup" value={d.byCategory.crash_startup ?? 0} tone="amber" />
+        <StatCard
+          label="Awaiting review"
+          value={d.pendingCount}
+          note={`${persistentCount} persistent fix flags`}
+          tone="dim"
+        />
+      </section>
+
+      <section className="grid gap-3 lg:grid-cols-[1.45fr_0.9fr]">
+        <div className="panel space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold">Top issues this patch</h2>
+              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                Ranked by approved direct reports. Last report: {timeAgo(d.latestReportAt)}.
+              </p>
+            </div>
+            <Link href="/issues" className="btn btn-ghost">
+              Review clusters
+            </Link>
+          </div>
+
+          {d.topClusters.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+              No issue clusters yet. Seed taxonomy will appear here after migration data is available.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {d.topClusters.slice(0, 8).map((cluster) => (
+                <div key={cluster.id} className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-medium">{cluster.title}</span>
+                      <FixStatusBadge status={cluster.fix_status} />
+                    </span>
+                    <span style={{ color: "var(--text-dim)" }}>{cluster.count} reports</span>
+                  </div>
+                  <MeterBar
+                    value={cluster.count}
+                    max={maxCluster}
+                    color={cluster.fix_status === "persists" ? "var(--amber)" : "var(--crimson)"}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="border-t pt-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
+            Seeded issue clusters are tagged unverified and start at zero. Hidden seed clusters never enter public top issues
+            until direct reports confirm them.
+          </p>
+        </div>
+
+        <div className="panel space-y-5">
+          <div>
+            <div className="stat-label mb-2">Platforms</div>
+            {platformEntries.length === 0 ? (
+              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                No approved reports yet.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {platformEntries.map(([platform, count]) => (
+                  <div
+                    key={platform}
+                    className="flex items-center justify-between border-b py-2 text-sm last:border-0"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    <span>{PLATFORM_LABELS[platform as keyof typeof PLATFORM_LABELS] ?? platform}</span>
+                    <span className="font-semibold">{count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="stat-label mb-2">By category</div>
+            {categoryEntries.length === 0 ? (
+              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                Counts appear after moderation.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {categoryEntries.map(([category, count]) => (
+                  <div key={category} className="flex items-center justify-between py-1 text-sm">
+                    <span style={{ color: "var(--text-dim)" }}>
+                      {CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? category}
+                    </span>
+                    <span>{count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="stat-label">Reports over time</div>
+            <h2 className="text-lg font-semibold">30-day activity</h2>
+          </div>
+          <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+            Moderated reports only
+          </span>
+        </div>
+        <Sparkline points={d.series.map((point) => point.count)} />
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-3">
+        <div className="panel">
+          <div className="stat-label">Privacy</div>
+          <p className="mt-2 text-sm" style={{ color: "var(--text-dim)" }}>
+            No accounts, ads, analytics trackers, or raw IP storage. Moderators approve excerpts before public display.
+          </p>
+        </div>
+        <div className="panel">
+          <div className="stat-label">Evidence</div>
+          <p className="mt-2 text-sm" style={{ color: "var(--text-dim)" }}>
+            Reports capture platform, severity, frequency, hardware, repro notes, and optional evidence links.
+          </p>
+        </div>
+        <div className="panel">
+          <div className="stat-label">Official channel</div>
+          <p className="mt-2 text-sm" style={{ color: "var(--text-dim)" }}>
+            Crash logs and PERS IDs still belong in Pearl Abyss support. This hub organizes community signals.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }
