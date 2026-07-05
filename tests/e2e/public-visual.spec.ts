@@ -43,6 +43,8 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Issue clusters" })).toBeVisible();
     await expect(page.getByText("Community signals").first()).toBeVisible();
     await expect(page.getByText("Approved excerpts").first()).toBeVisible();
+    await expect(page.getByText("High confidence")).toBeVisible();
+    await expect(page.getByText("Confirmed")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
     await expect(page.getByText("Raw submissions are never published.")).toBeVisible();
     await expectHealthyPage(page, problems);

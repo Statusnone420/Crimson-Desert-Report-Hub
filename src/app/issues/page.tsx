@@ -4,6 +4,12 @@ import { getIssuesData } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
+function SignalConfidenceBadge({ confidence }: { confidence: "low" | "medium" | "high" }) {
+  if (confidence === "high") return <span className="badge badge-green">High confidence</span>;
+  if (confidence === "medium") return <span className="badge badge-amber">Medium confidence</span>;
+  return <span className="badge badge-dim">Low confidence</span>;
+}
+
 export default async function IssuesPage() {
   const { clusters, excerptsByCluster, signalsByCluster } = await getIssuesData();
 
@@ -50,7 +56,7 @@ export default async function IssuesPage() {
                     {(signalsByCluster[cluster.id] ?? []).slice(0, 3).map((signal) => (
                       <div key={signal.id} className="space-y-1 text-sm">
                         <div className="flex flex-wrap items-center gap-2">
-                          <ConfidenceBadge confidence={signal.confidence} />
+                          <SignalConfidenceBadge confidence={signal.confidence} />
                           <span className="badge badge-dim">{signal.source.replace("_", " ")}</span>
                         </div>
                         <p className="leading-6" style={{ color: "var(--text-dim)" }}>
@@ -84,12 +90,13 @@ export default async function IssuesPage() {
                       className="text-sm leading-6"
                       style={{ color: "var(--text-dim)" }}
                     >
-                      "{excerpt.text}" · {PLATFORM_LABELS[excerpt.platform as keyof typeof PLATFORM_LABELS] ?? excerpt.platform} player
+                      &quot;{excerpt.text}&quot; ·{" "}
+                      {PLATFORM_LABELS[excerpt.platform as keyof typeof PLATFORM_LABELS] ?? excerpt.platform} player
                     </blockquote>
                   ))
                 ) : (
                   <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-                  No public excerpts approved yet.
+                    No public excerpts approved yet.
                   </p>
                 )}
               </div>
