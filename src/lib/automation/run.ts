@@ -151,10 +151,11 @@ async function loadMonthSpend(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
 ): Promise<number> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("automation_runs")
     .select("estimated_cost_usd")
     .gte("started_at", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString());
+  if (error) throw new Error(`automation spend read failed: ${error.message}`);
   return ((data ?? []) as { estimated_cost_usd?: number | string | null }[]).reduce(
     (sum, row) => sum + Number(row.estimated_cost_usd ?? 0),
     0,
@@ -260,15 +261,17 @@ async function prepareSignals(
 }
 
 async function loadApprovedReports(supabase: ReturnType<typeof createServiceClient>): Promise<ApprovedReportRow[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("bug_reports")
     .select("id, cluster_id, category, platform, issue_title")
     .eq("moderation_status", "approved");
+  if (error) throw new Error(`approved reports read failed: ${error.message}`);
   return (data ?? []) as ApprovedReportRow[];
 }
 
 async function loadApprovedExcerpts(supabase: ReturnType<typeof createServiceClient>): Promise<ApprovedExcerptRow[]> {
-  const { data } = await supabase.from("approved_excerpts").select("id, report_id");
+  const { data, error } = await supabase.from("approved_excerpts").select("id, report_id");
+  if (error) throw new Error(`approved excerpts read failed: ${error.message}`);
   return (data ?? []) as ApprovedExcerptRow[];
 }
 
@@ -286,12 +289,13 @@ async function findExistingSignalCluster(
   supabase: ReturnType<typeof createServiceClient>,
   semantic: string,
 ): Promise<string | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("source_signals")
     .select("cluster_id")
     .eq("semantic_fingerprint", semantic)
     .not("cluster_id", "is", null)
     .limit(1);
+  if (error) throw new Error(`existing signal cluster read failed: ${error.message}`);
   const rows = (data ?? []) as { cluster_id?: string | null }[];
   return rows[0]?.cluster_id ?? null;
 }
@@ -376,11 +380,12 @@ async function upsertSignal(
 }
 
 async function loadCluster(supabase: ReturnType<typeof createServiceClient>, clusterId: string): Promise<ClusterRow> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("issue_clusters")
     .select("id, category, admin_visibility_override, auto_public")
     .eq("id", clusterId)
     .limit(1);
+  if (error) throw new Error(`automation cluster read failed: ${error.message}`);
   const row = ((data ?? []) as ClusterRow[])[0];
   if (!row) throw new Error(`automation cluster not found: ${clusterId}`);
   return row;
@@ -390,10 +395,11 @@ async function loadClusterSignals(
   supabase: ReturnType<typeof createServiceClient>,
   clusterId: string,
 ): Promise<SourceSignalRow[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("source_signals")
     .select("id, canonical_url, source, source_type, source_domain, category, confidence, observed_at, extracted_facts")
     .eq("cluster_id", clusterId);
+  if (error) throw new Error(`cluster signals read failed: ${error.message}`);
   return (data ?? []) as SourceSignalRow[];
 }
 
@@ -407,7 +413,9 @@ async function refreshClusterStats(
   const [cluster, signals] = await Promise.all([loadCluster(supabase, clusterId), loadClusterSignals(supabase, clusterId)]);
   const clusterReports = reports.filter((report) => report.cluster_id === clusterId);
   const reportIds = new Set(clusterReports.map((report) => report.id));
-  const verifiedReportCount = excerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).length;
+  const verifiedReportCount = new Set(
+    excerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
+  ).size;
   const directPlatforms = clusterReports.map((report) => report.platform);
   const signalPlatforms = signals.map(signalPlatform);
 
@@ -504,9 +512,17 @@ async function insertRunLedger(
 export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date }): Promise<AutomationResult> {
   const now = input.now ?? new Date();
   const supabase = createServiceClient();
-  const spentMonthToDateUsd = await loadMonthSpend(supabase, now);
+  const monthlyBudgetUsd = automationBudgetUsd();
+  let budgetReadError: string | null = null;
+  let spentMonthToDateUsd = 0;
+  try {
+    spentMonthToDateUsd = await loadMonthSpend(supabase, now);
+  } catch (error) {
+    budgetReadError = toErrorMessage(error, "automation spend read failed");
+    spentMonthToDateUsd = monthlyBudgetUsd;
+  }
   const budget = computeAutomationBudget({
-    monthlyBudgetUsd: automationBudgetUsd(),
+    monthlyBudgetUsd,
     spentMonthToDateUsd,
     now,
   });
@@ -524,6 +540,14 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     skips: [...budget.skipReasons],
     errors: [],
   };
+
+  if (budgetReadError) {
+    result.status = "skipped";
+    result.skips.push("budget_read_failed");
+    result.errors.push(budgetReadError);
+    await insertRunLedger(supabase, input.mode, budget, result, now);
+    return result;
+  }
 
   const inputs = await collectInputs(result, budget, now);
   const prepared = await prepareSignals(inputs, result, budget);

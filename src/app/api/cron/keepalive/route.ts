@@ -4,7 +4,10 @@ import { createServiceClient } from "@/lib/supabase";
 
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!secret) {
+    return NextResponse.json({ error: "cron secret missing" }, { status: 500 });
+  }
+  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

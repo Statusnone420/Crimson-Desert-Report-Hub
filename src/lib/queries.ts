@@ -63,8 +63,8 @@ type ExcerptRow = {
   bug_reports: RelatedReport<{ cluster_id: string | null; platform: string | null }>;
 };
 
-type VerifiedExcerptRow = {
-  id?: string;
+export type VerifiedReportClusterRow = {
+  report_id: string;
   bug_reports: RelatedReport<{ cluster_id: string | null }>;
 };
 
@@ -76,9 +76,21 @@ function relatedReport<T>(value: RelatedReport<T>): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-function excerptClusterId(excerpt: VerifiedExcerptRow): string | null {
+function excerptClusterId(excerpt: VerifiedReportClusterRow): string | null {
   const report = relatedReport(excerpt.bug_reports);
   return report?.cluster_id ?? null;
+}
+
+export function countDistinctVerifiedReportsByCluster(rows: VerifiedReportClusterRow[]): Record<string, number> {
+  const seen = new Set<string>();
+  const clusterRows: { cluster_id: string | null }[] = [];
+  for (const row of rows) {
+    if (seen.has(row.report_id)) continue;
+    seen.add(row.report_id);
+    const clusterId = excerptClusterId(row);
+    if (clusterId) clusterRows.push({ cluster_id: clusterId });
+  }
+  return countClusterIds(clusterRows);
 }
 
 export async function getDashboardData() {
@@ -103,9 +115,9 @@ export async function getDashboardData() {
 
   const { data: verified } = await supabase
     .from("approved_excerpts")
-    .select("id, bug_reports(cluster_id)")
+    .select("report_id, bug_reports(cluster_id)")
     .limit(1000);
-  const verifiedRows = (verified ?? []) as VerifiedExcerptRow[];
+  const verifiedRows = (verified ?? []) as VerifiedReportClusterRow[];
 
   const { count: pendingCount } = await supabase
     .from("bug_reports")
@@ -122,7 +134,8 @@ export async function getDashboardData() {
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const directByCluster = countClusterIds(rows);
   const signalByCluster = countClusterIds(signalRows);
-  const verifiedByCluster = countBy(verifiedRows, excerptClusterId);
+  const verifiedByCluster = countDistinctVerifiedReportsByCluster(verifiedRows);
+  const verifiedReportCount = new Set(verifiedRows.map((row) => row.report_id)).size;
   const topClusters = rankClusters((clusterData ?? []) as ClusterRow[], rows)
     .map((cluster) => {
       const signalCount = signalByCluster[cluster.id] ?? 0;
@@ -144,7 +157,7 @@ export async function getDashboardData() {
     total: rows.length,
     communitySignals: signalRows.length,
     directReports: rows.length,
-    verifiedReports: verifiedRows.length,
+    verifiedReports: verifiedReportCount,
     weekDelta: rows.filter((row) => new Date(row.created_at).getTime() > weekAgo).length,
     byCategory: countBy(rows, (row) => row.category),
     signalByCategory: countBy(signalRows, (row) => row.category),

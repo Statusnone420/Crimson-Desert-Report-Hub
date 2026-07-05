@@ -46,7 +46,7 @@ export default async function DashboardPage() {
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Community signals" value={d.communitySignals} note="Public automation only" tone="crimson" />
         <StatCard label="Direct reports" value={d.directReports} note={`+${d.weekDelta} this week`} tone="green" />
-        <StatCard label="Verified reports" value={d.verifiedReports} note="Approved excerpts" tone="amber" />
+        <StatCard label="Verified reports" value={d.verifiedReports} note="Reports with excerpts" tone="amber" />
         <StatCard
           label="Awaiting review"
           value={d.pendingCount}

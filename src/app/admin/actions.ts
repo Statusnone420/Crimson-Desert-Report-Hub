@@ -98,7 +98,10 @@ export async function moderateReport(formData: FormData): Promise<void> {
   if (error) throw new Error(error.message);
 
   if (decision === "approved" && excerpt) {
-    await supabase.from("approved_excerpts").insert({ report_id: id, excerpt_text: excerpt.slice(0, 500) });
+    const { error: excerptError } = await supabase
+      .from("approved_excerpts")
+      .insert({ report_id: id, excerpt_text: excerpt.slice(0, 500) });
+    if (excerptError) throw new Error(`approved excerpt insert failed: ${excerptError.message}`);
   }
 
   revalidatePath("/admin");

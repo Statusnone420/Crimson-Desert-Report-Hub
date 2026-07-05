@@ -55,6 +55,7 @@ const tables: Record<TableName, Row[]> = {
 const mutations: { table: TableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
+let selectFailure: { table: TableName; message: string } | null = null;
 let updateFailure: { table: TableName; message: string } | null = null;
 
 function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
@@ -64,6 +65,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   mutations.length = 0;
   idSeq = 1;
   openRouterAttempts = 0;
+  selectFailure = null;
   updateFailure = null;
 }
 
@@ -212,6 +214,9 @@ class FakeQuery {
   }
 
   private executeSelect() {
+    if (selectFailure?.table === this.table) {
+      return { data: null, count: null, error: { message: selectFailure.message } };
+    }
     let rows = this.filteredRows().map((row) => ({ ...row }));
     if (this.orderBy) {
       const { column, ascending } = this.orderBy;
@@ -344,6 +349,29 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("fails closed when the monthly automation spend ledger cannot be read", async () => {
+    selectFailure = { table: "automation_runs", message: "ledger unavailable" };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("skipped");
+    expect(result.skips).toContain("budget_read_failed");
+    expect(result.errors[0]).toContain("ledger unavailable");
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "skipped",
+      search_queries_used: 0,
+      llm_calls_used: 0,
+      signals_inserted: 0,
+      errors: [expect.stringContaining("ledger unavailable")],
+    });
+    expect(mutations.filter((mutation) => mutation.table !== "automation_runs")).toHaveLength(0);
+  });
+
   it("non-dry runs cluster two independent sources and promote them public", async () => {
     const { runAutomationMonitor } = await importRunner();
 
@@ -423,6 +451,56 @@ describe("runAutomationMonitor", () => {
       public_signal_count: 1,
       auto_public: true,
       is_public: true,
+    });
+  });
+
+  it("counts duplicate approved excerpts as one verified report per report", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved",
+          cluster_id: "cluster-map",
+        },
+      ],
+      approved_excerpts: [
+        { id: "excerpt-one", report_id: "report-map" },
+        { id: "excerpt-two", report_id: "report-map" },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-map",
+        title: "Map crash on PS5",
+        selftext: "Map crash still happens on PS5.",
+        permalink: "/r/CrimsonDesert/comments/reddit-map/map/",
+        created_utc: 1783260000,
+      },
+    ]);
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      verified_report_count: 1,
     });
   });
 
@@ -546,6 +624,21 @@ describe("cron keepalive route", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when CRON_SECRET is missing", async () => {
+    delete process.env.CRON_SECRET;
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(new Request("https://example.com/api/cron/keepalive"));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "cron secret missing" });
     expect(mocks.from).not.toHaveBeenCalled();
     expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
   });
