@@ -17,7 +17,7 @@ export default async function IssuesPage() {
     <div className="space-y-5">
       <section className="space-y-2">
         <p className="stat-label">Moderated public evidence</p>
-        <h1 className="text-3xl font-semibold tracking-tight">Issue clusters</h1>
+        <h1 className="text-3xl font-semibold">Issue clusters</h1>
         <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
           Grouped from public community signals and reviewed direct reports. Quotes are admin-approved excerpts only. Raw
           submissions are never published.

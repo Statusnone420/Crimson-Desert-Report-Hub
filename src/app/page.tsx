@@ -35,10 +35,10 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-7">
-      <section className="grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
-        <div className="space-y-2">
+      <section className="grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <div className="min-w-0 space-y-2">
           <p className="stat-label">Unofficial community evidence tracker</p>
-          <h1 className="max-w-3xl text-3xl font-semibold tracking-tight md:text-4xl">
+          <h1 className="max-w-3xl text-3xl font-semibold md:text-4xl">
             Crimson Desert report hub
           </h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
@@ -46,9 +46,9 @@ export default async function DashboardPage() {
             act on. Raw submissions stay private until reviewed.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 md:justify-end">
-          <span className="badge badge-crimson">Patch {CURRENT_PATCH}</span>
-          <Link href="/report" className="btn">
+        <div className="flex flex-wrap items-center gap-3 md:min-w-60 md:justify-end">
+          <span className="badge badge-crimson min-w-24 shrink-0 text-center">Patch {CURRENT_PATCH}</span>
+          <Link href="/report" className="btn min-w-36 shrink-0 text-center">
             Submit report
           </Link>
         </div>

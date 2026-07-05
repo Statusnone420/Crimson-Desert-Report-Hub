@@ -57,10 +57,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <header className="border-b border-[var(--border)]">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-3">
-            <Link href="/" className="font-semibold tracking-tight">
+            <Link href="/" className="font-semibold">
               <span style={{ color: "var(--crimson)" }}>Crimson Desert</span> report hub
             </Link>
-            <nav className="flex flex-wrap gap-4 text-sm" style={{ color: "var(--text-dim)" }}>
+            <nav className="flex flex-wrap gap-4 text-sm" style={{ color: "var(--text-dim)" }} aria-label="Primary">
               {nav.map((n) => (
                 <Link key={n.href} href={n.href} className="hover:text-[var(--text)]">
                   {n.label}
@@ -69,7 +69,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </nav>
           </div>
         </header>
-        <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+        <main id="main-content" className="mx-auto max-w-5xl px-4 py-8">{children}</main>
         <footer className="border-t border-[var(--border)] px-4 py-6 text-xs" style={{ color: "var(--text-dim)" }}>
           <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
             <p>

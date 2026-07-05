@@ -36,7 +36,7 @@ export default async function SourceMonitorPage() {
     <div className="space-y-6">
       <section>
         <p className="stat-label">Admin evidence intake</p>
-        <h1 className="text-3xl font-semibold tracking-tight">Source monitor</h1>
+        <h1 className="text-3xl font-semibold">Source monitor</h1>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-[0.8fr_1.2fr]">

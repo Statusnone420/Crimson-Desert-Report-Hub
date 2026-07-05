@@ -164,6 +164,113 @@ async function expectDesignTokenContrast(page: Page) {
   expect(failures).toEqual([]);
 }
 
+type LayoutShiftEntry = {
+  value: number;
+  sources: Array<{
+    currentRect: LayoutShiftRect;
+    node: string | null;
+    previousRect: LayoutShiftRect;
+  }>;
+};
+
+type LayoutShiftRect = {
+  bottom: number;
+  height: number;
+  left: number;
+  right: number;
+  top: number;
+  width: number;
+  x: number;
+  y: number;
+};
+
+async function startLayoutShiftObserver(page: Page) {
+  await page.addInitScript(() => {
+    type ObservedLayoutShift = PerformanceEntry & {
+      hadRecentInput: boolean;
+      sources?: Array<{
+        currentRect: DOMRectReadOnly;
+        node?: Node;
+        previousRect: DOMRectReadOnly;
+      }>;
+      value: number;
+    };
+
+    function serializeRect(rect: DOMRectReadOnly) {
+      return {
+        bottom: rect.bottom,
+        height: rect.height,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        width: rect.width,
+        x: rect.x,
+        y: rect.y,
+      };
+    }
+
+    const testWindow = window as Window & { __layoutShifts?: LayoutShiftEntry[] };
+    testWindow.__layoutShifts = [];
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as ObservedLayoutShift[]) {
+        if (entry.hadRecentInput) continue;
+        testWindow.__layoutShifts?.push({
+          value: entry.value,
+          sources: (entry.sources ?? []).map((source) => ({
+            currentRect: serializeRect(source.currentRect),
+            node: source.node
+              ? `${source.node.nodeName.toLowerCase()}${source.node instanceof HTMLElement && source.node.className ? `.${source.node.className.replace(/\s+/g, ".")}` : ""}`
+              : null,
+            previousRect: serializeRect(source.previousRect),
+          })),
+        });
+      }
+    }).observe({ type: "layout-shift", buffered: true });
+  });
+}
+
+async function expectAccessibleLandmarks(page: Page) {
+  const failures = await page.evaluate(() => {
+    const focusableSelector =
+      'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+    const landmarkCount = document.querySelectorAll('main, [role="main"]').length;
+    const hiddenFocusable = [...document.querySelectorAll('[aria-hidden="true"]')].flatMap((node) => {
+      const focusableChildren = [...node.querySelectorAll(focusableSelector)].filter((element) => {
+        const style = getComputedStyle(element);
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          !element.hasAttribute("disabled") &&
+          element.getAttribute("tabindex") !== "-1"
+        );
+      });
+      return focusableChildren.map((element) => `${node.nodeName.toLowerCase()} contains ${element.nodeName.toLowerCase()}`);
+    });
+
+    return [
+      ...(landmarkCount === 1 ? [] : [`expected 1 main landmark, found ${landmarkCount}`]),
+      ...hiddenFocusable,
+    ];
+  });
+
+  expect(failures).toEqual([]);
+}
+
+async function expectCumulativeLayoutShiftBelow(page: Page, maximum = 0.01) {
+  await page.evaluate(() => document.fonts?.ready ?? Promise.resolve());
+  await page.waitForLoadState("networkidle");
+  const result = await page.evaluate(() => {
+    const testWindow = window as Window & { __layoutShifts?: LayoutShiftEntry[] };
+    const shifts = testWindow.__layoutShifts ?? [];
+    return {
+      cls: shifts.reduce((sum, entry) => sum + entry.value, 0),
+      shifts,
+    };
+  });
+
+  expect(result.cls, JSON.stringify(result.shifts, null, 2)).toBeLessThan(maximum);
+}
+
 test.describe("public surface visual regression", () => {
   test("dashboard renders moderated patch intelligence", async ({ page }) => {
     const problems = collectConsoleProblems(page);
@@ -190,6 +297,17 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Crimson Desert report hub" })).toBeVisible();
     await expectContrastAtLeast(page, DASHBOARD_CONTRAST_TARGETS);
     await expectDesignTokenContrast(page);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("dashboard keeps app landmarks accessible and avoids material layout shift", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await startLayoutShiftObserver(page);
+    await page.goto("/");
+
+    await expect(page.getByRole("heading", { name: "Crimson Desert report hub" })).toBeVisible();
+    await expectAccessibleLandmarks(page);
+    await expectCumulativeLayoutShiftBelow(page);
     await expectHealthyPage(page, problems);
   });
 

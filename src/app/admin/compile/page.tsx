@@ -28,7 +28,7 @@ export default async function CompilePage({ searchParams }: { searchParams: Prom
     <div className="space-y-6">
       <section>
         <p className="stat-label">Admin deliverable</p>
-        <h1 className="text-3xl font-semibold tracking-tight">Compile Pearl Abyss dossier</h1>
+        <h1 className="text-3xl font-semibold">Compile Pearl Abyss dossier</h1>
       </section>
 
       <form action={compileDossier} className="panel flex flex-wrap items-center gap-4">

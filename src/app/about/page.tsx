@@ -3,7 +3,7 @@ export default function AboutPage() {
     <div className="mx-auto max-w-3xl space-y-5">
       <section className="space-y-2">
         <p className="stat-label">Purpose and privacy</p>
-        <h1 className="text-3xl font-semibold tracking-tight">About this tracker</h1>
+        <h1 className="text-3xl font-semibold">About this tracker</h1>
         <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
           A community-run way to turn scattered patch complaints into structured, moderated evidence.
         </p>

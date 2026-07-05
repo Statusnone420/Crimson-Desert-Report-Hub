@@ -156,7 +156,7 @@ export default function ReportPage() {
       <section className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
         <div className="space-y-2">
           <p className="stat-label">Anonymous structured report</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Submit a patch report</h1>
+          <h1 className="text-3xl font-semibold">Submit a patch report</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             No account or email. Reports are reviewed before public counts change. Add hardware and repro detail when you can.
           </p>

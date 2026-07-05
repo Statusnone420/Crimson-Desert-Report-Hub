@@ -34,7 +34,7 @@ export default async function AdminPage() {
       <section className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="stat-label">Admin</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Moderation queue ({pending?.length ?? 0})</h1>
+          <h1 className="text-3xl font-semibold">Moderation queue ({pending?.length ?? 0})</h1>
         </div>
         <div className="flex flex-wrap gap-2 text-sm">
           <Link className="btn btn-ghost" href="/admin/compile">
