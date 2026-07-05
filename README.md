@@ -1,0 +1,2 @@
+# Crimson Desert Report Hub
+
