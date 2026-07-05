@@ -53,6 +53,7 @@ type ClusterRow = {
 
 type SourceSignalRow = {
   id?: string;
+  canonical_url?: string | null;
   source?: string;
   source_type?: string | null;
   source_domain?: string | null;
@@ -121,12 +122,20 @@ function signalPlatform(row: SourceSignalRow): Platform | null {
   return row.extracted_facts?.platform ?? null;
 }
 
-function independentSourceCount(rows: SourceSignalRow[]): number {
+function isObservedWithinWindow(row: SourceSignalRow, now: Date, windowMs: number): boolean {
+  if (!row.observed_at) return false;
+  const observedAt = new Date(row.observed_at).getTime();
+  if (!Number.isFinite(observedAt)) return false;
+  return observedAt >= now.getTime() - windowMs && observedAt <= now.getTime();
+}
+
+function independentSourceCount(rows: SourceSignalRow[], now: Date): number {
+  const recentWindowMs = 14 * 24 * 60 * 60 * 1000;
   return new Set(
-    rows.map((row) => {
-      const source = row.source_type ?? row.source ?? "unknown";
-      return `${source}:${row.source_domain ?? source}`;
-    }),
+    rows
+      .filter((row) => isObservedWithinWindow(row, now, recentWindowMs))
+      .map((row) => row.canonical_url)
+      .filter((url): url is string => Boolean(url)),
   ).size;
 }
 
@@ -383,7 +392,7 @@ async function loadClusterSignals(
 ): Promise<SourceSignalRow[]> {
   const { data } = await supabase
     .from("source_signals")
-    .select("id, source, source_type, source_domain, category, confidence, observed_at, extracted_facts")
+    .select("id, canonical_url, source, source_type, source_domain, category, confidence, observed_at, extracted_facts")
     .eq("cluster_id", clusterId);
   return (data ?? []) as SourceSignalRow[];
 }
@@ -403,7 +412,7 @@ async function refreshClusterStats(
   const signalPlatforms = signals.map(signalPlatform);
 
   const decision = shouldPromoteSignalCluster({
-    independentSourceCount: independentSourceCount(signals),
+    independentSourceCount: independentSourceCount(signals, now),
     directReportCount: clusterReports.length,
     highestConfidence: highestConfidence(signals),
     hasClearCategory: isClearCategory(cluster.category),
@@ -412,7 +421,7 @@ async function refreshClusterStats(
     hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",
   });
 
-  await supabase
+  const { error: signalUpdateError } = await supabase
     .from("source_signals")
     .update({
       public_status: decision.publicStatus,
@@ -420,9 +429,10 @@ async function refreshClusterStats(
       promotion_reason: decision.reason,
     })
     .eq("cluster_id", clusterId);
+  if (signalUpdateError) throw new Error(`source signal promotion update failed: ${signalUpdateError.message}`);
 
   const publicSignalCount = decision.publicStatus === "public" ? signals.length : 0;
-  await supabase
+  const { error: clusterUpdateError } = await supabase
     .from("issue_clusters")
     .update({
       signal_count: signals.length,
@@ -434,6 +444,7 @@ async function refreshClusterStats(
       is_public: decision.publicStatus === "public",
     })
     .eq("id", clusterId);
+  if (clusterUpdateError) throw new Error(`issue cluster promotion update failed: ${clusterUpdateError.message}`);
 
   return decision.publicStatus === "public" && !cluster.auto_public;
 }

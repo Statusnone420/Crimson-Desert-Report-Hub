@@ -55,6 +55,7 @@ const tables: Record<TableName, Row[]> = {
 const mutations: { table: TableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
+let updateFailure: { table: TableName; message: string } | null = null;
 
 function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   for (const table of Object.keys(tables) as TableName[]) {
@@ -63,6 +64,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   mutations.length = 0;
   idSeq = 1;
   openRouterAttempts = 0;
+  updateFailure = null;
 }
 
 function nextId(table: TableName) {
@@ -200,6 +202,9 @@ class FakeQuery {
   }
 
   private executeUpdate() {
+    if (updateFailure?.table === this.table) {
+      return { data: null, error: { message: updateFailure.message } };
+    }
     const rows = this.filteredRows();
     for (const row of rows) Object.assign(row, this.patch);
     mutations.push({ table: this.table, type: "update", row: this.patch });
@@ -418,6 +423,113 @@ describe("runAutomationMonitor", () => {
       public_signal_count: 1,
       auto_public: true,
       is_public: true,
+    });
+  });
+
+  it("promotes two fresh distinct canonical URLs on the same domain", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.OPENROUTER_API_KEY;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://same.example/fps-one",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: "same.example",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://same.example/fps-two",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: "same.example",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(2);
+    expect(result.clustersPromoted).toBe(1);
+    expect(sourceSignalRows()).toHaveLength(2);
+    expect(new Set(sourceSignalRows().map((row) => row.canonical_url))).toEqual(
+      new Set(["https://same.example/fps-one", "https://same.example/fps-two"]),
+    );
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      public_signal_count: 2,
+      auto_public: true,
+    });
+  });
+
+  it("does not promote from a stale existing signal plus one fresh source", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "fps-regression",
+          title: "FPS regression since 1.13",
+          category: "performance",
+          description: "Existing stale source signal.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-stale",
+          source: "web_search",
+          source_type: "web_search",
+          source_domain: "example.com",
+          canonical_url: "https://example.com/stale-fps",
+          semantic_fingerprint: "8d641d5b7955407f77fbce6d53665716d5b292f614e545a4220ad6c54d0c99f9",
+          cluster_id: "cluster-fps",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-06-19T12:00:00.000Z",
+          extracted_facts: { platform: "pc_steam" },
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(result.clustersPromoted).toBe(0);
+    expect(sourceSignalRows()).toHaveLength(2);
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["private", "private"]);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+  });
+
+  it("records promotion update failures without incrementing promoted clusters", async () => {
+    updateFailure = { table: "source_signals", message: "source signal status update failed" };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.errors[0]).toContain("source signal status update failed");
+    expect(result.clustersPromoted).toBe(0);
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "failed",
+      clusters_promoted: 0,
+      errors: [expect.stringContaining("source signal status update failed")],
     });
   });
 });
