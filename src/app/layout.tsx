@@ -1,15 +1,48 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import localFont from "next/font/local";
 import { OwnerConsole } from "@/components/OwnerConsole";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL, SOURCE_URL } from "@/lib/site";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Crimson Desert Report Hub - unofficial community tracker",
-  description:
-    "Community-run tracker aggregating structured Crimson Desert bug and performance reports for patch 1.13.00. Not affiliated with Pearl Abyss.",
+  metadataBase: new URL(SITE_URL),
+  applicationName: SITE_NAME,
+  title: {
+    default: `${SITE_NAME} - unofficial community tracker`,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: SITE_NAME,
+    title: `${SITE_NAME} - unofficial community tracker`,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary",
+    title: `${SITE_NAME} - unofficial community tracker`,
+    description: SITE_DESCRIPTION,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+    },
+  },
 };
 
-const sourceUrl = "https://github.com/Statusnone420/Crimson-Desert-Report-Hub";
+const geist = localFont({
+  src: "../../node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf",
+  variable: "--font-geist",
+  display: "swap",
+});
 
 const nav = [
   { href: "/", label: "Dashboard" },
@@ -20,7 +53,7 @@ const nav = [
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={geist.variable}>
       <body>
         <header className="border-b border-[var(--border)]">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-3">
@@ -46,7 +79,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="flex items-center gap-4">
               <OwnerConsole />
               <a
-                href={sourceUrl}
+                href={SOURCE_URL}
                 target="_blank"
                 rel="noreferrer noopener"
                 className="inline-flex items-center gap-2 hover:text-[var(--text)]"

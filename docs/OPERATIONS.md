@@ -39,6 +39,14 @@ Required Vercel env vars:
 
 The scheduled scan runs through `/api/cron/keepalive`. That route requires `Authorization: Bearer <CRON_SECRET>`.
 
+Custom domain:
+
+```text
+https://crimsonreporthub.com
+```
+
+Cloudflare should point both `crimsonreporthub.com` and `www.crimsonreporthub.com` to the Vercel DNS target with DNS-only CNAME records. The app permanently redirects `www.crimsonreporthub.com` and the old Vercel production hostname to `https://crimsonreporthub.com`.
+
 ### Turnstile
 
 Cloudflare Turnstile protects the public report form from spam. The site still runs without it, but public submission is safer with it configured.
@@ -49,6 +57,12 @@ Vercel env vars:
 - `TURNSTILE_SECRET_KEY`
 
 Add every production hostname to the Turnstile widget's allowed hostnames.
+
+Production hostname:
+
+```text
+crimsonreporthub.com
+```
 
 ## Optional Automation Providers
 

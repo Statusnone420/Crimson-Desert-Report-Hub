@@ -4,7 +4,7 @@
 
 Unofficial, fan-run Crimson Desert issue tracker for turning scattered patch complaints into structured community evidence.
 
-Live site: [crimson-desert-report-hub.vercel.app](https://crimson-desert-report-hub.vercel.app)
+Live site: [crimsonreporthub.com](https://crimsonreporthub.com)
 
 This project is not affiliated with Pearl Abyss, Reddit, X, Vercel, Supabase, Tavily, or OpenRouter.
 

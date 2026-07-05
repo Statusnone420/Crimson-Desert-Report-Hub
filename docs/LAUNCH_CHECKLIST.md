@@ -60,10 +60,26 @@ Required Vercel environment variables:
 
 Generate `SESSION_SECRET` and `CRON_SECRET` as long random strings. A 64-character hex string is fine.
 
-The site URL should be:
+The public site URL should be:
 
 ```text
-https://crimson-desert-report-hub.vercel.app
+https://crimsonreporthub.com
+```
+
+Keep the Vercel-provided `vercel.app` URL as a fallback/internal deployment URL, but use the custom domain for public links.
+
+Cloudflare DNS records for the custom domain:
+
+| Type | Name | Target | Proxy |
+| --- | --- | --- | --- |
+| `CNAME` | `@` | `b6d6a250ac14c9bf.vercel-dns-017.com` | DNS only |
+| `CNAME` | `www` | `b6d6a250ac14c9bf.vercel-dns-017.com` | DNS only |
+
+If Cloudflare offers Vercel Domain Connect, you can use that instead of adding the records by hand. After DNS is saved, run:
+
+```bash
+vercel domains verify crimsonreporthub.com --scope statusnones-projects
+vercel domains verify www.crimsonreporthub.com --scope statusnones-projects
 ```
 
 ### 3. Tavily
@@ -119,10 +135,11 @@ To add Turnstile:
 1. Open Cloudflare Dashboard.
 2. Go to `Application security` -> `Turnstile`.
 3. Create a widget for the production hostname.
-4. Add `crimson-desert-report-hub.vercel.app` as an allowed hostname.
-5. Copy the public site key into Vercel as `NEXT_PUBLIC_TURNSTILE_SITE_KEY`.
-6. Copy the private secret key into Vercel as `TURNSTILE_SECRET_KEY`.
-7. Redeploy Vercel.
+4. Add `crimsonreporthub.com` as an allowed hostname.
+5. Add the Vercel `vercel.app` deployment hostname too if you want Turnstile to work on preview/fallback URLs.
+6. Copy the public site key into Vercel as `NEXT_PUBLIC_TURNSTILE_SITE_KEY`.
+7. Copy the private secret key into Vercel as `TURNSTILE_SECRET_KEY`.
+8. Redeploy Vercel.
 
 The app already validates Turnstile tokens server-side when `TURNSTILE_SECRET_KEY` exists.
 
@@ -139,7 +156,7 @@ Use this order so bad sources do not publish automatically.
 
 ```bash
 curl -H "Authorization: Bearer <CRON_SECRET>" \
-  "https://crimson-desert-report-hub.vercel.app/api/cron/source-preview?queries=1"
+  "https://crimsonreporthub.com/api/cron/source-preview?queries=1"
 ```
 
 7. Confirm the preview is finding real issue reports, not patch notes, reviews, guides, or unrelated videos.
