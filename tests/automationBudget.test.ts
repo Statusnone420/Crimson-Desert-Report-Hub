@@ -47,8 +47,9 @@ describe("automation budget", () => {
     expect(countRemainingRunsThisMonth(new Date("2026-07-31T00:00:00Z"))).toBe(4);
   });
 
-  it("rejects non-free OpenRouter model IDs", () => {
-    expect(() => rejectPaidOpenRouterModel("openai/gpt-4.1")).toThrow(/:free/);
+  it("rejects non-free OpenRouter model IDs while allowing the free router", () => {
+    expect(() => rejectPaidOpenRouterModel("openai/gpt-4.1")).toThrow(/openrouter\/free/);
+    expect(rejectPaidOpenRouterModel("openrouter/free")).toBe("openrouter/free");
     expect(rejectPaidOpenRouterModel("meta-llama/llama-3.3-70b-instruct:free")).toBe(
       "meta-llama/llama-3.3-70b-instruct:free",
     );

@@ -18,6 +18,7 @@ export type AutomationBudget = {
 
 const RUN_INTERVAL_HOURS = 6;
 const SEARCH_QUERY_COST_USD = 0.008;
+const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
 
 export function countRemainingRunsThisMonth(now: Date): number {
   const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0);
@@ -26,7 +27,9 @@ export function countRemainingRunsThisMonth(now: Date): number {
 }
 
 export function rejectPaidOpenRouterModel(model: string): string {
-  if (!model.endsWith(":free")) throw new Error("OpenRouter automation model must end with :free");
+  if (model !== OPENROUTER_FREE_ROUTER_MODEL && !model.endsWith(":free")) {
+    throw new Error("OpenRouter automation model must be openrouter/free or end with :free");
+  }
   return model;
 }
 

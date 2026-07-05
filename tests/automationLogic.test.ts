@@ -156,6 +156,45 @@ describe("automation extraction", () => {
     );
   });
 
+  it("uses OpenRouter's free router with structured JSON requested", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                issueTitle: "Map crash after patch",
+                category: "crash_startup",
+                platform: "ps5",
+                confidence: "medium",
+                summary: "Players report map-open crashes after the patch.",
+              }),
+            },
+          },
+        ],
+      }),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+        OPENROUTER_FREE_MODEL: "openrouter/free",
+      },
+      fetcher,
+      llmCallsRemaining: 1,
+    });
+
+    const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).toMatchObject({
+      model: "openrouter/free",
+      response_format: { type: "json_object" },
+    });
+    expect(result.extractionProvider).toBe("openrouter");
+    expect(result.extractionModel).toBe("openrouter/free");
+  });
+
   it("falls back to deterministic extraction when OpenRouter returns invalid JSON", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,

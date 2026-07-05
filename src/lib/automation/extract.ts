@@ -181,6 +181,7 @@ export async function extractSignalWithOpenRouter(
       body: JSON.stringify({
         model,
         temperature: 0,
+        response_format: { type: "json_object" },
         messages: [
           {
             role: "system",

@@ -16,7 +16,7 @@ Optional, fail-closed features:
 - Groq or OpenRouter dossier drafting.
 - Reddit OAuth community signal monitoring.
 - Tavily web search monitoring.
-- OpenRouter `:free` automation extraction.
+- OpenRouter free-router automation extraction.
 - xAI/X search flag only; no paid X runner is implemented.
 
 ## Development
@@ -67,7 +67,7 @@ Do not commit real `.env*` files. They are ignored by default; `.env.local.examp
 
 `AUTOMATION_BUDGET_USD_MONTHLY` is the single user-facing cost knob for automated monitoring. Set it to `5` for a small monthly cap, or `0` to disable paid search and paid LLM calls while keeping free deterministic monitoring paths available.
 
-Provider keys are optional and fail closed: Reddit monitoring uses `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, and `REDDIT_USER_AGENT`; web search uses `TAVILY_API_KEY`; OpenRouter automation extraction uses `OPENROUTER_API_KEY` plus `OPENROUTER_FREE_MODEL`. The OpenRouter automation model ID must end in `:free`.
+Provider keys are optional and fail closed: Reddit monitoring uses `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, and `REDDIT_USER_AGENT`; web search uses `TAVILY_API_KEY`; OpenRouter automation extraction uses `OPENROUTER_API_KEY` plus `OPENROUTER_FREE_MODEL`. Use `openrouter/free` to let OpenRouter pick from free models, or pin a specific model ID that ends in `:free`.
 
 Scheduled automation runs through `/api/cron/keepalive` at most once every 6 hours. Public pages and dossiers keep three buckets separate: automated public community signals from `source_signals`, approved direct reports from `bug_reports`, and verified report excerpts from `approved_excerpts`.
 
