@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { computeFeatures } from "@/lib/env";
+import { afterEach, describe, expect, it } from "vitest";
+import { computeFeatures, requiredEnv } from "@/lib/env";
 
 describe("computeFeatures", () => {
   it("everything off with no keys", () => {
@@ -27,8 +27,46 @@ describe("computeFeatures", () => {
     expect(computeFeatures({ OPENROUTER_API_KEY: "o" }).ai).toBe(true);
   });
 
-  it("turnstile and xSearch flip on their keys", () => {
-    expect(computeFeatures({ TURNSTILE_SECRET_KEY: "t" }).turnstile).toBe(true);
+  it("turnstile requires both the public site key and secret", () => {
+    expect(computeFeatures({ TURNSTILE_SECRET_KEY: "t" }).turnstile).toBe(false);
+    expect(computeFeatures({ NEXT_PUBLIC_TURNSTILE_SITE_KEY: "s" }).turnstile).toBe(false);
+    expect(
+      computeFeatures({ NEXT_PUBLIC_TURNSTILE_SITE_KEY: "s", TURNSTILE_SECRET_KEY: "t" }).turnstile,
+    ).toBe(true);
+  });
+
+  it("xSearch flips on its key", () => {
     expect(computeFeatures({ XAI_API_KEY: "x" }).xSearch).toBe(true);
+  });
+
+  it("treats whitespace values as unset", () => {
+    expect(
+      computeFeatures({
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: "   ",
+        TURNSTILE_SECRET_KEY: "t",
+        GROQ_API_KEY: " ",
+      }),
+    ).toEqual({ turnstile: false, reddit: false, ai: false, xSearch: false });
+  });
+});
+
+describe("requiredEnv", () => {
+  const original = process.env.SESSION_SECRET;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = original;
+  });
+
+  it("returns configured values", () => {
+    process.env.SESSION_SECRET = "secret";
+    expect(requiredEnv("SESSION_SECRET")).toBe("secret");
+  });
+
+  it("throws for missing or whitespace values", () => {
+    delete process.env.SESSION_SECRET;
+    expect(() => requiredEnv("SESSION_SECRET")).toThrow("Missing required env var: SESSION_SECRET");
+    process.env.SESSION_SECRET = " ";
+    expect(() => requiredEnv("SESSION_SECRET")).toThrow("Missing required env var: SESSION_SECRET");
   });
 });

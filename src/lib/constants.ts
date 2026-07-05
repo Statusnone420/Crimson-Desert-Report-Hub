@@ -1,5 +1,6 @@
 export const CURRENT_PATCH = "1.13.00";
 export const PATCH_VERSIONS = ["1.13.00", "1.12.00", "other"] as const;
+export type PatchVersion = (typeof PATCH_VERSIONS)[number];
 
 export const PLATFORMS = [
   "pc_steam",
@@ -40,7 +41,9 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 };
 
 export const SEVERITIES = ["low", "medium", "high", "blocking"] as const;
+export type Severity = (typeof SEVERITIES)[number];
 export const FREQUENCIES = ["once", "sometimes", "often", "always"] as const;
+export type Frequency = (typeof FREQUENCIES)[number];
 
 export const FIX_STATUSES = [
   "reported",
@@ -49,4 +52,6 @@ export const FIX_STATUSES = [
   "verified_fixed",
   "persists",
 ] as const;
+export type FixStatus = (typeof FIX_STATUSES)[number];
 export const CONFIDENCES = ["seed_unverified", "low", "medium", "confirmed"] as const;
+export type Confidence = (typeof CONFIDENCES)[number];
