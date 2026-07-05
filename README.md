@@ -42,6 +42,7 @@ Automation is designed to fail closed:
 - `0` disables paid search and paid LLM work.
 - Tavily search is capped per run.
 - OpenRouter extraction is configured with `openrouter/free`.
+- Broad patch notes, reviews, benchmarks, and unclear `other` extractions are filtered before database writes.
 - Scheduled scans can be paused from `/admin/source-monitor`.
 - A protected source preview route can test live extraction without writing to the database.
 - CI uses mocks only; it never calls Reddit, Tavily, OpenRouter, or Supabase production data.

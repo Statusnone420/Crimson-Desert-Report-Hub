@@ -38,11 +38,11 @@ type TavilyResult = {
 };
 
 const QUERY_PACK = [
-  `Crimson Desert patch ${CURRENT_PATCH} FPS`,
-  `Crimson Desert ${CURRENT_PATCH} crash`,
-  "Crimson Desert map crash",
-  "Crimson Desert PS5 Pro performance",
-  "Crimson Desert Steam stutter",
+  `Crimson Desert patch ${CURRENT_PATCH} FPS drops stutter issue`,
+  `Crimson Desert patch ${CURRENT_PATCH} crash freeze issue`,
+  `Crimson Desert map crash persists after patch ${CURRENT_PATCH}`,
+  `Crimson Desert PS5 Pro performance drops patch ${CURRENT_PATCH}`,
+  `Crimson Desert Steam stutter low FPS patch ${CURRENT_PATCH}`,
 ] as const;
 
 export function buildSearchQueries(maxQueries: number): string[] {

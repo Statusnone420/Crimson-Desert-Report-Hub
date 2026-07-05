@@ -4,6 +4,7 @@ import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
 import { extractSignalWithOpenRouter, type ExtractionResult } from "@/lib/automation/extract";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
+import { shouldKeepAutomatedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch, type SearchResult } from "@/lib/automation/search";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
@@ -246,6 +247,17 @@ async function prepareSignals(
     );
     if (extraction.llmCallUsed) result.llmCallsUsed += 1;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
+
+    const relevance = shouldKeepAutomatedSignal({
+      title: signal.title,
+      snippet: signal.body,
+      sourceDomain: signal.sourceDomain,
+      extraction,
+    });
+    if (!relevance.keep) {
+      result.skips.push(relevance.reason);
+      continue;
+    }
 
     prepared.push({
       ...signal,

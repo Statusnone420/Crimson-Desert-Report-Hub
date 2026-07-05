@@ -6,6 +6,7 @@ import {
   parseOpenRouterExtraction,
 } from "@/lib/automation/extract";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
+import { shouldKeepAutomatedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
 
 const crashCandidate = {
@@ -336,10 +337,99 @@ describe("automation promotion", () => {
   });
 });
 
+describe("automation relevance", () => {
+  it("keeps direct issue language from public sources", () => {
+    expect(
+      shouldKeepAutomatedSignal({
+        title: "Crimson Desert patch 1.13 FPS regression",
+        snippet: "Players report FPS drops and stutter on Steam after the patch.",
+        sourceDomain: "example.com",
+        extraction: {
+          issueTitle: "FPS regression since 1.13",
+          category: "performance",
+          platform: "pc_steam",
+          confidence: "medium",
+          summary: "Players report FPS drops on Steam after patch 1.13.",
+          extractionProvider: "openrouter",
+          extractionModel: "openrouter/free",
+          llmCallUsed: true,
+        },
+      }),
+    ).toEqual({ keep: true });
+  });
+
+  it("rejects patch notes and review content that does not report a player issue", () => {
+    expect(
+      shouldKeepAutomatedSignal({
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        extraction: {
+          issueTitle: "Patch notes",
+          category: "other",
+          platform: null,
+          confidence: "low",
+          summary: "No reported issues.",
+          extractionProvider: "openrouter",
+          extractionModel: "openrouter/free",
+          llmCallUsed: true,
+        },
+      }),
+    ).toEqual({ keep: false, reason: "category_other" });
+
+    expect(
+      shouldKeepAutomatedSignal({
+        title: "Crimson Desert PS5 Review",
+        snippet: "A general review of the game on PlayStation 5.",
+        sourceDomain: "youtube.com",
+        extraction: {
+          issueTitle: "Crimson Desert PS5 Review",
+          category: "performance",
+          platform: "ps5",
+          confidence: "medium",
+          summary: "Review coverage with no reported issue.",
+          extractionProvider: "deterministic",
+          extractionModel: null,
+          llmCallUsed: false,
+          fallbackReason: "openrouter_provider_failure",
+        },
+      }),
+    ).toEqual({ keep: false, reason: "source_not_issue_report" });
+  });
+
+  it("requires symptom language when deterministic fallback labels performance content", () => {
+    expect(
+      shouldKeepAutomatedSignal({
+        title: "Crimson Desert Steam Deck FSR performance test",
+        snippet: "Benchmark settings for patch 1.13.",
+        sourceDomain: "youtube.com",
+        extraction: {
+          issueTitle: "Crimson Desert Steam Deck FSR performance test",
+          category: "performance",
+          platform: "pc_steam",
+          confidence: "medium",
+          summary: "Performance benchmark video.",
+          extractionProvider: "deterministic",
+          extractionModel: null,
+          llmCallUsed: true,
+          fallbackReason: "openrouter_invalid_json",
+        },
+      }),
+    ).toEqual({ keep: false, reason: "source_not_issue_report" });
+  });
+});
+
 describe("search planning", () => {
   it("never emits more queries than the cap", () => {
     expect(buildSearchQueries(3)).toHaveLength(3);
     expect(buildSearchQueries(0)).toHaveLength(0);
+  });
+
+  it("targets issue language instead of broad reviews or patch-note pages", () => {
+    expect(buildSearchQueries(2)).toEqual([
+      "Crimson Desert patch 1.13.00 FPS drops stutter issue",
+      "Crimson Desert patch 1.13.00 crash freeze issue",
+    ]);
   });
 
   it("caps query planning to the fixed query pack", () => {

@@ -2,6 +2,7 @@ import "server-only";
 
 import { canonicalizeUrl } from "@/lib/automation/dedupe";
 import { extractSignalWithOpenRouter, type ExtractionResult } from "@/lib/automation/extract";
+import { shouldKeepAutomatedSignal, type SignalRelevanceDecision } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
 
 const SEARCH_QUERY_COST_USD = 0.008;
@@ -20,6 +21,7 @@ export type AutomationSourcePreview = {
     url: string;
     sourceDomain: string | null;
     extraction: ExtractionResult;
+    relevance: SignalRelevanceDecision;
   }[];
 };
 
@@ -47,15 +49,23 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
         continue;
       }
 
+      const extraction = await extractSignalWithOpenRouter(
+        { title: result.title, snippet: result.snippet, url },
+        { llmCallsRemaining: 1 },
+      );
+
       previews.push({
         query,
         title: result.title,
         url,
         sourceDomain: result.sourceDomain,
-        extraction: await extractSignalWithOpenRouter(
-          { title: result.title, snippet: result.snippet, url },
-          { llmCallsRemaining: 1 },
-        ),
+        extraction,
+        relevance: shouldKeepAutomatedSignal({
+          title: result.title,
+          snippet: result.snippet,
+          sourceDomain: result.sourceDomain,
+          extraction,
+        }),
       });
 
       if (previews.length >= MAX_PREVIEW_RESULTS) break;

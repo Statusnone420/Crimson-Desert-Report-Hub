@@ -79,6 +79,8 @@ Reddit is optional but useful for public subreddit monitoring.
 
 You do not need a new public Reddit account for users. Create API credentials from a normal Reddit developer account. If Reddit shows Devvit templates or commands, those are not needed for this website.
 
+Reddit may require explicit Data API access approval before credentials work. Until that is approved, leave the Reddit env vars empty; Tavily web search can still find public web pages, including public Reddit pages, and the dashboard will show Reddit as disabled.
+
 Vercel env vars:
 
 - `REDDIT_CLIENT_ID`
@@ -117,6 +119,20 @@ Controls:
 - `Resume scheduled scans`: allows cron-triggered scanning again.
 
 Manual runs are intentionally still available while scheduled scans are paused.
+
+The scanner has a conservative relevance gate before anything is written as a source signal. It rejects broad patch notes, reviews, benchmarks, and `other` category extractions unless there is explicit issue language such as FPS drops, stutter, crash, freeze, input lockups, launch failures, or visual artifacts.
+
+## Admin Access
+
+Admin is currently a single shared password, not named user accounts.
+
+1. Open `/admin/login`.
+2. Enter the `ADMIN_PASSWORD` value from Vercel.
+3. Use `/admin` for report moderation.
+4. Use `/admin/source-monitor` for scanner runs, pause/resume, and recent source signals.
+5. Use `/admin/compile` to generate the evidence dossier.
+
+To add another human admin today, give them the admin password through a private channel and rotate `ADMIN_PASSWORD` if access should be revoked. Named admin accounts can be added later with a real auth provider, but they are intentionally not part of this low-friction launch build.
 
 ## Safe Live Preview
 

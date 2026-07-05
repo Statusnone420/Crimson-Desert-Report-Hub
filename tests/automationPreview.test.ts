@@ -60,7 +60,7 @@ describe("previewAutomationSearch", () => {
       estimatedCostUsd: 0.008,
       previews: [
         {
-          query: "Crimson Desert patch 1.13.00 FPS",
+          query: "Crimson Desert patch 1.13.00 FPS drops stutter issue",
           title: "Crimson Desert patch 1.13 FPS regression",
           url: "https://example.com/fps",
           sourceDomain: "example.com",
@@ -70,6 +70,7 @@ describe("previewAutomationSearch", () => {
             platform: "pc_steam",
             extractionProvider: "openrouter",
           },
+          relevance: { keep: true },
         },
       ],
     });
@@ -90,5 +91,35 @@ describe("previewAutomationSearch", () => {
 
     expect(result.maxQueries).toBe(2);
     expect(mocks.tavilySearch).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks broad patch notes as skipped in the no-write preview", async () => {
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockResolvedValue({
+      issueTitle: "Patch notes",
+      category: "other",
+      platform: null,
+      confidence: "low",
+      summary: "No reported issues.",
+      extractionProvider: "openrouter",
+      extractionModel: "openrouter/free",
+      llmCallUsed: true,
+    });
+    const { previewAutomationSearch } = await import("@/lib/automation/preview");
+
+    const result = await previewAutomationSearch({ maxQueries: 1 });
+
+    expect(result.previews[0]).toMatchObject({
+      title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+      relevance: { keep: false, reason: "category_other" },
+    });
   });
 });

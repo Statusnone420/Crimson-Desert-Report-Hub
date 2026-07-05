@@ -551,6 +551,85 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("filters broad reviews and patch notes before writing source signals", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert PS5 Review",
+        url: "https://www.youtube.com/watch?v=review",
+        snippet: "A general review of the game on PlayStation 5.",
+        sourceDomain: "youtube.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 FPS drops",
+        url: "https://example.com/fps-drops",
+        snippet: "Players report FPS drops and stutter on Steam after the patch.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
+      if (/patch notes/i.test(candidate.title)) {
+        return {
+          issueTitle: "Patch notes",
+          category: "other",
+          platform: null,
+          confidence: "low",
+          summary: "No reported issues.",
+          extractionProvider: "openrouter",
+          extractionModel: "openrouter/free",
+          llmCallUsed: true,
+        };
+      }
+      if (/review/i.test(candidate.title)) {
+        return {
+          issueTitle: "Crimson Desert PS5 Review",
+          category: "performance",
+          platform: "ps5",
+          confidence: "medium",
+          summary: "Review coverage with no reported issue.",
+          extractionProvider: "deterministic",
+          extractionModel: null,
+          llmCallUsed: true,
+          fallbackReason: "openrouter_invalid_json",
+        };
+      }
+      return {
+        issueTitle: "FPS regression since 1.13",
+        category: "performance",
+        platform: "pc_steam",
+        confidence: "medium",
+        summary: "Players report FPS drops on Steam after patch 1.13.",
+        extractionProvider: "openrouter",
+        extractionModel: "openrouter/free",
+        llmCallUsed: true,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(result.skips).toEqual(expect.arrayContaining(["category_other", "source_not_issue_report"]));
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      title: "Crimson Desert patch 1.13 FPS drops",
+      category: "performance",
+      public_status: "private",
+    });
+  });
+
   it("does not promote from a stale existing signal plus one fresh source", async () => {
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
