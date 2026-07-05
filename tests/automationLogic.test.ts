@@ -6,7 +6,7 @@ import {
   parseOpenRouterExtraction,
 } from "@/lib/automation/extract";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
-import { buildSearchQueries } from "@/lib/automation/search";
+import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
 
 const crashCandidate = {
   title: "Crimson Desert map crash still happens",
@@ -67,6 +67,24 @@ describe("automation extraction", () => {
     expect(result.extractionModel).toBeNull();
     expect(result.llmCallUsed).toBe(false);
     expect(result.fallbackReason).toBe("openrouter_paid_model");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("falls back without calling OpenRouter when config is missing", async () => {
+    const fetcher = vi.fn();
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
+      },
+      fetcher,
+      llmCallsRemaining: 1,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.extractionModel).toBeNull();
+    expect(result.llmCallUsed).toBe(false);
+    expect(result.fallbackReason).toBe("openrouter_missing_config");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -160,6 +178,26 @@ describe("automation extraction", () => {
     expect(result.llmCallUsed).toBe(true);
     expect(result.fallbackReason).toBe("openrouter_invalid_json");
   });
+
+  it("falls back to deterministic extraction when OpenRouter provider request fails", async () => {
+    const fetcher = vi.fn(async () => {
+      throw new Error("network down");
+    });
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
+      },
+      fetcher,
+      llmCallsRemaining: 1,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallUsed).toBe(true);
+    expect(result.fallbackReason).toBe("openrouter_provider_failure");
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
 });
 
 describe("automation promotion", () => {
@@ -199,6 +237,18 @@ describe("automation promotion", () => {
     ).toBe("public");
   });
 
+  it("admin force public promotes below-threshold signals", () => {
+    expect(
+      shouldPromoteSignalCluster({
+        independentSourceCount: 0,
+        directReportCount: 0,
+        highestConfidence: "low",
+        hasAdminForcePublic: true,
+        hasAdminForceHidden: false,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "admin_force_public" });
+  });
+
   it("force hidden wins over threshold", () => {
     expect(
       shouldPromoteSignalCluster({
@@ -220,5 +270,53 @@ describe("search planning", () => {
 
   it("caps query planning to the fixed query pack", () => {
     expect(buildSearchQueries(999)).toHaveLength(5);
+  });
+
+  it("calls Tavily with injected fetch and maps results", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [
+          {
+            title: "Crimson Desert patch 1.13 FPS regression",
+            url: "https://www.example.com/fps?utm_source=news",
+            content: "Players report FPS drops on Steam.",
+          },
+          { title: "Missing URL", content: "ignored" },
+        ],
+      }),
+    }));
+
+    const results = await tavilySearch("Crimson Desert FPS", {
+      env: { TAVILY_API_KEY: "tavily-key" },
+      fetcher,
+      now: new Date("2026-07-05T12:00:00Z"),
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.tavily.com/search",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Bearer tavily-key",
+          "content-type": "application/json",
+        }),
+      }),
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({
+      query: "Crimson Desert FPS",
+      max_results: 5,
+      search_depth: "basic",
+    });
+    expect(results).toEqual([
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://www.example.com/fps?utm_source=news",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
   });
 });
