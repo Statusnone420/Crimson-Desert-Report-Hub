@@ -37,15 +37,18 @@ type TavilyResult = {
   content?: string;
 };
 
-const QUERY_PACK = [
-  `Crimson Desert patch ${CURRENT_PATCH} FPS drops stutter issue`,
-  `Crimson Desert patch ${CURRENT_PATCH} crash freeze issue`,
-  `Crimson Desert map crash persists after patch ${CURRENT_PATCH}`,
-  `Crimson Desert PS5 Pro performance drops patch ${CURRENT_PATCH}`,
-  `Crimson Desert Steam stutter low FPS patch ${CURRENT_PATCH}`,
-] as const;
+function queryPack(patchVersion: string): string[] {
+  return [
+    `Crimson Desert patch ${patchVersion} FPS drops stutter issue`,
+    `Crimson Desert patch ${patchVersion} crash freeze issue`,
+    `Crimson Desert map crash persists after patch ${patchVersion}`,
+    `Crimson Desert PS5 Pro performance drops patch ${patchVersion}`,
+    `Crimson Desert Steam stutter low FPS patch ${patchVersion}`,
+  ];
+}
 
-export function buildSearchQueries(maxQueries: number): string[] {
+export function buildSearchQueries(maxQueries: number, patchVersion = CURRENT_PATCH): string[] {
+  const QUERY_PACK = queryPack(patchVersion);
   return QUERY_PACK.slice(0, Math.max(0, Math.min(QUERY_PACK.length, Math.trunc(maxQueries))));
 }
 

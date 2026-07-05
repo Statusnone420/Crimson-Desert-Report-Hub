@@ -7,6 +7,7 @@ Crimson Desert Report Hub is built to collect useful issue evidence without turn
 Public pages may show:
 
 - Aggregate report counts.
+- Current official patch title, version, publish time, and Pearl Abyss source link.
 - Issue cluster titles and summaries.
 - Platform/category counts.
 - Public community signal counts.
@@ -55,7 +56,7 @@ It does not store raw IP addresses in the application database.
 
 ## Automation Sources
 
-The scanner may read public web search results and optional public Reddit posts. It stores structured summaries and source URLs. Raw source text, when retained for moderator review, is temporary and is purged by scheduled maintenance.
+The scanner may read public Pearl Abyss patch-note metadata, public web search results, and optional public Reddit posts. It stores structured summaries and source URLs. Raw source text, when retained for moderator review, is temporary and is purged by scheduled maintenance.
 
 ## Admin Data
 

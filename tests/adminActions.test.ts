@@ -5,10 +5,16 @@ const mocks = vi.hoisted(() => ({
   redirect: vi.fn(),
   requireAdmin: vi.fn(),
   revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+  unstableCache: vi.fn((fn: unknown) => fn),
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock("next/cache", () => ({
+  revalidatePath: mocks.revalidatePath,
+  revalidateTag: mocks.revalidateTag,
+  unstable_cache: mocks.unstableCache,
+}));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from }) }));

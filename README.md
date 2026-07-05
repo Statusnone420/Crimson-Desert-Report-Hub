@@ -11,6 +11,7 @@ This project is not affiliated with Pearl Abyss, Reddit, X, Vercel, Supabase, Ta
 ## What It Does
 
 - Watches public community signals from web search and optional Reddit API access.
+- Reads the official Pearl Abyss announcements page to keep the active patch label and source link current.
 - Uses a budget-capped AI extraction step to identify issue title, category, platform, confidence, and evidence URL.
 - Clusters duplicate signals automatically.
 - Lets players submit anonymous structured reports to strengthen clusters.
@@ -46,6 +47,7 @@ Automation is designed to fail closed:
 - Scheduled scans can be paused from `/admin/source-monitor`.
 - A protected source preview route can test live extraction without writing to the database.
 - CI uses mocks only; it never calls Reddit, Tavily, OpenRouter, or Supabase production data.
+- Public dashboard data and current patch metadata are server-cached for five minutes, then explicitly refreshed after real writes.
 
 ## Tech Stack
 

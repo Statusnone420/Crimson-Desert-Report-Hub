@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const cacheMocks = vi.hoisted(() => ({
+  revalidateTag: vi.fn(),
+}));
 const insertMock = vi.fn();
 const countChain = {
   select: vi.fn().mockReturnThis(),
@@ -19,6 +22,10 @@ vi.mock("@/lib/supabase", () => ({
       };
     },
   }),
+}));
+
+vi.mock("next/cache", () => ({
+  revalidateTag: cacheMocks.revalidateTag,
 }));
 
 vi.mock("@/lib/turnstile", () => ({
@@ -54,6 +61,7 @@ function makeRequest(body: unknown, ip = "203.0.113.7"): Request {
 }
 
 beforeEach(() => {
+  cacheMocks.revalidateTag.mockClear();
   insertMock.mockReset().mockResolvedValue({ data: null, error: null });
   countChain.select.mockClear().mockReturnThis();
   countChain.eq.mockClear().mockReturnThis();
@@ -71,6 +79,7 @@ describe("POST /api/reports", () => {
     expect(row.submitter_ip_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(row)).not.toContain("203.0.113.7");
     expect(row.turnstile_token).toBeUndefined();
+    expect(cacheMocks.revalidateTag).toHaveBeenCalledWith("public-dashboard", "max");
   });
 
   it("400 on invalid json and on validation failure", async () => {

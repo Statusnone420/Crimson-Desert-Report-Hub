@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   extractSignalWithOpenRouter: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
   tavilySearch: vi.fn(),
 }));
 
@@ -23,8 +24,20 @@ vi.mock("@/lib/automation/extract", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/officialPatch.server", () => ({
+  getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getCurrentPatchMetadata.mockResolvedValue({
+    version: "1.13.00",
+    title: "Patch Notes Version 1.13.00",
+    officialUrl: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+    publishedAt: "2026-07-03T03:00:00.000Z",
+    summary: "Official test patch metadata.",
+    source: "official",
+  });
   mocks.tavilySearch.mockResolvedValue([
     {
       title: "Crimson Desert patch 1.13 FPS regression",

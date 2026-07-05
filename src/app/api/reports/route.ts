@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
+import { PUBLIC_DASHBOARD_TAG } from "@/lib/cacheTags";
 import { reportFingerprint, hashIp } from "@/lib/crypto";
 import { requiredEnv } from "@/lib/env";
 import { reportSchema } from "@/lib/reportSchema";
@@ -54,5 +56,6 @@ export async function POST(req: Request) {
   });
   if (error) return NextResponse.json({ error: "insert_failed" }, { status: 500 });
 
+  revalidateTag(PUBLIC_DASHBOARD_TAG, "max");
   return NextResponse.json({ ok: true }, { status: 201 });
 }

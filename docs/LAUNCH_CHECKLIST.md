@@ -9,6 +9,7 @@ Do not commit real keys, dashboard screenshots with visible keys, `.env.local`, 
 - Next.js public site and admin pages.
 - Supabase migrations in `supabase/migrations`.
 - Vercel cron configuration in `vercel.json`.
+- Official Pearl Abyss patch-note metadata sync.
 - Budget-capped automation with source preview and pause/resume controls.
 - Anonymous report intake with optional local save/config helper.
 - Unit tests, build checks, and Playwright visual regression coverage.
@@ -29,6 +30,7 @@ Run every SQL file in `supabase/migrations` in timestamp order, oldest first:
 5. `20260705193031_approved_excerpts_report_index.sql`
 6. `20260705194620_lock_public_tables_to_server_role.sql`
 7. `20260705201242_automation_settings.sql`
+8. `20260705224408_official_patch_notes.sql`
 
 Copy these values into Vercel environment variables:
 
@@ -83,6 +85,8 @@ vercel domains verify www.crimsonreporthub.com --scope statusnones-projects
 ```
 
 ### 3. Tavily
+
+The official Pearl Abyss patch-note source needs no setup. It is public web metadata and is synced during real scanner runs.
 
 Tavily is the web-search provider. It lets the scanner find public issue reports without waiting for users to submit reports.
 

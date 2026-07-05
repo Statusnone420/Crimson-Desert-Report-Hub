@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Sparkline } from "@/components/Sparkline";
 import { FixStatusBadge, MeterBar, StatCard } from "@/components/ui";
-import { CATEGORY_LABELS, CURRENT_PATCH, PLATFORM_LABELS } from "@/lib/constants";
+import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { getDashboardData } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +32,7 @@ export default async function DashboardPage() {
   const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
   const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
   const persistentCount = d.topClusters.filter((cluster) => cluster.fix_status === "persists").length;
+  const patchLabel = `Patch ${d.currentPatch.version}`;
 
   return (
     <div className="space-y-7">
@@ -42,12 +43,20 @@ export default async function DashboardPage() {
             Crimson Desert report hub
           </h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            Automated community signals plus direct patch {CURRENT_PATCH} reports, clustered into evidence Pearl Abyss can
-            act on. Raw submissions stay private until reviewed.
+            Automated community signals plus direct {patchLabel} reports, clustered into evidence Pearl Abyss can act on.
+            Raw submissions stay private until reviewed.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 md:min-w-60 md:justify-end">
-          <span className="badge badge-crimson min-w-24 shrink-0 text-center">Patch {CURRENT_PATCH}</span>
+          <a
+            href={d.currentPatch.officialUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="badge badge-crimson min-w-24 shrink-0 text-center"
+            aria-label={`Open official ${patchLabel} notes`}
+          >
+            {patchLabel}
+          </a>
           <Link href="/report" className="btn min-w-36 shrink-0 text-center">
             Submit report
           </Link>
@@ -96,6 +105,25 @@ export default async function DashboardPage() {
             Protected previews test Tavily and OpenRouter without changing these numbers.
           </p>
         </div>
+      </section>
+
+      <section className="panel grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+        <div className="space-y-2">
+          <div className="stat-label">Official patch source</div>
+          <h2 className="text-lg font-semibold">{d.currentPatch.title}</h2>
+          <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+            {d.currentPatch.summary ??
+              "The hub checks Pearl Abyss announcements so the current patch label and scanner searches stay aligned with the official update stream."}
+          </p>
+          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+            {d.currentPatch.publishedAt
+              ? `Published ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(new Date(d.currentPatch.publishedAt))} UTC`
+              : "Official publish time not stored yet."}
+          </p>
+        </div>
+        <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="btn btn-ghost md:min-w-44">
+          Official notes
+        </a>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-[1.45fr_0.9fr]">

@@ -11,6 +11,7 @@ Crimson Desert Report Hub is an unofficial community evidence tracker. It gather
 ## Product Principles
 
 - Show evidence before opinion.
+- Treat official Pearl Abyss patch notes as the canonical patch source, while keeping the hub unofficial.
 - Separate automated signals, direct reports, and verified excerpts.
 - Make privacy obvious.
 - Keep admin review as quality control, not the only data engine.
@@ -28,6 +29,7 @@ Crimson Desert Report Hub is an unofficial community evidence tracker. It gather
 ## Success Criteria
 
 - The public dashboard quickly shows whether an issue is isolated or widespread.
+- The active patch label and official source link update without code changes.
 - Players can submit a useful report without creating an account.
 - Automation can produce useful first-pass signals before user submissions arrive.
 - Admins can pause scans, run a safe preview, verify reports, and compile a dossier.

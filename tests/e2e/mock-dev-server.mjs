@@ -222,6 +222,20 @@ const automationSettings = [
   },
 ];
 
+const officialPatchNotes = [
+  {
+    id: "official-patch-113",
+    board_no: "105",
+    title: "Patch Notes Version 1.13.00",
+    patch_version: "1.13.00",
+    official_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+    published_at: "2026-07-03T03:00:00.000Z",
+    summary: "Official patch metadata used by Playwright visual tests.",
+    observed_at: isoMinutesAgo(40),
+    is_current: true,
+  },
+];
+
 function sendJson(res, method, status, data, headers = {}) {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -268,6 +282,9 @@ function filterRows(table, url) {
   const isPublic = url.searchParams.get("is_public");
   if (isPublic === "eq.true") rows = rows.filter((row) => row.is_public === true);
 
+  const isCurrent = url.searchParams.get("is_current");
+  if (isCurrent === "eq.true") rows = rows.filter((row) => row.is_current === true);
+
   const publicStatus = url.searchParams.get("public_status");
   if (publicStatus?.startsWith("eq.")) rows = rows.filter((row) => row.public_status === publicStatus.slice(3));
 
@@ -283,6 +300,9 @@ function filterRows(table, url) {
   }
   if (order?.startsWith("observed_at.desc")) {
     rows.sort((a, b) => new Date(b.observed_at).getTime() - new Date(a.observed_at).getTime());
+  }
+  if (order?.startsWith("published_at.desc")) {
+    rows.sort((a, b) => new Date(b.published_at ?? 0).getTime() - new Date(a.published_at ?? 0).getTime());
   }
   if (order?.startsWith("title.asc")) rows.sort((a, b) => a.title.localeCompare(b.title));
 
@@ -344,6 +364,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/automation_settings" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(automationSettings, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/official_patch_notes" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(officialPatchNotes, url));
     return;
   }
 

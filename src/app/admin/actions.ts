@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
 import { runAutomationMonitor } from "@/lib/automation/run";
@@ -8,12 +8,14 @@ import {
   setAutomationPaused as setAutomationPausedState,
   type AutomationSettingsClient,
 } from "@/lib/automation/settings";
-import { CURRENT_PATCH, FIX_STATUSES } from "@/lib/constants";
+import { CURRENT_PATCH_TAG, PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
+import { FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { draftDossierWithAi } from "@/lib/ai";
 import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
+import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { classifySignal, summarize } from "@/lib/reddit";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { createServiceClient } from "@/lib/supabase";
@@ -60,6 +62,15 @@ function relatedReport<T>(value: RelatedReport<T>): T | null {
 
 function throwReadError(label: string, error: { message: string } | null): void {
   if (error) throw new Error(`${label} read failed: ${error.message}`);
+}
+
+function revalidatePublicSurfaces(): void {
+  revalidateTag(PUBLIC_DASHBOARD_TAG, "max");
+  revalidateTag(PUBLIC_ISSUES_TAG, "max");
+  revalidateTag(CURRENT_PATCH_TAG, "max");
+  revalidatePath("/");
+  revalidatePath("/issues");
+  revalidatePath("/report");
 }
 
 function distinctVerifiedReports(rows: CompileVerifiedRow[]): DossierVerifiedReport[] {
@@ -109,8 +120,7 @@ export async function moderateReport(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/admin");
-  revalidatePath("/");
-  revalidatePath("/issues");
+  revalidatePublicSurfaces();
 }
 
 export async function setClusterFixStatus(formData: FormData): Promise<void> {
@@ -124,14 +134,14 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
-  revalidatePath("/");
-  revalidatePath("/issues");
+  revalidatePublicSurfaces();
 }
 
 export async function compileDossier(formData: FormData): Promise<void> {
   await requireAdmin();
   const useAi = formData.get("use_ai") === "on";
   const supabase = createServiceClient();
+  const currentPatch = await getCurrentPatchMetadata(supabase);
 
   const { data: reports, error: reportsError } = await supabase
     .from("bug_reports")
@@ -192,7 +202,7 @@ export async function compileDossier(formData: FormData): Promise<void> {
 
   const deterministic = buildDeterministicDossier({
     generatedAt: new Date().toISOString(),
-    patchVersion: CURRENT_PATCH,
+    patchVersion: currentPatch.version,
     totalSignals: signalRows.length,
     totalDirectReports: rows.length,
     totalVerifiedReports: verifiedReports.length,
@@ -286,20 +296,21 @@ export async function runRedditMonitor(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/admin/source-monitor");
+  revalidatePublicSurfaces();
 }
 
 export async function runAutomationDryScan(): Promise<void> {
   await requireAdmin();
   await runAutomationMonitor({ mode: "dry_run" });
   revalidatePath("/admin/source-monitor");
+  revalidateTag(CURRENT_PATCH_TAG, "max");
 }
 
 export async function runAutomationCappedScan(): Promise<void> {
   await requireAdmin();
   await runAutomationMonitor({ mode: "manual" });
   revalidatePath("/admin/source-monitor");
-  revalidatePath("/");
-  revalidatePath("/issues");
+  revalidatePublicSurfaces();
 }
 
 export async function setAutomationPaused(formData: FormData): Promise<void> {
@@ -307,5 +318,5 @@ export async function setAutomationPaused(formData: FormData): Promise<void> {
   const paused = formData.get("paused") === "true";
   await setAutomationPausedState(createServiceClient() as unknown as AutomationSettingsClient, paused);
   revalidatePath("/admin/source-monitor");
-  revalidatePath("/");
+  revalidatePublicSurfaces();
 }

@@ -4,9 +4,11 @@ const mocks = vi.hoisted(() => ({
   extractSignalWithOpenRouter: vi.fn(),
   fetchNewPosts: vi.fn(),
   from: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
   getRedditToken: vi.fn(),
   getAutomationControlState: vi.fn(),
   runAutomationMonitor: vi.fn(),
+  syncOfficialPatchNote: vi.fn(),
   tavilySearch: vi.fn(),
 }));
 
@@ -37,9 +39,18 @@ vi.mock("@/lib/automation/extract", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/officialPatch.server", () => ({
+  CURRENT_PATCH_TAG: "current-patch",
+  PUBLIC_DASHBOARD_TAG: "public-dashboard",
+  PUBLIC_ISSUES_TAG: "public-issues",
+  getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
+  syncOfficialPatchNote: mocks.syncOfficialPatchNote,
+}));
+
 type Row = Record<string, unknown>;
 type TableName =
   | "automation_runs"
+  | "official_patch_notes"
   | "source_signals"
   | "issue_clusters"
   | "bug_reports"
@@ -54,6 +65,7 @@ type Filter =
 
 const tables: Record<TableName, Row[]> = {
   automation_runs: [],
+  official_patch_notes: [],
   source_signals: [],
   issue_clusters: [],
   bug_reports: [],
@@ -65,6 +77,15 @@ let idSeq = 1;
 let openRouterAttempts = 0;
 let selectFailure: { table: TableName; message: string } | null = null;
 let updateFailure: { table: TableName; message: string } | null = null;
+
+const officialPatchFixture = {
+  version: "1.13.00",
+  title: "Patch Notes Version 1.13.00",
+  officialUrl: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+  publishedAt: "2026-07-03T03:00:00.000Z",
+  summary: "Official test patch metadata.",
+  source: "official" as const,
+};
 
 function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   for (const table of Object.keys(tables) as TableName[]) {
@@ -256,6 +277,8 @@ async function importRunner() {
 
 function configureProviders() {
   mocks.from.mockImplementation((table: TableName) => new FakeQuery(table));
+  mocks.getCurrentPatchMetadata.mockResolvedValue(officialPatchFixture);
+  mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: officialPatchFixture });
   mocks.getRedditToken.mockResolvedValue("reddit-token");
   mocks.fetchNewPosts.mockResolvedValue([
     {
@@ -335,6 +358,19 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()).toHaveLength(0);
     expect(tables.issue_clusters).toHaveLength(0);
     expect(mutations.filter((mutation) => mutation.table !== "automation_runs")).toHaveLength(0);
+    expect(mocks.syncOfficialPatchNote).not.toHaveBeenCalled();
+  });
+
+  it("uses the official current patch version when planning source searches", async () => {
+    const patch = { ...officialPatchFixture, version: "1.14.00", title: "Patch Notes Version 1.14.00" };
+    mocks.getCurrentPatchMetadata.mockResolvedValue(patch);
+    mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: true, patch });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilySearch).toHaveBeenCalled();
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("patch 1.14.00");
   });
 
   it("budget 0 skips paid search and OpenRouter attempts but still stores deterministic Reddit signals", async () => {

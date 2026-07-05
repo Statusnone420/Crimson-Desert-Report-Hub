@@ -1,7 +1,10 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
+import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
+import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { createServiceClient } from "@/lib/supabase";
 
 export type ClusterRow = {
@@ -104,7 +107,7 @@ export function countDistinctVerifiedReportsByCluster(rows: VerifiedReportCluste
   return countClusterIds(clusterRows);
 }
 
-export async function getDashboardData() {
+async function getDashboardDataUncached() {
   const supabase = createServiceClient();
 
   const { data: reports } = await supabase
@@ -142,13 +145,14 @@ export async function getDashboardData() {
     .order("created_at", { ascending: false })
     .limit(1);
 
-  const [scanner, latestAutomation] = await Promise.all([
+  const [scanner, latestAutomation, currentPatch] = await Promise.all([
     getAutomationControlState(supabase as unknown as AutomationSettingsClient),
     supabase
       .from("automation_runs")
       .select("started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted")
       .order("started_at", { ascending: false })
       .limit(1),
+    getCurrentPatchMetadata(supabase),
   ]);
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -188,10 +192,16 @@ export async function getDashboardData() {
     latestReportAt: latest?.[0]?.created_at ?? null,
     scanner,
     latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
+    currentPatch,
   };
 }
 
-export async function getIssuesData() {
+export const getDashboardData = unstable_cache(getDashboardDataUncached, ["dashboard-data"], {
+  revalidate: 300,
+  tags: [PUBLIC_DASHBOARD_TAG],
+});
+
+async function getIssuesDataUncached() {
   const supabase = createServiceClient();
 
   const { data: clusterData } = await supabase
@@ -252,6 +262,11 @@ export async function getIssuesData() {
 
   return { clusters, excerptsByCluster, signalsByCluster };
 }
+
+export const getIssuesData = unstable_cache(getIssuesDataUncached, ["issues-data"], {
+  revalidate: 300,
+  tags: [PUBLIC_ISSUES_TAG],
+});
 
 export async function getAutomationAdminData() {
   const supabase = createServiceClient();

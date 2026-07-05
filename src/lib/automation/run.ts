@@ -9,6 +9,7 @@ import { buildSearchQueries, tavilySearch, type SearchResult } from "@/lib/autom
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { automationBudgetUsd, automationSubreddits, features } from "@/lib/env";
+import { getCurrentPatchMetadata, syncOfficialPatchNote } from "@/lib/officialPatch.server";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { createServiceClient } from "@/lib/supabase";
 
@@ -163,7 +164,12 @@ async function loadMonthSpend(
   );
 }
 
-async function collectInputs(result: AutomationResult, budget: AutomationBudget, now: Date): Promise<SourceInput[]> {
+async function collectInputs(
+  result: AutomationResult,
+  budget: AutomationBudget,
+  now: Date,
+  patchVersion: string,
+): Promise<SourceInput[]> {
   const inputs: SourceInput[] = [];
   const f = features();
 
@@ -194,7 +200,7 @@ async function collectInputs(result: AutomationResult, budget: AutomationBudget,
   }
 
   if (f.webSearch && budget.allowPaidSearch) {
-    for (const query of buildSearchQueries(budget.maxSearchQueries)) {
+    for (const query of buildSearchQueries(budget.maxSearchQueries, patchVersion)) {
       try {
         result.searchQueriesUsed += 1;
         result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
@@ -217,6 +223,7 @@ async function prepareSignals(
   inputs: SourceInput[],
   result: AutomationResult,
   budget: AutomationBudget,
+  patchVersion: string,
 ): Promise<PreparedSignal[]> {
   const prepared: PreparedSignal[] = [];
   const seenUrls = new Set<string>();
@@ -248,12 +255,15 @@ async function prepareSignals(
     if (extraction.llmCallUsed) result.llmCallsUsed += 1;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
 
-    const relevance = shouldKeepAutomatedSignal({
-      title: signal.title,
-      snippet: signal.body,
-      sourceDomain: signal.sourceDomain,
-      extraction,
-    });
+    const relevance = shouldKeepAutomatedSignal(
+      {
+        title: signal.title,
+        snippet: signal.body,
+        sourceDomain: signal.sourceDomain,
+        extraction,
+      },
+      { currentPatchVersion: patchVersion },
+    );
     if (!relevance.keep) {
       result.skips.push(relevance.reason);
       continue;
@@ -561,8 +571,18 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     return result;
   }
 
-  const inputs = await collectInputs(result, budget, now);
-  const prepared = await prepareSignals(inputs, result, budget);
+  let currentPatch = await getCurrentPatchMetadata(supabase);
+  if (input.mode !== "dry_run") {
+    try {
+      currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
+    } catch (error) {
+      result.status = "partial";
+      result.errors.push(toErrorMessage(error, "official patch sync failed"));
+    }
+  }
+
+  const inputs = await collectInputs(result, budget, now, currentPatch.version);
+  const prepared = await prepareSignals(inputs, result, budget, currentPatch.version);
 
   if (input.mode !== "dry_run") {
     try {

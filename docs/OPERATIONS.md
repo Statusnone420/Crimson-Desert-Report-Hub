@@ -26,6 +26,8 @@ Important: the service role key must never be exposed in browser code or committ
 
 Apply migrations from `supabase/migrations` in timestamp order. The production migration history must match those filenames for the Supabase GitHub integration to pass.
 
+The `official_patch_notes` table stores only compact Pearl Abyss patch metadata: board number, title, patch version, official URL, publish time, and a short summary. It does not store the full patch article.
+
 ### Vercel
 
 Vercel hosts the Next.js app and scheduled cron route.
@@ -38,6 +40,8 @@ Required Vercel env vars:
 - all Supabase required vars
 
 The scheduled scan runs through `/api/cron/keepalive`. That route requires `Authorization: Bearer <CRON_SECRET>`.
+
+Public dashboard data is cached server-side for five minutes and revalidated after report, moderation, scanner, and patch-metadata writes. This keeps weak mobile connections from waiting on every Supabase read.
 
 Custom domain:
 
@@ -72,6 +76,12 @@ crimsonreporthub.com
 ```
 
 ## Optional Automation Providers
+
+### Official Pearl Abyss Patch Notes
+
+No API key is required. Real scanner runs fetch the public Pearl Abyss announcements page, store the current patch metadata in Supabase, and use that version when planning source searches. The dashboard links directly to the official patch note.
+
+No-write source previews may fetch Tavily/OpenRouter, but they intentionally do not update the persisted patch row or public dashboard counters.
 
 ### Tavily
 

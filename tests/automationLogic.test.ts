@@ -8,6 +8,7 @@ import {
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { shouldKeepAutomatedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
+import { parseOfficialNoticeList, parseOfficialPatchDetail, patchVersionFromTitle } from "@/lib/officialPatch";
 
 const crashCandidate = {
   title: "Crimson Desert map crash still happens",
@@ -467,6 +468,10 @@ describe("search planning", () => {
     expect(buildSearchQueries(999)).toHaveLength(5);
   });
 
+  it("can target a server-derived patch version", () => {
+    expect(buildSearchQueries(1, "1.14.00")).toEqual(["Crimson Desert patch 1.14.00 FPS drops stutter issue"]);
+  });
+
   it("calls Tavily with injected fetch and maps results", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,
@@ -554,5 +559,56 @@ describe("search planning", () => {
         observedAt: "2026-07-05T12:00:00.000Z",
       },
     ]);
+  });
+});
+
+describe("official patch metadata", () => {
+  it("extracts a patch version from the official title format", () => {
+    expect(patchVersionFromTitle("Patch Notes Version 1.13.00")).toBe("1.13.00");
+    expect(patchVersionFromTitle("Known Issues")).toBeNull();
+  });
+
+  it("parses the latest official patch note from the notice list", () => {
+    const html = `
+      <a href="/en-US/News/Notice/Detail?_boardNo=105">
+        <img src="/patch.jpg" alt="" />
+        <p class="title css-ellipsis">Patch Notes Version 1.13.00</p>
+      </a>
+      <a href="/en-US/News/Notice/Detail?_boardNo=104">
+        <p class="title css-ellipsis">Known Issues</p>
+      </a>
+    `;
+
+    expect(parseOfficialNoticeList(html)).toEqual({
+      boardNo: "105",
+      title: "Patch Notes Version 1.13.00",
+      patchVersion: "1.13.00",
+      officialUrl: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+    });
+  });
+
+  it("parses detail metadata without storing the full patch article", () => {
+    const detail = parseOfficialPatchDetail(
+      `
+        <meta property="og:title" content="[Updates] Patch Notes Version 1.13.00 | Crimson Desert" />
+        <meta name="description" content="This patch adds fixes and stability improvements." />
+        <h1>Patch Notes Version 1.13.00</h1>
+        <time>Jul 3, 2026, 03:00 (UTC)</time>
+      `,
+      {
+        boardNo: "105",
+        title: "Patch Notes Version 1.13.00",
+        patchVersion: "1.13.00",
+        officialUrl: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+      },
+    );
+
+    expect(detail).toMatchObject({
+      boardNo: "105",
+      title: "Patch Notes Version 1.13.00",
+      patchVersion: "1.13.00",
+      publishedAt: "2026-07-03T03:00:00.000Z",
+      summary: "This patch adds fixes and stability improvements.",
+    });
   });
 });

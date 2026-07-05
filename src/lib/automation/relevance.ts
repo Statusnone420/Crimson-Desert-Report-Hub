@@ -81,20 +81,23 @@ function explicitPatchVersions(text: string): string[] {
   return [...new Set(versions)];
 }
 
-function mentionsOnlyOtherPatch(text: string): boolean {
+function mentionsOnlyOtherPatch(text: string, currentPatchVersion: string): boolean {
   const versions = explicitPatchVersions(text);
   if (versions.length === 0) return false;
-  return !versions.includes(normalizePatch(CURRENT_PATCH));
+  return !versions.includes(normalizePatch(currentPatchVersion));
 }
 
-export function shouldKeepAutomatedSignal(input: SignalRelevanceInput): SignalRelevanceDecision {
+export function shouldKeepAutomatedSignal(
+  input: SignalRelevanceInput,
+  options: { currentPatchVersion?: string } = {},
+): SignalRelevanceDecision {
   if (input.extraction.category === "other") {
     return { keep: false, reason: "category_other" };
   }
 
   const sourceText = compact(`${input.title} ${input.snippet}`);
   const extractionText = compact(`${input.extraction.issueTitle} ${input.extraction.summary}`);
-  if (mentionsOnlyOtherPatch(sourceText)) {
+  if (mentionsOnlyOtherPatch(sourceText, options.currentPatchVersion ?? CURRENT_PATCH)) {
     return { keep: false, reason: "wrong_patch" };
   }
 

@@ -4,6 +4,7 @@ import { canonicalizeUrl } from "@/lib/automation/dedupe";
 import { extractSignalWithOpenRouter, type ExtractionResult } from "@/lib/automation/extract";
 import { shouldKeepAutomatedSignal, type SignalRelevanceDecision } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
+import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 
 const SEARCH_QUERY_COST_USD = 0.008;
 const MAX_PREVIEW_QUERIES = 2;
@@ -11,6 +12,7 @@ const MAX_PREVIEW_RESULTS = 5;
 
 export type AutomationSourcePreview = {
   mode: "preview";
+  patchVersion: string;
   maxQueries: number;
   queriesUsed: number;
   resultsSeen: number;
@@ -35,8 +37,9 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
   const previews: AutomationSourcePreview["previews"] = [];
   let queriesUsed = 0;
   let resultsSeen = 0;
+  const currentPatch = await getCurrentPatchMetadata();
 
-  for (const query of buildSearchQueries(maxQueries)) {
+  for (const query of buildSearchQueries(maxQueries, currentPatch.version)) {
     queriesUsed += 1;
     const results = await tavilySearch(query);
     resultsSeen += results.length;
@@ -60,12 +63,15 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
         url,
         sourceDomain: result.sourceDomain,
         extraction,
-        relevance: shouldKeepAutomatedSignal({
-          title: result.title,
-          snippet: result.snippet,
-          sourceDomain: result.sourceDomain,
-          extraction,
-        }),
+        relevance: shouldKeepAutomatedSignal(
+          {
+            title: result.title,
+            snippet: result.snippet,
+            sourceDomain: result.sourceDomain,
+            extraction,
+          },
+          { currentPatchVersion: currentPatch.version },
+        ),
       });
 
       if (previews.length >= MAX_PREVIEW_RESULTS) break;
@@ -76,6 +82,7 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
 
   return {
     mode: "preview",
+    patchVersion: currentPatch.version,
     maxQueries,
     queriesUsed,
     resultsSeen,
