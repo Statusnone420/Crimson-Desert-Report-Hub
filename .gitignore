@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# local agent worktrees
+/.worktrees
+
 # next.js
 /.next/
 /out/
