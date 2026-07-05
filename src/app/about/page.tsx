@@ -31,6 +31,22 @@ export default function AboutPage() {
       </section>
 
       <section className="panel space-y-3 text-sm leading-6">
+        <h2 className="text-lg font-semibold">Public source</h2>
+        <p>
+          The website code is intended to be public for transparency, privacy review, and community contributions.
+          Deployment secrets and private environment variables are never committed to the repository.
+        </p>
+        <a
+          href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub"
+          target="_blank"
+          rel="noreferrer noopener"
+          style={{ color: "var(--blue)" }}
+        >
+          View the source on GitHub
+        </a>
+      </section>
+
+      <section className="panel space-y-3 text-sm leading-6">
         <h2 className="text-lg font-semibold">Use official support too</h2>
         <p>
           This site aggregates community evidence; it does not replace official channels. If you have crash
