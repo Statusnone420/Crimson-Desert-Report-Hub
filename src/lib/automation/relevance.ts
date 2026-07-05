@@ -1,6 +1,7 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
+import { CURRENT_PATCH } from "@/lib/constants";
 
-export type RelevanceSkipReason = "category_other" | "source_not_issue_report";
+export type RelevanceSkipReason = "category_other" | "source_not_issue_report" | "wrong_patch";
 
 export type SignalRelevanceDecision = { keep: true } | { keep: false; reason: RelevanceSkipReason };
 
@@ -26,6 +27,10 @@ const BROAD_CONTENT_PATTERNS = [
   /\breview\b/i,
   /\bbenchmark\b/i,
   /\bperformance test\b/i,
+  /\bperformance fixes?\b/i,
+  /\bhow to fix\b/i,
+  /\bfix (?:lag|stutter|stuttering|fps|low fps)\b/i,
+  /\btroubleshooting\b/i,
   /\bsettings guide\b/i,
   /\bgameplay\b/i,
   /\btrailer\b/i,
@@ -58,6 +63,30 @@ function isBroadContentTitle(title: string): boolean {
   return matchesAny(title, BROAD_CONTENT_PATTERNS);
 }
 
+function normalizePatch(value: string): string {
+  return value.replace(/(?:\.0+)+$/g, "");
+}
+
+function explicitPatchVersions(text: string): string[] {
+  const versions: string[] = [];
+  const patterns = [
+    /\b(?:patch|update|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
+    /\b(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update)\b/gi,
+  ] as const;
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      if (match[1]) versions.push(normalizePatch(match[1]));
+    }
+  }
+  return [...new Set(versions)];
+}
+
+function mentionsOnlyOtherPatch(text: string): boolean {
+  const versions = explicitPatchVersions(text);
+  if (versions.length === 0) return false;
+  return !versions.includes(normalizePatch(CURRENT_PATCH));
+}
+
 export function shouldKeepAutomatedSignal(input: SignalRelevanceInput): SignalRelevanceDecision {
   if (input.extraction.category === "other") {
     return { keep: false, reason: "category_other" };
@@ -65,10 +94,14 @@ export function shouldKeepAutomatedSignal(input: SignalRelevanceInput): SignalRe
 
   const sourceText = compact(`${input.title} ${input.snippet}`);
   const extractionText = compact(`${input.extraction.issueTitle} ${input.extraction.summary}`);
+  if (mentionsOnlyOtherPatch(sourceText)) {
+    return { keep: false, reason: "wrong_patch" };
+  }
+
   const sourceHasSymptom = hasSymptomLanguage(sourceText);
   const extractionHasSymptom = hasSymptomLanguage(extractionText) && !saysNoIssue(extractionText);
 
-  if (isBroadContentTitle(input.title) && !sourceHasSymptom) {
+  if (isBroadContentTitle(input.title)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
 

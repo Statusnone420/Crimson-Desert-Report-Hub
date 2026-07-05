@@ -417,6 +417,37 @@ describe("automation relevance", () => {
       }),
     ).toEqual({ keep: false, reason: "source_not_issue_report" });
   });
+
+  it("rejects SEO fix guides and issue reports from a different patch", () => {
+    const extraction = {
+      issueTitle: "Low FPS and stuttering",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: "Players experience low FPS, lag, stuttering, and sudden FPS drops.",
+      extractionProvider: "openrouter",
+      extractionModel: "openrouter/free",
+      llmCallUsed: true,
+    } as const;
+
+    expect(
+      shouldKeepAutomatedSignal({
+        title: "How To Fix Crimson Desert Low FPS, Lag, Stuttering & FPS Drops",
+        snippet: "A troubleshooting guide for Windows settings.",
+        sourceDomain: "youtube.com",
+        extraction,
+      }),
+    ).toEqual({ keep: false, reason: "source_not_issue_report" });
+
+    expect(
+      shouldKeepAutomatedSignal({
+        title: "RTX 5080 Ruined After 1.04 Patch - Sudden FPS Drops & Heavy Stuttering",
+        snippet: "Steam discussion about patch 1.04.",
+        sourceDomain: "steamcommunity.com",
+        extraction,
+      }),
+    ).toEqual({ keep: false, reason: "wrong_patch" });
+  });
 });
 
 describe("search planning", () => {

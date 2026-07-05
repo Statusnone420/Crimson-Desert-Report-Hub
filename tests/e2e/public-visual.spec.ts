@@ -67,6 +67,21 @@ test.describe("public surface visual regression", () => {
     await expect(page).toHaveScreenshot("about.png", { fullPage: true });
   });
 
+  test("owner console unlocks admin shortcuts", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Owner" }).click();
+    await expect(page.getByLabel("Admin password")).toBeVisible();
+    await page.getByLabel("Admin password").fill("admin-password");
+    await page.getByRole("button", { name: "Unlock controls" }).click();
+
+    await expect(page.getByRole("link", { name: "Moderation queue" })).toHaveAttribute("href", "/admin");
+    await expect(page.getByRole("link", { name: "Source monitor" })).toHaveAttribute("href", "/admin/source-monitor");
+    await expect(page.getByRole("link", { name: "Compile dossier" })).toHaveAttribute("href", "/admin/compile");
+    await expectHealthyPage(page, problems);
+  });
+
   test("report form submits to the success state", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/report");

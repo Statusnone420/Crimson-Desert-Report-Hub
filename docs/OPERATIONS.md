@@ -126,11 +126,11 @@ The scanner has a conservative relevance gate before anything is written as a so
 
 Admin is currently a single shared password, not named user accounts.
 
-1. Open `/admin/login`.
+1. Use the small `Owner` control in the footer, or open `/admin/login`.
 2. Enter the `ADMIN_PASSWORD` value from Vercel.
-3. Use `/admin` for report moderation.
-4. Use `/admin/source-monitor` for scanner runs, pause/resume, and recent source signals.
-5. Use `/admin/compile` to generate the evidence dossier.
+3. Use `Moderation queue` for report moderation.
+4. Use `Source monitor` for scanner runs, pause/resume, and recent source signals.
+5. Use `Compile dossier` to generate the evidence dossier.
 
 To add another human admin today, give them the admin password through a private channel and rotate `ADMIN_PASSWORD` if access should be revoked. Named admin accounts can be added later with a real auth provider, but they are intentionally not part of this low-friction launch build.
 
