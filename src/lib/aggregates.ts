@@ -2,7 +2,7 @@ export function countBy<T>(rows: T[], key: (row: T) => string | null | undefined
   const out: Record<string, number> = {};
   for (const row of rows) {
     const k = key(row);
-    if (!k) continue;
+    if (k == null) continue;
     out[k] = (out[k] ?? 0) + 1;
   }
   return out;

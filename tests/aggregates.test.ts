@@ -3,8 +3,8 @@ import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 
 describe("countBy", () => {
   it("counts by key and ignores null keys", () => {
-    const rows = [{ k: "a" }, { k: "b" }, { k: "a" }, { k: null }];
-    expect(countBy(rows, (r) => r.k)).toEqual({ a: 2, b: 1 });
+    const rows = [{ k: "a" }, { k: "b" }, { k: "a" }, { k: null }, { k: "" }];
+    expect(countBy(rows, (r) => r.k)).toEqual({ "": 1, a: 2, b: 1 });
   });
 });
 
