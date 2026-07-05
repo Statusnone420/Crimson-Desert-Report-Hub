@@ -26,9 +26,21 @@ describe("verifyTurnstile", () => {
 
   it("passes through cloudflare success", async () => {
     process.env.TURNSTILE_SECRET_KEY = "sec";
-    global.fetch = vi.fn().mockResolvedValue({ json: async () => ({ success: true }) }) as unknown as typeof fetch;
+    const fetchMock = vi.fn().mockResolvedValue({ json: async () => ({ success: true }) });
+    global.fetch = fetchMock as unknown as typeof fetch;
     const r = await verifyTurnstile("tok", "203.0.113.7");
     expect(r).toEqual({ ok: true, skipped: false });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      }),
+    );
+    const body = fetchMock.mock.calls[0][1]?.body as URLSearchParams;
+    expect(body.get("secret")).toBe("sec");
+    expect(body.get("response")).toBe("tok");
+    expect(body.get("remoteip")).toBe("203.0.113.7");
   });
 
   it("fails closed on cloudflare rejection or network error", async () => {
