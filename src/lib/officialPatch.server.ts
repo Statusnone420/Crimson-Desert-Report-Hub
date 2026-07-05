@@ -10,7 +10,7 @@ import {
   type OfficialPatchFetchLike,
   type OfficialPatchNote,
 } from "@/lib/officialPatch";
-import { createServiceClient } from "@/lib/supabase";
+import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export { CURRENT_PATCH_TAG, PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 
@@ -37,7 +37,7 @@ type SyncOfficialPatchResult =
   | { status: "synced"; changed: boolean; patch: CurrentPatchMetadata }
   | { status: "skipped"; reason: "not_found"; patch: CurrentPatchMetadata };
 
-function fallbackPatch(): CurrentPatchMetadata {
+export function fallbackCurrentPatchMetadata(): CurrentPatchMetadata {
   return {
     version: CURRENT_PATCH,
     title: `Patch Notes Version ${CURRENT_PATCH}`,
@@ -78,16 +78,17 @@ async function readCurrentPatchUncached(supabase: SupabaseClient): Promise<Curre
       .eq("is_current", true)
       .order("published_at", { ascending: false, nullsFirst: false })
       .limit(1);
-    if (error) return fallbackPatch();
+    if (error) return fallbackCurrentPatchMetadata();
     const row = ((data ?? []) as OfficialPatchRow[])[0];
-    return row ? rowToCurrent(row) : fallbackPatch();
+    return row ? rowToCurrent(row) : fallbackCurrentPatchMetadata();
   } catch {
-    return fallbackPatch();
+    return fallbackCurrentPatchMetadata();
   }
 }
 
 export const getCachedCurrentPatchMetadata = unstable_cache(
-  async () => readCurrentPatchUncached(createServiceClient()),
+  async () =>
+    hasSupabaseServiceConfig() ? readCurrentPatchUncached(createServiceClient()) : fallbackCurrentPatchMetadata(),
   ["current-patch-metadata"],
   { revalidate: 300, tags: [CURRENT_PATCH_TAG] },
 );

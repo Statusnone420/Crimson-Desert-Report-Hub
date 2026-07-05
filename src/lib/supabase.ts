@@ -5,6 +5,10 @@ import { requiredEnv } from "@/lib/env";
 
 let cached: SupabaseClient | null = null;
 
+export function hasSupabaseServiceConfig(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+}
+
 /** Server-only. Never import from a client component. */
 export function createServiceClient(): SupabaseClient {
   if (cached) return cached;

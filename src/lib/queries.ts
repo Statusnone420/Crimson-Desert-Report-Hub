@@ -5,7 +5,7 @@ import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { createServiceClient } from "@/lib/supabase";
+import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export type ClusterRow = {
   id: string;
@@ -108,6 +108,26 @@ export function countDistinctVerifiedReportsByCluster(rows: VerifiedReportCluste
 }
 
 async function getDashboardDataUncached() {
+  if (!hasSupabaseServiceConfig()) {
+    return {
+      total: 0,
+      communitySignals: 0,
+      directReports: 0,
+      verifiedReports: 0,
+      weekDelta: 0,
+      byCategory: {},
+      signalByCategory: {},
+      platforms: {},
+      series: buildDailySeries([], 30, new Date()),
+      topClusters: [],
+      pendingCount: 0,
+      latestReportAt: null,
+      scanner: { paused: false, updatedAt: null },
+      latestAutomationRun: null,
+      currentPatch: await getCurrentPatchMetadata(),
+    };
+  }
+
   const supabase = createServiceClient();
 
   const { data: reports } = await supabase
@@ -202,6 +222,10 @@ export const getDashboardData = unstable_cache(getDashboardDataUncached, ["dashb
 });
 
 async function getIssuesDataUncached() {
+  if (!hasSupabaseServiceConfig()) {
+    return { clusters: [], excerptsByCluster: {}, signalsByCluster: {} };
+  }
+
   const supabase = createServiceClient();
 
   const { data: clusterData } = await supabase

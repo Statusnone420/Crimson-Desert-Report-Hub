@@ -43,6 +43,8 @@ The scheduled scan runs through `/api/cron/keepalive`. That route requires `Auth
 
 Public dashboard data is cached server-side for five minutes and revalidated after report, moderation, scanner, and patch-metadata writes. This keeps weak mobile connections from waiting on every Supabase read.
 
+The public pages `/`, `/issues`, and `/report` are built as five-minute ISR pages. If Supabase service credentials are missing during a public build, those pages render a safe empty shell with fallback patch metadata instead of failing the build. Protected admin pages and API routes still require the real environment variables and fail closed.
+
 Custom domain:
 
 ```text

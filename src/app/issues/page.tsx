@@ -2,7 +2,7 @@ import { ConfidenceBadge, FixStatusBadge } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { getIssuesData } from "@/lib/queries";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 function SignalConfidenceBadge({ confidence }: { confidence: "low" | "medium" | "high" }) {
   if (confidence === "high") return <span className="badge badge-green">High confidence</span>;

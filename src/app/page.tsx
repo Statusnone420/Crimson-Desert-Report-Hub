@@ -4,7 +4,7 @@ import { FixStatusBadge, MeterBar, StatCard } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { getDashboardData } from "@/lib/queries";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "no reports yet";
