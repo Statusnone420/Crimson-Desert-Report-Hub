@@ -26,6 +26,10 @@ test.describe("public surface visual regression", () => {
 
     await expect(page).toHaveTitle(/Crimson Desert Report Hub/i);
     await expect(page.getByRole("heading", { name: "Crimson Desert report hub" })).toBeVisible();
+    await expect(page.getByText("Community signals", { exact: true })).toBeVisible();
+    await expect(page.getByText("Direct reports", { exact: true })).toBeVisible();
+    await expect(page.getByText(/\d+ signals · \d+ reports/).first()).toBeVisible();
+    await expect(page.getByText("2 signals · 6 reports")).toBeVisible();
     await expect(page.getByText("FPS regression since 1.13")).toBeVisible();
     await expect(page.getByText("Map-open crash persists after fix")).toBeVisible();
     await expectHealthyPage(page, problems);
@@ -37,7 +41,9 @@ test.describe("public surface visual regression", () => {
     await page.goto("/issues");
 
     await expect(page.getByRole("heading", { name: "Issue clusters" })).toBeVisible();
+    await expect(page.getByText("Community signals").first()).toBeVisible();
     await expect(page.getByText("Approved excerpts").first()).toBeVisible();
+    await expect(page.getByText("private low confidence")).toHaveCount(0);
     await expect(page.getByText("Raw submissions are never published.")).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("issues.png", { fullPage: true });

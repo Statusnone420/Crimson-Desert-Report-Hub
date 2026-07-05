@@ -5,7 +5,7 @@ import { getIssuesData } from "@/lib/queries";
 export const dynamic = "force-dynamic";
 
 export default async function IssuesPage() {
-  const { clusters, excerptsByCluster } = await getIssuesData();
+  const { clusters, excerptsByCluster, signalsByCluster } = await getIssuesData();
 
   return (
     <div className="space-y-5">
@@ -13,8 +13,8 @@ export default async function IssuesPage() {
         <p className="stat-label">Moderated public evidence</p>
         <h1 className="text-3xl font-semibold tracking-tight">Issue clusters</h1>
         <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-          Grouped from reviewed community reports. Quotes are admin-approved excerpts only. Raw submissions are never
-          published.
+          Grouped from public community signals and reviewed direct reports. Quotes are admin-approved excerpts only. Raw
+          submissions are never published.
         </p>
       </section>
 
@@ -32,7 +32,7 @@ export default async function IssuesPage() {
                   <h2 className="text-lg font-semibold">{cluster.title}</h2>
                   <p className="mt-1 text-sm" style={{ color: "var(--text-dim)" }}>
                     {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category} ·{" "}
-                    {cluster.count} approved reports
+                    {cluster.signalCount} community signals · {cluster.directReportCount} approved reports
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -43,10 +43,42 @@ export default async function IssuesPage() {
 
               <p className="text-sm leading-6">{cluster.description}</p>
 
-              {(excerptsByCluster[cluster.id] ?? []).length > 0 ? (
-                <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
-                  <div className="stat-label">Approved excerpts</div>
-                  {(excerptsByCluster[cluster.id] ?? []).slice(0, 3).map((excerpt, index) => (
+              <div className="space-y-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+                <div className="stat-label">Community signals</div>
+                {(signalsByCluster[cluster.id] ?? []).length > 0 ? (
+                  <div className="space-y-3">
+                    {(signalsByCluster[cluster.id] ?? []).slice(0, 3).map((signal) => (
+                      <div key={signal.id} className="space-y-1 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ConfidenceBadge confidence={signal.confidence} />
+                          <span className="badge badge-dim">{signal.source.replace("_", " ")}</span>
+                        </div>
+                        <p className="leading-6" style={{ color: "var(--text-dim)" }}>
+                          {signal.summary}
+                        </p>
+                        <a
+                          href={signal.source_url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="text-xs"
+                          style={{ color: "var(--blue)" }}
+                        >
+                          View source
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                    No public community signals yet.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+                <div className="stat-label">Approved excerpts</div>
+                {(excerptsByCluster[cluster.id] ?? []).length > 0 ? (
+                  (excerptsByCluster[cluster.id] ?? []).slice(0, 3).map((excerpt, index) => (
                     <blockquote
                       key={`${cluster.id}-${index}`}
                       className="text-sm leading-6"
@@ -54,13 +86,13 @@ export default async function IssuesPage() {
                     >
                       "{excerpt.text}" · {PLATFORM_LABELS[excerpt.platform as keyof typeof PLATFORM_LABELS] ?? excerpt.platform} player
                     </blockquote>
-                  ))}
-                </div>
-              ) : (
-                <p className="border-t pt-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
+                  ))
+                ) : (
+                  <p className="text-xs" style={{ color: "var(--text-dim)" }}>
                   No public excerpts approved yet.
-                </p>
-              )}
+                  </p>
+                )}
+              </div>
             </article>
           ))}
         </section>

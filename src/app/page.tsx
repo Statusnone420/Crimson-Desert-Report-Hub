@@ -17,7 +17,7 @@ function timeAgo(iso: string | null): string {
 
 export default async function DashboardPage() {
   const d = await getDashboardData();
-  const maxCluster = Math.max(...d.topClusters.map((cluster) => cluster.count), 1);
+  const maxCluster = Math.max(...d.topClusters.map((cluster) => cluster.strengthScore), 1);
   const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
   const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
   const persistentCount = d.topClusters.filter((cluster) => cluster.fix_status === "persists").length;
@@ -31,8 +31,8 @@ export default async function DashboardPage() {
             Crimson Desert report hub
           </h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            Moderated patch {CURRENT_PATCH} reports, clustered into evidence Pearl Abyss can act on.
-            Raw submissions stay private until reviewed.
+            Automated community signals plus direct patch {CURRENT_PATCH} reports, clustered into evidence Pearl Abyss can
+            act on. Raw submissions stay private until reviewed.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 md:justify-end">
@@ -44,9 +44,9 @@ export default async function DashboardPage() {
       </section>
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Approved reports" value={d.total} note={`+${d.weekDelta} this week`} tone="green" />
-        <StatCard label="Performance" value={d.byCategory.performance ?? 0} note="Watched category" tone="crimson" />
-        <StatCard label="Crashes / startup" value={d.byCategory.crash_startup ?? 0} tone="amber" />
+        <StatCard label="Community signals" value={d.communitySignals} note="Public automation only" tone="crimson" />
+        <StatCard label="Direct reports" value={d.directReports} note={`+${d.weekDelta} this week`} tone="green" />
+        <StatCard label="Verified reports" value={d.verifiedReports} note="Approved excerpts" tone="amber" />
         <StatCard
           label="Awaiting review"
           value={d.pendingCount}
@@ -61,7 +61,7 @@ export default async function DashboardPage() {
             <div>
               <h2 className="text-lg font-semibold">Top issues this patch</h2>
               <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                Ranked by approved direct reports. Last report: {timeAgo(d.latestReportAt)}.
+                Ranked by public community signals and approved direct reports. Last report: {timeAgo(d.latestReportAt)}.
               </p>
             </div>
             <Link href="/issues" className="btn btn-ghost">
@@ -82,10 +82,12 @@ export default async function DashboardPage() {
                       <span className="truncate font-medium">{cluster.title}</span>
                       <FixStatusBadge status={cluster.fix_status} />
                     </span>
-                    <span style={{ color: "var(--text-dim)" }}>{cluster.count} reports</span>
+                    <span className="ml-auto shrink-0" style={{ color: "var(--text-dim)" }}>
+                      {cluster.signalCount} signals · {cluster.directReportCount} reports
+                    </span>
                   </div>
                   <MeterBar
-                    value={cluster.count}
+                    value={cluster.strengthScore}
                     max={maxCluster}
                     color={cluster.fix_status === "persists" ? "var(--amber)" : "var(--crimson)"}
                   />
@@ -96,7 +98,7 @@ export default async function DashboardPage() {
 
           <p className="border-t pt-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
             Seeded issue clusters are tagged unverified and start at zero. Hidden seed clusters never enter public top issues
-            until direct reports confirm them.
+            until public signals or direct reports confirm them.
           </p>
         </div>
 

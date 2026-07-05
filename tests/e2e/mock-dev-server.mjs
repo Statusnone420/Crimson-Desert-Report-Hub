@@ -126,11 +126,91 @@ const signals = [
   {
     id: "signal-1",
     source: "reddit",
+    source_type: "reddit",
     source_url: "https://www.reddit.com/r/CrimsonDesert/comments/mock/fps/",
+    canonical_url: "https://www.reddit.com/r/CrimsonDesert/comments/mock/fps",
+    title: "FPS drops since patch 1.13",
+    source_domain: "reddit.com",
+    semantic_fingerprint: "mock-fps",
+    cluster_id: "cluster-fps",
+    public_status: "public",
     summary: "FPS drops since patch 1.13 (body retained for 48h moderator review)",
     category: "performance",
     confidence: "medium",
     observed_at: isoMinutesAgo(12),
+  },
+  {
+    id: "signal-2",
+    source: "web_search",
+    source_type: "web_search",
+    source_url: "https://community.example.com/crimson-desert-113-fps",
+    canonical_url: "https://community.example.com/crimson-desert-113-fps",
+    title: "Crimson Desert patch 1.13 FPS regression",
+    source_domain: "community.example.com",
+    semantic_fingerprint: "mock-fps",
+    cluster_id: "cluster-fps",
+    public_status: "public",
+    summary: "Multiple PC players mention stutter and FPS drops after patch 1.13.",
+    category: "performance",
+    confidence: "high",
+    observed_at: isoMinutesAgo(45),
+  },
+  {
+    id: "signal-private-1",
+    source: "reddit",
+    source_type: "reddit",
+    source_url: "https://www.reddit.com/r/CrimsonDesert/comments/mock/private/",
+    canonical_url: "https://www.reddit.com/r/CrimsonDesert/comments/mock/private",
+    title: "private low confidence rumor",
+    source_domain: "reddit.com",
+    semantic_fingerprint: "mock-private",
+    cluster_id: "cluster-private",
+    public_status: "private",
+    summary: "private low confidence signal should stay internal",
+    category: "other",
+    confidence: "low",
+    observed_at: isoMinutesAgo(20),
+  },
+];
+
+const automationRuns = [
+  {
+    id: "run-1",
+    started_at: isoMinutesAgo(30),
+    finished_at: isoMinutesAgo(28),
+    status: "success",
+    mode: "manual",
+    budget_monthly_usd: 5,
+    budget_remaining_before_usd: 4.92,
+    estimated_cost_usd: 0.016,
+    reddit_posts_seen: 12,
+    search_queries_used: 2,
+    search_results_seen: 8,
+    llm_calls_used: 0,
+    signals_inserted: 2,
+    signals_deduped: 1,
+    clusters_promoted: 1,
+    skips: ["openrouter_missing"],
+    errors: [],
+  },
+  {
+    id: "run-2",
+    started_at: isoDaysAgo(1),
+    finished_at: isoDaysAgo(1),
+    status: "partial",
+    mode: "dry_run",
+    budget_monthly_usd: 5,
+    budget_remaining_before_usd: 5,
+    estimated_cost_usd: 0,
+    reddit_posts_seen: 4,
+    search_queries_used: 0,
+    search_results_seen: 0,
+    llm_calls_used: 0,
+    signals_inserted: 0,
+    signals_deduped: 0,
+    clusters_promoted: 0,
+    skips: ["budget_zero"],
+    errors: ["search disabled for dry run fixture"],
   },
 ];
 
@@ -180,9 +260,15 @@ function filterRows(table, url) {
   const isPublic = url.searchParams.get("is_public");
   if (isPublic === "eq.true") rows = rows.filter((row) => row.is_public === true);
 
+  const publicStatus = url.searchParams.get("public_status");
+  if (publicStatus?.startsWith("eq.")) rows = rows.filter((row) => row.public_status === publicStatus.slice(3));
+
   const order = url.searchParams.get("order");
   if (order?.startsWith("created_at.desc")) {
     rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+  if (order?.startsWith("started_at.desc")) {
+    rows.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
   }
   if (order?.startsWith("observed_at.desc")) {
     rows.sort((a, b) => new Date(b.observed_at).getTime() - new Date(a.observed_at).getTime());
@@ -237,6 +323,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/source_signals" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(signals, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/automation_runs" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(automationRuns, url));
     return;
   }
 
