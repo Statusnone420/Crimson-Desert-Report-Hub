@@ -7,9 +7,10 @@
   --border: #34342f;
   --text: #f1f0eb;
   --text-dim: #aaa69b;
-  --text-faint: #747066;
+  --text-faint: #918c82;
   --crimson: #e24d43;
   --crimson-dim: #7d231f;
+  --crimson-action: #c8322b;
   --amber: #e3a332;
   --green: #23c05e;
   --blue: #8ab4e6;
@@ -86,10 +87,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--crimson-dim
 label { font-size: 0.8rem; color: var(--text-dim); display: block; margin-bottom: 4px; }
 
 .btn {
-  display: inline-block; background: var(--crimson); color: #fff; font-weight: 600;
+  display: inline-block; background: var(--crimson-action); color: #fff; font-weight: 600;
   border-radius: 8px; padding: 0.55rem 1.1rem; font-size: 0.9rem; border: none; cursor: pointer;
 }
-.btn:hover { background: #e75b4b; }
+.btn:hover { background: #bd2f28; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
 .btn-ghost:hover { background: var(--panel-2); color: var(--text); }

@@ -34,6 +34,136 @@ const settingsXml = `
   </EngineOptionVideo>
 </EngineOptionSave>`;
 
+type ContrastTarget = {
+  selector: string;
+  label: string;
+  optional?: boolean;
+};
+
+const DASHBOARD_CONTRAST_TARGETS: ContrastTarget[] = [
+  { selector: '.btn[href$="report"]', label: "submit report button" },
+  { selector: ".min-w-56 > .mt-1.text-xs", label: "scanner work summary" },
+  { selector: ".min-w-56 > .mt-2.text-xs", label: "scanner preview note" },
+  { selector: ".rounded-md.border.px-3:nth-child(1) > .mt-1.text-xs", label: "watchlist item 1 detail", optional: true },
+  { selector: ".rounded-md.border.px-3:nth-child(2) > .mt-1.text-xs", label: "watchlist item 2 detail", optional: true },
+  { selector: ".rounded-md.border.px-3:nth-child(3) > .mt-1.text-xs", label: "watchlist item 3 detail", optional: true },
+  { selector: ".rounded-md.border.px-3:nth-child(4) > .mt-1.text-xs", label: "watchlist item 4 detail", optional: true },
+];
+
+async function expectContrastAtLeast(page: Page, targets: ContrastTarget[], minimum = 4.5) {
+  const failures = await page.evaluate(
+    ({ targets, minimum }) => {
+      function parseRgb(value: string): [number, number, number, number] | null {
+        const match = value.match(/rgba?\(([^)]+)\)/);
+        if (!match) return null;
+        const parts = match[1]
+          .replace(/\//g, " ")
+          .split(value.includes(",") ? "," : /\s+/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const [r, g, b] = parts.slice(0, 3).map((part) => Number.parseFloat(part));
+        const alpha = parts[3] === undefined ? 1 : Number.parseFloat(parts[3]);
+        return [r, g, b, Number.isFinite(alpha) ? alpha : 1];
+      }
+
+      function relativeLuminance([r, g, b]: [number, number, number]) {
+        const [sr, sg, sb] = [r, g, b].map((channel) => {
+          const value = channel / 255;
+          return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * sr + 0.7152 * sg + 0.0722 * sb;
+      }
+
+      function contrastRatio(foreground: [number, number, number], background: [number, number, number]) {
+        const fg = relativeLuminance(foreground);
+        const bg = relativeLuminance(background);
+        return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+      }
+
+      function solidBackground(element: Element): [number, number, number] {
+        let current: Element | null = element;
+        while (current) {
+          const background = parseRgb(getComputedStyle(current).backgroundColor);
+          if (background && background[3] > 0) {
+            return [background[0], background[1], background[2]];
+          }
+          current = current.parentElement;
+        }
+        return [16, 17, 15];
+      }
+
+      return targets.flatMap((target) => {
+        const elements = [...document.querySelectorAll(target.selector)];
+        if (elements.length === 0) {
+          return target.optional ? [] : [`${target.label}: selector not found (${target.selector})`];
+        }
+        return elements.flatMap((element, index) => {
+          const color = parseRgb(getComputedStyle(element).color);
+          if (!color) return [`${target.label}: foreground color could not be parsed`];
+          const ratio = contrastRatio([color[0], color[1], color[2]], solidBackground(element));
+          return ratio >= minimum
+            ? []
+            : [`${target.label}${elements.length > 1 ? ` #${index + 1}` : ""}: ${ratio.toFixed(2)} < ${minimum}`];
+        });
+      });
+    },
+    { targets, minimum },
+  );
+
+  expect(failures).toEqual([]);
+}
+
+async function expectDesignTokenContrast(page: Page) {
+  const failures = await page.evaluate(() => {
+    function parseRgb(value: string): [number, number, number] {
+      const hex = value.trim().replace("#", "");
+      if (hex.length === 3 || hex.length === 6) {
+        const expanded = hex.length === 3 ? hex.split("").map((part) => `${part}${part}`).join("") : hex;
+        return [0, 2, 4].map((index) => Number.parseInt(expanded.slice(index, index + 2), 16)) as [
+          number,
+          number,
+          number,
+        ];
+      }
+      const match = value.match(/rgba?\(([^)]+)\)/);
+      if (!match) throw new Error(`Could not parse ${value}`);
+      const parts = match[1]
+        .split(",")
+        .map((part) => Number.parseFloat(part.trim()))
+        .slice(0, 3);
+      return [parts[0], parts[1], parts[2]];
+    }
+
+    function relativeLuminance([r, g, b]: [number, number, number]) {
+      const [sr, sg, sb] = [r, g, b].map((channel) => {
+        const value = channel / 255;
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * sr + 0.7152 * sg + 0.0722 * sb;
+    }
+
+    function contrastRatio(foreground: [number, number, number], background: [number, number, number]) {
+      const fg = relativeLuminance(foreground);
+      const bg = relativeLuminance(background);
+      return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+    }
+
+    const styles = getComputedStyle(document.documentElement);
+    const checks = [
+      { label: "faint text on panel", fg: styles.getPropertyValue("--text-faint"), bg: styles.getPropertyValue("--panel") },
+      { label: "faint text on inset panel", fg: styles.getPropertyValue("--text-faint"), bg: styles.getPropertyValue("--panel-2") },
+      { label: "white primary button text", fg: "#fff", bg: styles.getPropertyValue("--crimson-action") },
+    ];
+
+    return checks.flatMap((check) => {
+      const ratio = contrastRatio(parseRgb(check.fg), parseRgb(check.bg));
+      return ratio >= 4.5 ? [] : [`${check.label}: ${ratio.toFixed(2)} < 4.5`];
+    });
+  });
+
+  expect(failures).toEqual([]);
+}
+
 test.describe("public surface visual regression", () => {
   test("dashboard renders moderated patch intelligence", async ({ page }) => {
     const problems = collectConsoleProblems(page);
@@ -51,6 +181,16 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Map-open crash persists after fix")).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
+  });
+
+  test("dashboard audit-critical text meets AA contrast", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/");
+
+    await expect(page.getByRole("heading", { name: "Crimson Desert report hub" })).toBeVisible();
+    await expectContrastAtLeast(page, DASHBOARD_CONTRAST_TARGETS);
+    await expectDesignTokenContrast(page);
+    await expectHealthyPage(page, problems);
   });
 
   test("issue clusters show approved excerpts only", async ({ page }) => {
