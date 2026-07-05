@@ -23,10 +23,17 @@ describe("classifySignal", () => {
 
 describe("summarize", () => {
   it("truncates to 280 chars with ellipsis and strips newlines", () => {
-    const summary = summarize("Title here", `${"x".repeat(500)}\nline2`);
+    const summary = summarize(`${"Title ".repeat(80)}\nline2`, "body text");
     expect(summary.length).toBeLessThanOrEqual(280);
-    expect(summary.startsWith("Title here - ")).toBe(true);
+    expect(summary.startsWith("Title Title")).toBe(true);
     expect(summary.includes("\n")).toBe(false);
     expect(summary.endsWith("...")).toBe(true);
+  });
+
+  it("does not copy raw body text into the retained summary", () => {
+    const summary = summarize("Map crash report", "private repro details token-abc-123");
+    expect(summary).toContain("Map crash report");
+    expect(summary).toContain("body retained for 48h");
+    expect(summary).not.toContain("token-abc-123");
   });
 });

@@ -9,7 +9,8 @@ import { draftDossierWithAi } from "@/lib/ai";
 import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster } from "@/lib/dossier";
 import { features } from "@/lib/env";
-import { classifySignal, fetchNewPosts, getRedditToken, summarize } from "@/lib/reddit";
+import { classifySignal, summarize } from "@/lib/reddit";
+import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { createServiceClient } from "@/lib/supabase";
 
 const DECISIONS = ["approved", "rejected", "spam"] as const;
@@ -141,7 +142,7 @@ export async function runRedditMonitor(formData: FormData): Promise<void> {
       const text = `${post.title} ${body}`;
       const { category, confidence } = classifySignal(text);
 
-      await supabase.from("source_signals").upsert(
+      const { error } = await supabase.from("source_signals").upsert(
         {
           source: "reddit",
           source_url: `https://www.reddit.com${post.permalink}`,
@@ -156,6 +157,7 @@ export async function runRedditMonitor(formData: FormData): Promise<void> {
         },
         { onConflict: "external_id_hash", ignoreDuplicates: true },
       );
+      if (error) throw new Error(`reddit monitor insert failed: ${error.message}`);
     }
   }
 
