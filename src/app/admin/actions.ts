@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { countBy, rankClusters } from "@/lib/aggregates";
+import { runAutomationMonitor } from "@/lib/automation/run";
 import { CURRENT_PATCH, FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { draftDossierWithAi } from "@/lib/ai";
@@ -162,4 +163,18 @@ export async function runRedditMonitor(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/admin/source-monitor");
+}
+
+export async function runAutomationDryScan(): Promise<void> {
+  await requireAdmin();
+  await runAutomationMonitor({ mode: "dry_run" });
+  revalidatePath("/admin/source-monitor");
+}
+
+export async function runAutomationCappedScan(): Promise<void> {
+  await requireAdmin();
+  await runAutomationMonitor({ mode: "manual" });
+  revalidatePath("/admin/source-monitor");
+  revalidatePath("/");
+  revalidatePath("/issues");
 }

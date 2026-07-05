@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runAutomationMonitor } from "@/lib/automation/run";
 import { createServiceClient } from "@/lib/supabase";
 
 export async function GET(req: Request) {
@@ -15,9 +16,24 @@ export async function GET(req: Request) {
     .lt("raw_expires_at", new Date().toISOString())
     .not("raw_text", "is", null);
 
+  let automation: Awaited<ReturnType<typeof runAutomationMonitor>> | { status: "skipped"; reason: string } = {
+    status: "skipped",
+    reason: "recent_run",
+  };
+  const { data: recent } = await supabase
+    .from("automation_runs")
+    .select("started_at")
+    .gte("started_at", new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
+    .order("started_at", { ascending: false })
+    .limit(1);
+  if ((recent ?? []).length === 0) {
+    automation = await runAutomationMonitor({ mode: "scheduled" });
+  }
+
   return NextResponse.json({
     ok: !touchError && !purgeError,
     touch: touchError?.message ?? "ok",
     purge: purgeError?.message ?? "ok",
+    automation,
   });
 }
