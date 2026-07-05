@@ -28,6 +28,8 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Crimson Desert report hub" })).toBeVisible();
     await expect(page.getByText("Community signals", { exact: true })).toBeVisible();
     await expect(page.getByText("Direct reports", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "AI scanner watching public sources" })).toBeVisible();
+    await expect(page.getByText("scheduled scans on")).toBeVisible();
     await expect(page.getByText(/\d+ signals · \d+ reports/).first()).toBeVisible();
     await expect(page.getByText("2 signals · 6 reports")).toBeVisible();
     await expect(page.getByText("FPS regression since 1.13")).toBeVisible();

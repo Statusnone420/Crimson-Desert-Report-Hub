@@ -1,0 +1,33 @@
+name: Bug report
+description: Report something broken in the site or repository.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, passwords, private dashboard screenshots, or raw private report data.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use public/test data only.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Browser, route, screenshots without secrets, or relevant logs.

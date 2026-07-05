@@ -1,33 +1,34 @@
-# Product
+# Product Notes
 
-## Register
+## Audience
 
-product
+Crimson Desert players, moderators, and technically minded volunteers who want patch issues documented as evidence instead of scattered complaints.
 
-## Users
+## Purpose
 
-Crimson Desert players, community moderators, and technically minded volunteers use this after patch releases to turn scattered bug complaints into structured evidence. Public users need to confirm whether others see the same issue and submit a clean report quickly. Admin users need to review evidence, prevent unverified text from going public, cluster reports, and produce a dossier that Pearl Abyss can act on.
+Crimson Desert Report Hub is an unofficial community evidence tracker. It gathers automated public signals and anonymous structured reports, clusters related issues, keeps raw submissions private, and publishes only moderated or thresholded public evidence.
 
-## Product Purpose
+## Product Principles
 
-Crimson Desert Report Hub is an unofficial, zero-cost community tracker for patch 1.13.00 issues. It collects anonymous structured reports, keeps raw complaint text behind moderation, publishes only approved aggregates and excerpts, and compiles a deterministic report for external support channels. Success means the public dashboard feels alive, the moderation queue stays trustworthy, and the dossier contains specific counts, platforms, hardware, fix status, and approved evidence.
+- Show evidence before opinion.
+- Separate automated signals, direct reports, and verified excerpts.
+- Make privacy obvious.
+- Keep admin review as quality control, not the only data engine.
+- Prefer dense, scannable operational UI over marketing pages.
+- Explain disabled integrations clearly.
 
-## Brand Personality
+## Non-Goals
 
-Serious, tactical, community-run. The interface should feel like a mission-control board for a player community doing careful evidence work, not a complaint wall, fan site, or corporate status page.
+- No official branding or implication of Pearl Abyss affiliation.
+- No public unreviewed complaint feed.
+- No ads or analytics trackers.
+- No open-ended scraping.
+- No surprise API spend.
 
-## Anti-references
+## Success Criteria
 
-Avoid game artwork, official logos, Reddit or X logos, hype-copy launch pages, decorative fantasy styling, glass cards, generic purple SaaS dashboards, beige editorial pages, and unreviewed public complaint feeds. Do not make a half-built MVP feel finished.
-
-## Design Principles
-
-Show evidence before opinion.
-Separate public confidence from private raw data.
-Make moderation the trust engine.
-Prefer dense, scannable product surfaces over decorative sections.
-Every disabled optional integration should explain what still works without it.
-
-## Accessibility & Inclusion
-
-Target WCAG AA contrast, keyboard-reachable form and admin actions, visible focus states, semantic headings, reduced-motion fallbacks, and color-independent status labels. The interface must remain usable for color-blind users by pairing every color state with text.
+- The public dashboard quickly shows whether an issue is isolated or widespread.
+- Players can submit a useful report without creating an account.
+- Automation can produce useful first-pass signals before user submissions arrive.
+- Admins can pause scans, run a safe preview, verify reports, and compile a dossier.
+- Contributors can audit the privacy model and source code publicly.

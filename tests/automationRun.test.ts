@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   fetchNewPosts: vi.fn(),
   from: vi.fn(),
   getRedditToken: vi.fn(),
+  getAutomationControlState: vi.fn(),
   runAutomationMonitor: vi.fn(),
   tavilySearch: vi.fn(),
 }));
@@ -37,7 +38,13 @@ vi.mock("@/lib/automation/extract", async (importOriginal) => {
 });
 
 type Row = Record<string, unknown>;
-type TableName = "automation_runs" | "source_signals" | "issue_clusters" | "bug_reports" | "approved_excerpts";
+type TableName =
+  | "automation_runs"
+  | "source_signals"
+  | "issue_clusters"
+  | "bug_reports"
+  | "approved_excerpts"
+  | "automation_settings";
 type Filter =
   | { type: "eq"; column: string; value: unknown }
   | { type: "gte"; column: string; value: unknown }
@@ -51,6 +58,7 @@ const tables: Record<TableName, Row[]> = {
   issue_clusters: [],
   bug_reports: [],
   approved_excerpts: [],
+  automation_settings: [],
 };
 const mutations: { table: TableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
 let idSeq = 1;
@@ -284,6 +292,7 @@ function configureProviders() {
       llmCallUsed: Boolean(canUseOpenRouter),
     };
   });
+  mocks.getAutomationControlState.mockResolvedValue({ paused: false, updatedAt: null });
 }
 
 beforeEach(() => {
@@ -618,6 +627,7 @@ describe("cron keepalive route", () => {
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
     vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
     const response = await GET(new Request("https://example.com/api/cron/keepalive"));
@@ -633,6 +643,7 @@ describe("cron keepalive route", () => {
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
     vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
     const response = await GET(new Request("https://example.com/api/cron/keepalive"));
@@ -640,6 +651,34 @@ describe("cron keepalive route", () => {
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "cron secret missing" });
     expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+  });
+
+  it("skips scheduled automation when the scanner is paused", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+      automation_runs: [],
+    });
+    configureProviders();
+    mocks.getAutomationControlState.mockResolvedValue({ paused: true, updatedAt: "2026-07-05T12:00:00.000Z" });
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      automation: { status: "skipped", reason: "paused" },
+    });
     expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
   });
 
@@ -662,6 +701,7 @@ describe("cron keepalive route", () => {
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
     vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
     const response = await GET(
@@ -679,5 +719,71 @@ describe("cron keepalive route", () => {
     });
     expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
     expect(tables.source_signals[0]).toMatchObject({ raw_text: null, raw_expires_at: null });
+  });
+});
+
+describe("cron source preview route", () => {
+  it("requires the cron bearer token before running a source preview", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    const previewAutomationSearch = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/lib/automation/preview", () => ({ previewAutomationSearch }));
+    const { GET } = await import("@/app/api/cron/source-preview/route");
+
+    const response = await GET(new Request("https://example.com/api/cron/source-preview?queries=1"));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(previewAutomationSearch).not.toHaveBeenCalled();
+  });
+
+  it("runs a bounded source preview behind cron auth", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    const previewAutomationSearch = vi.fn().mockResolvedValue({
+      mode: "preview",
+      maxQueries: 2,
+      queriesUsed: 1,
+      resultsSeen: 1,
+      estimatedCostUsd: 0.008,
+      previews: [
+        {
+          query: "Crimson Desert patch 1.13.00 FPS",
+          title: "Crimson Desert FPS drops",
+          url: "https://example.com/fps",
+          sourceDomain: "example.com",
+          extraction: {
+            issueTitle: "FPS regression since 1.13",
+            category: "performance",
+            platform: "pc_steam",
+            confidence: "medium",
+            summary: "Players report FPS drops after patch 1.13.",
+            extractionProvider: "openrouter",
+            extractionModel: "openrouter/free",
+            llmCallUsed: true,
+          },
+        },
+      ],
+    });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/preview", () => ({ previewAutomationSearch }));
+    const { GET } = await import("@/app/api/cron/source-preview/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/source-preview?queries=3", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      preview: {
+        mode: "preview",
+        maxQueries: 2,
+        queriesUsed: 1,
+        estimatedCostUsd: 0.008,
+      },
+    });
+    expect(previewAutomationSearch).toHaveBeenCalledWith({ maxQueries: 2 });
   });
 });

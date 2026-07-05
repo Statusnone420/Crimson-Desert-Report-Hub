@@ -15,6 +15,10 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function automationWorkSummary(run: NonNullable<Awaited<ReturnType<typeof getDashboardData>>["latestAutomationRun"]>): string {
+  return `${run.search_queries_used} web searches · ${run.llm_calls_used} AI extractions · ${run.signals_inserted} signals`;
+}
+
 export default async function DashboardPage() {
   const d = await getDashboardData();
   const maxCluster = Math.max(...d.topClusters.map((cluster) => cluster.strengthScore), 1);
@@ -53,6 +57,35 @@ export default async function DashboardPage() {
           note={`${persistentCount} persistent fix flags`}
           tone="dim"
         />
+      </section>
+
+      <section className="panel flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-2xl space-y-2">
+          <div className="stat-label">Scanner status</div>
+          <h2 className="text-lg font-semibold">
+            AI scanner {d.scanner.paused ? "paused by the maintainer" : "watching public sources"}
+          </h2>
+          <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+            The scanner checks public web results and optional public Reddit posts, then uses a free OpenRouter model to
+            extract issue title, category, platform, and evidence URL. It does not post to Reddit or X, and raw player
+            submissions stay private until reviewed.
+          </p>
+        </div>
+        <div className="min-w-56 text-sm">
+          <span className={d.scanner.paused ? "badge badge-amber" : "badge badge-green"}>
+            {d.scanner.paused ? "scheduled scans off" : "scheduled scans on"}
+          </span>
+          <p className="mt-3" style={{ color: "var(--text-dim)" }}>
+            {d.latestAutomationRun
+              ? `Last scan: ${timeAgo(d.latestAutomationRun.started_at)} · ${d.latestAutomationRun.status}`
+              : "No scanner run yet."}
+          </p>
+          {d.latestAutomationRun ? (
+            <p className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
+              {automationWorkSummary(d.latestAutomationRun)}
+            </p>
+          ) : null}
+        </div>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-[1.45fr_0.9fr]">

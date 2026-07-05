@@ -1,6 +1,7 @@
 import "server-only";
 
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
+import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { createServiceClient } from "@/lib/supabase";
 
 export type ClusterRow = {
@@ -47,6 +48,16 @@ export type AutomationRunRow = {
   clusters_promoted: number;
   skips: string[];
   errors: string[];
+};
+
+export type PublicAutomationRunRow = {
+  started_at: string;
+  status: string;
+  mode: string;
+  search_queries_used: number;
+  llm_calls_used: number;
+  signals_inserted: number;
+  clusters_promoted: number;
 };
 
 export type AdminSignalRow = SignalRow & {
@@ -131,6 +142,15 @@ export async function getDashboardData() {
     .order("created_at", { ascending: false })
     .limit(1);
 
+  const [scanner, latestAutomation] = await Promise.all([
+    getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+    supabase
+      .from("automation_runs")
+      .select("started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted")
+      .order("started_at", { ascending: false })
+      .limit(1),
+  ]);
+
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const directByCluster = countClusterIds(rows);
   const signalByCluster = countClusterIds(signalRows);
@@ -166,6 +186,8 @@ export async function getDashboardData() {
     topClusters,
     pendingCount: pendingCount ?? 0,
     latestReportAt: latest?.[0]?.created_at ?? null,
+    scanner,
+    latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
   };
 }
 
@@ -250,8 +272,11 @@ export async function getAutomationAdminData() {
     .order("started_at", { ascending: false })
     .limit(10);
 
+  const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+
   return {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
+    control,
   };
 }

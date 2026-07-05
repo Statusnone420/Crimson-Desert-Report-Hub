@@ -214,6 +214,14 @@ const automationRuns = [
   },
 ];
 
+const automationSettings = [
+  {
+    key: "scanner",
+    value: { paused: false },
+    updated_at: isoMinutesAgo(35),
+  },
+];
+
 function sendJson(res, method, status, data, headers = {}) {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -262,6 +270,9 @@ function filterRows(table, url) {
 
   const publicStatus = url.searchParams.get("public_status");
   if (publicStatus?.startsWith("eq.")) rows = rows.filter((row) => row.public_status === publicStatus.slice(3));
+
+  const key = url.searchParams.get("key");
+  if (key?.startsWith("eq.")) rows = rows.filter((row) => row.key === key.slice(3));
 
   const order = url.searchParams.get("order");
   if (order?.startsWith("created_at.desc")) {
@@ -328,6 +339,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/automation_runs" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(automationRuns, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/automation_settings" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(automationSettings, url));
     return;
   }
 

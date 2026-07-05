@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
 import { runAutomationMonitor } from "@/lib/automation/run";
+import {
+  setAutomationPaused as setAutomationPausedState,
+  type AutomationSettingsClient,
+} from "@/lib/automation/settings";
 import { CURRENT_PATCH, FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { draftDossierWithAi } from "@/lib/ai";
@@ -296,4 +300,12 @@ export async function runAutomationCappedScan(): Promise<void> {
   revalidatePath("/admin/source-monitor");
   revalidatePath("/");
   revalidatePath("/issues");
+}
+
+export async function setAutomationPaused(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const paused = formData.get("paused") === "true";
+  await setAutomationPausedState(createServiceClient() as unknown as AutomationSettingsClient, paused);
+  revalidatePath("/admin/source-monitor");
+  revalidatePath("/");
 }

@@ -1,4 +1,4 @@
-import { runAutomationCappedScan, runAutomationDryScan } from "@/app/admin/actions";
+import { runAutomationCappedScan, runAutomationDryScan, setAutomationPaused } from "@/app/admin/actions";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { automationBudgetUsd, features } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -30,7 +30,7 @@ export default async function SourceMonitorPage() {
   await requireAdmin();
   const f = features();
   const budget = automationBudgetUsd();
-  const { runs, signals } = await getAutomationAdminData();
+  const { runs, signals, control } = await getAutomationAdminData();
 
   return (
     <div className="space-y-6">
@@ -41,23 +41,43 @@ export default async function SourceMonitorPage() {
 
       <section className="grid gap-3 lg:grid-cols-[0.8fr_1.2fr]">
         <div className="panel space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="stat-label">Scanner status</div>
+              <div className="stat-value">{control.paused ? "Paused" : "Active"}</div>
+            </div>
+            <span className={control.paused ? "badge badge-amber" : "badge badge-green"}>
+              {control.paused ? "scheduled scans off" : "scheduled scans on"}
+            </span>
+          </div>
           <div className="stat-label">Monthly automation budget</div>
-          <div className="stat-value">${budget.toFixed(2)}</div>
+          <div className="text-xl font-semibold">${budget.toFixed(2)}</div>
           <p className="text-sm" style={{ color: "var(--text-dim)" }}>
             Reddit: {f.reddit ? "enabled" : "disabled"} · Web search: {f.webSearch ? "enabled" : "disabled"}
           </p>
           <div className="flex flex-wrap gap-2">
             <form action={runAutomationDryScan}>
-              <button className="btn btn-ghost">Run dry scan</button>
+              <button className="btn btn-ghost">Test scan without publishing</button>
             </form>
             <form action={runAutomationCappedScan}>
               <button className="btn">Run capped scan now</button>
             </form>
+            <form action={setAutomationPaused}>
+              <input type="hidden" name="paused" value={control.paused ? "false" : "true"} />
+              <button className="btn btn-ghost">
+                {control.paused ? "Resume scheduled scans" : "Pause scheduled scans"}
+              </button>
+            </form>
           </div>
           <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-            Dry scans write only the run ledger. Capped scans use the monthly budget guardrail and promote only qualifying
-            public signals.
+            Test scans write only the run ledger. Capped scans use the monthly budget guardrail and promote only qualifying
+            public signals. Pause affects scheduled scans only; manual runs still work.
           </p>
+          {control.updatedAt ? (
+            <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+              Scanner setting changed {formatDateTime(control.updatedAt)}.
+            </p>
+          ) : null}
         </div>
 
         <div className="panel overflow-x-auto">

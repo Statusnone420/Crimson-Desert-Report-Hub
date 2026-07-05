@@ -14,16 +14,18 @@ vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from }) }));
 
 type TableName = "bug_reports" | "approved_excerpts";
+type AdminTableName = TableName | "automation_settings";
 
 let insertFailure: { table: TableName; message: string } | null = null;
-const mutations: { table: TableName; type: "insert" | "update"; row: unknown }[] = [];
+const mutations: { table: AdminTableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
 
 class FakeQuery {
   private filters: { column: string; value: unknown }[] = [];
   private insertRow: Record<string, unknown> | null = null;
   private patch: Record<string, unknown> | null = null;
+  private upsertRow: Record<string, unknown> | null = null;
 
-  constructor(private readonly table: TableName) {}
+  constructor(private readonly table: AdminTableName) {}
 
   insert(row: Record<string, unknown>) {
     this.insertRow = row;
@@ -32,6 +34,11 @@ class FakeQuery {
 
   update(patch: Record<string, unknown>) {
     this.patch = patch;
+    return this;
+  }
+
+  upsert(row: Record<string, unknown>) {
+    this.upsertRow = row;
     return this;
   }
 
@@ -48,6 +55,11 @@ class FakeQuery {
   }
 
   private async execute() {
+    if (this.upsertRow) {
+      mutations.push({ table: this.table, type: "upsert", row: this.upsertRow });
+      return { data: [this.upsertRow], error: null };
+    }
+
     if (this.insertRow) {
       if (insertFailure?.table === this.table) return { data: null, error: { message: insertFailure.message } };
       mutations.push({ table: this.table, type: "insert", row: this.insertRow });
@@ -68,7 +80,7 @@ beforeEach(() => {
   vi.resetModules();
   insertFailure = null;
   mutations.length = 0;
-  mocks.from.mockImplementation((table: TableName) => new FakeQuery(table));
+  mocks.from.mockImplementation((table: AdminTableName) => new FakeQuery(table));
 });
 
 describe("moderateReport", () => {
@@ -93,5 +105,26 @@ describe("moderateReport", () => {
     });
     expect(mutations.some((mutation) => mutation.table === "approved_excerpts")).toBe(false);
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe("setAutomationPaused", () => {
+  it("persists scanner pause state behind admin auth", async () => {
+    const { setAutomationPaused } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("paused", "true");
+
+    await setAutomationPaused(formData);
+
+    expect(mutations).toContainEqual({
+      table: "automation_settings",
+      type: "upsert",
+      row: expect.objectContaining({
+        key: "scanner",
+        value: { paused: true },
+      }),
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/source-monitor");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
   });
 });
