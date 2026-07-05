@@ -6,8 +6,10 @@ import { countBy, rankClusters } from "@/lib/aggregates";
 import { CURRENT_PATCH, FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { draftDossierWithAi } from "@/lib/ai";
+import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster } from "@/lib/dossier";
 import { features } from "@/lib/env";
+import { classifySignal, fetchNewPosts, getRedditToken, summarize } from "@/lib/reddit";
 import { createServiceClient } from "@/lib/supabase";
 
 const DECISIONS = ["approved", "rejected", "spam"] as const;
@@ -114,4 +116,48 @@ export async function compileDossier(formData: FormData): Promise<void> {
     .single();
   if (error) throw new Error(error.message);
   redirect(`/admin/compile?run=${run.id}`);
+}
+
+export async function runRedditMonitor(formData: FormData): Promise<void> {
+  await requireAdmin();
+  if (!features().reddit) throw new Error("reddit monitor disabled: keys missing");
+
+  const raw = String(formData.get("subreddits") ?? "");
+  const subreddits = raw
+    .split(",")
+    .map((subreddit) => subreddit.trim().replace(/^r\//i, ""))
+    .filter(Boolean)
+    .slice(0, 5);
+  if (subreddits.length === 0) throw new Error("no subreddits given");
+
+  const token = await getRedditToken();
+  const supabase = createServiceClient();
+  const expires = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
+  for (const subreddit of subreddits) {
+    const posts = await fetchNewPosts(subreddit, token);
+    for (const post of posts) {
+      const body = post.selftext ?? "";
+      const text = `${post.title} ${body}`;
+      const { category, confidence } = classifySignal(text);
+
+      await supabase.from("source_signals").upsert(
+        {
+          source: "reddit",
+          source_url: `https://www.reddit.com${post.permalink}`,
+          external_id_hash: externalIdHash("reddit", post.id),
+          summary: summarize(post.title, body),
+          extracted_facts: { subreddit, classified: category },
+          category,
+          confidence,
+          observed_at: new Date(post.created_utc * 1000).toISOString(),
+          raw_text: body.slice(0, 8000) || null,
+          raw_expires_at: expires,
+        },
+        { onConflict: "external_id_hash", ignoreDuplicates: true },
+      );
+    }
+  }
+
+  revalidatePath("/admin/source-monitor");
 }
