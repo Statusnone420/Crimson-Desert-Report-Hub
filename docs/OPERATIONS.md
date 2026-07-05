@@ -144,6 +144,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 ```
 
 This route is protected by `CRON_SECRET`, capped to at most two search queries, and does not write to Supabase.
+Because it is no-write, it does not update the public dashboard's last persisted scan, source signals, or automation run ledger.
 
 ## Production Smoke Test
 

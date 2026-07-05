@@ -77,7 +77,7 @@ export default async function DashboardPage() {
           </span>
           <p className="mt-3" style={{ color: "var(--text-dim)" }}>
             {d.latestAutomationRun
-              ? `Last scan: ${timeAgo(d.latestAutomationRun.started_at)} · ${d.latestAutomationRun.status}`
+              ? `Last persisted scan: ${timeAgo(d.latestAutomationRun.started_at)} · ${d.latestAutomationRun.status}`
               : "No scanner run yet."}
           </p>
           {d.latestAutomationRun ? (
@@ -85,6 +85,9 @@ export default async function DashboardPage() {
               {automationWorkSummary(d.latestAutomationRun)}
             </p>
           ) : null}
+          <p className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
+            Protected previews test Tavily and OpenRouter without changing these numbers.
+          </p>
         </div>
       </section>
 
