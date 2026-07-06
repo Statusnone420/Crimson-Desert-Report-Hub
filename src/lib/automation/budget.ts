@@ -31,6 +31,7 @@ export type AutomationBudget = {
 
 const DEFAULT_MIN_INTERVAL_MINUTES = 60;
 const DEFAULT_MONTHLY_TAVILY_CREDIT_CAP = 900;
+const MAX_MONTHLY_TAVILY_CREDIT_CAP = 900;
 const DEFAULT_MONTHLY_LLM_USD_CAP = 1;
 const SEARCH_QUERY_COST_USD = 0.008;
 const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
@@ -58,7 +59,10 @@ export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
   const remainingMonthUsd = Math.max(0, monthlyBudgetUsd - Math.max(0, input.spentMonthToDateUsd));
   const monthlyTavilyCreditCap = Math.max(
     0,
-    Math.floor(input.scannerPolicy?.monthlyTavilyCreditCap ?? DEFAULT_MONTHLY_TAVILY_CREDIT_CAP),
+    Math.min(
+      Math.floor(input.scannerPolicy?.monthlyTavilyCreditCap ?? DEFAULT_MONTHLY_TAVILY_CREDIT_CAP),
+      MAX_MONTHLY_TAVILY_CREDIT_CAP,
+    ),
   );
   const remainingTavilyCredits = Math.max(0, monthlyTavilyCreditCap - Math.max(0, input.tavilyCreditsMonthToDate ?? 0));
   const monthlyLlmUsdCap = Math.max(0, input.scannerPolicy?.monthlyLlmUsdCap ?? DEFAULT_MONTHLY_LLM_USD_CAP);

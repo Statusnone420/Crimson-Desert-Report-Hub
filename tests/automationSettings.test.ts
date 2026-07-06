@@ -119,6 +119,18 @@ describe("automation scanner settings", () => {
     });
   });
 
+  it("caps stored Tavily credits to the free-tier scanner guardrail", async () => {
+    const { getAutomationControlState } = await import("@/lib/automation/settings");
+
+    await expect(
+      getAutomationControlState(
+        fakeSupabase([{ key: "scanner", value: { monthlyTavilyCreditCap: 4000 } }]),
+      ),
+    ).resolves.toMatchObject({
+      monthlyTavilyCreditCap: 900,
+    });
+  });
+
   it("reads and writes the scanner paused state without dropping policy fields", async () => {
     const { getAutomationControlState, setAutomationPaused } = await import("@/lib/automation/settings");
     const rows: Row[] = [

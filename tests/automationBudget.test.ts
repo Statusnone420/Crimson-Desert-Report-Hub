@@ -59,6 +59,22 @@ describe("automation budget", () => {
     expect(budget.skipReasons).toContain("tavily_credit_cap");
   });
 
+  it("caps configured Tavily credits to the free-tier scanner guardrail", () => {
+    const budget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      mode: "scheduled",
+      now: new Date("2026-07-20T12:00:00Z"),
+      scannerPolicy: {
+        scheduledSearchCreditsPerRun: 3,
+        monthlyTavilyCreditCap: 4000,
+        monthlyLlmUsdCap: 1,
+      },
+    });
+    expect(budget.monthlyTavilyCreditCap).toBe(900);
+    expect(budget.remainingTavilyCredits).toBe(900);
+  });
+
   it("does not let estimated Tavily spend consume the scanner LLM cap", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 1,

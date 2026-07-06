@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase";
 const MIN_INTERVAL_MINUTES = [60, 120, 360, 1440] as const;
 const SCHEDULED_SEARCH_CREDITS_PER_RUN = [1, 2, 3] as const;
 const MODEL_PRESET = "deepseek_qwen_pro";
+const MAX_MONTHLY_TAVILY_CREDIT_CAP = 900;
 
 type ScannerMinIntervalMinutes = (typeof MIN_INTERVAL_MINUTES)[number];
 type ScannerSearchCreditsPerRun = (typeof SCHEDULED_SEARCH_CREDITS_PER_RUN)[number];
@@ -78,7 +79,9 @@ function oneOfNumber<T extends readonly number[]>(value: unknown, allowed: T, fa
 
 function monthlyTavilyCreditCap(value: unknown): number {
   const parsed = numberValue(value);
-  return parsed === null || parsed < 0 ? DEFAULT_SCANNER_POLICY.monthlyTavilyCreditCap : Math.floor(parsed);
+  return parsed === null || parsed < 0
+    ? DEFAULT_SCANNER_POLICY.monthlyTavilyCreditCap
+    : Math.min(Math.floor(parsed), MAX_MONTHLY_TAVILY_CREDIT_CAP);
 }
 
 function monthlyLlmUsdCap(value: unknown): number {
