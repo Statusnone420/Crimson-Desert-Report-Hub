@@ -85,7 +85,7 @@ export default async function DashboardPage() {
             <span aria-hidden="true">·</span>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.communitySignals}</span> public signals
             <span aria-hidden="true">·</span>
-            updated {timeAgo(d.latestReportAt)}
+            {d.latestReportAt ? `latest report ${timeAgo(d.latestReportAt)}` : "no reports yet"}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2.5 md:justify-end">
