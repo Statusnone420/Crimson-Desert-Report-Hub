@@ -1,24 +1,11 @@
-import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse, after } from "next/server";
 import { isAdmin } from "@/lib/adminGuard";
 import { startAutomationScan } from "@/lib/automation/run";
-import { CURRENT_PATCH_TAG, PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { isVercelPreview } from "@/lib/previewGuard";
+import { revalidatePublicSurfaces } from "@/lib/revalidate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-function revalidatePublicSurfaces(): void {
-  try {
-    revalidateTag(PUBLIC_DASHBOARD_TAG, "max");
-    revalidateTag(PUBLIC_ISSUES_TAG, "max");
-    revalidateTag(CURRENT_PATCH_TAG, "max");
-    revalidatePath("/");
-    revalidatePath("/issues");
-  } catch {
-    // pages self-revalidate within 5 minutes regardless
-  }
-}
 
 export async function POST(req: Request) {
   if (!(await isAdmin())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

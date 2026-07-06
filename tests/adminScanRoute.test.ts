@@ -53,6 +53,7 @@ vi.mock("@/lib/supabase", () => ({
 
 import { POST } from "@/app/api/admin/scan/route";
 import { GET } from "@/app/api/admin/scan/status/route";
+import { CURRENT_PATCH_TAG, PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 
 function scanRequest(body: unknown): Request {
   return new Request("http://localhost/api/admin/scan", {
@@ -143,11 +144,12 @@ describe("POST /api/admin/scan", () => {
     resolveCompletion({ status: "success" });
     await callback();
 
-    expect(mocks.revalidateTag).toHaveBeenCalledWith("public-dashboard", "max");
-    expect(mocks.revalidateTag).toHaveBeenCalledWith("public-issues", "max");
-    expect(mocks.revalidateTag).toHaveBeenCalledWith("current-patch", "max");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(PUBLIC_DASHBOARD_TAG, "max");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(PUBLIC_ISSUES_TAG, "max");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(CURRENT_PATCH_TAG, "max");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/issues");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/report");
   });
 
   it("invoking the captured after() callback for dry_run does not revalidate", async () => {
@@ -217,11 +219,12 @@ describe("GET /api/admin/scan/status", () => {
     };
     const res = await GET(statusRequest("run-1"));
     expect(res.status).toBe(200);
-    expect(mocks.revalidateTag).toHaveBeenCalledWith("public-dashboard", "max");
-    expect(mocks.revalidateTag).toHaveBeenCalledWith("public-issues", "max");
-    expect(mocks.revalidateTag).toHaveBeenCalledWith("current-patch", "max");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(PUBLIC_DASHBOARD_TAG, "max");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(PUBLIC_ISSUES_TAG, "max");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(CURRENT_PATCH_TAG, "max");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/issues");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/report");
   });
 
   it("does not revalidate for a dry_run row finished 30s ago", async () => {

@@ -8,7 +8,7 @@ import {
   setAutomationPaused as setAutomationPausedState,
   type AutomationSettingsClient,
 } from "@/lib/automation/settings";
-import { CURRENT_PATCH_TAG, PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
+import { CURRENT_PATCH_TAG } from "@/lib/cacheTags";
 import { FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { draftDossierWithAi } from "@/lib/ai";
@@ -17,6 +17,7 @@ import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedRep
 import { features } from "@/lib/env";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { assertProductionWriteAllowed } from "@/lib/previewGuard";
+import { revalidatePublicSurfaces } from "@/lib/revalidate";
 import { classifySignal, summarize } from "@/lib/reddit";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { createServiceClient } from "@/lib/supabase";
@@ -63,15 +64,6 @@ function relatedReport<T>(value: RelatedReport<T>): T | null {
 
 function throwReadError(label: string, error: { message: string } | null): void {
   if (error) throw new Error(`${label} read failed: ${error.message}`);
-}
-
-function revalidatePublicSurfaces(): void {
-  revalidateTag(PUBLIC_DASHBOARD_TAG, "max");
-  revalidateTag(PUBLIC_ISSUES_TAG, "max");
-  revalidateTag(CURRENT_PATCH_TAG, "max");
-  revalidatePath("/");
-  revalidatePath("/issues");
-  revalidatePath("/report");
 }
 
 function distinctVerifiedReports(rows: CompileVerifiedRow[]): DossierVerifiedReport[] {

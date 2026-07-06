@@ -1,11 +1,15 @@
-import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/adminGuard";
 import { sweepStaleRuns } from "@/lib/automation/run";
-import { CURRENT_PATCH_TAG, PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
+import { revalidatePublicSurfaces } from "@/lib/revalidate";
 import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
+
+// Covers the poll gap around the POST-side after() revalidation: if that
+// callback dies with the serverless instance, a status poll seen shortly
+// after the run finishes still refreshes the public pages.
+const RECENT_FINISH_WINDOW_MS = 2 * 60 * 1000;
 
 type RunStatusRow = {
   id: string;
@@ -40,17 +44,9 @@ export async function GET(req: Request) {
     row.mode === "manual" &&
     row.status !== "running" &&
     row.finished_at &&
-    Date.now() - new Date(row.finished_at).getTime() < 2 * 60 * 1000
+    Date.now() - new Date(row.finished_at).getTime() < RECENT_FINISH_WINDOW_MS
   ) {
-    try {
-      revalidateTag(PUBLIC_DASHBOARD_TAG, "max");
-      revalidateTag(PUBLIC_ISSUES_TAG, "max");
-      revalidateTag(CURRENT_PATCH_TAG, "max");
-      revalidatePath("/");
-      revalidatePath("/issues");
-    } catch {
-      // pages self-revalidate within 5 minutes regardless
-    }
+    revalidatePublicSurfaces();
   }
 
   return NextResponse.json(row);
