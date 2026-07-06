@@ -1,7 +1,8 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
+import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
 import { CURRENT_PATCH } from "@/lib/constants";
 
-export type RelevanceSkipReason = "category_other" | "source_not_issue_report" | "wrong_patch";
+export type RelevanceSkipReason = "category_other" | "source_not_issue_report" | "wrong_patch" | "stale_source";
 
 export type SignalRelevanceDecision = { keep: true } | { keep: false; reason: RelevanceSkipReason };
 
@@ -9,6 +10,7 @@ export type CandidatePreScreenInput = {
   title: string;
   snippet: string;
   sourceDomain: string | null;
+  sourcePublishedAt?: string | null;
 };
 
 const SYMPTOM_PATTERNS = [
@@ -64,31 +66,6 @@ function isBroadContentTitle(title: string): boolean {
   return matchesAny(title, BROAD_CONTENT_PATTERNS);
 }
 
-function normalizePatch(value: string): string {
-  return value.replace(/(?:\.0+)+$/g, "");
-}
-
-function explicitPatchVersions(text: string): string[] {
-  const versions: string[] = [];
-  const patterns = [
-    /\b(?:patch|update|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
-    /\b(?:after|since|on)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
-    /\b(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update)\b/gi,
-  ] as const;
-  for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) {
-      if (match[1]) versions.push(normalizePatch(match[1]));
-    }
-  }
-  return [...new Set(versions)];
-}
-
-function mentionsOnlyOtherPatch(text: string, currentPatchVersion: string): boolean {
-  const versions = explicitPatchVersions(text);
-  if (versions.length === 0) return false;
-  return !versions.includes(normalizePatch(currentPatchVersion));
-}
-
 /**
  * Cheap gate on raw source text. Runs BEFORE any LLM call.
  *
@@ -99,11 +76,18 @@ function mentionsOnlyOtherPatch(text: string, currentPatchVersion: string): bool
  */
 export function preScreenCandidate(
   input: CandidatePreScreenInput,
-  options: { currentPatchVersion?: string } = {},
+  options: { currentPatchVersion?: string; currentPatchPublishedAt?: string | null } = {},
 ): SignalRelevanceDecision {
   const sourceText = compact(`${input.title} ${input.snippet}`);
   if (mentionsOnlyOtherPatch(sourceText, options.currentPatchVersion ?? CURRENT_PATCH)) {
     return { keep: false, reason: "wrong_patch" };
+  }
+  const patchEligibility = evaluateCurrentPatchEligibility(
+    { title: input.title, snippet: input.snippet, sourcePublishedAt: input.sourcePublishedAt },
+    { version: options.currentPatchVersion ?? CURRENT_PATCH, publishedAt: options.currentPatchPublishedAt ?? null },
+  );
+  if (!patchEligibility.canStore) {
+    return { keep: false, reason: patchEligibility.reason === "wrong_patch" ? "wrong_patch" : "stale_source" };
   }
   if (isBroadContentTitle(input.title)) {
     return { keep: false, reason: "source_not_issue_report" };

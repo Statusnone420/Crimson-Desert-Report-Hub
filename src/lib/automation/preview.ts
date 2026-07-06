@@ -45,7 +45,7 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
 
   for (const query of buildSearchQueries(maxQueries, currentPatch.version)) {
     queriesUsed += 1;
-    const results = await tavilySearch(query);
+    const results = await tavilySearch(query, { startDate: currentPatch.publishedAt?.slice(0, 10) ?? null });
     resultsSeen += results.length;
 
     for (const result of results) {
@@ -57,8 +57,13 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
       }
 
       const preScreen = preScreenCandidate(
-        { title: result.title, snippet: result.snippet, sourceDomain: result.sourceDomain },
-        { currentPatchVersion: currentPatch.version },
+        {
+          title: result.title,
+          snippet: result.snippet,
+          sourceDomain: result.sourceDomain,
+          sourcePublishedAt: result.sourcePublishedAt ?? null,
+        },
+        { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
       );
 
       const extraction = await extractSignalWithOpenRouter(

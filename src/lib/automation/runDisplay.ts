@@ -30,6 +30,16 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "Paid web search and LLM work are disabled by the monthly budget setting.",
     summaryLabel: "budget zero",
   },
+  all_candidates_prefiltered: {
+    label: "No LLM candidates",
+    detail: "All candidates failed the cheap relevance screen before OpenRouter, so no LLM call was made.",
+    summaryLabel: "no LLM candidates",
+  },
+  candidate_rescued: {
+    label: "Candidate rescued",
+    detail: "A thin current-patch source was kept private for corroboration instead of being discarded or published.",
+    summaryLabel: "candidate rescued",
+  },
   llm_budget_capped: {
     label: "LLM cap reached",
     detail: "The scheduled scanner reached its monthly LLM budget cap, so this attempt did not start.",

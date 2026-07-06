@@ -1,0 +1,125 @@
+import { CURRENT_PATCH } from "@/lib/constants";
+
+export type CurrentPatchContext = {
+  version: string;
+  publishedAt: string | null;
+};
+
+export type SourceFreshnessInput = {
+  title?: string | null;
+  summary?: string | null;
+  snippet?: string | null;
+  sourcePublishedAt?: string | null;
+};
+
+export type CurrentPatchEligibilityReason =
+  | "current_patch"
+  | "fresh_source"
+  | "fresh_language"
+  | "unknown_source_freshness"
+  | "wrong_patch"
+  | "stale_source";
+
+export type CurrentPatchEligibility = {
+  canStore: boolean;
+  canPublish: boolean;
+  reason: CurrentPatchEligibilityReason;
+};
+
+function compact(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function normalizePatchVersion(value: string): string {
+  return value.replace(/(?:\.0+)+$/g, "");
+}
+
+export function explicitPatchVersions(text: string): string[] {
+  const versions: string[] = [];
+  const patterns = [
+    /\b(?:patch|update|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
+    /\b(?:after|since|on)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
+    /\b(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update)\b/gi,
+  ] as const;
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      if (match[1]) versions.push(normalizePatchVersion(match[1]));
+    }
+  }
+  return [...new Set(versions)];
+}
+
+export function mentionsOnlyOtherPatch(text: string, currentPatchVersion = CURRENT_PATCH): boolean {
+  const versions = explicitPatchVersions(text);
+  if (versions.length === 0) return false;
+  return !versions.includes(normalizePatchVersion(currentPatchVersion));
+}
+
+function mentionsCurrentPatch(text: string, currentPatchVersion: string): boolean {
+  return explicitPatchVersions(text).includes(normalizePatchVersion(currentPatchVersion));
+}
+
+function mentionsCurrentPatchWindow(text: string): boolean {
+  return /\b(?:after|since|on|with)\s+(?:today'?s|latest|new|current)\s+(?:patch|update|hotfix)\b/i.test(text)
+    || /\b(?:today'?s|latest|new|current)\s+(?:patch|update|hotfix)\b/i.test(text);
+}
+
+function parseTime(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function isDateOnly(value: string | null | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function dateOnlyIsBefore(sourceDate: string, patchTime: number): boolean {
+  return sourceDate < new Date(patchTime).toISOString().slice(0, 10);
+}
+
+function dateOnlyIsOnOrAfter(sourceDate: string, patchTime: number): boolean {
+  return sourceDate >= new Date(patchTime).toISOString().slice(0, 10);
+}
+
+export function evaluateCurrentPatchEligibility(
+  input: SourceFreshnessInput,
+  currentPatch: CurrentPatchContext,
+): CurrentPatchEligibility {
+  const sourceText = compact(`${input.title ?? ""} ${input.summary ?? ""} ${input.snippet ?? ""}`);
+  if (mentionsOnlyOtherPatch(sourceText, currentPatch.version)) {
+    return { canStore: false, canPublish: false, reason: "wrong_patch" };
+  }
+
+  const sourcePublishedDateOnly = isDateOnly(input.sourcePublishedAt) ? input.sourcePublishedAt : null;
+  const sourcePublishedAt = parseTime(input.sourcePublishedAt);
+  const patchPublishedAt = parseTime(currentPatch.publishedAt);
+  if (
+    sourcePublishedAt !== null &&
+    patchPublishedAt !== null &&
+    (sourcePublishedDateOnly
+      ? dateOnlyIsBefore(sourcePublishedDateOnly, patchPublishedAt)
+      : sourcePublishedAt < patchPublishedAt)
+  ) {
+    return { canStore: false, canPublish: false, reason: "stale_source" };
+  }
+
+  if (mentionsCurrentPatch(sourceText, currentPatch.version)) {
+    return { canStore: true, canPublish: true, reason: "current_patch" };
+  }
+
+  if (
+    sourcePublishedAt !== null &&
+    (patchPublishedAt === null ||
+      sourcePublishedAt >= patchPublishedAt ||
+      (sourcePublishedDateOnly !== null && dateOnlyIsOnOrAfter(sourcePublishedDateOnly, patchPublishedAt)))
+  ) {
+    return { canStore: true, canPublish: true, reason: "fresh_source" };
+  }
+
+  if (mentionsCurrentPatchWindow(sourceText)) {
+    return { canStore: true, canPublish: true, reason: "fresh_language" };
+  }
+
+  return { canStore: true, canPublish: false, reason: "unknown_source_freshness" };
+}

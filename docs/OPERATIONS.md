@@ -26,6 +26,8 @@ Important: the service role key must never be exposed in browser code or committ
 
 Apply migrations from `supabase/migrations` in timestamp order. The production migration history must match those filenames for the Supabase GitHub integration to pass.
 
+Apply additive Supabase migrations before deploying app code that selects new columns. For scanner-memory releases, apply `20260706210720_scanner_memory_quarantine.sql` before the Vercel production deploy.
+
 The `official_patch_notes` table stores only compact Pearl Abyss patch metadata: board number, title, patch version, official URL, publish time, and a short summary. It does not store the full patch article.
 
 ### Vercel

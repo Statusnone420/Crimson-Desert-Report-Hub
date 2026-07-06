@@ -55,7 +55,7 @@ const DEFAULT_SCANNER_POLICY: ScannerPolicy = {
   minIntervalMinutes: 60,
   scheduledSearchCreditsPerRun: 1,
   monthlyTavilyCreditCap: 900,
-  monthlyLlmUsdCap: 1,
+  monthlyLlmUsdCap: 2,
   modelPreset: MODEL_PRESET,
 };
 

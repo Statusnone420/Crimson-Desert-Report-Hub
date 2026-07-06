@@ -44,6 +44,7 @@ describe("Tavily search request", () => {
       env: { TAVILY_API_KEY: "tavily-key" },
       fetcher,
       now: new Date("2026-07-05T12:00:00Z"),
+      startDate: "2026-07-03",
     });
 
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
@@ -54,6 +55,7 @@ describe("Tavily search request", () => {
       max_results: 5,
       search_depth: "basic",
       include_usage: true,
+      start_date: "2026-07-03",
     });
     expect(body).not.toHaveProperty("auto_parameters");
     expect(body.search_depth).not.toBe("advanced");

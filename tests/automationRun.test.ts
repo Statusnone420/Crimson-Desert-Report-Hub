@@ -130,6 +130,7 @@ class FakeQuery {
   private limitCount: number | null = null;
   private orderBy: { column: string; ascending: boolean } | null = null;
   private patch: Row | null = null;
+  private rangeBounds: { from: number; to: number } | null = null;
   private selectedColumns: string | undefined;
   private selectOptions: { count?: "exact"; head?: boolean } | undefined;
   private singleResult = false;
@@ -197,6 +198,11 @@ class FakeQuery {
 
   limit(count: number) {
     this.limitCount = count;
+    return this;
+  }
+
+  range(from: number, to: number) {
+    this.rangeBounds = { from, to };
     return this;
   }
 
@@ -297,6 +303,7 @@ class FakeQuery {
       });
     }
     if (this.limitCount !== null) rows = rows.slice(0, this.limitCount);
+    if (this.rangeBounds !== null) rows = rows.slice(this.rangeBounds.from, this.rangeBounds.to + 1);
     if (this.selectOptions?.head) return { data: null, count: rows.length, error: null };
     return { data: this.singleResult ? (rows[0] ?? null) : rows, count: this.selectOptions?.count ? rows.length : null, error: null };
   }
@@ -432,6 +439,7 @@ describe("runAutomationMonitor", () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
     delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
     await runAutomationMonitor({
@@ -460,7 +468,9 @@ describe("runAutomationMonitor", () => {
     });
 
     expect(mocks.tavilySearch.mock.calls[0][0]).toBe("Crimson Desert patch 1.13.00 FPS drops stutter issue");
-    expect(mocks.tavilySearch.mock.calls[1][0]).toBe("Crimson Desert patch 1.13.00 crash freeze issue");
+    expect(mocks.tavilySearch.mock.calls[1][0]).toBe(
+      "site:reddit.com Crimson Desert patch 1.13.00 crash freeze stutter issue",
+    );
   });
 
   it("budget 0 skips paid search and OpenRouter attempts but still stores deterministic Reddit signals", async () => {
@@ -973,6 +983,7 @@ describe("runAutomationMonitor", () => {
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(result.llmCallsUsed).toBe(0);
+    expect(result.skips).toContain("all_candidates_prefiltered");
     expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
     expect(result.candidatesSeen).toBe(2);
     expect(result.prefilterRejected).toBe(2);
@@ -980,14 +991,436 @@ describe("runAutomationMonitor", () => {
     expect(tables.automation_runs).toHaveLength(1);
     expect(tables.automation_runs[0]).toMatchObject({
       funnel: {
+        searchResultsSeen: 2,
         candidatesSeen: 2,
         deduped: 0,
         prefilterRejected: 2,
+        llmEligible: 0,
         llmCalls: 0,
         kept: 0,
         promoted: 0,
       },
     });
+  });
+
+  it("rescues a borderline current-patch trusted source as a private candidate", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://reddit.com/r/CrimsonDesert/comments/thin/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.candidatesRescued).toBe(1);
+    expect(result.signalsInserted).toBe(1);
+    expect(result.prefilterRejected).toBe(0);
+    expect(result.skips).toContain("candidate_rescued");
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      source_domain: "reddit.com",
+      public_status: "private",
+    });
+    expect(tables.automation_runs[0]).toMatchObject({
+      candidates_rescued: 1,
+    });
+  });
+
+  it("hides existing public stale source links during a later scan even when no new mentions are kept", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-old-fps",
+          slug: "old-fps",
+          title: "Old FPS regression",
+          category: "performance",
+          description: "Old public scanner source.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-old-fps",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://steamcommunity.com/app/old",
+          canonical_url: "https://steamcommunity.com/app/old",
+          title: "MASSIVE frame drops and stuttering after 1.04",
+          summary: "Players discuss frame drops after patch 1.04.",
+          source_domain: "steamcommunity.com",
+          source_published_at: "2026-05-01T12:00:00.000Z",
+          semantic_fingerprint: "old-fps",
+          cluster_id: "cluster-old-fps",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-05-01T12:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(result.signalsInserted).toBe(0);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "wrong_patch",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+    expect(tables.automation_runs[0]).toMatchObject({
+      stale_signals_hidden: 1,
+    });
+  });
+
+  it("quarantines stale public source links beyond the first audit page", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    const freshSignals = Array.from({ length: 501 }, (_, index) => ({
+      id: `signal-current-${index}`,
+      source: "web_search",
+      source_type: "web_search",
+      source_url: `https://example.com/current-${index}`,
+      canonical_url: `https://example.com/current-${index}`,
+      title: `Crimson Desert patch 1.13 FPS report ${index}`,
+      summary: "Players discuss current patch FPS drops.",
+      source_domain: "example.com",
+      source_published_at: "2026-07-04T12:00:00.000Z",
+      observed_at: "2026-07-04T12:00:00.000Z",
+      last_seen_at: "2026-07-04T12:00:00.000Z",
+      public_status: "public",
+    }));
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-old-fps",
+          slug: "old-fps",
+          title: "Old FPS regression",
+          category: "performance",
+          description: "Old public scanner source.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        ...freshSignals,
+        {
+          id: "signal-old-fps",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://steamcommunity.com/app/old",
+          canonical_url: "https://steamcommunity.com/app/old",
+          title: "MASSIVE frame drops and stuttering after 1.04",
+          summary: "Players discuss frame drops after patch 1.04.",
+          source_domain: "steamcommunity.com",
+          source_published_at: "2026-05-01T12:00:00.000Z",
+          semantic_fingerprint: "old-fps",
+          cluster_id: "cluster-old-fps",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-05-01T12:00:00.000Z",
+          last_seen_at: "2026-07-05T12:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows().find((row) => row.id === "signal-old-fps")).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "wrong_patch",
+    });
+  });
+
+  it("keeps stale source links hidden when a direct report makes the cluster visible", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Direct report cluster with stale public source.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          public_signal_count: 1,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved",
+          cluster_id: "cluster-map",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-old-map",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://reddit.com/r/CrimsonDesert/old-map",
+          canonical_url: "https://reddit.com/r/CrimsonDesert/old-map",
+          title: "New freezes / crashes on 1.03",
+          summary: "Players discuss crashes on patch 1.03.",
+          source_domain: "reddit.com",
+          source_published_at: "2026-04-01T12:00:00.000Z",
+          semantic_fingerprint: "old-map-crash",
+          cluster_id: "cluster-map",
+          category: "crash_startup",
+          confidence: "medium",
+          observed_at: "2026-04-01T12:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "wrong_patch",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      direct_report_count: 1,
+      public_signal_count: 0,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("increments seen_count for the same canonical URL instead of duplicating evidence", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementation(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam after patch 1.13.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const secondResult = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      seen_count: 2,
+      first_seen_at: "2026-07-05T12:00:00.000Z",
+      last_seen_at: "2026-07-05T13:00:00.000Z",
+      last_seen_run_id: tables.automation_runs[1].id,
+    });
+    expect(secondResult.signalsReobserved).toBe(1);
+    expect(tables.automation_runs[1]).toMatchObject({
+      signals_reobserved: 1,
+    });
+  });
+
+  it("changes the next scheduled intent after a zero-kept scan", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-zero-kept",
+          started_at: "2026-07-05T10:00:00.000Z",
+          status: "success",
+          mode: "scheduled",
+          search_results_seen: 5,
+          signals_inserted: 0,
+          funnel: { candidatesSeen: 5, prefilterRejected: 5, kept: 0 },
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("player reports corroborate");
+    expect(tables.automation_runs[1]).toMatchObject({
+      intent: "corroborate_cluster",
+    });
+  });
+
+  it("targets corroboration when private weak source signals exist", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "shader-stutter",
+          title: "Shader compilation stutter",
+          category: "performance",
+          description: "Seeded weak cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: true,
+          auto_public: false,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-private-fps",
+          cluster_id: "cluster-fps",
+          public_status: "private",
+          title: "Crimson Desert patch 1.13 FPS drops",
+          summary: "Private current-patch candidate.",
+          observed_at: "2026-07-05T10:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("player reports corroborate");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Shader compilation stutter");
+    expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
+  });
+
+  it("targets rescue when live rejected candidates exist", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "rejected-promising",
+          title: "Promising thin current patch source",
+          url: "https://steamcommunity.com/app/promising",
+          source_domain: "steamcommunity.com",
+          snippet: "thin",
+          reason: "source_not_issue_report",
+          expires_at: "2026-07-12T12:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com OR site:steamcommunity.com");
+    expect(tables.automation_runs[0]).toMatchObject({ intent: "rescue_candidate" });
   });
 
   it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
