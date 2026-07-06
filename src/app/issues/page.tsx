@@ -159,11 +159,41 @@ export default async function IssuesPage() {
           ) : null}
 
           {watchlist.length > 0 ? (
-            <section className="space-y-3">
-              <div className="stat-label">Unverified watchlist · awaiting evidence</div>
-              {watchlist.map((cluster) => (
-                <ClusterCard key={cluster.id} cluster={cluster} />
-              ))}
+            <section className="panel space-y-3">
+              <div className="stat-label">Watchlist · scanner is hunting, no evidence yet</div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {watchlist.map((cluster) => (
+                  <div key={cluster.id} className="panel-inset space-y-1.5 border px-3 py-2.5">
+                    <p className="truncate text-sm font-medium">{cluster.title}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <EvidenceLadderBadge
+                        state={clusterEvidenceState({
+                          directReportCount: cluster.directReportCount,
+                          publicSignalCount: cluster.signalCount,
+                          candidateSignalCount: cluster.candidateSignalCount,
+                        })}
+                      />
+                      <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+                        {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
+                      </span>
+                    </div>
+                    {cluster.candidateSignalCount > 0 ? (
+                      <p className="text-xs" style={{ color: "var(--blue)" }}>
+                        {cluster.candidateSignalCount} unconfirmed mention(s) — not enough separate sources yet
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+                <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+                  A cluster earns its full section — signals, sources, excerpts — the moment the first evidence lands.
+                  Scanner last finished {timeAgo(scanMeta?.finishedAt ?? null)}.
+                </p>
+                <Link href="/report" className="btn btn-ghost btn-sm">
+                  Seeing one of these? Report it
+                </Link>
+              </div>
             </section>
           ) : null}
         </>
