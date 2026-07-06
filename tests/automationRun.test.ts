@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   insertSkippedScheduledRun: vi.fn(),
   syncOfficialPatchNote: vi.fn(),
   tavilySearch: vi.fn(),
+  tavilyExtract: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -29,6 +30,7 @@ vi.mock("@/lib/automation/search", async (importOriginal) => {
   return {
     ...actual,
     tavilySearch: mocks.tavilySearch,
+    tavilyExtract: mocks.tavilyExtract,
   };
 });
 
@@ -365,6 +367,9 @@ function configureProviders() {
       observedAt: "2026-07-05T12:00:00.000Z",
     },
   ]);
+  // Recon is off by default: no full-page text unless a test opts in. Existing
+  // borderline behavior (extract on the thin snippet) must be unchanged.
+  mocks.tavilyExtract.mockResolvedValue(null);
   mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
     const text = `${candidate.title} ${candidate.snippet}`;
     const isCrash = /map crash/i.test(text);
@@ -1052,6 +1057,134 @@ describe("runAutomationMonitor", () => {
     expect(tables.automation_runs[0]).toMatchObject({
       candidates_rescued: 1,
     });
+  });
+
+  it("reads full trusted-source content before rejecting and rescues on the recon text", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // Thin snippet lacks symptom language (would be source_not_issue_report) but is a
+    // borderline trusted current-patch candidate. The real thread text has the symptom.
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://reddit.com/r/CrimsonDesert/comments/recon/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(1);
+    expect(mocks.tavilyExtract.mock.calls[0][0]).toBe(
+      "https://reddit.com/r/CrimsonDesert/comments/recon/current_patch",
+    );
+    expect(result.candidatesRescued).toBe(1);
+    expect(result.signalsInserted).toBe(1);
+    expect(result.prefilterRejected).toBe(0);
+    expect(result.skips).toContain("candidate_recon");
+    expect(result.skips).toContain("candidate_rescued");
+    // The LLM classified the FULL recon text, not the thin snippet.
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][0].snippet).toContain("constant stutter and fps drops");
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      source_domain: "reddit.com",
+      public_status: "private",
+    });
+    // Stored raw_text is the real thread, not the thin snippet.
+    expect(sourceSignalRows()[0].raw_text).toContain("constant stutter and fps drops on patch 1.13.00");
+  });
+
+  it("caps recon fetches per run and falls back to snippet-only for the overflow", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // Four borderline trusted current-patch candidates, each thin. MAX_RECON_FETCHES_PER_RUN is 3.
+    mocks.tavilySearch.mockImplementationOnce(async () =>
+      Array.from({ length: 4 }, (_, index) => ({
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: `https://reddit.com/r/CrimsonDesert/comments/recon-${index}/current_patch/`,
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      })),
+    );
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // At most three recon fetches; the fourth candidate falls back to snippet-only borderline.
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(3);
+    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(3);
+    expect(result.status).not.toBe("failed");
+    // The three recon-rescued candidates are kept; the overflow one still runs the
+    // old snippet-only borderline extract (which also keeps under the default mock).
+    expect(result.candidatesRescued).toBe(4);
+    expect(sourceSignalRows()).toHaveLength(4);
+  });
+
+  it("does not recon-fetch a non-trusted borderline candidate", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://example.com/discussion/current_patch",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // example.com is not trusted, so it never enters the borderline lane and recon never fires.
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+  });
+
+  it("does not recon-fetch when paid search is not allowed", async () => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    // A trusted borderline Reddit candidate still flows through prepareSignals even with
+    // paid search off, but the recon fetch must be gated behind allowPaidSearch.
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-borderline",
+        title: "Crimson Desert patch 1.13 player discussion",
+        selftext: "Body retained for moderator review.",
+        permalink: "/r/CrimsonDesert/comments/reddit-borderline/current_patch/",
+        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
+      },
+    ]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("budget_zero");
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(result.skips).not.toContain("candidate_recon");
   });
 
   it("hides existing public stale source links during a later scan even when no new mentions are kept", async () => {

@@ -91,6 +91,40 @@ function mapTavilyResult(item: TavilyResult, observedAt: string): SearchResult |
   };
 }
 
+export type TavilyExtractOptions = {
+  env?: EnvLike;
+  fetcher?: SearchFetch;
+  now?: Date;
+};
+
+type TavilyExtractResult = {
+  url?: string;
+  raw_content?: string;
+};
+
+/**
+ * Fetch the full page text for one URL via Tavily's extract endpoint. Returns the
+ * first result's trimmed raw_content, or null when no key is configured or no
+ * usable content comes back. Mirrors `tavilySearch`'s injectable fetcher so tests
+ * never touch the real network.
+ */
+export async function tavilyExtract(url: string, options: TavilyExtractOptions = {}): Promise<string | null> {
+  const key = (options.env ?? process.env).TAVILY_API_KEY?.trim();
+  if (!key) return null;
+
+  const fetcher = options.fetcher ?? (fetch as unknown as SearchFetch);
+  const res = await fetcher("https://api.tavily.com/extract", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+    body: JSON.stringify({ urls: [url] }),
+  });
+  if (!res.ok) throw new Error(`tavily extract failed: ${res.status}`);
+
+  const data = (await res.json()) as { results?: TavilyExtractResult[] };
+  const rawContent = (data.results ?? [])[0]?.raw_content?.trim();
+  return rawContent ? rawContent : null;
+}
+
 export async function tavilySearch(query: string, options: TavilySearchOptions = {}): Promise<SearchResult[]> {
   const key = (options.env ?? process.env).TAVILY_API_KEY?.trim();
   if (!key) return [];

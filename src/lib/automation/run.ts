@@ -13,7 +13,7 @@ import { buildMemorySearchQueries, chooseScanIntent, type ScanIntent, type ScanM
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
-import { tavilySearch, type SearchResult } from "@/lib/automation/search";
+import { tavilyExtract, tavilySearch, type SearchResult } from "@/lib/automation/search";
 import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
@@ -199,6 +199,10 @@ type ApprovedExcerptRow = {
 
 const SEARCH_QUERY_COST_USD = 0.008;
 const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
+// Hard cap on full-page recon fetches per run. Each fetch is one Tavily extract
+// credit, so this bounds the extra cost of the "read the real thread before
+// rejecting" lane regardless of how many borderline candidates a run surfaces.
+const MAX_RECON_FETCHES_PER_RUN = 3;
 
 function searchResultToInput(result: SearchResult): SourceInput {
   return {
@@ -525,6 +529,7 @@ async function prepareSignals(
   const rejected: RejectedCandidate[] = [];
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
+  let reconFetchesUsed = 0;
   const limit = Math.max(25, budget.maxSearchResults + 25);
   const candidates = inputs.slice(0, limit);
   result.candidatesSeen += candidates.length;
@@ -562,8 +567,62 @@ async function prepareSignals(
     );
     if (!preScreen.keep) {
       if (preScreen.reason === "source_not_issue_report" && isBorderlineRescueCandidate(signal, currentPatch)) {
+        // Recon lane: read the real page ONCE before rejecting a promising
+        // trusted current-patch candidate whose Tavily snippet is too thin. Capped
+        // and budget-gated so it never exceeds the Tavily credit budget. A recon
+        // miss (budget/cap/failure) falls straight through to today's snippet-only
+        // borderline behavior — strict enhancement, never a regression.
+        let reconText: string | null = null;
+        if (
+          budget.allowPaidSearch &&
+          reconFetchesUsed < MAX_RECON_FETCHES_PER_RUN &&
+          result.searchQueriesUsed < budget.remainingTavilyCredits
+        ) {
+          reconFetchesUsed += 1;
+          result.searchQueriesUsed += 1;
+          result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
+          result.skips.push("candidate_recon");
+          try {
+            reconText = await tavilyExtract(canonicalUrl, { now: new Date(signal.observedAt) });
+          } catch (error) {
+            result.status = "partial";
+            result.errors.push(toErrorMessage(error, "recon extract failed"));
+            reconText = null;
+          }
+        }
+
+        const effectiveBody = reconText ?? signal.body;
+
+        // Re-run the cheap gate on the FULL text. Recon may reveal the source is a
+        // wrong-patch/stale/non-issue page after all — hard-reject on the real text.
+        if (reconText !== null) {
+          const reScreen = preScreenCandidate(
+            {
+              title: signal.title,
+              snippet: effectiveBody,
+              sourceDomain: signal.sourceDomain,
+              sourcePublishedAt: signal.sourcePublishedAt ?? null,
+            },
+            { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
+          );
+          if (!reScreen.keep) {
+            result.skips.push(reScreen.reason);
+            result.prefilterRejected += 1;
+            rejected.push({
+              title: signal.title,
+              url: canonicalUrl,
+              sourceDomain: signal.sourceDomain,
+              sourcePublishedAt: signal.sourcePublishedAt ?? null,
+              snippet: effectiveBody.slice(0, 500),
+              reason: reScreen.reason,
+            });
+            await report?.();
+            continue;
+          }
+        }
+
         const extraction = await extractSignalWithOpenRouter(
-          { title: signal.title, snippet: signal.body, url: canonicalUrl },
+          { title: signal.title, snippet: effectiveBody, url: canonicalUrl },
           {
             llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed),
             llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
@@ -581,6 +640,7 @@ async function prepareSignals(
           result.candidatesRescued += 1;
           prepared.push({
             ...signal,
+            body: effectiveBody,
             canonicalUrl,
             externalHash,
             semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
@@ -597,7 +657,7 @@ async function prepareSignals(
           url: canonicalUrl,
           sourceDomain: signal.sourceDomain,
           sourcePublishedAt: signal.sourcePublishedAt ?? null,
-          snippet: signal.body.slice(0, 500),
+          snippet: effectiveBody.slice(0, 500),
           reason: relevance.reason,
         });
         await report?.();

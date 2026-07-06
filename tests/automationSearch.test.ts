@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
+import { buildSearchQueries, tavilyExtract, tavilySearch } from "@/lib/automation/search";
 
 describe("automation search planning", () => {
   it("keeps the default first queries compatible with existing low query budgets", () => {
@@ -59,5 +59,82 @@ describe("Tavily search request", () => {
     });
     expect(body).not.toHaveProperty("auto_parameters");
     expect(body.search_depth).not.toBe("advanced");
+  });
+});
+
+describe("Tavily extract request", () => {
+  it("posts the url to the extract endpoint and returns trimmed raw_content", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [
+          {
+            url: "https://reddit.com/r/CrimsonDesert/comments/thin/current_patch/",
+            raw_content: "  constant stutter and fps drops on patch 1.13.00  ",
+          },
+        ],
+      }),
+    }));
+
+    const raw = await tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/current_patch/", {
+      env: { TAVILY_API_KEY: "tavily-key" },
+      fetcher,
+    });
+
+    expect(raw).toBe("constant stutter and fps drops on patch 1.13.00");
+
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, { method: string; headers: Record<string, string>; body: string }];
+    expect(url).toBe("https://api.tavily.com/extract");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({
+      "content-type": "application/json",
+      authorization: "Bearer tavily-key",
+    });
+    expect(JSON.parse(init.body)).toStrictEqual({
+      urls: ["https://reddit.com/r/CrimsonDesert/comments/thin/current_patch/"],
+    });
+  });
+
+  it("returns null when no Tavily API key is configured", async () => {
+    const fetcher = vi.fn();
+
+    const raw = await tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+      env: {},
+      fetcher,
+    });
+
+    expect(raw).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the extract response has no usable results", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [] }),
+    }));
+
+    const raw = await tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+      env: { TAVILY_API_KEY: "tavily-key" },
+      fetcher,
+    });
+
+    expect(raw).toBeNull();
+  });
+
+  it("throws when the extract request fails", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({}),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract failed: 429");
   });
 });
