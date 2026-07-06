@@ -33,6 +33,79 @@ export type AutomationResult = {
   errors: string[];
 };
 
+export type RunProgress = {
+  stage: "starting" | "searching" | "screening" | "persisting" | "done";
+  searchesDone: number;
+  searchTotal: number;
+  candidatesSeen: number;
+  prefilterRejected: number;
+  llmCallsUsed: number;
+  kept: number;
+  promoted: number;
+};
+
+function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
+  return {
+    stage,
+    searchesDone: result.searchQueriesUsed,
+    searchTotal,
+    candidatesSeen: result.candidatesSeen,
+    prefilterRejected: result.prefilterRejected,
+    llmCallsUsed: result.llmCallsUsed,
+    kept: result.signalsInserted,
+    promoted: result.clustersPromoted,
+  };
+}
+
+/** Best-effort progress write — never throws, never fails a run. */
+async function writeProgress(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  progress: RunProgress,
+): Promise<void> {
+  try {
+    await supabase.from("automation_runs").update({ progress }).eq("id", runId);
+  } catch {
+    // best-effort by design
+  }
+}
+
+const STALE_RUN_MINUTES = 15;
+
+/** Finalize crashed runs: a killed serverless function can never finalize its own row. */
+export async function sweepStaleRuns(
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+): Promise<void> {
+  try {
+    await supabase
+      .from("automation_runs")
+      .update({
+        status: "failed",
+        finished_at: now.toISOString(),
+        errors: ["stale_running_run"],
+      })
+      .eq("status", "running")
+      .lt("started_at", new Date(now.getTime() - STALE_RUN_MINUTES * 60 * 1000).toISOString());
+  } catch {
+    // best-effort by design
+  }
+}
+
+export async function hasActiveRun(
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("automation_runs")
+    .select("id")
+    .eq("status", "running")
+    .gte("started_at", new Date(now.getTime() - STALE_RUN_MINUTES * 60 * 1000).toISOString())
+    .limit(1);
+  if (error) throw new Error(`active run read failed: ${error.message}`);
+  return ((data ?? []) as { id: string }[]).length > 0;
+}
+
 type SourceInput = {
   source: "reddit" | "web_search";
   id: string;
@@ -171,6 +244,7 @@ async function collectInputs(
   budget: AutomationBudget,
   now: Date,
   patchVersion: string,
+  report?: () => Promise<void>,
 ): Promise<SourceInput[]> {
   const inputs: SourceInput[] = [];
   const f = features();
@@ -213,6 +287,7 @@ async function collectInputs(
         result.status = "partial";
         result.errors.push(toErrorMessage(error, "search failed"));
       }
+      await report?.();
     }
   } else if (!f.webSearch) {
     result.skips.push("search_disabled");
@@ -227,6 +302,7 @@ async function prepareSignals(
   budget: AutomationBudget,
   patchVersion: string,
   clusterOptions: ClusterOption[],
+  report?: () => Promise<void>,
 ): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[] }> {
   const prepared: PreparedSignal[] = [];
   const rejected: RejectedCandidate[] = [];
@@ -271,6 +347,7 @@ async function prepareSignals(
         snippet: signal.body.slice(0, 500),
         reason: preScreen.reason,
       });
+      await report?.();
       continue;
     }
 
@@ -291,6 +368,7 @@ async function prepareSignals(
         snippet: signal.body.slice(0, 500),
         reason: relevance.reason,
       });
+      await report?.();
       continue;
     }
 
@@ -302,6 +380,7 @@ async function prepareSignals(
       extraction,
     });
     result.signalsInserted += 1;
+    await report?.();
   }
 
   return { prepared, rejected };
@@ -577,22 +656,49 @@ async function persistSignals(
   }
 }
 
-async function insertRunLedger(
+async function createRunLedger(
   supabase: ReturnType<typeof createServiceClient>,
   mode: AutomationMode,
   budget: AutomationBudget,
-  result: AutomationResult,
   now: Date,
 ): Promise<string> {
   const { data, error } = await supabase
     .from("automation_runs")
     .insert({
       started_at: now.toISOString(),
-      finished_at: new Date().toISOString(),
-      status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
+      status: "running",
       mode,
       budget_monthly_usd: budget.monthlyBudgetUsd,
       budget_remaining_before_usd: budget.remainingMonthUsd,
+      progress: {
+        stage: "starting",
+        searchesDone: 0,
+        searchTotal: budget.maxSearchQueries,
+        candidatesSeen: 0,
+        prefilterRejected: 0,
+        llmCallsUsed: 0,
+        kept: 0,
+        promoted: 0,
+      } satisfies RunProgress,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`automation run create failed: ${error.message}`);
+  const id = (data as { id?: string } | null)?.id;
+  if (!id) throw new Error("automation run create returned no id");
+  return id;
+}
+
+async function finalizeRunLedger(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  result: AutomationResult,
+): Promise<void> {
+  const { error } = await supabase
+    .from("automation_runs")
+    .update({
+      finished_at: new Date().toISOString(),
+      status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
       estimated_cost_usd: result.estimatedCostUsd,
       reddit_posts_seen: result.redditPostsSeen,
       search_queries_used: result.searchQueriesUsed,
@@ -611,13 +717,10 @@ async function insertRunLedger(
         kept: result.signalsInserted,
         promoted: result.clustersPromoted,
       },
+      progress: snapshotProgress("done", result, result.searchQueriesUsed),
     })
-    .select("id")
-    .single();
-  if (error) throw new Error(error.message);
-  const id = (data as { id?: string } | null)?.id;
-  if (!id) throw new Error("automation run ledger insert returned no id");
-  return id;
+    .eq("id", runId);
+  if (error) throw new Error(`automation run finalize failed: ${error.message}`);
 }
 
 const MAX_REJECTED_CANDIDATES_PER_RUN = 50;
@@ -656,24 +759,14 @@ async function deleteExpiredRejectedCandidates(
   }
 }
 
-export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date }): Promise<AutomationResult> {
-  const now = input.now ?? new Date();
-  const supabase = createServiceClient();
-  const monthlyBudgetUsd = automationBudgetUsd();
-  let budgetReadError: string | null = null;
-  let spentMonthToDateUsd = 0;
-  try {
-    spentMonthToDateUsd = await loadMonthSpend(supabase, now);
-  } catch (error) {
-    budgetReadError = toErrorMessage(error, "automation spend read failed");
-    spentMonthToDateUsd = monthlyBudgetUsd;
-  }
-  const budget = computeAutomationBudget({
-    monthlyBudgetUsd,
-    spentMonthToDateUsd,
-    now,
-  });
-
+async function executeAutomationRun(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  mode: AutomationMode,
+  budget: AutomationBudget,
+  budgetReadError: string | null,
+  now: Date,
+): Promise<AutomationResult> {
   const result: AutomationResult = {
     status: "success",
     redditPostsSeen: 0,
@@ -694,44 +787,113 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     result.status = "skipped";
     result.skips.push("budget_read_failed");
     result.errors.push(budgetReadError);
-    await insertRunLedger(supabase, input.mode, budget, result, now);
+    await finalizeRunLedger(supabase, runId, result);
     return result;
   }
 
-  let currentPatch = await getCurrentPatchMetadata(supabase);
-  if (input.mode !== "dry_run") {
-    try {
-      currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
-    } catch (error) {
-      result.status = "partial";
-      result.errors.push(toErrorMessage(error, "official patch sync failed"));
+  const report = (stage: RunProgress["stage"]) =>
+    writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
+
+  let rejected: RejectedCandidate[] = [];
+
+  try {
+    let currentPatch = await getCurrentPatchMetadata(supabase);
+    if (mode !== "dry_run") {
+      try {
+        currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
+      } catch (error) {
+        result.status = "partial";
+        result.errors.push(toErrorMessage(error, "official patch sync failed"));
+      }
     }
+
+    const routableClusters = await loadRoutableClusters(supabase);
+    const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+
+    await report("searching");
+    const inputs = await collectInputs(result, budget, now, currentPatch.version, () => report("searching"));
+    const prepared = await prepareSignals(
+      inputs,
+      result,
+      budget,
+      currentPatch.version,
+      clusterOptions,
+      () => report("screening"),
+    );
+    rejected = prepared.rejected;
+
+    if (mode !== "dry_run") {
+      await report("persisting");
+      try {
+        await persistSignals(supabase, prepared.prepared, result, now, routableClusters);
+      } catch (error) {
+        result.status = "failed";
+        result.errors.push(toErrorMessage(error, "automation persistence failed"));
+      }
+    }
+
+    if (result.errors.length > 0 && result.status === "success") result.status = "partial";
+  } catch (error) {
+    result.status = "failed";
+    result.errors.push(toErrorMessage(error, "automation run crashed"));
   }
 
-  const routableClusters = await loadRoutableClusters(supabase);
-  const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
-
-  const inputs = await collectInputs(result, budget, now, currentPatch.version);
-  const { prepared, rejected } = await prepareSignals(inputs, result, budget, currentPatch.version, clusterOptions);
-
-  if (input.mode !== "dry_run") {
-    try {
-      await persistSignals(supabase, prepared, result, now, routableClusters);
-    } catch (error) {
-      result.status = "failed";
-      result.errors.push(toErrorMessage(error, "automation persistence failed"));
-    }
-  }
-
-  if (result.errors.length > 0 && result.status === "success") result.status = "partial";
-  const runId = await insertRunLedger(supabase, input.mode, budget, result, now);
-
-  if (input.mode !== "dry_run") {
+  if (mode !== "dry_run") {
     await persistRejectedCandidates(supabase, runId, rejected, result);
     await deleteExpiredRejectedCandidates(supabase, now, result);
   }
 
+  await finalizeRunLedger(supabase, runId, result);
   return result;
+}
+
+export type StartedScan =
+  | { status: "started"; runId: string; completion: Promise<AutomationResult> }
+  | { status: "already_running"; runId: null };
+
+export async function startAutomationScan(input: { mode: AutomationMode; now?: Date }): Promise<StartedScan> {
+  const now = input.now ?? new Date();
+  const supabase = createServiceClient();
+  await sweepStaleRuns(supabase, now);
+  if (await hasActiveRun(supabase, now)) return { status: "already_running", runId: null };
+
+  const monthlyBudgetUsd = automationBudgetUsd();
+  let budgetReadError: string | null = null;
+  let spentMonthToDateUsd = 0;
+  try {
+    spentMonthToDateUsd = await loadMonthSpend(supabase, now);
+  } catch (error) {
+    budgetReadError = toErrorMessage(error, "automation spend read failed");
+    spentMonthToDateUsd = monthlyBudgetUsd;
+  }
+  const budget = computeAutomationBudget({ monthlyBudgetUsd, spentMonthToDateUsd, now });
+
+  const runId = await createRunLedger(supabase, input.mode, budget, now);
+  const completion = executeAutomationRun(supabase, runId, input.mode, budget, budgetReadError, now);
+  return { status: "started", runId, completion };
+}
+
+/** Awaits the whole scan inline — used by the cron and tests. */
+export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date }): Promise<AutomationResult> {
+  const started = await startAutomationScan(input);
+  if (started.status === "already_running") {
+    return {
+      status: "skipped",
+      redditPostsSeen: 0,
+      searchQueriesUsed: 0,
+      searchResultsSeen: 0,
+      llmCallsUsed: 0,
+      candidatesSeen: 0,
+      prefilterRejected: 0,
+      signalsInserted: 0,
+      signalsDeduped: 0,
+      clustersPromoted: 0,
+      estimatedCostUsd: 0,
+      skips: ["scan_already_running"],
+      errors: [],
+    };
+  }
+  return started.completion;
 }
 
 export async function rescueCandidateSignal(

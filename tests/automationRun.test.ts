@@ -236,7 +236,10 @@ class FakeQuery {
         ...row,
       };
       tables[this.table].push(next);
-      mutations.push({ table: this.table, type: "insert", row: next });
+      // Snapshot at insert time: `next` is also the live row in `tables`, and later
+      // updates mutate it in place, so the mutation log would otherwise reflect the
+      // row's final state instead of what was actually inserted.
+      mutations.push({ table: this.table, type: "insert", row: { ...next } });
       return next;
     });
     return { data: this.singleResult ? inserted[0] : inserted, error: null };
@@ -426,27 +429,22 @@ describe("runAutomationMonitor", () => {
     });
   });
 
-  it("fails closed when the monthly automation spend ledger cannot be read", async () => {
+  it("fails closed when the automation_runs ledger cannot be read for the active-run check", async () => {
+    // The active-run pre-flight check reads automation_runs before any ledger row
+    // exists for this attempt, so a broadly unreadable ledger table must abort
+    // before touching Reddit/search/LLM providers, with zero ledger rows written.
     selectFailure = { table: "automation_runs", message: "ledger unavailable" };
     const { runAutomationMonitor } = await importRunner();
 
-    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    await expect(runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") })).rejects.toThrow(
+      "ledger unavailable",
+    );
 
-    expect(result.status).toBe("skipped");
-    expect(result.skips).toContain("budget_read_failed");
-    expect(result.errors[0]).toContain("ledger unavailable");
     expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(openRouterAttempts).toBe(0);
-    expect(tables.automation_runs).toHaveLength(1);
-    expect(tables.automation_runs[0]).toMatchObject({
-      status: "skipped",
-      search_queries_used: 0,
-      llm_calls_used: 0,
-      signals_inserted: 0,
-      errors: [expect.stringContaining("ledger unavailable")],
-    });
-    expect(mutations.filter((mutation) => mutation.table !== "automation_runs")).toHaveLength(0);
+    expect(tables.automation_runs).toHaveLength(0);
+    expect(mutations.filter((mutation) => mutation.type === "insert")).toHaveLength(0);
   });
 
   it("non-dry runs cluster two independent trusted+unknown domains and promote them public", async () => {
@@ -971,6 +969,87 @@ describe("runAutomationMonitor", () => {
       clusters_promoted: 0,
       errors: [expect.stringContaining("source signal status update failed")],
     });
+  });
+
+  it("creates a running ledger row first, then finalizes the same row with a terminal status", async () => {
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.automation_runs).toHaveLength(1);
+    const insertMutation = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "insert");
+    expect(insertMutation).toBeDefined();
+    expect(insertMutation!.row).toMatchObject({ status: "running" });
+    expect((insertMutation!.row as { finished_at?: unknown }).finished_at).toBeUndefined();
+
+    const finalRow = tables.automation_runs[0];
+    expect(finalRow.id).toBe((insertMutation!.row as { id: string }).id);
+    expect(finalRow.status).toBe(result.status);
+    expect(finalRow.finished_at).toBeTruthy();
+
+    const updateMutations = mutations.filter(
+      (mutation) => mutation.table === "automation_runs" && mutation.type === "update",
+    );
+    const finalizeMutation = updateMutations.find(
+      (mutation) => (mutation.row as { finished_at?: unknown }).finished_at,
+    );
+    expect(finalizeMutation).toBeDefined();
+  });
+
+  it("sweeps stale running runs to failed with a 15-minute started_at cutoff", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-stale",
+          status: "running",
+          started_at: "2026-07-05T11:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    const { sweepStaleRuns } = await importRunner();
+
+    const now = new Date("2026-07-05T12:00:00.000Z");
+    await sweepStaleRuns({ from: mocks.from } as unknown as Parameters<typeof sweepStaleRuns>[0], now);
+
+    const sweepUpdate = mutations.find(
+      (mutation) => mutation.table === "automation_runs" && mutation.type === "update" && (mutation.row as { status?: unknown }).status === "failed",
+    );
+    expect(sweepUpdate).toBeDefined();
+    expect(tables.automation_runs[0]).toMatchObject({ status: "failed", finished_at: now.toISOString() });
+  });
+
+  it("startAutomationScan reports already_running when a running row exists within the stale window", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-active",
+          status: "running",
+          started_at: "2026-07-05T11:55:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    const { startAutomationScan } = await importRunner();
+
+    const started = await startAutomationScan({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(started).toEqual({ status: "already_running", runId: null });
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+  });
+
+  it("writes a screening-stage progress update while candidates are being processed", async () => {
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const progressUpdates = mutations
+      .filter((mutation) => mutation.table === "automation_runs" && mutation.type === "update")
+      .map((mutation) => (mutation.row as { progress?: { stage?: string } }).progress)
+      .filter((progress): progress is { stage?: string } => Boolean(progress));
+
+    expect(progressUpdates.some((progress) => progress.stage === "screening")).toBe(true);
   });
 });
 
