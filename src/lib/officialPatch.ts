@@ -21,13 +21,27 @@ function decodeHtml(value: string): string {
   return value
     .replace(/&nbsp;/g, " ")
     .replace(/&#160;/g, " ")
-    .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    // &amp; must be decoded last so "&amp;lt;" resolves to the literal "&lt;",
+    // not a double-unescaped "<".
+    .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// Remove HTML tags, looping until the string is stable so a partial match left
+// behind by one pass (e.g. "<scr<b>ipt>") cannot survive as a reconstructed tag.
+function stripHtmlTags(value: string): string {
+  let previous: string;
+  let current = value;
+  do {
+    previous = current;
+    current = current.replace(/<[^>]*>/g, "");
+  } while (current !== previous);
+  return current;
 }
 
 function absoluteOfficialUrl(url: string): string {
@@ -51,7 +65,7 @@ export function parseOfficialNoticeList(html: string): Pick<OfficialPatchNote, "
     const rawTitle = cardHtml?.match(/<p\s+class="title[^"]*"[^>]*>([\s\S]*?)<\/p>/i)?.[1];
     if (!rawUrl || !rawTitle) continue;
 
-    const title = decodeHtml(rawTitle.replace(/<[^>]*>/g, ""));
+    const title = decodeHtml(stripHtmlTags(rawTitle));
     const patchVersion = patchVersionFromTitle(title);
     const boardNo = boardNoFromUrl(rawUrl);
     if (!patchVersion || !boardNo) continue;
@@ -91,7 +105,7 @@ export function parseClaimedFixes(html: string): string[] {
   const fixes: string[] = [];
   const seen = new Set<string>();
   for (const match of html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
-    const text = decodeHtml((match[1] ?? "").replace(/<[^>]*>/g, ""));
+    const text = decodeHtml(stripHtmlTags(match[1] ?? ""));
     if (!text || text.length < 12 || text.length > 300) continue;
     if (!FIX_LANGUAGE.test(text)) continue;
     const key = text.toLowerCase();
