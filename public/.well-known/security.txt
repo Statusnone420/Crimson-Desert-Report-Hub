@@ -1,0 +1,5 @@
+Contact: https://github.com/Statusnone420/Crimson-Desert-Report-Hub/security/advisories/new
+Policy: https://github.com/Statusnone420/Crimson-Desert-Report-Hub/security/policy
+Preferred-Languages: en
+Canonical: https://crimsonreporthub.com/.well-known/security.txt
+Expires: 2027-07-06T23:59:00Z
