@@ -125,6 +125,9 @@ export default async function AdminPage() {
             <div className="stat-label mb-1">Providers</div>
             <p>Reddit: {f.reddit ? "enabled" : "disabled"}</p>
             <p>Web search: {f.webSearch ? "enabled" : "disabled"}</p>
+            <p style={f.turnstile ? undefined : { color: "var(--crimson-bright)" }}>
+              Spam shield (Turnstile): {f.turnstile ? "enabled" : "OFF — report form has no captcha"}
+            </p>
           </div>
           <div>
             <div className="stat-label mb-1">Latest run</div>

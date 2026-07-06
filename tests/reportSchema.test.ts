@@ -43,6 +43,12 @@ describe("reportSchema", () => {
     expect(reportSchema.safeParse({ ...valid, evidence_url: "not a url" }).success).toBe(false);
   });
 
+  it("rejects non-http(s) evidence url schemes", () => {
+    expect(reportSchema.safeParse({ ...valid, evidence_url: "javascript:alert(1)" }).success).toBe(false);
+    expect(reportSchema.safeParse({ ...valid, evidence_url: "data:text/html,hi" }).success).toBe(false);
+    expect(reportSchema.safeParse({ ...valid, evidence_url: "ftp://example.com/clip.mp4" }).success).toBe(false);
+  });
+
   it("accepts x.com and reddit.com evidence urls", () => {
     expect(reportSchema.safeParse({ ...valid, evidence_url: "https://x.com/user/status/123" }).success).toBe(
       true,
