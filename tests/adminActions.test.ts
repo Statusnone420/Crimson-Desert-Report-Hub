@@ -166,7 +166,41 @@ describe("setAutomationPaused", () => {
       type: "upsert",
       row: expect.objectContaining({
         key: "scanner",
-        value: { paused: true },
+        value: expect.objectContaining({ paused: true }),
+      }),
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/source-monitor");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+  });
+});
+
+describe("setScannerPolicy", () => {
+  it("persists a clamped scanner policy behind admin auth", async () => {
+    const { setScannerPolicy } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("paused", "true");
+    formData.set("minIntervalMinutes", "120");
+    formData.set("scheduledSearchCreditsPerRun", "3");
+    formData.set("monthlyTavilyCreditCap", "-5");
+    formData.set("monthlyLlmUsdCap", "7");
+    formData.set("modelPreset", "expensive-model");
+
+    await setScannerPolicy(formData);
+
+    expect(mutations).toContainEqual({
+      table: "automation_settings",
+      type: "upsert",
+      row: expect.objectContaining({
+        key: "scanner",
+        value: {
+          paused: true,
+          minIntervalMinutes: 120,
+          scheduledSearchCreditsPerRun: 3,
+          monthlyTavilyCreditCap: 900,
+          monthlyLlmUsdCap: 5,
+          modelPreset: "deepseek_qwen_pro",
+        },
       }),
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/source-monitor");

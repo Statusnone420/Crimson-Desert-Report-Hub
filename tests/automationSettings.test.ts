@@ -58,25 +58,96 @@ function fakeSupabase(rows: Row[]): AutomationSettingsClient {
 }
 
 describe("automation scanner settings", () => {
-  it("defaults to active when no scanner setting exists", async () => {
+  it("defaults to the safe scanner policy when no scanner setting exists", async () => {
     const { getAutomationControlState } = await import("@/lib/automation/settings");
 
     await expect(getAutomationControlState(fakeSupabase([]))).resolves.toEqual({
       paused: false,
+      minIntervalMinutes: 60,
+      scheduledSearchCreditsPerRun: 1,
+      monthlyTavilyCreditCap: 900,
+      monthlyLlmUsdCap: 1,
+      modelPreset: "deepseek_qwen_pro",
       updatedAt: null,
     });
   });
 
-  it("reads and writes the scanner paused state", async () => {
+  it("hydrates legacy paused-only scanner settings with policy defaults", async () => {
+    const { getAutomationControlState } = await import("@/lib/automation/settings");
+
+    await expect(
+      getAutomationControlState(
+        fakeSupabase([{ key: "scanner", value: { paused: true }, updated_at: "2026-07-06T12:00:00.000Z" }]),
+      ),
+    ).resolves.toEqual({
+      paused: true,
+      minIntervalMinutes: 60,
+      scheduledSearchCreditsPerRun: 1,
+      monthlyTavilyCreditCap: 900,
+      monthlyLlmUsdCap: 1,
+      modelPreset: "deepseek_qwen_pro",
+      updatedAt: "2026-07-06T12:00:00.000Z",
+    });
+  });
+
+  it("clamps invalid stored scanner settings to safe values", async () => {
+    const { getAutomationControlState } = await import("@/lib/automation/settings");
+
+    await expect(
+      getAutomationControlState(
+        fakeSupabase([
+          {
+            key: "scanner",
+            value: {
+              paused: "yes",
+              minIntervalMinutes: 90,
+              scheduledSearchCreditsPerRun: 5,
+              monthlyTavilyCreditCap: -10,
+              monthlyLlmUsdCap: 9,
+              modelPreset: "other-model",
+            },
+          },
+        ]),
+      ),
+    ).resolves.toMatchObject({
+      paused: false,
+      minIntervalMinutes: 60,
+      scheduledSearchCreditsPerRun: 1,
+      monthlyTavilyCreditCap: 900,
+      monthlyLlmUsdCap: 5,
+      modelPreset: "deepseek_qwen_pro",
+    });
+  });
+
+  it("reads and writes the scanner paused state without dropping policy fields", async () => {
     const { getAutomationControlState, setAutomationPaused } = await import("@/lib/automation/settings");
-    const rows: Row[] = [];
+    const rows: Row[] = [
+      {
+        key: "scanner",
+        value: {
+          paused: false,
+          minIntervalMinutes: 120,
+          scheduledSearchCreditsPerRun: 3,
+          monthlyTavilyCreditCap: 100,
+          monthlyLlmUsdCap: 4,
+          modelPreset: "deepseek_qwen_pro",
+        },
+      },
+    ];
     const supabase = fakeSupabase(rows);
 
     await setAutomationPaused(supabase, true);
 
     expect(rows[0]).toMatchObject({
       key: "scanner",
-      value: { paused: true },
+      value: {
+        paused: true,
+        minIntervalMinutes: 120,
+        scheduledSearchCreditsPerRun: 3,
+        monthlyTavilyCreditCap: 100,
+        monthlyLlmUsdCap: 4,
+        modelPreset: "deepseek_qwen_pro",
+      },
     });
     await expect(getAutomationControlState(supabase)).resolves.toMatchObject({ paused: true });
   });

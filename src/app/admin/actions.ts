@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
 import { rescueCandidateSignal } from "@/lib/automation/run";
 import {
+  scannerPolicyFromFormData,
   setAutomationPaused as setAutomationPausedState,
+  setScannerPolicy as setScannerPolicyState,
   type AutomationSettingsClient,
 } from "@/lib/automation/settings";
 import { FIX_STATUSES } from "@/lib/constants";
@@ -300,6 +302,18 @@ export async function setAutomationPaused(formData: FormData): Promise<void> {
   assertProductionWriteAllowed();
   const paused = formData.get("paused") === "true";
   await setAutomationPausedState(createServiceClient() as unknown as AutomationSettingsClient, paused);
+  revalidatePath("/admin");
+  revalidatePath("/admin/source-monitor");
+  revalidatePublicSurfaces();
+}
+
+export async function setScannerPolicy(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  await setScannerPolicyState(
+    createServiceClient() as unknown as AutomationSettingsClient,
+    scannerPolicyFromFormData(formData),
+  );
   revalidatePath("/admin");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
