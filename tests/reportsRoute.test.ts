@@ -87,6 +87,7 @@ function makeRequest(body: unknown, ip = "203.0.113.7"): Request {
 }
 
 beforeEach(() => {
+  delete process.env.VERCEL_ENV;
   cacheMocks.revalidateTag.mockClear();
   bugReportInsert.mockClear();
   excerptInsert.mockClear();
@@ -96,6 +97,17 @@ beforeEach(() => {
 });
 
 describe("POST /api/reports", () => {
+  it("403 in Vercel preview without persisting demo data", async () => {
+    process.env.VERCEL_ENV = "preview";
+
+    const res = await POST(makeRequest(valid));
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({ error: "preview_writes_disabled" });
+    expect(bugReportInsert).not.toHaveBeenCalled();
+    expect(excerptInsert).not.toHaveBeenCalled();
+  });
+
   it("201 on valid report; auto-approves, fingerprints, hashes ip, keeps raw ip out", async () => {
     const res = await POST(makeRequest(valid));
     expect(res.status).toBe(201);

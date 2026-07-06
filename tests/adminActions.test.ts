@@ -82,6 +82,7 @@ class FakeQuery {
 }
 
 beforeEach(() => {
+  delete process.env.VERCEL_ENV;
   vi.clearAllMocks();
   vi.resetModules();
   insertFailure = null;
@@ -115,6 +116,18 @@ describe("moderateReport", () => {
 });
 
 describe("setAutomationPaused", () => {
+  it("blocks scanner setting writes in Vercel preview", async () => {
+    process.env.VERCEL_ENV = "preview";
+    const { setAutomationPaused } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("paused", "true");
+
+    await expect(setAutomationPaused(formData)).rejects.toThrow("preview writes disabled");
+
+    expect(mutations).toEqual([]);
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
   it("persists scanner pause state behind admin auth", async () => {
     const { setAutomationPaused } = await import("@/app/admin/actions");
     const formData = new FormData();
