@@ -328,6 +328,14 @@ label { font-size: 0.8rem; color: var(--text-dim); display: block; margin-bottom
 .rise { animation: rise 460ms var(--ease) both; }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; } }
 
+/* Lighter, snappier entrance for status surfaces that appear on a state change (e.g. the scan progress card) */
+@keyframes fade-rise {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-rise { animation: fade-rise 200ms var(--ease) both; }
+@media (prefers-reduced-motion: reduce) { .fade-rise { animation: none; } }
+
 /* ---------- Site chrome ---------- */
 
 .site-header {

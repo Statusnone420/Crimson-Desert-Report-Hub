@@ -145,7 +145,7 @@ export default async function IssuesPage() {
 
           {watchlist.length > 0 ? (
             <section className="panel space-y-3">
-              <div className="stat-label">Watchlist · scanner is hunting, no evidence yet</div>
+              <h2 className="stat-label">Watchlist · scanner is hunting, no evidence yet</h2>
               <div className={watchlist.length === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2"}>
                 {watchlist.map((cluster) => (
                   <div key={cluster.id} className="panel-inset space-y-1.5 border px-3 py-2.5">

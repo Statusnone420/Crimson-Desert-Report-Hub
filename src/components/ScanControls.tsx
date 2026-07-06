@@ -155,7 +155,7 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
       ) : null}
 
       {scanning || finished ? (
-        <div className="panel-inset space-y-2 border p-3 text-sm" aria-live="polite">
+        <div className="fade-rise panel-inset space-y-2 border p-3 text-sm" aria-live="polite">
           <div className="flex items-center justify-between gap-2">
             <span className={finished ? "badge badge-green badge-dot" : "badge badge-amber badge-dot"}>
               {finished ? `scan ${run?.status}` : (STAGE_LABELS[progress?.stage ?? "starting"] ?? "Scanning")}

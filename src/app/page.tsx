@@ -131,7 +131,7 @@ export default async function DashboardPage() {
       {d.claimedFixes.length > 0 ? (
         <section className="panel space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="stat-label">Patch {d.currentPatch.version} · claimed fixes vs community evidence</div>
+            <h2 className="stat-label">Patch {d.currentPatch.version} · claimed fixes vs community evidence</h2>
             <a
               href={d.currentPatch.officialUrl}
               target="_blank"
@@ -182,8 +182,8 @@ export default async function DashboardPage() {
               {claims.disputed.map((claim, index) => (
                 <div
                   key={index}
-                  className="space-y-1.5 rounded-[10px] border px-3.5 py-3"
-                  style={{ borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" }}
+                  className="space-y-1.5 border px-3.5 py-3"
+                  style={{ borderRadius: "var(--r-md)", borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" }}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
                     <span className="min-w-0 flex-1">&ldquo;{claim.fixText}&rdquo;</span>
@@ -208,7 +208,7 @@ export default async function DashboardPage() {
           {watchClusters.length > 0 ? (
             <div className="space-y-1 border-t pt-3">
               {watchClusters.map((cluster) => (
-                <Link key={cluster.id} href="/issues" className="flex items-center justify-between gap-3 py-1 text-sm">
+                <Link key={cluster.id} href="/issues" className="flex items-center justify-between gap-3 py-2 text-sm">
                   <span className="truncate">{cluster.title}</span>
                   <span className="badge badge-amber shrink-0">watching</span>
                 </Link>
@@ -217,7 +217,7 @@ export default async function DashboardPage() {
           ) : null}
 
           <details className="border-t pt-3 text-sm">
-            <summary className="cursor-pointer text-xs" style={{ color: "var(--text-faint)" }}>
+            <summary className="cursor-pointer py-1 text-xs" style={{ color: "var(--text-faint)" }}>
               View all {claims.total} claims
             </summary>
             <div className="mt-3 space-y-2">
