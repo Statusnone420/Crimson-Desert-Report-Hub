@@ -1187,6 +1187,7 @@ describe("cron keepalive route", () => {
       automation: { status: "skipped", reason: "paused" },
     });
     expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "paused", expect.any(Date));
   });
 
   it("preserves keepalive and purge work but skips automation when a recent run exists", async () => {
@@ -1236,7 +1237,49 @@ describe("cron keepalive route", () => {
       automation: { status: "skipped", reason: "recent_run" },
     });
     expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "recent_run", expect.any(Date));
     expect(tables.source_signals[0]).toMatchObject({ raw_text: null, raw_expires_at: null });
+  });
+
+  it("runs the scheduled scan when only a dry run is recent and writes no skip marker", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-dry",
+          started_at: "2026-07-05T08:00:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "dry_run",
+          status: "success",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      automation: { status: "success" },
+    });
+    expect(mocks.runAutomationMonitor).toHaveBeenCalledWith({ mode: "scheduled" });
+    expect(mocks.insertSkippedScheduledRun).not.toHaveBeenCalled();
   });
 });
 
