@@ -60,7 +60,9 @@ type TableName =
   | "automation_settings";
 type Filter =
   | { type: "eq"; column: string; value: unknown }
+  | { type: "is"; column: string; value: unknown }
   | { type: "gte"; column: string; value: unknown }
+  | { type: "gt"; column: string; value: unknown }
   | { type: "lt"; column: string; value: unknown }
   | { type: "in"; column: string; value: unknown[] }
   | { type: "not"; column: string; operator: string; value: unknown };
@@ -115,8 +117,11 @@ function likeToRegExp(pattern: string): RegExp {
 function passesFilter(row: Row, filter: Filter): boolean {
   const value = row[filter.column];
   if (filter.type === "eq") return value === filter.value;
+  if (filter.type === "is" && filter.value === null) return value == null;
+  if (filter.type === "is") return value === filter.value;
   if (filter.type === "in") return filter.value.includes(value);
   if (filter.type === "gte") return String(value) >= String(filter.value);
+  if (filter.type === "gt") return String(value) > String(filter.value);
   if (filter.type === "lt") return String(value) < String(filter.value);
   if (filter.type === "not" && filter.operator === "is" && filter.value === null) return value !== null;
   if (filter.type === "not" && filter.operator === "like") return !likeToRegExp(String(filter.value)).test(String(value ?? ""));
@@ -171,8 +176,18 @@ class FakeQuery {
     return this;
   }
 
+  is(column: string, value: unknown) {
+    this.filters.push({ type: "is", column, value });
+    return this;
+  }
+
   gte(column: string, value: unknown) {
     this.filters.push({ type: "gte", column, value });
+    return this;
+  }
+
+  gt(column: string, value: unknown) {
+    this.filters.push({ type: "gt", column, value });
     return this;
   }
 
@@ -820,6 +835,7 @@ describe("runAutomationMonitor", () => {
         snippet: "Official update notes and balance changes.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
       },
       {
         title: "Crimson Desert PS5 Review",
@@ -901,6 +917,7 @@ describe("runAutomationMonitor", () => {
       title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
       url: "https://example.com/patch-notes",
       source_domain: "example.com",
+      source_published_at: "2026-07-05T10:00:00.000Z",
     });
   });
 
@@ -1421,6 +1438,99 @@ describe("runAutomationMonitor", () => {
 
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com OR site:steamcommunity.com");
     expect(tables.automation_runs[0]).toMatchObject({ intent: "rescue_candidate" });
+  });
+
+  it("ignores stale, rescued, and non-rescuable rejected candidates when planning rescue", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "rejected-wrong-patch",
+          title: "Patch 1.04 crash report",
+          url: "https://steamcommunity.com/app/wrong-patch",
+          source_domain: "steamcommunity.com",
+          snippet: "Crash after 1.04.",
+          reason: "wrong_patch",
+          expires_at: "2026-07-12T12:00:00.000Z",
+          rescued_at: null,
+        },
+        {
+          id: "rejected-stale-source",
+          title: "Old performance report",
+          url: "https://steamcommunity.com/app/stale",
+          source_domain: "steamcommunity.com",
+          snippet: "FPS drops.",
+          reason: "stale_source",
+          expires_at: "2026-07-12T12:00:00.000Z",
+          rescued_at: null,
+        },
+        {
+          id: "rejected-already-rescued",
+          title: "Promising current patch source",
+          url: "https://steamcommunity.com/app/rescued",
+          source_domain: "steamcommunity.com",
+          snippet: "thin",
+          reason: "source_not_issue_report",
+          expires_at: "2026-07-12T12:00:00.000Z",
+          rescued_at: "2026-07-05T10:00:00.000Z",
+        },
+        {
+          id: "rejected-expired",
+          title: "Expired current patch source",
+          url: "https://steamcommunity.com/app/expired",
+          source_domain: "steamcommunity.com",
+          snippet: "thin",
+          reason: "source_not_issue_report",
+          expires_at: "2026-07-01T12:00:00.000Z",
+          rescued_at: null,
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(mocks.tavilySearch.mock.calls[0][0]).not.toContain("site:reddit.com OR site:steamcommunity.com");
+    expect(tables.automation_runs[0]).not.toMatchObject({ intent: "rescue_candidate" });
+  });
+
+  it("preserves candidate freshness when rescuing a rejected source", async () => {
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from } as never,
+      {
+        title: "Thin player report",
+        url: "https://reddit.com/r/CrimsonDesert/comments/thin/report/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Players report FPS drops after the current patch.",
+      },
+    );
+
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      canonical_url: "https://reddit.com/r/CrimsonDesert/comments/thin/report",
+      source_published_at: "2026-07-05T11:00:00.000Z",
+    });
   });
 
   it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {

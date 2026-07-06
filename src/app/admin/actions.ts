@@ -327,7 +327,7 @@ export async function rescueRejectedCandidate(formData: FormData): Promise<void>
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("automation_rejected_candidates")
-    .select("id, title, url, source_domain, snippet")
+    .select("id, title, url, source_domain, source_published_at, snippet")
     .eq("id", id)
     .limit(1);
   if (error) throw new Error(`rejected candidate read failed: ${error.message}`);
@@ -338,6 +338,7 @@ export async function rescueRejectedCandidate(formData: FormData): Promise<void>
     title: candidate.title,
     url: candidate.url,
     sourceDomain: candidate.source_domain ?? null,
+    sourcePublishedAt: candidate.source_published_at ?? null,
     snippet: candidate.snippet ?? "",
   });
 

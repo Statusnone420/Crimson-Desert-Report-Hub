@@ -148,6 +148,7 @@ export type RejectedCandidate = {
   title: string;
   url: string;
   sourceDomain: string | null;
+  sourcePublishedAt?: string | null;
   snippet: string;
   reason: string;
 };
@@ -371,10 +372,13 @@ async function loadPrivateSignalClusterTitles(supabase: ReturnType<typeof create
 async function countRejectedCandidates(supabase: ReturnType<typeof createServiceClient>, now: Date): Promise<number> {
   const { data, error } = await supabase
     .from("automation_rejected_candidates")
-    .select("id, expires_at")
+    .select("id")
+    .eq("reason", "source_not_issue_report")
+    .is("rescued_at", null)
+    .gt("expires_at", now.toISOString())
     .limit(100);
   if (error) throw new Error(`rejected candidate memory read failed: ${error.message}`);
-  return ((data ?? []) as { expires_at?: string | null }[]).filter((row) => !row.expires_at || row.expires_at > now.toISOString()).length;
+  return ((data ?? []) as unknown[]).length;
 }
 
 async function loadScanMemory(
@@ -571,6 +575,7 @@ async function prepareSignals(
           title: signal.title,
           url: canonicalUrl,
           sourceDomain: signal.sourceDomain,
+          sourcePublishedAt: signal.sourcePublishedAt ?? null,
           snippet: signal.body.slice(0, 500),
           reason: relevance.reason,
         });
@@ -584,6 +589,7 @@ async function prepareSignals(
         title: signal.title,
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
+        sourcePublishedAt: signal.sourcePublishedAt ?? null,
         snippet: signal.body.slice(0, 500),
         reason: preScreen.reason,
       });
@@ -611,6 +617,7 @@ async function prepareSignals(
         title: signal.title,
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
+        sourcePublishedAt: signal.sourcePublishedAt ?? null,
         snippet: signal.body.slice(0, 500),
         reason: relevance.reason,
       });
@@ -1085,6 +1092,7 @@ async function persistRejectedCandidates(
     title: candidate.title,
     url: candidate.url,
     source_domain: candidate.sourceDomain,
+    source_published_at: candidate.sourcePublishedAt ?? null,
     snippet: candidate.snippet,
     reason: candidate.reason,
   }));
@@ -1348,7 +1356,7 @@ export async function insertSkippedScheduledRun(
 
 export async function rescueCandidateSignal(
   supabase: ReturnType<typeof createServiceClient>,
-  candidate: { title: string; url: string; sourceDomain: string | null; snippet: string },
+  candidate: { title: string; url: string; sourceDomain: string | null; sourcePublishedAt?: string | null; snippet: string },
 ): Promise<void> {
   const now = new Date();
   const canonicalUrl = canonicalizeUrl(candidate.url);
@@ -1360,7 +1368,7 @@ export async function rescueCandidateSignal(
     url: canonicalUrl,
     observedAt: now.toISOString(),
     sourceDomain: candidate.sourceDomain,
-    sourcePublishedAt: null,
+    sourcePublishedAt: candidate.sourcePublishedAt ?? null,
   };
 
   const routableClusters = await loadRoutableClusters(supabase);
