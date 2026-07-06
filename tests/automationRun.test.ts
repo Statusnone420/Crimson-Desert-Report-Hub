@@ -77,7 +77,7 @@ const tables: Record<TableName, Row[]> = {
 const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
-let selectFailure: { table: TableName; message: string } | null = null;
+let selectFailure: { table: TableName; message: string; columns?: string } | null = null;
 let updateFailure: { table: TableName; message: string } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
 
@@ -129,6 +129,7 @@ class FakeQuery {
   private limitCount: number | null = null;
   private orderBy: { column: string; ascending: boolean } | null = null;
   private patch: Row | null = null;
+  private selectedColumns: string | undefined;
   private selectOptions: { count?: "exact"; head?: boolean } | undefined;
   private singleResult = false;
   private upsertRows: Row[] | null = null;
@@ -136,7 +137,8 @@ class FakeQuery {
 
   constructor(private readonly table: TableName) {}
 
-  select(_columns?: string, options?: { count?: "exact"; head?: boolean }) {
+  select(columns?: string, options?: { count?: "exact"; head?: boolean }) {
+    this.selectedColumns = columns;
     this.selectOptions = options;
     return this;
   }
@@ -273,7 +275,10 @@ class FakeQuery {
   }
 
   private executeSelect() {
-    if (selectFailure?.table === this.table) {
+    // A failure with `columns` set targets only the query selecting that exact
+    // column string (e.g. loadMonthSpend's "estimated_cost_usd"); without it,
+    // every select on the table fails.
+    if (selectFailure?.table === this.table && (!selectFailure.columns || selectFailure.columns === this.selectedColumns)) {
       return { data: null, count: null, error: { message: selectFailure.message } };
     }
     let rows = this.filteredRows().map((row) => ({ ...row }));
@@ -445,6 +450,36 @@ describe("runAutomationMonitor", () => {
     expect(openRouterAttempts).toBe(0);
     expect(tables.automation_runs).toHaveLength(0);
     expect(mutations.filter((mutation) => mutation.type === "insert")).toHaveLength(0);
+  });
+
+  it("skips the run but still writes and finalizes a ledger row when only the month spend read fails", async () => {
+    // Fail ONLY loadMonthSpend's select (estimated_cost_usd); hasActiveRun's
+    // select (id) succeeds, so the run starts, creates a running ledger row,
+    // and finalizes it as skipped with the budget read error recorded.
+    selectFailure = { table: "automation_runs", columns: "estimated_cost_usd", message: "spend ledger unavailable" };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("skipped");
+    expect(result.skips).toContain("budget_read_failed");
+    expect(result.errors[0]).toContain("spend ledger unavailable");
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+
+    const insertMutation = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "insert");
+    expect(insertMutation).toBeDefined();
+    expect(insertMutation!.row).toMatchObject({ status: "running" });
+
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "skipped",
+      skips: expect.arrayContaining(["budget_read_failed"]),
+      errors: [expect.stringContaining("spend ledger unavailable")],
+    });
+    expect(tables.automation_runs[0].finished_at).toBeTruthy();
+    expect(mutations.filter((mutation) => mutation.type === "insert" && mutation.table !== "automation_runs")).toHaveLength(0);
   });
 
   it("non-dry runs cluster two independent trusted+unknown domains and promote them public", async () => {
