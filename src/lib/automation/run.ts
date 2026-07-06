@@ -92,6 +92,13 @@ export async function sweepStaleRuns(
   }
 }
 
+/**
+ * BEST-EFFORT concurrency protection, not a lock. The sweep -> check -> create
+ * sequence is not atomic and there is no DB unique constraint on
+ * status = 'running', so two simultaneous starts can both pass this check and
+ * both create a run. Upstream guards (cron's 6-hour recency check, single-admin
+ * manual use) make that acceptable — do not rely on this as mutual exclusion.
+ */
 export async function hasActiveRun(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
@@ -759,6 +766,27 @@ async function deleteExpiredRejectedCandidates(
   }
 }
 
+/**
+ * Finalize without ever throwing: `executeAutomationRun`'s promise is handed out
+ * detached (`StartedScan.completion`), so a rejection here would be an
+ * unhandled-rejection crash for any fire-and-forget caller. If the finalize
+ * write fails, the row stays `running` and the stale sweep marks it failed
+ * later — that is the designed recovery path.
+ */
+async function finalizeRunLedgerSafely(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  result: AutomationResult,
+): Promise<void> {
+  try {
+    await finalizeRunLedger(supabase, runId, result);
+  } catch (error) {
+    result.errors.push(toErrorMessage(error, "automation run finalize failed"));
+    if (result.status === "success") result.status = "failed";
+  }
+}
+
+/** Never rejects — always resolves to an AutomationResult (see finalizeRunLedgerSafely). */
 async function executeAutomationRun(
   supabase: ReturnType<typeof createServiceClient>,
   runId: string,
@@ -787,7 +815,7 @@ async function executeAutomationRun(
     result.status = "skipped";
     result.skips.push("budget_read_failed");
     result.errors.push(budgetReadError);
-    await finalizeRunLedger(supabase, runId, result);
+    await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }
 
@@ -843,7 +871,7 @@ async function executeAutomationRun(
     await deleteExpiredRejectedCandidates(supabase, now, result);
   }
 
-  await finalizeRunLedger(supabase, runId, result);
+  await finalizeRunLedgerSafely(supabase, runId, result);
   return result;
 }
 

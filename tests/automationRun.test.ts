@@ -275,10 +275,15 @@ class FakeQuery {
   }
 
   private executeSelect() {
-    // A failure with `columns` set targets only the query selecting that exact
-    // column string (e.g. loadMonthSpend's "estimated_cost_usd"); without it,
-    // every select on the table fails.
-    if (selectFailure?.table === this.table && (!selectFailure.columns || selectFailure.columns === this.selectedColumns)) {
+    // A failure with `columns` set targets only queries whose select string
+    // contains it (e.g. loadMonthSpend's "estimated_cost_usd"). Substring match,
+    // not equality, so adding a column to the production select can't silently
+    // turn the injection into a no-op. Without `columns`, every select on the
+    // table fails.
+    if (
+      selectFailure?.table === this.table &&
+      (!selectFailure.columns || (this.selectedColumns ?? "").includes(selectFailure.columns))
+    ) {
       return { data: null, count: null, error: { message: selectFailure.message } };
     }
     let rows = this.filteredRows().map((row) => ({ ...row }));
