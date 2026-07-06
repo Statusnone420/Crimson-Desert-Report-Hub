@@ -924,6 +924,25 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
   return started.completion;
 }
 
+/** Zero-cost ledger trace: proves the cron fired and explains why it didn't scan. Best-effort. */
+export async function insertSkippedScheduledRun(
+  supabase: ReturnType<typeof createServiceClient>,
+  reason: "paused" | "recent_run",
+  now: Date,
+): Promise<void> {
+  try {
+    await supabase.from("automation_runs").insert({
+      started_at: now.toISOString(),
+      finished_at: now.toISOString(),
+      status: "skipped",
+      mode: "scheduled",
+      skips: [reason],
+    });
+  } catch {
+    // best-effort by design
+  }
+}
+
 export async function rescueCandidateSignal(
   supabase: ReturnType<typeof createServiceClient>,
   candidate: { title: string; url: string; sourceDomain: string | null; snippet: string },

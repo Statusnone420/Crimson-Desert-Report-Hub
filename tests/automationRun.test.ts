@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getRedditToken: vi.fn(),
   getAutomationControlState: vi.fn(),
   runAutomationMonitor: vi.fn(),
+  insertSkippedScheduledRun: vi.fn(),
   syncOfficialPatchNote: vi.fn(),
   tavilySearch: vi.fn(),
 }));
@@ -1099,7 +1100,10 @@ describe("cron keepalive route", () => {
     process.env.VERCEL_ENV = "preview";
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1120,7 +1124,10 @@ describe("cron keepalive route", () => {
     process.env.CRON_SECRET = "cron-secret";
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1136,7 +1143,10 @@ describe("cron keepalive route", () => {
     delete process.env.CRON_SECRET;
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1158,7 +1168,10 @@ describe("cron keepalive route", () => {
     mocks.getAutomationControlState.mockResolvedValue({ paused: true, updatedAt: "2026-07-05T12:00:00.000Z" });
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1181,7 +1194,15 @@ describe("cron keepalive route", () => {
     vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
     process.env.CRON_SECRET = "cron-secret";
     resetDb({
-      automation_runs: [{ id: "run-recent", started_at: "2026-07-05T08:00:00.000Z", estimated_cost_usd: 0 }],
+      automation_runs: [
+        {
+          id: "run-recent",
+          started_at: "2026-07-05T08:00:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
       issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
       source_signals: [
         {
@@ -1194,7 +1215,10 @@ describe("cron keepalive route", () => {
     configureProviders();
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 

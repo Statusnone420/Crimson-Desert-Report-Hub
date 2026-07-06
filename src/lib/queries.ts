@@ -224,6 +224,7 @@ async function getDashboardDataUncached() {
         "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, finished_at",
       )
       .neq("mode", "dry_run")
+      .in("status", ["success", "partial", "failed"])
       .order("started_at", { ascending: false })
       .limit(1),
     getCurrentPatchMetadata(supabase),
@@ -364,6 +365,7 @@ export async function getLatestPublicScanMeta(): Promise<PublicScanMeta> {
       .from("automation_runs")
       .select("finished_at, status, search_results_seen")
       .neq("mode", "dry_run")
+      .in("status", ["success", "partial", "failed"])
       .order("started_at", { ascending: false })
       .limit(1);
     if (error) return null;
@@ -403,10 +405,18 @@ export async function getAutomationAdminData() {
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
 
+  const { data: activeRunRows } = await supabase
+    .from("automation_runs")
+    .select("id, status, mode, started_at")
+    .eq("status", "running")
+    .order("started_at", { ascending: false })
+    .limit(1);
+
   return {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
     rejectedCandidates: (rejectedCandidates ?? []) as RejectedCandidateRow[],
     control,
+    activeRun: ((activeRunRows ?? []) as { id: string; status: string; mode: string; started_at: string }[])[0] ?? null,
   };
 }
