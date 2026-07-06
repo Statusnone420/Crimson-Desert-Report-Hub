@@ -2,7 +2,7 @@ import "server-only";
 
 import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation/budget";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
-import { domainTier } from "@/lib/automation/domains";
+import { countIndependentDomains } from "@/lib/automation/domains";
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
@@ -135,15 +135,11 @@ function signalDomain(row: SourceSignalRow): string | null {
 
 function domainCounts(rows: SourceSignalRow[], now: Date): { independentDomainCount: number; trustedDomainCount: number } {
   const recentWindowMs = 14 * 24 * 60 * 60 * 1000;
-  const domains = new Set(
-    rows
-      .filter((row) => isObservedWithinWindow(row, now, recentWindowMs))
-      .map(signalDomain)
-      .filter((domain): domain is string => Boolean(domain)),
-  );
-  let trustedDomainCount = 0;
-  for (const domain of domains) if (domainTier(domain) === "trusted") trustedDomainCount += 1;
-  return { independentDomainCount: domains.size, trustedDomainCount };
+  const hostnames = rows
+    .filter((row) => isObservedWithinWindow(row, now, recentWindowMs))
+    .map(signalDomain)
+    .filter((domain): domain is string => Boolean(domain));
+  return countIndependentDomains(hostnames);
 }
 
 function lastObservedAt(rows: SourceSignalRow[]): string | null {

@@ -37,7 +37,7 @@ describe("LADDER_LABELS", () => {
   it("has a label for every state", () => {
     expect(LADDER_LABELS.watching).toBe("Watching");
     expect(LADDER_LABELS.candidates).toBe("Unconfirmed");
-    expect(LADDER_LABELS.corroborated).toBe("Multiple sources");
+    expect(LADDER_LABELS.corroborated).toBe("Public sources");
     expect(LADDER_LABELS.player_confirmed).toBe("Players confirm");
   });
 });
@@ -51,7 +51,7 @@ describe("LADDER_DESCRIPTIONS", () => {
       "The scanner found mentions online, but not enough separate sources to stand behind it yet. Only the count is shown — the text stays private.",
     );
     expect(LADDER_DESCRIPTIONS.corroborated).toBe(
-      "Two or more separate public sources report this. They're linked below.",
+      "Backed by public evidence, with the sources linked below.",
     );
     expect(LADDER_DESCRIPTIONS.player_confirmed).toBe("Players have sent in reports confirming this.");
   });

@@ -5,7 +5,7 @@ import {
   extractSignalWithOpenRouter,
   parseOpenRouterExtraction,
 } from "@/lib/automation/extract";
-import { domainTier } from "@/lib/automation/domains";
+import { countIndependentDomains, domainTier, registrableDomain } from "@/lib/automation/domains";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
@@ -385,8 +385,51 @@ describe("domainTier", () => {
     expect(domainTier("evilreddit.com")).toBe("unknown");
   });
 
+  it("does not treat a trusted apex embedded in another domain as trusted", () => {
+    expect(domainTier("reddit.com.evil.com")).toBe("unknown");
+  });
+
   it("treats null as unknown", () => {
     expect(domainTier(null)).toBe("unknown");
+  });
+});
+
+describe("registrableDomain", () => {
+  it("collapses sibling subdomains to one registrable domain", () => {
+    expect(registrableDomain("a.evilfarm.com")).toBe("evilfarm.com");
+    expect(registrableDomain("b.evilfarm.com")).toBe("evilfarm.com");
+    expect(registrableDomain("old.reddit.com")).toBe("reddit.com");
+  });
+
+  it("strips www and trailing dots", () => {
+    expect(registrableDomain("www.pcgamer.com")).toBe("pcgamer.com");
+    expect(registrableDomain("example.com.")).toBe("example.com");
+  });
+
+  it("keeps the eTLD+1 for multi-part public suffixes", () => {
+    expect(registrableDomain("sub.example.co.uk")).toBe("example.co.uk");
+    expect(registrableDomain("example.co.uk")).toBe("example.co.uk");
+  });
+
+  it("returns null for empty input", () => {
+    expect(registrableDomain(null)).toBeNull();
+    expect(registrableDomain("")).toBeNull();
+  });
+});
+
+describe("countIndependentDomains", () => {
+  it("counts sibling subdomains of one registrable domain as a single source", () => {
+    expect(countIndependentDomains(["a.evilfarm.com", "b.evilfarm.com", "c.evilfarm.com"])).toEqual({
+      independentDomainCount: 1,
+      trustedDomainCount: 0,
+    });
+  });
+
+  it("counts genuinely distinct registrable domains and flags trusted ones", () => {
+    expect(countIndependentDomains(["old.reddit.com", "randomblog.example"])).toEqual({
+      independentDomainCount: 2,
+      trustedDomainCount: 1,
+    });
   });
 });
 

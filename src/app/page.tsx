@@ -121,7 +121,7 @@ export default async function DashboardPage() {
                 ? totalCandidates > 0
                   ? `${totalCandidates} unconfirmed mention(s)`
                   : "none found yet — scanner active"
-                : "Public · multiple sources"
+                : "Public · sourced"
             }
             tone="blue"
           />

@@ -16,7 +16,7 @@ export function clusterEvidenceState(input: LadderInput): EvidenceLadderState {
 export const LADDER_LABELS: Record<EvidenceLadderState, string> = {
   watching: "Watching",
   candidates: "Unconfirmed",
-  corroborated: "Multiple sources",
+  corroborated: "Public sources",
   player_confirmed: "Players confirm",
 };
 
@@ -24,6 +24,6 @@ export const LADDER_DESCRIPTIONS: Record<EvidenceLadderState, string> = {
   watching: "The scanner checks public sources every run. Nothing's turned up yet.",
   candidates:
     "The scanner found mentions online, but not enough separate sources to stand behind it yet. Only the count is shown — the text stays private.",
-  corroborated: "Two or more separate public sources report this. They're linked below.",
+  corroborated: "Backed by public evidence, with the sources linked below.",
   player_confirmed: "Players have sent in reports confirming this.",
 };
