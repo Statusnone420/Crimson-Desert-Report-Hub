@@ -36,6 +36,7 @@ describe("automation extraction", () => {
     expect(result.category).toBe("crash_startup");
     expect(result.confidence).toBe("medium");
     expect(result.issueTitle).toContain("map crash");
+    expect(result.clusterSlug).toBeNull();
   });
 
   it("parses strict OpenRouter JSON and rejects invalid categories", () => {
@@ -51,6 +52,53 @@ describe("automation extraction", () => {
       ).category,
     ).toBe("performance");
     expect(() => parseOpenRouterExtraction(JSON.stringify({ category: "made_up" }))).toThrow(/category/);
+  });
+
+  it("keeps clusterSlug when it is present in validSlugs", () => {
+    expect(
+      parseOpenRouterExtraction(
+        JSON.stringify({
+          issueTitle: "FPS regression since 1.13",
+          category: "performance",
+          platform: "pc_steam",
+          confidence: "high",
+          summary: "Multiple PC players mention FPS drops after patch 1.13.",
+          clusterSlug: "performance_regression",
+        }),
+        ["performance_regression"],
+      ).clusterSlug,
+    ).toBe("performance_regression");
+  });
+
+  it("nulls clusterSlug when it is not in validSlugs", () => {
+    expect(
+      parseOpenRouterExtraction(
+        JSON.stringify({
+          issueTitle: "FPS regression since 1.13",
+          category: "performance",
+          platform: "pc_steam",
+          confidence: "high",
+          summary: "Multiple PC players mention FPS drops after patch 1.13.",
+          clusterSlug: "not_a_real_slug",
+        }),
+        ["performance_regression"],
+      ).clusterSlug,
+    ).toBeNull();
+  });
+
+  it("nulls clusterSlug when the field is missing", () => {
+    expect(
+      parseOpenRouterExtraction(
+        JSON.stringify({
+          issueTitle: "FPS regression since 1.13",
+          category: "performance",
+          platform: "pc_steam",
+          confidence: "high",
+          summary: "Multiple PC players mention FPS drops after patch 1.13.",
+        }),
+        ["performance_regression"],
+      ).clusterSlug,
+    ).toBeNull();
   });
 
   it("falls back without calling OpenRouter when the configured model is not free", async () => {
@@ -423,6 +471,7 @@ describe("automation relevance", () => {
           platform: null,
           confidence: "low",
           summary: "No reported issues.",
+          clusterSlug: null,
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
           llmCallUsed: true,
@@ -438,6 +487,7 @@ describe("automation relevance", () => {
           platform: "pc_steam",
           confidence: "medium",
           summary: "Players report FPS drops on Steam after patch 1.13.",
+          clusterSlug: null,
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
           llmCallUsed: true,

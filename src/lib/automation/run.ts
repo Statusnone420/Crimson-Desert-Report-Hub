@@ -2,9 +2,10 @@ import "server-only";
 
 import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation/budget";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
-import { extractSignalWithOpenRouter, type ExtractionResult } from "@/lib/automation/extract";
+import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
+import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { buildSearchQueries, tavilySearch, type SearchResult } from "@/lib/automation/search";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
@@ -226,6 +227,7 @@ async function prepareSignals(
   result: AutomationResult,
   budget: AutomationBudget,
   patchVersion: string,
+  clusterOptions: ClusterOption[],
 ): Promise<PreparedSignal[]> {
   const prepared: PreparedSignal[] = [];
   const seenUrls = new Set<string>();
@@ -267,7 +269,7 @@ async function prepareSignals(
 
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
-      { llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed) },
+      { llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed), clusterOptions },
     );
     if (extraction.llmCallUsed) result.llmCallsUsed += 1;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
@@ -304,6 +306,17 @@ async function loadApprovedExcerpts(supabase: ReturnType<typeof createServiceCli
   const { data, error } = await supabase.from("approved_excerpts").select("id, report_id");
   if (error) throw new Error(`approved excerpts read failed: ${error.message}`);
   return (data ?? []) as ApprovedExcerptRow[];
+}
+
+type RoutableClusterRow = { id: string; slug: string; title: string; category: string };
+
+async function loadRoutableClusters(supabase: ReturnType<typeof createServiceClient>): Promise<RoutableClusterRow[]> {
+  const { data, error } = await supabase
+    .from("issue_clusters")
+    .select("id, slug, title, category")
+    .not("slug", "like", "auto-%");
+  if (error) throw new Error(`routable clusters read failed: ${error.message}`);
+  return (data ?? []) as RoutableClusterRow[];
 }
 
 function matchingReportCluster(signal: PreparedSignal, reports: ApprovedReportRow[]): string | null {
@@ -361,13 +374,23 @@ async function resolveClusterId(
   signal: PreparedSignal,
   reports: ApprovedReportRow[],
   clusterBySemantic: Map<string, string>,
+  routableClusters: RoutableCluster[],
 ): Promise<string> {
   const cached = clusterBySemantic.get(signal.semantic);
   if (cached) return cached;
 
   const existingSignalCluster = await findExistingSignalCluster(supabase, signal.semantic);
-  const reportCluster = existingSignalCluster ?? matchingReportCluster(signal, reports);
-  const clusterId = reportCluster ?? (await createCluster(supabase, signal));
+  const routedCluster = routeToWatchlistCluster(
+    {
+      issueTitle: signal.extraction.issueTitle,
+      summary: signal.extraction.summary,
+      category: signal.extraction.category,
+      llmClusterSlug: signal.extraction.clusterSlug,
+    },
+    routableClusters,
+  );
+  const clusterId =
+    existingSignalCluster ?? routedCluster?.id ?? matchingReportCluster(signal, reports) ?? (await createCluster(supabase, signal));
   clusterBySemantic.set(signal.semantic, clusterId);
   return clusterId;
 }
@@ -493,6 +516,7 @@ async function persistSignals(
   signals: PreparedSignal[],
   result: AutomationResult,
   now: Date,
+  routableClusters: RoutableCluster[],
 ) {
   const reports = await loadApprovedReports(supabase);
   const excerpts = await loadApprovedExcerpts(supabase);
@@ -500,7 +524,7 @@ async function persistSignals(
   const touchedClusters = new Set<string>();
 
   for (const signal of signals) {
-    const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic);
+    const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
     await upsertSignal(supabase, signal, clusterId, now);
     touchedClusters.add(clusterId);
   }
@@ -600,12 +624,15 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     }
   }
 
+  const routableClusters = await loadRoutableClusters(supabase);
+  const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+
   const inputs = await collectInputs(result, budget, now, currentPatch.version);
-  const prepared = await prepareSignals(inputs, result, budget, currentPatch.version);
+  const prepared = await prepareSignals(inputs, result, budget, currentPatch.version, clusterOptions);
 
   if (input.mode !== "dry_run") {
     try {
-      await persistSignals(supabase, prepared, result, now);
+      await persistSignals(supabase, prepared, result, now, routableClusters);
     } catch (error) {
       result.status = "failed";
       result.errors.push(toErrorMessage(error, "automation persistence failed"));

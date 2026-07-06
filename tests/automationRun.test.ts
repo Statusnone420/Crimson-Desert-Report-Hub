@@ -102,6 +102,11 @@ function nextId(table: TableName) {
   return `${table}-${idSeq++}`;
 }
 
+function likeToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*");
+  return new RegExp(`^${escaped}$`);
+}
+
 function passesFilter(row: Row, filter: Filter): boolean {
   const value = row[filter.column];
   if (filter.type === "eq") return value === filter.value;
@@ -109,6 +114,7 @@ function passesFilter(row: Row, filter: Filter): boolean {
   if (filter.type === "gte") return String(value) >= String(filter.value);
   if (filter.type === "lt") return String(value) < String(filter.value);
   if (filter.type === "not" && filter.operator === "is" && filter.value === null) return value !== null;
+  if (filter.type === "not" && filter.operator === "like") return !likeToRegExp(String(filter.value)).test(String(value ?? ""));
   throw new Error(`unsupported filter ${filter.type}`);
 }
 
@@ -708,6 +714,46 @@ describe("runAutomationMonitor", () => {
         kept: 0,
         promoted: 0,
       },
+    });
+  });
+
+  it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-fps-route",
+        title: "FPS drops since 1.13",
+        selftext: "Steam users are seeing stutter.",
+        permalink: "/r/CrimsonDesert/comments/reddit-fps-route/fps/",
+        created_utc: 1783260000,
+      },
+    ]);
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.issue_clusters).toHaveLength(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-seeded-perf",
     });
   });
 

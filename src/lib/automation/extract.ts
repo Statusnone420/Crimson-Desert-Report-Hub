@@ -16,6 +16,7 @@ export type ExtractedSignal = {
   platform: Platform | null;
   confidence: "low" | "medium" | "high";
   summary: string;
+  clusterSlug: string | null;
 };
 
 export type ExtractionProvider = "deterministic" | "openrouter";
@@ -49,10 +50,13 @@ type OpenRouterFetch = (
   },
 ) => Promise<OpenRouterFetchResponse>;
 
+export type ClusterOption = { slug: string; title: string };
+
 export type OpenRouterExtractionOptions = {
   env?: EnvLike;
   fetcher?: OpenRouterFetch;
   llmCallsRemaining: number;
+  clusterOptions?: ClusterOption[];
 };
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -104,8 +108,8 @@ function readOpenRouterContent(data: unknown): string | null {
   return typeof content === "string" ? content.trim() : null;
 }
 
-function buildPrompt(candidate: SourceCandidate): string {
-  return [
+function buildPrompt(candidate: SourceCandidate, clusterOptions: ClusterOption[] = []): string {
+  const lines = [
     "Extract one Crimson Desert issue signal as strict JSON.",
     'Use category one of "performance", "crash_startup", "controls_gameplay", "graphics_visual", "audio", "quest_progression", "other".',
     'Use confidence one of "low", "medium", "high".',
@@ -114,7 +118,15 @@ function buildPrompt(candidate: SourceCandidate): string {
     `Title: ${candidate.title}`,
     `Snippet: ${candidate.snippet}`,
     `URL: ${candidate.url}`,
-  ].join("\n");
+  ];
+  if (clusterOptions.length > 0) {
+    lines.push(
+      "Known issue clusters (assign clusterSlug if one matches, else null): " +
+        clusterOptions.map((c) => `${c.slug}: ${c.title}`).join(" | "),
+    );
+    lines.push("Return clusterSlug as one of the listed slugs or null.");
+  }
+  return lines.join("\n");
 }
 
 export function deterministicExtract(candidate: SourceCandidate): ExtractedSignal {
@@ -128,16 +140,18 @@ export function deterministicExtract(candidate: SourceCandidate): ExtractedSigna
     platform,
     confidence: classified.confidence,
     summary: summarize(issueTitle, candidate.snippet),
+    clusterSlug: null,
   };
 }
 
-export function parseOpenRouterExtraction(content: string): ExtractedSignal {
+export function parseOpenRouterExtraction(content: string, validSlugs: string[] = []): ExtractedSignal {
   const parsed = JSON.parse(content) as {
     issueTitle?: unknown;
     category?: unknown;
     platform?: unknown;
     confidence?: unknown;
     summary?: unknown;
+    clusterSlug?: unknown;
   };
   const category = asCategory(parsed.category);
   const platform = asPlatform(parsed.platform);
@@ -146,12 +160,15 @@ export function parseOpenRouterExtraction(content: string): ExtractedSignal {
   const summary = typeof parsed.summary === "string" ? parsed.summary.trim().slice(0, 280) : "";
   if (!issueTitle) throw new Error("invalid extraction issueTitle");
   if (!summary) throw new Error("invalid extraction summary");
+  const clusterSlug =
+    typeof parsed.clusterSlug === "string" && validSlugs.includes(parsed.clusterSlug) ? parsed.clusterSlug : null;
   return {
     issueTitle,
     category,
     platform,
     confidence,
     summary,
+    clusterSlug,
   };
 }
 
@@ -187,7 +204,7 @@ export async function extractSignalWithOpenRouter(
             role: "system",
             content: "You extract game issue reports and return only valid JSON.",
           },
-          { role: "user", content: buildPrompt(candidate) },
+          { role: "user", content: buildPrompt(candidate, options.clusterOptions ?? []) },
         ],
       }),
     });
@@ -200,8 +217,9 @@ export async function extractSignalWithOpenRouter(
   try {
     const content = readOpenRouterContent(await response.json());
     if (!content) return deterministicResult(candidate, "openrouter_invalid_json", true);
+    const validSlugs = (options.clusterOptions ?? []).map((option) => option.slug);
     return {
-      ...parseOpenRouterExtraction(content),
+      ...parseOpenRouterExtraction(content, validSlugs),
       extractionProvider: "openrouter",
       extractionModel: model,
       llmCallUsed: true,
