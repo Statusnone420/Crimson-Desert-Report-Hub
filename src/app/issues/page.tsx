@@ -3,7 +3,6 @@ import { EvidenceLadderBadge, FixStatusBadge, SectionHeader, SignalConfidenceBad
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { countEvidenceBackedPersistentClusters, hasClusterEvidence, isUnverifiedWatchlistCluster } from "@/lib/evidence";
 import { clusterEvidenceState } from "@/lib/evidenceLadder";
-import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 
 export const revalidate = 300;
@@ -19,9 +18,8 @@ function timeAgo(iso: string | null): string {
 }
 
 export default async function IssuesPage() {
-  const [{ clusters, excerptsByCluster, signalsByCluster }, currentPatch, scanMeta] = await Promise.all([
+  const [{ clusters, excerptsByCluster, signalsByCluster }, scanMeta] = await Promise.all([
     getIssuesData(),
-    getCurrentPatchMetadata(),
     getLatestPublicScanMeta(),
   ]);
   const active = clusters.filter(hasClusterEvidence);
@@ -31,7 +29,6 @@ export default async function IssuesPage() {
   function ClusterCard({ cluster }: { cluster: (typeof clusters)[number] }) {
     const signals = signalsByCluster[cluster.id] ?? [];
     const excerpts = excerptsByCluster[cluster.id] ?? [];
-    const empty = !hasClusterEvidence(cluster);
     const unverified = isUnverifiedWatchlistCluster(cluster);
     const state = clusterEvidenceState({
       directReportCount: cluster.directReportCount,
@@ -98,18 +95,6 @@ export default async function IssuesPage() {
             ))}
           </div>
         ) : null}
-
-        {empty ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
-            <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-              ○ Watching · scanner last finished {timeAgo(scanMeta?.finishedAt ?? null)} · Seeing this on{" "}
-              {currentPatch.version}?
-            </p>
-            <Link href="/report" className="btn btn-ghost btn-sm">
-              Report this
-            </Link>
-          </div>
-        ) : null}
       </article>
     );
   }
@@ -161,7 +146,7 @@ export default async function IssuesPage() {
           {watchlist.length > 0 ? (
             <section className="panel space-y-3">
               <div className="stat-label">Watchlist · scanner is hunting, no evidence yet</div>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className={watchlist.length === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2"}>
                 {watchlist.map((cluster) => (
                   <div key={cluster.id} className="panel-inset space-y-1.5 border px-3 py-2.5">
                     <p className="truncate text-sm font-medium">{cluster.title}</p>

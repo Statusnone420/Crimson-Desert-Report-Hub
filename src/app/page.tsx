@@ -160,7 +160,7 @@ export default async function DashboardPage() {
                 {claims.disputed.length}
               </div>
               <div className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-                disputed by evidence
+                challenged by evidence
               </div>
             </div>
             <div className="panel-inset px-4 py-3">
@@ -175,7 +175,7 @@ export default async function DashboardPage() {
 
           {claims.disputed.length === 0 ? (
             <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              No claimed fix is disputed by player reports or public sources yet. The scanner re-checks every scan.
+              No claimed fix currently overlaps an active, evidence-backed issue. The scanner re-checks every scan.
             </p>
           ) : (
             <div className="space-y-2">
@@ -187,7 +187,9 @@ export default async function DashboardPage() {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
                     <span className="min-w-0 flex-1">&ldquo;{claim.fixText}&rdquo;</span>
-                    <span className="badge badge-crimson shrink-0">still reported broken</span>
+                    <span className="badge badge-crimson shrink-0">
+                      {(claim.cluster?.directReportCount ?? 0) > 0 ? "players still reporting issues" : "sources still flag issues"}
+                    </span>
                   </div>
                   {claim.cluster ? (
                     <p className="text-xs" style={{ color: "var(--text-dim)" }}>
@@ -224,15 +226,16 @@ export default async function DashboardPage() {
                   <span className="min-w-0 flex-1" style={{ color: "var(--text-dim)" }}>
                     {claim.fixText}
                   </span>
-                  {claim.disputed ? <span className="badge badge-crimson shrink-0">still reported broken</span> : null}
+                  {claim.disputed ? <span className="badge badge-crimson shrink-0">challenged</span> : null}
                 </div>
               ))}
             </div>
           </details>
 
           <p className="border-t pt-3 text-xs" style={{ color: "var(--text-faint)" }}>
-            Sourced from Pearl Abyss&apos;s official patch notes. A claim is disputed only when approved reports or
-            cited public sources contradict it.
+            Sourced from Pearl Abyss&apos;s official patch notes. A claim is challenged when the community evidence
+            board still shows an active issue in the area it covers — follow the evidence link and judge for
+            yourself.
           </p>
         </section>
       ) : null}
