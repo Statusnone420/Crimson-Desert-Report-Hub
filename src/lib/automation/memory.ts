@@ -31,11 +31,22 @@ function previousRunKeptNoSignals(run: RecentRunMemory): boolean {
 }
 
 export function chooseScanIntent(memory: ScanMemory, rotationOffset = 0): ScanIntent {
-  if (memory.stalePublicSignals > 0) return "quarantine";
-  if (memory.rejectedCandidates > 0) return "rescue_candidate";
-  if (memory.privateSignals > 0) return "corroborate_cluster";
-  if (memory.recentRuns.some(previousRunKeptNoSignals)) return "corroborate_cluster";
-  return rotationOffset % 2 === 0 ? "broad_discovery" : "forum_discovery";
+  // Staleness is handled by the always-on quarantine step in run.ts, so the
+  // intent never returns "quarantine" (which would suppress all searching).
+  // A discovery lane is always in the rotation so discovery keeps running on a
+  // regular cadence even when a rescue/corroborate backlog exists; the eligible
+  // lanes interleave rather than any single backlog monopolizing every run.
+  const discoveryLane: ScanIntent = rotationOffset % 2 === 0 ? "broad_discovery" : "forum_discovery";
+  const corroborateEligible =
+    memory.privateSignals > 0 ||
+    memory.targetClusterTitles.length > 0 ||
+    memory.recentRuns.some(previousRunKeptNoSignals);
+  const rescueEligible = memory.rejectedCandidates > 0;
+
+  const lanes: ScanIntent[] = [discoveryLane];
+  if (corroborateEligible) lanes.push("corroborate_cluster");
+  if (rescueEligible) lanes.push("rescue_candidate");
+  return lanes[rotationOffset % lanes.length];
 }
 
 export function buildMemorySearchQueries(
@@ -50,7 +61,9 @@ export function buildMemorySearchQueries(
   if (intent === "quarantine") return [];
 
   if (intent === "corroborate_cluster") {
-    const target = options.targetClusterTitles?.[0]?.trim();
+    const titles = options.targetClusterTitles ?? [];
+    const rotationOffset = options.rotationOffset ?? 0;
+    const target = titles.length > 0 ? titles[rotationOffset % titles.length]?.trim() : undefined;
     const targetText = target ? `${target} ` : "";
     return [`Crimson Desert patch ${patchVersion} ${targetText}player reports corroborate crash stutter FPS issues`].slice(0, count);
   }

@@ -369,6 +369,21 @@ async function loadPrivateSignalClusterTitles(supabase: ReturnType<typeof create
     .filter((title): title is string => Boolean(title));
 }
 
+async function loadHuntableSeedClusterTitles(supabase: ReturnType<typeof createServiceClient>): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("issue_clusters")
+    .select("title")
+    .eq("is_public", true)
+    .eq("confidence", "seed_unverified")
+    .eq("signal_count", 0)
+    .eq("direct_report_count", 0)
+    .limit(10);
+  if (error) throw new Error(`huntable seed cluster target read failed: ${error.message}`);
+  return ((data ?? []) as { title?: string | null }[])
+    .map((row) => row.title?.trim())
+    .filter((title): title is string => Boolean(title));
+}
+
 async function countRejectedCandidates(supabase: ReturnType<typeof createServiceClient>, now: Date): Promise<number> {
   const { data, error } = await supabase
     .from("automation_rejected_candidates")
@@ -386,13 +401,19 @@ async function loadScanMemory(
   currentPatch: CurrentPatchContext,
   now: Date,
 ): Promise<ScanMemory> {
-  const [publicSignals, privateSignals, rejectedCandidates, targetClusterTitles, recentRuns] = await Promise.all([
-    loadPublicSignalsForAudit(supabase),
-    countPrivateSignals(supabase),
-    countRejectedCandidates(supabase, now),
-    loadPrivateSignalClusterTitles(supabase),
-    loadRecentRunMemory(supabase),
-  ]);
+  const [publicSignals, privateSignals, rejectedCandidates, privateClusterTitles, seedClusterTitles, recentRuns] =
+    await Promise.all([
+      loadPublicSignalsForAudit(supabase),
+      countPrivateSignals(supabase),
+      countRejectedCandidates(supabase, now),
+      loadPrivateSignalClusterTitles(supabase),
+      loadHuntableSeedClusterTitles(supabase),
+      loadRecentRunMemory(supabase),
+    ]);
+  // Private-signal clusters first (they already have momentum), then zero-evidence
+  // public seed clusters so the scanner actually hunts them by name. De-duplicate
+  // and keep the same small cap as the individual title reads.
+  const targetClusterTitles = [...new Set([...privateClusterTitles, ...seedClusterTitles])].slice(0, 10);
   return {
     stalePublicSignals: publicSignals.filter((row) => !sourceSignalEligibility(row, currentPatch).canPublish).length,
     privateSignals,

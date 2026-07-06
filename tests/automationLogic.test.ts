@@ -657,17 +657,62 @@ describe("countIndependentDomains", () => {
 });
 
 describe("scanner memory planning", () => {
-  it("uses quarantine as a no-search cleanup intent", () => {
-    const intent = chooseScanIntent({
-      stalePublicSignals: 1,
-      privateSignals: 0,
-      rejectedCandidates: 0,
-      targetClusterTitles: [],
-      recentRuns: [],
-    });
+  it("never returns quarantine even when stale public signals exist, so the run can still search", () => {
+    // Staleness is handled by the always-on quarantine step in run.ts, not by the
+    // intent. Stale signals must no longer suppress searching.
+    for (const rotationOffset of [0, 1, 2, 3]) {
+      const intent = chooseScanIntent(
+        {
+          stalePublicSignals: 3,
+          privateSignals: 0,
+          rejectedCandidates: 0,
+          targetClusterTitles: [],
+          recentRuns: [],
+        },
+        rotationOffset,
+      );
 
-    expect(intent).toBe("quarantine");
-    expect(buildMemorySearchQueries(1, "1.13.00", intent)).toEqual([]);
+      expect(intent).not.toBe("quarantine");
+      expect(buildMemorySearchQueries(1, "1.13.00", intent, { rotationOffset })).not.toEqual([]);
+    }
+  });
+
+  it("keeps discovery in the rotation even when rescue and corroborate backlogs both exist", () => {
+    const intents = new Set(
+      [0, 1, 2, 3, 4, 5].map((rotationOffset) =>
+        chooseScanIntent(
+          {
+            stalePublicSignals: 0,
+            privateSignals: 4,
+            rejectedCandidates: 4,
+            targetClusterTitles: ["Shader compilation stutter"],
+            recentRuns: [],
+          },
+          rotationOffset,
+        ),
+      ),
+    );
+
+    // Discovery is not starved: at least one discovery lane appears across the rotation.
+    expect(intents.has("broad_discovery") || intents.has("forum_discovery")).toBe(true);
+    // The backlogs still get their turns.
+    expect(intents.has("corroborate_cluster")).toBe(true);
+    expect(intents.has("rescue_candidate")).toBe(true);
+  });
+
+  it("rotates corroborate_cluster through every target cluster title", () => {
+    const titles = ["First cluster", "Second cluster", "Third cluster"];
+    for (let rotationOffset = 0; rotationOffset < titles.length; rotationOffset += 1) {
+      const [query] = buildMemorySearchQueries(1, "1.13.00", "corroborate_cluster", {
+        rotationOffset,
+        targetClusterTitles: titles,
+      });
+      expect(query).toContain(titles[rotationOffset % titles.length]);
+    }
+  });
+
+  it("still returns no queries for the quarantine intent value when it is passed directly", () => {
+    expect(buildMemorySearchQueries(1, "1.13.00", "quarantine")).toEqual([]);
   });
 });
 

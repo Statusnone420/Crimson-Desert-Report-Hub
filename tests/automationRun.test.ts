@@ -1326,9 +1326,11 @@ describe("runAutomationMonitor", () => {
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, corroborate]
+    // rotation on corroborate, so the zero-kept memory drives corroboration.
     await runAutomationMonitor({
       mode: "scheduled",
-      now: new Date("2026-07-05T12:00:00.000Z"),
+      now: new Date("2026-07-05T13:00:00.000Z"),
       scannerPolicy: {
         paused: false,
         minIntervalMinutes: 60,
@@ -1381,9 +1383,11 @@ describe("runAutomationMonitor", () => {
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, corroborate]
+    // rotation on corroborate (discovery still gets its turn on other offsets).
     await runAutomationMonitor({
       mode: "scheduled",
-      now: new Date("2026-07-05T12:00:00.000Z"),
+      now: new Date("2026-07-05T13:00:00.000Z"),
       scannerPolicy: {
         paused: false,
         minIntervalMinutes: 60,
@@ -1396,6 +1400,55 @@ describe("runAutomationMonitor", () => {
 
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("player reports corroborate");
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Shader compilation stutter");
+    expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
+  });
+
+  it("hunts zero-evidence public seed clusters by name", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-boss-crash",
+          slug: "boss-rematch-crash-persistent",
+          title: "Boss rematch crash persistent",
+          category: "crash_startup",
+          description: "Public seed cluster with no evidence yet.",
+          fix_status: "reported",
+          confidence: "seed_unverified",
+          is_public: true,
+          auto_public: false,
+          signal_count: 0,
+          direct_report_count: 0,
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 13:00Z -> rotation offset is odd, so the two-lane [discovery, corroborate]
+    // rotation lands on corroborate and the seed cluster title is hunted by name.
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(result.targetClusterTitles).toContain("Boss rematch crash persistent");
+    expect(result.intent).toBe("corroborate_cluster");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Boss rematch crash persistent");
     expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
   });
 
@@ -1423,9 +1476,11 @@ describe("runAutomationMonitor", () => {
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, rescue]
+    // rotation on rescue (discovery still gets its turn on other offsets).
     await runAutomationMonitor({
       mode: "scheduled",
-      now: new Date("2026-07-05T12:00:00.000Z"),
+      now: new Date("2026-07-05T13:00:00.000Z"),
       scannerPolicy: {
         paused: false,
         minIntervalMinutes: 60,
