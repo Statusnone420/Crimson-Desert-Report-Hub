@@ -358,6 +358,7 @@ function configureProviders() {
       extractionProvider: canUseOpenRouter ? "openrouter" : "deterministic",
       extractionModel: canUseOpenRouter ? process.env.OPENROUTER_FREE_MODEL : null,
       llmCallsUsed: canUseOpenRouter ? 1 : 0,
+      llmCostUsd: canUseOpenRouter ? 0.0002 : 0,
     };
   });
   mocks.getAutomationControlState.mockResolvedValue({
@@ -425,6 +426,41 @@ describe("runAutomationMonitor", () => {
 
     expect(mocks.tavilySearch).toHaveBeenCalled();
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("patch 1.14.00");
+  });
+
+  it("rotates one-credit scheduled web search across adjacent hourly scans", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe("Crimson Desert patch 1.13.00 FPS drops stutter issue");
+    expect(mocks.tavilySearch.mock.calls[1][0]).toBe("Crimson Desert patch 1.13.00 crash freeze issue");
   });
 
   it("budget 0 skips paid search and OpenRouter attempts but still stores deterministic Reddit signals", async () => {
@@ -802,6 +838,7 @@ describe("runAutomationMonitor", () => {
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
           llmCallsUsed: 1,
+          llmCostUsd: 0,
         };
       }
       if (/review/i.test(candidate.title)) {
@@ -814,6 +851,7 @@ describe("runAutomationMonitor", () => {
           extractionProvider: "deterministic",
           extractionModel: null,
           llmCallsUsed: 1,
+          llmCostUsd: 0,
           fallbackReason: "openrouter_invalid_json",
         };
       }
@@ -826,6 +864,7 @@ describe("runAutomationMonitor", () => {
         extractionProvider: "openrouter",
         extractionModel: "openrouter/free",
         llmCallsUsed: 1,
+        llmCostUsd: 0,
       };
     });
     const { runAutomationMonitor } = await importRunner();
@@ -1513,6 +1552,7 @@ describe("cron source preview route", () => {
             extractionProvider: "openrouter",
             extractionModel: "openrouter/free",
             llmCallsUsed: 1,
+            llmCostUsd: 0,
           },
         },
       ],

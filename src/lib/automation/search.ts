@@ -37,19 +37,37 @@ type TavilyResult = {
   content?: string;
 };
 
+export type BuildSearchQueryOptions = {
+  rotationOffset?: number;
+};
+
 function queryPack(patchVersion: string): string[] {
   return [
     `Crimson Desert patch ${patchVersion} FPS drops stutter issue`,
     `Crimson Desert patch ${patchVersion} crash freeze issue`,
-    `Crimson Desert map crash persists after patch ${patchVersion}`,
-    `Crimson Desert PS5 Pro performance drops patch ${patchVersion}`,
-    `Crimson Desert Steam stutter low FPS patch ${patchVersion}`,
+    `site:reddit.com Crimson Desert patch ${patchVersion} crash freeze stutter issue`,
+    `site:steamcommunity.com Crimson Desert patch ${patchVersion} stutter low FPS issue`,
+    `Crimson Desert PS5 PC performance drops patch ${patchVersion}`,
+    `Crimson Desert latest patch ${patchVersion} known issue hotfix`,
   ];
 }
 
-export function buildSearchQueries(maxQueries: number, patchVersion = CURRENT_PATCH): string[] {
+export function buildSearchQueries(
+  maxQueries: number,
+  patchVersion = CURRENT_PATCH,
+  options: BuildSearchQueryOptions = {},
+): string[] {
   const QUERY_PACK = queryPack(patchVersion);
-  return QUERY_PACK.slice(0, Math.max(0, Math.min(QUERY_PACK.length, Math.trunc(maxQueries))));
+  const count = Math.max(0, Math.min(QUERY_PACK.length, Math.trunc(maxQueries)));
+  const rawOffset = options.rotationOffset ?? 0;
+  const offset = Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : 0;
+  const normalizedOffset = ((offset % QUERY_PACK.length) + QUERY_PACK.length) % QUERY_PACK.length;
+  const rotatedQueries =
+    normalizedOffset === 0
+      ? QUERY_PACK
+      : [...QUERY_PACK.slice(normalizedOffset), ...QUERY_PACK.slice(0, normalizedOffset)];
+
+  return rotatedQueries.slice(0, count);
 }
 
 function mapTavilyResult(item: TavilyResult, observedAt: string): SearchResult | null {
@@ -77,7 +95,7 @@ export async function tavilySearch(query: string, options: TavilySearchOptions =
   const res = await fetcher("https://api.tavily.com/search", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ query, max_results: 5, search_depth: "basic" }),
+    body: JSON.stringify({ query, max_results: 5, search_depth: "basic", include_usage: true }),
   });
   if (!res.ok) throw new Error(`tavily search failed: ${res.status}`);
 

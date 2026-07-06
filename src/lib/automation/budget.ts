@@ -47,7 +47,7 @@ export function countRemainingRunsThisMonth(now: Date, intervalMinutes = DEFAULT
 
 export function rejectPaidOpenRouterModel(model: string): string {
   if (model !== OPENROUTER_FREE_ROUTER_MODEL && !model.endsWith(":free")) {
-    throw new Error("OpenRouter automation model must be openrouter/free or end with :free");
+    throw new Error("OpenRouter model must be openrouter/free or end with :free");
   }
   return model;
 }

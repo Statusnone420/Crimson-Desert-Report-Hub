@@ -56,6 +56,7 @@ beforeEach(() => {
     extractionProvider: "openrouter",
     extractionModel: "openrouter/free",
     llmCallsUsed: 1,
+    llmCostUsd: 0.0002,
   });
 });
 

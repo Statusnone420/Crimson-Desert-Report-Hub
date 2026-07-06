@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  computeAutomationBudget,
-  countRemainingRunsThisMonth,
-  rejectPaidOpenRouterModel,
-} from "@/lib/automation/budget";
+import { computeAutomationBudget, countRemainingRunsThisMonth } from "@/lib/automation/budget";
 
 describe("automation budget", () => {
   it("budget 0 disables paid search and llm calls", () => {
@@ -84,13 +80,5 @@ describe("automation budget", () => {
 
   it("counts remaining runs with a custom policy interval", () => {
     expect(countRemainingRunsThisMonth(new Date("2026-07-31T00:00:00Z"), 120)).toBe(12);
-  });
-
-  it("rejects non-free OpenRouter model IDs while allowing the free router", () => {
-    expect(() => rejectPaidOpenRouterModel("openai/gpt-4.1")).toThrow(/openrouter\/free/);
-    expect(rejectPaidOpenRouterModel("openrouter/free")).toBe("openrouter/free");
-    expect(rejectPaidOpenRouterModel("meta-llama/llama-3.3-70b-instruct:free")).toBe(
-      "meta-llama/llama-3.3-70b-instruct:free",
-    );
   });
 });

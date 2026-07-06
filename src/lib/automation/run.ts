@@ -30,6 +30,7 @@ export type AutomationResult = {
   signalsDeduped: number;
   clustersPromoted: number;
   estimatedCostUsd: number;
+  llmCostUsd: number;
   skips: string[];
   errors: string[];
 };
@@ -173,6 +174,7 @@ type ApprovedExcerptRow = {
 };
 
 const SEARCH_QUERY_COST_USD = 0.008;
+const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
 
 function searchResultToInput(result: SearchResult): SourceInput {
   return {
@@ -254,6 +256,10 @@ async function loadMonthSpend(
   };
 }
 
+function searchRotationOffset(now: Date): number {
+  return Math.floor(now.getTime() / SEARCH_ROTATION_WINDOW_MS);
+}
+
 async function collectInputs(
   result: AutomationResult,
   budget: AutomationBudget,
@@ -291,7 +297,7 @@ async function collectInputs(
   }
 
   if (f.webSearch && budget.allowPaidSearch) {
-    for (const query of buildSearchQueries(budget.maxSearchQueries, patchVersion)) {
+    for (const query of buildSearchQueries(budget.maxSearchQueries, patchVersion, { rotationOffset: searchRotationOffset(now) })) {
       try {
         result.searchQueriesUsed += 1;
         result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
@@ -368,9 +374,15 @@ async function prepareSignals(
 
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
-      { llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed), clusterOptions },
+      {
+        llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed),
+        llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
+        clusterOptions,
+      },
     );
     result.llmCallsUsed += extraction.llmCallsUsed;
+    result.llmCostUsd += extraction.llmCostUsd ?? 0;
+    result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
 
     const relevance = shouldKeepExtractedSignal(extraction);
@@ -534,7 +546,7 @@ async function upsertSignal(
       public_status: "private",
       extraction_provider: signal.extraction.extractionProvider,
       extraction_model: signal.extraction.extractionModel,
-      cost_estimate_usd: 0,
+      cost_estimate_usd: signal.extraction.llmCostUsd ?? 0,
     },
     { onConflict: "external_id_hash" },
   );
@@ -815,6 +827,7 @@ async function executeAutomationRun(
     signalsDeduped: 0,
     clustersPromoted: 0,
     estimatedCostUsd: 0,
+    llmCostUsd: 0,
     skips: [...budget.skipReasons],
     errors: [],
   };
@@ -944,6 +957,7 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
       signalsDeduped: 0,
       clustersPromoted: 0,
       estimatedCostUsd: 0,
+      llmCostUsd: 0,
       skips: ["scan_already_running"],
       errors: [],
     };
