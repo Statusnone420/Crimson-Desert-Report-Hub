@@ -45,6 +45,24 @@ describe("scheduledScanDecision", () => {
       ),
     ).toEqual({ run: true });
   });
+  it("allows normal hourly cron jitter", () => {
+    expect(
+      scheduledScanDecision(
+        false,
+        [{ mode: "scheduled", status: "success", started_at: "2026-07-06T21:00:09.723Z" }],
+        new Date("2026-07-06T22:00:08.983Z"),
+      ),
+    ).toEqual({ run: true });
+  });
+  it("still blocks a running scan during the full policy window", () => {
+    expect(
+      scheduledScanDecision(
+        false,
+        [{ mode: "scheduled", status: "running", started_at: "2026-07-06T21:00:09.723Z" }],
+        new Date("2026-07-06T22:00:08.983Z"),
+      ),
+    ).toEqual({ run: false, skipReason: "scan_already_running" });
+  });
   it("honors a custom scanner policy interval", () => {
     expect(
       scheduledScanDecision(
