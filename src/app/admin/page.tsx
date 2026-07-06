@@ -3,10 +3,14 @@ import { moderateReport, setAutomationPaused, setClusterFixStatus } from "@/app/
 import { ScanControls } from "@/components/ScanControls";
 import { SubmitButton } from "@/components/SubmitButton";
 import { FixStatusBadge, SectionHeader, StatCard } from "@/components/ui";
-import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
+import {
+  getAutomationControlState,
+  type AutomationControlState,
+  type AutomationSettingsClient,
+} from "@/lib/automation/settings";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { CATEGORY_LABELS, FIX_STATUSES, PLATFORM_LABELS } from "@/lib/constants";
-import { automationBudgetUsd, features } from "@/lib/env";
+import { features } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
 import { createServiceClient } from "@/lib/supabase";
 
@@ -30,6 +34,36 @@ function runSummary(run: AutomationDashboardRun): string {
   const base = `${run.search_queries_used} searches, ${run.llm_calls_used} LLM calls`;
   if (run.mode === "dry_run") return `${base}, ${run.signals_inserted} would insert, nothing public saved`;
   return `${base}, ${run.signals_inserted} inserted, ${run.signals_deduped} deduped, ${run.clusters_promoted} promoted`;
+}
+
+function cadenceLabel(minutes: number): string {
+  if (minutes === 60) return "hourly";
+  if (minutes === 120) return "every 2 hours";
+  if (minutes === 360) return "every 6 hours";
+  return "daily";
+}
+
+function projectedMonthlyCredits(control: AutomationControlState): number {
+  if (control.paused) return 0;
+  return Math.ceil((30 * 24 * 60 * control.scheduledSearchCreditsPerRun) / control.minIntervalMinutes);
+}
+
+function runHasCapSkip(run: AutomationDashboardRun | null): boolean {
+  return Boolean(
+    run?.status === "skipped" &&
+      run.skips.some((skip) => skip.includes("tavily_credit_cap") || skip.includes("llm_budget_capped")),
+  );
+}
+
+function scannerBadge(
+  control: AutomationControlState,
+  activeRunId: string | null,
+  latestRun: AutomationDashboardRun | null,
+) {
+  if (activeRunId) return { className: "badge badge-amber", label: "running" };
+  if (control.paused) return { className: "badge badge-amber", label: "paused" };
+  if (runHasCapSkip(latestRun)) return { className: "badge badge-crimson", label: "capped" };
+  return { className: "badge badge-green", label: "active" };
 }
 
 export default async function AdminPage() {
@@ -85,7 +119,12 @@ export default async function AdminPage() {
       }[]
     )[0]?.id ?? null;
   const f = features();
-  const budget = automationBudgetUsd();
+  const badge = scannerBadge(automationControl, activeRunId, latestRun);
+  const policySummary = `${
+    automationControl.paused ? "paused" : cadenceLabel(automationControl.minIntervalMinutes)
+  } · ${automationControl.scheduledSearchCreditsPerRun} Tavily credit/run · ${projectedMonthlyCredits(
+    automationControl,
+  )} est. credits/month`;
 
   return (
     <div className="space-y-6">
@@ -121,28 +160,29 @@ export default async function AdminPage() {
             <div className="stat-label">Automation controls</div>
             <h2 className="h-section">Scheduled source scanner</h2>
             <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              Vercel attempts the scheduled run daily at 09:00 UTC, which is 5:00 AM in Florida during daylight
-              saving time. The website can pause/resume scheduled runs and start manual scans; changing the actual cron
-              time still requires a deploy.
+              A Cloudflare Worker wakes the protected scanner endpoint hourly. The dashboard policy below decides whether
+              that attempt runs, skips by cadence, or stops at the Tavily and LLM caps.
             </p>
           </div>
-          <span className={automationControl.paused ? "badge badge-amber" : "badge badge-green"}>
-            {automationControl.paused ? "scheduled scans stopped" : "scheduled scans on"}
-          </span>
+          <span className={badge.className}>{badge.label}</span>
         </div>
 
         <div className="grid gap-3 text-sm md:grid-cols-3">
           <div>
-            <div className="stat-label mb-1">Budget</div>
-            <p className="text-lg font-semibold">${budget.toFixed(2)}</p>
+            <div className="stat-label mb-1">Policy</div>
+            <p className="text-lg font-semibold">
+              {automationControl.paused ? "Paused" : cadenceLabel(automationControl.minIntervalMinutes)}
+            </p>
             <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-              Monthly env guardrail
+              {policySummary}
             </p>
           </div>
           <div>
             <div className="stat-label mb-1">Providers</div>
             <p>Reddit: {f.reddit ? "enabled" : "disabled"}</p>
             <p>Web search: {f.webSearch ? "enabled" : "disabled"}</p>
+            <p>Tavily cap: {automationControl.monthlyTavilyCreditCap} credits/month</p>
+            <p>LLM cap: ${automationControl.monthlyLlmUsdCap}/month</p>
             <p style={f.turnstile ? undefined : { color: "var(--crimson-bright)" }}>
               Spam shield (Turnstile): {f.turnstile ? "enabled" : "OFF — report form has no captcha"}
             </p>

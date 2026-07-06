@@ -151,4 +151,31 @@ describe("automation scanner settings", () => {
     });
     await expect(getAutomationControlState(supabase)).resolves.toMatchObject({ paused: true });
   });
+
+  it("parses the admin cadence control including paused", async () => {
+    const { scannerPolicyFromFormData } = await import("@/lib/automation/settings");
+    const formData = new FormData();
+    formData.set("cadence", "paused");
+    formData.set("minIntervalMinutes", "360");
+    formData.set("scheduledSearchCreditsPerRun", "2");
+    formData.set("monthlyTavilyCreditCap", "900");
+    formData.set("monthlyLlmUsdCap", "3");
+    formData.set("modelPreset", "deepseek_qwen_pro");
+
+    expect(scannerPolicyFromFormData(formData)).toEqual({
+      paused: true,
+      minIntervalMinutes: 360,
+      scheduledSearchCreditsPerRun: 2,
+      monthlyTavilyCreditCap: 900,
+      monthlyLlmUsdCap: 3,
+      modelPreset: "deepseek_qwen_pro",
+    });
+
+    formData.set("cadence", "120");
+
+    expect(scannerPolicyFromFormData(formData)).toMatchObject({
+      paused: false,
+      minIntervalMinutes: 120,
+    });
+  });
 });

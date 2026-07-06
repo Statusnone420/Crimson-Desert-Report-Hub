@@ -108,9 +108,10 @@ export function normalizeScannerPolicy(value: unknown): ScannerPolicy {
 }
 
 export function scannerPolicyFromFormData(formData: FormData): ScannerPolicy {
+  const cadence = formData.get("cadence");
   return normalizeScannerPolicy({
-    paused: formData.get("paused"),
-    minIntervalMinutes: formData.get("minIntervalMinutes"),
+    paused: cadence === "paused" ? true : (formData.get("paused") ?? (cadence ? "false" : null)),
+    minIntervalMinutes: cadence && cadence !== "paused" ? cadence : formData.get("minIntervalMinutes"),
     scheduledSearchCreditsPerRun: formData.get("scheduledSearchCreditsPerRun"),
     monthlyTavilyCreditCap: formData.get("monthlyTavilyCreditCap"),
     monthlyLlmUsdCap: formData.get("monthlyLlmUsdCap"),

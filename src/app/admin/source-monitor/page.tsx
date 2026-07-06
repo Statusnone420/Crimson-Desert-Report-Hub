@@ -1,10 +1,11 @@
-import { rescueRejectedCandidate, setAutomationPaused } from "@/app/admin/actions";
+import { rescueRejectedCandidate, setScannerPolicy } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextScheduledScanAt } from "@/lib/automation/schedule";
+import type { AutomationControlState } from "@/lib/automation/settings";
 import { CATEGORY_LABELS } from "@/lib/constants";
-import { automationBudgetUsd, features } from "@/lib/env";
+import { features } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
 import { getAutomationAdminData } from "@/lib/queries";
 
@@ -57,13 +58,44 @@ function statusClass(status: string): string {
   return "badge badge-dim";
 }
 
+function cadenceLabel(minutes: number): string {
+  if (minutes === 60) return "hourly";
+  if (minutes === 120) return "every 2 hours";
+  if (minutes === 360) return "every 6 hours";
+  return "daily";
+}
+
+function projectedMonthlyCredits(control: AutomationControlState): number {
+  if (control.paused) return 0;
+  return Math.ceil((30 * 24 * 60 * control.scheduledSearchCreditsPerRun) / control.minIntervalMinutes);
+}
+
+function runHasCapSkip(run: { status: string; skips: string[] } | null): boolean {
+  return Boolean(
+    run?.status === "skipped" &&
+      run.skips.some((skip) => skip.includes("tavily_credit_cap") || skip.includes("llm_budget_capped")),
+  );
+}
+
+function scannerStatus(
+  control: AutomationControlState,
+  activeRun: { id: string } | null,
+  lastScheduled: { status: string; skips: string[] } | null,
+) {
+  if (activeRun) return { label: "Running", className: "badge badge-amber" };
+  if (control.paused) return { label: "Paused", className: "badge badge-amber" };
+  if (runHasCapSkip(lastScheduled)) return { label: "Capped", className: "badge badge-crimson" };
+  return { label: "Active", className: "badge badge-green" };
+}
+
 export default async function SourceMonitorPage() {
   await requireAdmin();
   const f = features();
-  const budget = automationBudgetUsd();
   const { runs, signals, rejectedCandidates, control, activeRun } = await getAutomationAdminData();
-  const nextAttempt = nextScheduledScanAt(new Date());
+  const nextAttempt = nextScheduledScanAt(new Date(), control.minIntervalMinutes);
   const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
+  const status = scannerStatus(control, activeRun, lastScheduled);
+  const projectedCredits = projectedMonthlyCredits(control);
 
   return (
     <div className="space-y-6">
@@ -77,22 +109,106 @@ export default async function SourceMonitorPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="stat-label">Scanner status</div>
-              <div className="stat-value">{control.paused ? "Paused" : "Active"}</div>
+              <div className="stat-value">{status.label}</div>
             </div>
-            <span className={control.paused ? "badge badge-amber" : "badge badge-green"}>
-              {control.paused ? "scheduled scans off" : "scheduled scans on"}
-            </span>
+            <span className={status.className}>{status.label.toLowerCase()}</span>
           </div>
-          <div className="stat-label">Monthly automation budget</div>
-          <div className="text-xl font-semibold">${budget.toFixed(2)}</div>
+
+          <div className="grid gap-3 text-sm sm:grid-cols-2">
+            <div className="panel-inset border p-3">
+              <div className="stat-label mb-1">Cadence</div>
+              <p className="font-semibold">{control.paused ? "paused" : cadenceLabel(control.minIntervalMinutes)}</p>
+              <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+                Cloudflare wakes hourly; policy skips when too soon.
+              </p>
+            </div>
+            <div className="panel-inset border p-3">
+              <div className="stat-label mb-1">Budget caps</div>
+              <p className="font-semibold">
+                {control.monthlyTavilyCreditCap} Tavily · ${control.monthlyLlmUsdCap} LLM
+              </p>
+              <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+                Estimated spend; caps stop scheduled work.
+              </p>
+            </div>
+          </div>
+
           <p className="text-sm" style={{ color: "var(--text-dim)" }}>
             Reddit: {f.reddit ? "enabled" : "disabled"} · Web search: {f.webSearch ? "enabled" : "disabled"}
           </p>
+
+          <form action={setScannerPolicy} className="panel-inset space-y-3 border p-3 text-sm">
+            <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
+            <input type="hidden" name="modelPreset" value={control.modelPreset} />
+            <div className="grid gap-3">
+              <label className="grid gap-1">
+                <span className="stat-label">Cadence</span>
+                <select name="cadence" defaultValue={control.paused ? "paused" : String(control.minIntervalMinutes)}>
+                  <option value="60">Hourly</option>
+                  <option value="120">Every 2 hours</option>
+                  <option value="360">Every 6 hours</option>
+                  <option value="1440">Daily</option>
+                  <option value="paused">Paused</option>
+                </select>
+              </label>
+
+              <label className="grid gap-1">
+                <span className="stat-label">Search volume</span>
+                <select name="scheduledSearchCreditsPerRun" defaultValue={String(control.scheduledSearchCreditsPerRun)}>
+                  <option value="1">1 Tavily credit/run</option>
+                  <option value="2">2 Tavily credits/run</option>
+                  <option value="3">3 Tavily credits/run</option>
+                </select>
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1">
+                  <span className="stat-label">Monthly Tavily cap</span>
+                  <input
+                    name="monthlyTavilyCreditCap"
+                    type="number"
+                    min="0"
+                    step="1"
+                    defaultValue={control.monthlyTavilyCreditCap}
+                  />
+                </label>
+                <label className="grid gap-1">
+                  <span className="stat-label">Monthly LLM cap</span>
+                  <input
+                    name="monthlyLlmUsdCap"
+                    type="number"
+                    min="1"
+                    max="5"
+                    step="0.25"
+                    defaultValue={control.monthlyLlmUsdCap}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="panel-inset border p-3 text-xs leading-5" style={{ color: "var(--text-dim)" }}>
+              <p>
+                Current setting projects about <span className="num">{projectedCredits}</span> Tavily credits/month
+                before policy skips, against a <span className="num">{control.monthlyTavilyCreditCap}</span> credit cap.
+              </p>
+              <details className="mt-1">
+                <summary className="cursor-pointer">Advanced route</summary>
+                <p className="mt-1">
+                  <span className="num">DeepSeek Flash → Qwen → DeepSeek Pro</span>
+                </p>
+              </details>
+            </div>
+
+            <SubmitButton className="btn" pendingText="Saving policy…">
+              Save scanner policy
+            </SubmitButton>
+          </form>
+
           <div className="panel-inset border p-3 text-xs leading-5" style={{ color: "var(--text-dim)" }}>
-            <div className="stat-label mb-1">Scheduled cadence</div>
+            <div className="stat-label mb-1">Scheduled attempts</div>
             <p>
-              Vercel cron attempts a scheduled scan daily at 09:00 UTC. Dry runs never block it; only a real scan in the
-              previous 6 hours makes it stand down — and every attempt now leaves a ledger entry below.
+              Every scheduled attempt writes a run ledger row. Skips are plain policy reasons: paused, too recent,
+              already running, Tavily capped, or LLM capped.
             </p>
             <p className="mt-1">
               Next attempt: <span className="num">{formatEasternDateTime(nextAttempt.toISOString())}</span>
@@ -109,19 +225,10 @@ export default async function SourceMonitorPage() {
             </p>
           </div>
           <ScanControls activeRunId={activeRun?.id ?? null} />
-          <div className="flex flex-wrap gap-2">
-            <form action={setAutomationPaused}>
-              <input type="hidden" name="paused" value={control.paused ? "false" : "true"} />
-              <SubmitButton className="btn btn-ghost" pendingText="Saving…">
-                {control.paused ? "Resume scheduled scans" : "Pause scheduled scans"}
-              </SubmitButton>
-            </form>
-          </div>
           <p className="text-xs" style={{ color: "var(--text-dim)" }}>
             A scan runs in the background — the card above updates itself every few seconds and the rest of the site
-            stays usable. Test scans write only the run ledger (nothing public changes). Capped scans use the monthly
-            budget guardrail and promote only qualifying public signals. Pause affects scheduled scans only; manual runs
-            still work.
+            stays usable. Test scans write only the run ledger (nothing public changes). Scheduled scans promote only
+            qualifying public signals. Paused policy affects scheduled scans only; manual runs still work.
           </p>
           {control.updatedAt ? (
             <p className="text-xs" style={{ color: "var(--text-faint)" }}>
