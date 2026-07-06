@@ -15,15 +15,15 @@ export function clusterEvidenceState(input: LadderInput): EvidenceLadderState {
 
 export const LADDER_LABELS: Record<EvidenceLadderState, string> = {
   watching: "Watching",
-  candidates: "Candidates under review",
-  corroborated: "Corroborated",
-  player_confirmed: "Player-confirmed",
+  candidates: "Unconfirmed",
+  corroborated: "Multiple sources",
+  player_confirmed: "Players confirm",
 };
 
 export const LADDER_DESCRIPTIONS: Record<EvidenceLadderState, string> = {
-  watching: "The scanner checks public sources for this on every run. Nothing found yet.",
+  watching: "The scanner checks public sources every run. Nothing's turned up yet.",
   candidates:
-    "The scanner found mentions that have not passed the independence threshold. Counts only — content stays private until corroborated.",
-  corroborated: "Multiple independent public sources describe this issue. Sources are linked below.",
-  player_confirmed: "Approved player reports confirm this issue.",
+    "The scanner found mentions online, but not enough separate sources to stand behind it yet. Only the count is shown — the text stays private.",
+  corroborated: "Two or more separate public sources report this. They're linked below.",
+  player_confirmed: "Players have sent in reports confirming this.",
 };

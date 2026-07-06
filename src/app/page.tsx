@@ -72,9 +72,9 @@ export default async function DashboardPage() {
         <div className="min-w-0 space-y-2.5">
           <h1 className="h-display max-w-3xl">Crimson Desert Report Hub</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            An unofficial community evidence tracker: approved player reports and thresholded public signals become
-            evidence; seeded watchlist items stay clearly unverified until data confirms them. Raw submissions stay
-            private.
+            An unofficial community evidence tracker: approved player reports and public signals backed by separate
+            sources become evidence; seeded watchlist items stay clearly unverified until the data confirms them. Raw
+            submissions stay private.
           </p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs" style={{ color: "var(--text-faint)" }}>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.topClusters.length}</span> watchlist items
@@ -119,9 +119,9 @@ export default async function DashboardPage() {
             note={
               d.communitySignals === 0
                 ? totalCandidates > 0
-                  ? `${totalCandidates} candidate(s) under review`
+                  ? `${totalCandidates} unconfirmed mention(s)`
                   : "none found yet — scanner active"
-                : "Public · thresholded"
+                : "Public · multiple sources"
             }
             tone="blue"
           />
@@ -157,15 +157,15 @@ export default async function DashboardPage() {
                     {fix.fixText}
                   </span>
                   <span className={contradicted ? "badge badge-crimson shrink-0" : "badge badge-dim shrink-0"}>
-                    {contradicted ? "contradicted by evidence" : "no contradicting evidence"}
+                    {contradicted ? "still reported broken" : "no reports against it"}
                   </span>
                 </div>
               );
             })}
           </div>
           <p className="border-t pt-3 text-xs" style={{ color: "var(--text-faint)" }}>
-            Sourced from Pearl Abyss&apos;s official patch notes. &quot;No contradicting evidence&quot; means no
-            approved reports or corroborated public signals dispute this fix yet.
+            Sourced from Pearl Abyss&apos;s official patch notes. &quot;No reports against it&quot; means no player
+            reports or public sources dispute this fix yet.
           </p>
         </section>
       ) : null}
@@ -312,12 +312,12 @@ export default async function DashboardPage() {
             </span>
           </div>
           <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            Scheduled scans check public web search and optional Reddit sources about {d.currentPatch.version}. They
-            publish nothing unless the source passes relevance and promotion thresholds.
+            Scheduled scans check public web search and optional Reddit sources about {d.currentPatch.version}. Nothing
+            goes public until a find is backed up by separate sources or a player report.
           </p>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
             {d.latestAutomationRun
-              ? `Last scan finished ${timeAgo(d.latestAutomationRun.finished_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_results_seen} sources reviewed · ${d.latestAutomationRun.signals_inserted} kept as candidates${d.latestAutomationRun.search_queries_used === 0 ? " · search skipped this run" : ""}`
+              ? `Last scan finished ${timeAgo(d.latestAutomationRun.finished_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_results_seen} sources reviewed · ${d.latestAutomationRun.signals_inserted} mentions kept${d.latestAutomationRun.search_queries_used === 0 ? " · search skipped this run" : ""}`
               : "No non-test scan has run yet."}
           </p>
         </div>

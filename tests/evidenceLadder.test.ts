@@ -36,23 +36,23 @@ describe("clusterEvidenceState", () => {
 describe("LADDER_LABELS", () => {
   it("has a label for every state", () => {
     expect(LADDER_LABELS.watching).toBe("Watching");
-    expect(LADDER_LABELS.candidates).toBe("Candidates under review");
-    expect(LADDER_LABELS.corroborated).toBe("Corroborated");
-    expect(LADDER_LABELS.player_confirmed).toBe("Player-confirmed");
+    expect(LADDER_LABELS.candidates).toBe("Unconfirmed");
+    expect(LADDER_LABELS.corroborated).toBe("Multiple sources");
+    expect(LADDER_LABELS.player_confirmed).toBe("Players confirm");
   });
 });
 
 describe("LADDER_DESCRIPTIONS", () => {
   it("has a description for every state", () => {
     expect(LADDER_DESCRIPTIONS.watching).toBe(
-      "The scanner checks public sources for this on every run. Nothing found yet.",
+      "The scanner checks public sources every run. Nothing's turned up yet.",
     );
     expect(LADDER_DESCRIPTIONS.candidates).toBe(
-      "The scanner found mentions that have not passed the independence threshold. Counts only — content stays private until corroborated.",
+      "The scanner found mentions online, but not enough separate sources to stand behind it yet. Only the count is shown — the text stays private.",
     );
     expect(LADDER_DESCRIPTIONS.corroborated).toBe(
-      "Multiple independent public sources describe this issue. Sources are linked below.",
+      "Two or more separate public sources report this. They're linked below.",
     );
-    expect(LADDER_DESCRIPTIONS.player_confirmed).toBe("Approved player reports confirm this issue.");
+    expect(LADDER_DESCRIPTIONS.player_confirmed).toBe("Players have sent in reports confirming this.");
   });
 });

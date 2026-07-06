@@ -63,7 +63,7 @@ export default async function IssuesPage() {
 
         {state === "candidates" ? (
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            {cluster.candidateSignalCount} candidate signal(s) under review — not yet independent enough to publish.
+            {cluster.candidateSignalCount} unconfirmed mention(s) found — not enough separate sources yet.
           </p>
         ) : null}
 
@@ -119,7 +119,7 @@ export default async function IssuesPage() {
       <SectionHeader
         label="Moderated public evidence"
         title="Issue clusters"
-        description="Evidence counts come from approved player reports, public signals that pass thresholds, and admin-approved excerpts. Seeded watchlist items remain unverified until data confirms them."
+        description="Evidence counts come from approved player reports, public signals backed by separate sources, and admin-approved excerpts. Seeded watchlist items stay unverified until the data confirms them."
       />
 
       <section className="grid grid-cols-3 gap-3">
@@ -132,7 +132,7 @@ export default async function IssuesPage() {
           <div className="stat-value mt-1.5">{active.length}</div>
           {active.length === 0 ? (
             <div className="mt-1.5 text-xs font-medium" style={{ color: "var(--text-dim)" }}>
-              scanner active — nothing corroborated yet
+              scanner active — nothing confirmed yet
             </div>
           ) : null}
         </div>
