@@ -1,5 +1,6 @@
 import { runAutomationCappedScan, runAutomationDryScan, setAutomationPaused } from "@/app/admin/actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { automationBudgetUsd, features } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -25,11 +26,6 @@ function workSummary(run: RunWork): string {
   return `${base} · ${run.signals_inserted} inserted · ${run.signals_deduped} deduped · ${run.clusters_promoted} promoted`;
 }
 
-function formatDateTime(iso: string | null): string {
-  if (!iso) return "not finished";
-  return new Date(iso).toLocaleString();
-}
-
 function formatUsd(value: number): string {
   return `$${Number(value).toFixed(3)}`;
 }
@@ -39,10 +35,6 @@ function statusClass(status: string): string {
   if (status === "hidden" || status === "failed") return "badge badge-crimson";
   if (status === "partial") return "badge badge-amber";
   return "badge badge-dim";
-}
-
-function messageList(messages: string[]): string {
-  return messages.length > 0 ? messages.join(", ") : "none";
 }
 
 export default async function SourceMonitorPage() {
@@ -74,6 +66,11 @@ export default async function SourceMonitorPage() {
           <p className="text-sm" style={{ color: "var(--text-dim)" }}>
             Reddit: {f.reddit ? "enabled" : "disabled"} · Web search: {f.webSearch ? "enabled" : "disabled"}
           </p>
+          <div className="panel-inset border p-3 text-xs leading-5" style={{ color: "var(--text-dim)" }}>
+            <div className="stat-label mb-1">Scheduled cadence</div>
+            Vercel cron attempts a scheduled scan daily at 09:00 UTC, which is 5:00 AM in Florida during daylight
+            saving time. It skips automation when any run started in the previous 6 hours.
+          </div>
           <div className="flex flex-wrap gap-2">
             <form action={runAutomationDryScan}>
               <SubmitButton className="btn btn-ghost" pendingText="Scanning… up to ~2 min">
@@ -100,46 +97,65 @@ export default async function SourceMonitorPage() {
           </p>
           {control.updatedAt ? (
             <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-              Scanner setting changed {formatDateTime(control.updatedAt)}.
+              Scanner setting changed {formatEasternDateTime(control.updatedAt)}.
             </p>
           ) : null}
         </div>
 
-        <div className="panel overflow-x-auto">
+        <div className="panel">
           <div className="stat-label mb-2">Latest automation runs</div>
           {runs.length > 0 ? (
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead style={{ color: "var(--text-dim)" }}>
-                <tr>
-                  <th className="py-2 pr-3 font-medium">Started</th>
-                  <th className="py-2 pr-3 font-medium">Status</th>
-                  <th className="py-2 pr-3 font-medium">Mode</th>
-                  <th className="py-2 pr-3 font-medium">Est. spend</th>
-                  <th className="py-2 pr-3 font-medium">Work</th>
-                  <th className="py-2 font-medium">Skips / errors</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((run) => (
-                  <tr key={run.id} className="border-t" style={{ borderColor: "var(--border)" }}>
-                    <td className="py-2 pr-3">{formatDateTime(run.started_at)}</td>
-                    <td className="py-2 pr-3">
-                      <span className={statusClass(run.status)}>{run.status}</span>
-                    </td>
-                    <td className="py-2 pr-3">{run.mode.replace("_", " ")}</td>
-                    <td className="py-2 pr-3">{formatUsd(run.estimated_cost_usd)}</td>
-                    <td className="py-2 pr-3" style={{ color: "var(--text-dim)" }}>
-                      {workSummary(run)}
-                    </td>
-                    <td className="py-2" style={{ color: "var(--text-dim)" }}>
-                      skips: {messageList(run.skips)}
-                      <br />
-                      errors: {messageList(run.errors)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="space-y-3">
+              {runs.map((run) => {
+                const messages = summarizeRunMessages(run.skips, run.errors);
+                return (
+                  <article key={run.id} className="panel-inset space-y-3 border p-3 text-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="stat-label">Started</div>
+                        <div>{formatEasternDateTime(run.started_at)}</div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={statusClass(run.status)}>{run.status}</span>
+                        <span className="badge badge-dim">{run.mode.replace("_", " ")}</span>
+                        <span className="badge badge-dim">{formatUsd(run.estimated_cost_usd)} est.</span>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-[0.9fr_1.1fr]">
+                      <div>
+                        <div className="stat-label mb-1">Work</div>
+                        <p style={{ color: "var(--text-dim)" }}>{workSummary(run)}</p>
+                      </div>
+                      <div>
+                        <div className="stat-label mb-1">Operator readout</div>
+                        <p style={{ color: "var(--text-dim)" }}>{messages.operatorSummary}</p>
+                        <p className="mt-1 text-xs" style={{ color: run.errors.length > 0 ? "var(--crimson-bright)" : "var(--text-faint)" }}>
+                          {messages.errorSummary}
+                        </p>
+                      </div>
+                    </div>
+
+                    {messages.skipGroups.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {messages.skipGroups.map((group) => (
+                          <span key={group.code} className="chip" title={group.detail}>
+                            <span className="num">{group.count}</span>
+                            {group.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <details className="text-xs" style={{ color: "var(--text-faint)" }}>
+                      <summary className="cursor-pointer">Raw scanner codes</summary>
+                      <p className="mt-2 break-words">skips: {run.skips.length > 0 ? run.skips.join(", ") : "none"}</p>
+                      <p className="mt-1 break-words">errors: {run.errors.length > 0 ? run.errors.join(", ") : "none"}</p>
+                    </details>
+                  </article>
+                );
+              })}
+            </div>
           ) : (
             <p className="text-sm" style={{ color: "var(--text-dim)" }}>
               No automation runs yet.

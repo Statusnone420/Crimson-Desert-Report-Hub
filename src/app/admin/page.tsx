@@ -1,31 +1,73 @@
 import Link from "next/link";
-import { moderateReport, setClusterFixStatus } from "@/app/admin/actions";
+import {
+  moderateReport,
+  runAutomationCappedScan,
+  runAutomationDryScan,
+  setAutomationPaused,
+  setClusterFixStatus,
+} from "@/app/admin/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { FixStatusBadge, SectionHeader, StatCard } from "@/components/ui";
+import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
+import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { CATEGORY_LABELS, FIX_STATUSES, PLATFORM_LABELS } from "@/lib/constants";
+import { automationBudgetUsd, features } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
 import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+type AutomationDashboardRun = {
+  started_at: string;
+  status: string;
+  mode: string;
+  estimated_cost_usd: number;
+  search_queries_used: number;
+  llm_calls_used: number;
+  signals_inserted: number;
+  signals_deduped: number;
+  clusters_promoted: number;
+  skips: string[];
+  errors: string[];
+};
+
+function runSummary(run: AutomationDashboardRun): string {
+  const base = `${run.search_queries_used} searches, ${run.llm_calls_used} LLM calls`;
+  if (run.mode === "dry_run") return `${base}, ${run.signals_inserted} would insert, nothing public saved`;
+  return `${base}, ${run.signals_inserted} inserted, ${run.signals_deduped} deduped, ${run.clusters_promoted} promoted`;
+}
+
 export default async function AdminPage() {
   await requireAdmin();
   const supabase = createServiceClient();
 
-  const [{ data: flagged }, { data: clusters }, approved, pending, spam] = await Promise.all([
-    supabase
-      .from("bug_reports")
-      .select("*")
-      .eq("moderation_status", "pending")
-      .order("created_at", { ascending: true })
-      .limit(50),
-    supabase.from("issue_clusters").select("id, title, fix_status").order("title"),
-    supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
-    supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
-    supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
-  ]);
+  const [{ data: flagged }, { data: clusters }, approved, pending, spam, latestAutomation, automationControl] =
+    await Promise.all([
+      supabase
+        .from("bug_reports")
+        .select("*")
+        .eq("moderation_status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(50),
+      supabase.from("issue_clusters").select("id, title, fix_status").order("title"),
+      supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
+      supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
+      supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
+      supabase
+        .from("automation_runs")
+        .select(
+          "started_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors",
+        )
+        .order("started_at", { ascending: false })
+        .limit(1),
+      getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+    ]);
 
   const flaggedReports = flagged ?? [];
+  const latestRun = ((latestAutomation.data ?? []) as AutomationDashboardRun[])[0] ?? null;
+  const latestMessages = latestRun ? summarizeRunMessages(latestRun.skips, latestRun.errors) : null;
+  const f = features();
+  const budget = automationBudgetUsd();
 
   return (
     <div className="space-y-6">
@@ -53,6 +95,78 @@ export default async function AdminPage() {
         <StatCard label="Flagged" value={pending.count ?? 0} note="Waiting for your call" tone="amber" />
         <StatCard label="Filtered as spam" value={spam.count ?? 0} note="Blocked automatically" tone="dim" />
         <StatCard label="Issues tracked" value={(clusters ?? []).length} note="Clusters" tone="dim" />
+      </section>
+
+      <section className="panel space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="stat-label">Automation controls</div>
+            <h2 className="h-section">Scheduled source scanner</h2>
+            <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              Vercel attempts the scheduled run daily at 09:00 UTC, which is 5:00 AM in Florida during daylight
+              saving time. The website can pause/resume scheduled runs and start manual scans; changing the actual cron
+              time still requires a deploy.
+            </p>
+          </div>
+          <span className={automationControl.paused ? "badge badge-amber" : "badge badge-green"}>
+            {automationControl.paused ? "scheduled scans stopped" : "scheduled scans on"}
+          </span>
+        </div>
+
+        <div className="grid gap-3 text-sm md:grid-cols-3">
+          <div>
+            <div className="stat-label mb-1">Budget</div>
+            <p className="text-lg font-semibold">${budget.toFixed(2)}</p>
+            <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+              Monthly env guardrail
+            </p>
+          </div>
+          <div>
+            <div className="stat-label mb-1">Providers</div>
+            <p>Reddit: {f.reddit ? "enabled" : "disabled"}</p>
+            <p>Web search: {f.webSearch ? "enabled" : "disabled"}</p>
+          </div>
+          <div>
+            <div className="stat-label mb-1">Latest run</div>
+            {latestRun ? (
+              <>
+                <p>
+                  {formatEasternDateTime(latestRun.started_at)} · {latestRun.status} · {latestRun.mode.replace("_", " ")}
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+                  {runSummary(latestRun)}
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+                  {latestMessages?.operatorSummary}
+                </p>
+              </>
+            ) : (
+              <p style={{ color: "var(--text-dim)" }}>No scanner run recorded yet.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 border-t pt-4">
+          <form action={runAutomationDryScan}>
+            <SubmitButton className="btn btn-ghost btn-sm" pendingText="Scanning...">
+              Test scan
+            </SubmitButton>
+          </form>
+          <form action={runAutomationCappedScan}>
+            <SubmitButton className="btn btn-sm" pendingText="Scanning...">
+              Run capped scan
+            </SubmitButton>
+          </form>
+          <form action={setAutomationPaused}>
+            <input type="hidden" name="paused" value={automationControl.paused ? "false" : "true"} />
+            <SubmitButton className="btn btn-ghost btn-sm" pendingText="Saving...">
+              {automationControl.paused ? "Resume scheduled scans" : "Stop scheduled scans"}
+            </SubmitButton>
+          </form>
+          <Link className="btn btn-ghost btn-sm" href="/admin/source-monitor">
+            Full run ledger
+          </Link>
+        </div>
       </section>
 
       <section className="space-y-3">

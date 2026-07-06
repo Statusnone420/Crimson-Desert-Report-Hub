@@ -117,7 +117,13 @@ const FIX_STATUS_META: Record<string, { label: string; cls: string }> = {
   persists: { label: "Persists after fix", cls: "badge badge-crimson badge-dot" },
 };
 
-export function FixStatusBadge({ status }: { status: string }) {
+export function FixStatusBadge({ status, unverified = false }: { status: string; unverified?: boolean }) {
+  if (unverified && status === "persists") {
+    return <span className="badge badge-amber">Claimed-fix watch item</span>;
+  }
+  if (unverified && status === "reported") {
+    return <span className="badge badge-dim">Watchlist item</span>;
+  }
   const meta = FIX_STATUS_META[status] ?? FIX_STATUS_META.reported;
   return <span className={meta.cls}>{meta.label}</span>;
 }

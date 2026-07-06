@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { Sparkline } from "@/components/Sparkline";
-import { FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
+import { ConfidenceBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
+import {
+  countEvidenceBackedPersistentClusters,
+  countUnverifiedClaimedFixWatchlistClusters,
+  hasClusterEvidence,
+} from "@/lib/evidence";
 import { getDashboardData } from "@/lib/queries";
 
 export const revalidate = 300;
@@ -27,9 +32,10 @@ function statusTone(fixStatus: string): Tone {
 
 export default async function DashboardPage() {
   const d = await getDashboardData();
-  const persistentCount = d.topClusters.filter((c) => c.fix_status === "persists").length;
-  const active = d.topClusters.filter((c) => c.strengthScore > 0);
-  const watchlist = d.topClusters.filter((c) => c.strengthScore === 0);
+  const persistentCount = countEvidenceBackedPersistentClusters(d.topClusters);
+  const claimedFixWatchlistCount = countUnverifiedClaimedFixWatchlistClusters(d.topClusters);
+  const active = d.topClusters.filter(hasClusterEvidence);
+  const watchlist = d.topClusters.filter((c) => !hasClusterEvidence(c));
   const maxStrength = Math.max(...active.map((c) => c.strengthScore), 1);
   const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
   const gpuEntries = Object.entries(d.gpus).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -44,14 +50,16 @@ export default async function DashboardPage() {
         <div className="min-w-0 space-y-2.5">
           <h1 className="h-display max-w-3xl">Crimson Desert Report Hub</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            An unofficial community evidence tracker: player-submitted reports and automated public signals, sorted
-            automatically into evidence Pearl Abyss can act on. Answer &ldquo;is it just me?&rdquo; at a glance. Raw
-            submissions stay private.
+            An unofficial community evidence tracker: approved player reports and thresholded public signals become
+            evidence; seeded watchlist items stay clearly unverified until data confirms them. Raw submissions stay
+            private.
           </p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-            <span className="num" style={{ color: "var(--text-dim)" }}>{d.topClusters.length}</span> issues tracked
+            <span className="num" style={{ color: "var(--text-dim)" }}>{d.topClusters.length}</span> watchlist items
             <span aria-hidden="true">·</span>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.directReports}</span> reports
+            <span aria-hidden="true">·</span>
+            <span className="num" style={{ color: "var(--text-dim)" }}>{d.communitySignals}</span> public signals
             <span aria-hidden="true">·</span>
             updated {timeAgo(d.latestReportAt)}
           </div>
@@ -78,16 +86,26 @@ export default async function DashboardPage() {
           <StatCard label="Total reports" value={d.directReports} note={`+${d.weekDelta} this week`} tone="crimson" />
         </div>
         <div className="rise" style={{ animationDelay: "80ms" }}>
-          <StatCard label="Community signals" value={d.communitySignals} note="Public · auto-screened" tone="blue" />
+          <StatCard
+            label="Community signals"
+            value={d.communitySignals}
+            note={d.communitySignals === 0 ? "None public yet" : "Public · thresholded"}
+            tone="blue"
+          />
         </div>
         <div className="rise" style={{ animationDelay: "120ms" }}>
-          <StatCard label="Issues tracked" value={d.topClusters.length} note={`On the ${d.currentPatch.version} watchlist`} tone="dim" />
+          <StatCard
+            label="Watchlist items"
+            value={d.topClusters.length}
+            note={active.length === 0 ? "Awaiting evidence" : `${active.length} with evidence`}
+            tone="dim"
+          />
         </div>
         <div className="rise" style={{ animationDelay: "160ms" }}>
           <StatCard
-            label="Persistent fixes"
+            label="Evidence-backed persistence"
             value={persistentCount}
-            note="Still broken after a claimed fix"
+            note={claimedFixWatchlistCount > 0 ? `${claimedFixWatchlistCount} claimed-fix watchlist` : "Only counts vetted evidence"}
             tone="amber"
           />
         </div>
@@ -97,8 +115,12 @@ export default async function DashboardPage() {
       <section className="grid gap-3 lg:grid-cols-[1.5fr_0.9fr]">
         <div className="panel space-y-5">
           <SectionHeader
-            title="Top issues this patch"
-            description="Ranked by approved reports and public signals."
+            title={active.length > 0 ? "Top issues this patch" : "Watchlist awaiting evidence"}
+            description={
+              active.length > 0
+                ? "Ranked by approved reports and public signals."
+                : "These are seeded watchlist items. They do not become evidence until approved reports or public signals confirm them."
+            }
             action={
               <Link href="/issues" className="btn btn-ghost btn-sm">
                 All issues
@@ -137,7 +159,7 @@ export default async function DashboardPage() {
                   >
                     <p className="truncate text-sm font-medium">{cluster.title}</p>
                     <div className="flex items-center justify-between gap-2">
-                      <FixStatusBadge status={cluster.fix_status} />
+                      <ConfidenceBadge confidence={cluster.confidence} />
                       <span className="text-xs" style={{ color: "var(--text-faint)" }}>
                         {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
                       </span>
@@ -149,8 +171,8 @@ export default async function DashboardPage() {
           ) : null}
 
           <p className="border-t pt-3 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-            Watchlist clusters start unverified at zero. They enter the ranked list once real reports or public signals
-            confirm them &mdash; the tracker never invents counts.
+            Watchlist clusters start unverified at zero. They become evidence only after approved reports or public
+            signals confirm them; the tracker never invents counts.
           </p>
         </div>
 
@@ -221,17 +243,17 @@ export default async function DashboardPage() {
           <div className="flex items-center justify-between gap-2">
             <h2 className="h-section">Automated scanner</h2>
             <span className={d.scanner.paused ? "badge badge-amber badge-dot" : "badge badge-green badge-dot"}>
-              {d.scanner.paused ? "paused" : "watching"}
+              {d.scanner.paused ? "paused" : "scheduled on"}
             </span>
           </div>
           <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            AI watches public web and Reddit posts about {d.currentPatch.version}, extracts the signal, and clusters it
-            &mdash; without republishing anyone&rsquo;s raw words.
+            Scheduled scans check public web search and optional Reddit sources about {d.currentPatch.version}. They
+            publish nothing unless the source passes relevance and promotion thresholds.
           </p>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
             {d.latestAutomationRun
-              ? `Last scan ${timeAgo(d.latestAutomationRun.started_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_queries_used} searches, ${d.latestAutomationRun.signals_inserted} raw signals`
-              : "No scan has run yet."}
+              ? `Last non-test run ${timeAgo(d.latestAutomationRun.started_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_queries_used} searches, ${d.latestAutomationRun.signals_inserted} candidate signals`
+              : "No non-test scan has run yet."}
           </p>
         </div>
 
