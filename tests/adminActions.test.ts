@@ -218,6 +218,7 @@ describe("rescueRejectedCandidate", () => {
           title: "Nice scenery tour",
           url: "https://example.com/scenery",
           source_domain: "example.com",
+          source_published_at: "2026-07-05T10:00:00.000Z",
           snippet: "beautiful vistas but actually a crash report",
           reason: "source_not_issue_report",
         },
@@ -236,6 +237,7 @@ describe("rescueRejectedCandidate", () => {
         title: "Nice scenery tour",
         url: "https://example.com/scenery",
         sourceDomain: "example.com",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
         snippet: "beautiful vistas but actually a crash report",
       }),
     );

@@ -385,6 +385,7 @@ export default async function SourceMonitorPage() {
             <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-dim)" }}>
               <span className="chip">{candidate.reason.replace(/_/g, " ")}</span>
               {candidate.source_domain ? <span className="badge badge-dim">{candidate.source_domain}</span> : null}
+              {candidate.source_published_at ? <span>Published {formatEasternDateTime(candidate.source_published_at)}</span> : null}
               <span>{formatEasternDateTime(candidate.created_at)}</span>
             </div>
             <p className="mt-1 font-medium">{candidate.title}</p>

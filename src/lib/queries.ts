@@ -68,6 +68,7 @@ export type RejectedCandidateRow = {
   title: string;
   url: string;
   source_domain: string | null;
+  source_published_at: string | null;
   reason: string;
   created_at: string;
   rescued_at: string | null;
@@ -427,7 +428,7 @@ export async function getAutomationAdminData() {
 
   const { data: rejectedCandidates } = await supabase
     .from("automation_rejected_candidates")
-    .select("id, title, url, source_domain, reason, created_at, rescued_at")
+    .select("id, title, url, source_domain, source_published_at, reason, created_at, rescued_at")
     .gt("expires_at", new Date().toISOString())
     .order("created_at", { ascending: false })
     .limit(30);
