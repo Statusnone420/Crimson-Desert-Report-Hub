@@ -134,7 +134,7 @@ function buildPrompt(candidate: SourceCandidate, clusterOptions: ClusterOption[]
     'Use category one of "performance", "crash_startup", "controls_gameplay", "graphics_visual", "audio", "quest_progression", "other".',
     'Use confidence one of "low", "medium", "high".',
     'Use platform one of "pc_steam", "ps5", "ps5_pro", "xbox_series_x", "xbox_series_s", "other", or null.',
-    "Return only JSON with issueTitle, category, platform, confidence, summary.",
+    "Return only JSON with issueTitle, category, platform, confidence, summary, clusterSlug.",
     `Title: ${candidate.title}`,
     `Snippet: ${candidate.snippet}`,
     `URL: ${candidate.url}`,
@@ -146,6 +146,7 @@ function buildPrompt(candidate: SourceCandidate, clusterOptions: ClusterOption[]
     );
     lines.push("Return clusterSlug as one of the listed slugs or null.");
   }
+  lines.push("Use clusterSlug null when no known cluster matches.");
   return lines.join("\n");
 }
 

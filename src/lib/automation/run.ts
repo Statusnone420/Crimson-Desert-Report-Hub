@@ -98,7 +98,7 @@ export async function sweepStaleRuns(
  * BEST-EFFORT concurrency protection, not a lock. The sweep -> check -> create
  * sequence is not atomic and there is no DB unique constraint on
  * status = 'running', so two simultaneous starts can both pass this check and
- * both create a run. Upstream guards (cron's 6-hour recency check, single-admin
+ * both create a run. Upstream guards (cron's policy recency check, single-admin
  * manual use) make that acceptable — do not rely on this as mutual exclusion.
  */
 export async function hasActiveRun(

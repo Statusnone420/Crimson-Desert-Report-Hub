@@ -2,7 +2,7 @@ import { rescueRejectedCandidate, setScannerPolicy } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
-import { nextScheduledScanAt } from "@/lib/automation/schedule";
+import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { features } from "@/lib/env";
@@ -92,8 +92,9 @@ export default async function SourceMonitorPage() {
   await requireAdmin();
   const f = features();
   const { runs, signals, rejectedCandidates, control, activeRun } = await getAutomationAdminData();
-  const nextAttempt = nextScheduledScanAt(new Date(), control.minIntervalMinutes);
+  const now = new Date();
   const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
+  const nextEligible = nextEligibleScheduledScanAt(runs, now, control.minIntervalMinutes);
   const status = scannerStatus(control, activeRun, lastScheduled);
   const projectedCredits = projectedMonthlyCredits(control);
 
@@ -211,7 +212,10 @@ export default async function SourceMonitorPage() {
               already running, Tavily capped, or LLM capped.
             </p>
             <p className="mt-1">
-              Next attempt: <span className="num">{formatEasternDateTime(nextAttempt.toISOString())}</span>
+              Next eligible run:{" "}
+              <span className="num">
+                {control.paused ? "paused until resumed" : formatEasternDateTime(nextEligible.toISOString())}
+              </span>
             </p>
             <p className="mt-1">
               Last attempt:{" "}

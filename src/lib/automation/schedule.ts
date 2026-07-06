@@ -10,7 +10,7 @@ function intervalMs(minIntervalMinutes: number): number {
   return (Number.isFinite(minIntervalMinutes) && minIntervalMinutes > 0 ? minIntervalMinutes : DEFAULT_MIN_INTERVAL_MINUTES) * 60 * 1000;
 }
 
-/** Dry runs preview only and skip markers are bookkeeping — neither blocks the daily scan. */
+/** Dry runs preview only and skip markers are bookkeeping — neither blocks scheduled policy scans. */
 export function blocksScheduledScan(run: RecentRunLike): boolean {
   return (run.mode === "scheduled" || run.mode === "manual") && run.status !== "skipped";
 }
@@ -37,4 +37,20 @@ export function scheduledScanDecision(
 
 export function nextScheduledScanAt(now: Date, minIntervalMinutes = DEFAULT_MIN_INTERVAL_MINUTES): Date {
   return new Date(now.getTime() + intervalMs(minIntervalMinutes));
+}
+
+export function nextEligibleScheduledScanAt(
+  recentRuns: RecentRunLike[],
+  now = new Date(),
+  minIntervalMinutes = DEFAULT_MIN_INTERVAL_MINUTES,
+): Date {
+  const latestBlockingStartedAt = recentRuns
+    .filter(blocksScheduledScan)
+    .map((run) => (run.started_at ? new Date(run.started_at).getTime() : Number.NaN))
+    .filter((startedAt) => Number.isFinite(startedAt) && startedAt <= now.getTime())
+    .sort((a, b) => b - a)[0];
+
+  if (latestBlockingStartedAt === undefined) return now;
+  const eligibleAt = new Date(latestBlockingStartedAt + intervalMs(minIntervalMinutes));
+  return eligibleAt > now ? eligibleAt : now;
 }

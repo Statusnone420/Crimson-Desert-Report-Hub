@@ -53,6 +53,7 @@ export function rejectPaidOpenRouterModel(model: string): string {
 }
 
 export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
+  const usesScannerPolicy = input.scannerPolicy !== undefined;
   const monthlyBudgetUsd = Math.max(0, input.monthlyBudgetUsd);
   const remainingMonthUsd = Math.max(0, monthlyBudgetUsd - Math.max(0, input.spentMonthToDateUsd));
   const monthlyTavilyCreditCap = Math.max(
@@ -66,14 +67,14 @@ export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
   const estimatedRunAllowanceUsd = remainingMonthUsd / remainingRuns;
   const skipReasons: string[] = [];
 
-  if (monthlyBudgetUsd === 0) skipReasons.push("budget_zero");
-  if (monthlyBudgetUsd > 0 && remainingMonthUsd <= 0) skipReasons.push("budget_capped");
+  if (!usesScannerPolicy && monthlyBudgetUsd === 0) skipReasons.push("budget_zero");
+  if (!usesScannerPolicy && monthlyBudgetUsd > 0 && remainingMonthUsd <= 0) skipReasons.push("budget_capped");
   if (monthlyTavilyCreditCap === 0 || remainingTavilyCredits <= 0) skipReasons.push("tavily_credit_cap");
   if (monthlyLlmUsdCap === 0 || remainingLlmUsd <= 0) skipReasons.push("llm_budget_capped");
 
   const canSpendSearch =
     skipReasons.length === 0 &&
-    (input.mode === "scheduled" || remainingMonthUsd >= SEARCH_QUERY_COST_USD);
+    (usesScannerPolicy || input.mode === "scheduled" || remainingMonthUsd >= SEARCH_QUERY_COST_USD);
   const requestedQueries =
     input.mode === "scheduled"
       ? Math.max(0, Math.min(3, Math.floor(input.scannerPolicy?.scheduledSearchCreditsPerRun ?? 1)))

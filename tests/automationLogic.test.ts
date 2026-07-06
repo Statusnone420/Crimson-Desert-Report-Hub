@@ -258,6 +258,7 @@ describe("automation extraction", () => {
         },
       },
     });
+    expect(JSON.parse(init.body).messages[1].content).toContain("clusterSlug");
   });
 
   it("records an estimated LLM cost when OpenRouter omits usage metadata", async () => {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { blocksScheduledScan, nextScheduledScanAt, scheduledScanDecision } from "@/lib/automation/schedule";
+import {
+  blocksScheduledScan,
+  nextEligibleScheduledScanAt,
+  nextScheduledScanAt,
+  scheduledScanDecision,
+} from "@/lib/automation/schedule";
 
 describe("blocksScheduledScan", () => {
   it("counts real scheduled and manual runs", () => {
@@ -87,5 +92,26 @@ describe("nextScheduledScanAt", () => {
     expect(nextScheduledScanAt(new Date("2026-07-06T14:00:00Z"), 120).toISOString()).toBe(
       "2026-07-06T16:00:00.000Z",
     );
+  });
+});
+
+describe("nextEligibleScheduledScanAt", () => {
+  it("returns now when no real run blocks the schedule", () => {
+    expect(
+      nextEligibleScheduledScanAt(
+        [{ mode: "scheduled", status: "skipped", started_at: "2026-07-06T11:30:00.000Z" }],
+        new Date("2026-07-06T12:00:00Z"),
+      ).toISOString(),
+    ).toBe("2026-07-06T12:00:00.000Z");
+  });
+
+  it("returns the last real run plus the policy interval when still inside the window", () => {
+    expect(
+      nextEligibleScheduledScanAt(
+        [{ mode: "manual", status: "success", started_at: "2026-07-06T11:30:00.000Z" }],
+        new Date("2026-07-06T12:00:00Z"),
+        120,
+      ).toISOString(),
+    ).toBe("2026-07-06T13:30:00.000Z");
   });
 });
