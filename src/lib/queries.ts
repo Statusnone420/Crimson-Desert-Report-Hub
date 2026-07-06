@@ -4,7 +4,7 @@ import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
-import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export type ClusterRow = {
@@ -52,6 +52,17 @@ export type AutomationRunRow = {
   clusters_promoted: number;
   skips: string[];
   errors: string[];
+  funnel: Record<string, number> | null;
+};
+
+export type RejectedCandidateRow = {
+  id: string;
+  title: string;
+  url: string;
+  source_domain: string | null;
+  reason: string;
+  created_at: string;
+  rescued_at: string | null;
 };
 
 export type PublicAutomationRunRow = {
@@ -62,7 +73,15 @@ export type PublicAutomationRunRow = {
   llm_calls_used: number;
   signals_inserted: number;
   clusters_promoted: number;
+  search_results_seen: number;
+  finished_at: string | null;
 };
+
+export type PublicScanMeta = {
+  finishedAt: string | null;
+  status: string;
+  searchResultsSeen: number;
+} | null;
 
 export type AdminSignalRow = SignalRow & {
   title: string | null;
@@ -85,6 +104,17 @@ export type VerifiedReportClusterRow = {
 
 function countClusterIds(rows: { cluster_id: string | null }[]): Record<string, number> {
   return countBy(rows, (row) => row.cluster_id);
+}
+
+/**
+ * Count private (not-yet-independent) signals per cluster for public pages.
+ * ONLY selects cluster_id — never select private summaries/urls onto a public page.
+ */
+async function getCandidateSignalCountsByCluster(
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<Record<string, number>> {
+  const { data } = await supabase.from("source_signals").select("cluster_id").eq("public_status", "private");
+  return countClusterIds((data ?? []) as { cluster_id: string | null }[]);
 }
 
 function relatedReport<T>(value: RelatedReport<T>): T | null {
@@ -145,6 +175,7 @@ async function getDashboardDataUncached() {
       scanner: { paused: false, updatedAt: null },
       latestAutomationRun: null,
       currentPatch: await getCurrentPatchMetadata(),
+      claimedFixes: [],
     };
   }
 
@@ -185,15 +216,19 @@ async function getDashboardDataUncached() {
     .order("created_at", { ascending: false })
     .limit(1);
 
-  const [scanner, latestAutomation, currentPatch] = await Promise.all([
+  const [scanner, latestAutomation, currentPatch, claimedFixes, candidateSignalCounts] = await Promise.all([
     getAutomationControlState(supabase as unknown as AutomationSettingsClient),
     supabase
       .from("automation_runs")
-      .select("started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted")
+      .select(
+        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, finished_at",
+      )
       .neq("mode", "dry_run")
       .order("started_at", { ascending: false })
       .limit(1),
     getCurrentPatchMetadata(supabase),
+    getClaimedFixesForCurrentPatch(supabase),
+    getCandidateSignalCountsByCluster(supabase),
   ]);
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -206,12 +241,14 @@ async function getDashboardDataUncached() {
       const signalCount = signalByCluster[cluster.id] ?? 0;
       const directReportCount = directByCluster[cluster.id] ?? 0;
       const verifiedReportCount = verifiedByCluster[cluster.id] ?? 0;
+      const candidateSignalCount = candidateSignalCounts[cluster.id] ?? 0;
       return {
         ...cluster,
         count: directReportCount,
         signalCount,
         directReportCount,
         verifiedReportCount,
+        candidateSignalCount,
         strengthScore: signalCount + directReportCount * 3,
       };
     })
@@ -234,6 +271,7 @@ async function getDashboardDataUncached() {
     scanner,
     latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
     currentPatch,
+    claimedFixes,
   };
 }
 
@@ -273,17 +311,21 @@ async function getIssuesDataUncached() {
     .order("created_at", { ascending: false })
     .limit(100);
 
+  const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase);
+
   const directByCluster = countClusterIds(reportRows);
   const signalByCluster = countClusterIds(signalRows);
   const clusters = rankClusters((clusterData ?? []) as ClusterRow[], reportRows)
     .map((cluster) => {
       const signalCount = signalByCluster[cluster.id] ?? 0;
       const directReportCount = directByCluster[cluster.id] ?? 0;
+      const candidateSignalCount = candidateSignalCounts[cluster.id] ?? 0;
       return {
         ...cluster,
         count: directReportCount,
         signalCount,
         directReportCount,
+        candidateSignalCount,
         strengthScore: signalCount + directReportCount * 3,
       };
     })
@@ -313,6 +355,26 @@ export const getIssuesData = unstable_cache(getIssuesDataUncached, ["issues-data
   tags: [PUBLIC_ISSUES_TAG],
 });
 
+/** Latest non-dry-run scan metadata for the public scanner heartbeat. Never throws — safe fallback is null. */
+export async function getLatestPublicScanMeta(): Promise<PublicScanMeta> {
+  if (!hasSupabaseServiceConfig()) return null;
+  try {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("automation_runs")
+      .select("finished_at, status, search_results_seen")
+      .neq("mode", "dry_run")
+      .order("started_at", { ascending: false })
+      .limit(1);
+    if (error) return null;
+    const row = (data ?? [])[0] as { finished_at: string | null; status: string; search_results_seen: number } | undefined;
+    if (!row) return null;
+    return { finishedAt: row.finished_at, status: row.status, searchResultsSeen: row.search_results_seen };
+  } catch {
+    return null;
+  }
+}
+
 export async function getAutomationAdminData() {
   const supabase = createServiceClient();
 
@@ -327,16 +389,24 @@ export async function getAutomationAdminData() {
   const { data: runs } = await supabase
     .from("automation_runs")
     .select(
-      "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors",
+      "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors, funnel",
     )
     .order("started_at", { ascending: false })
     .limit(10);
+
+  const { data: rejectedCandidates } = await supabase
+    .from("automation_rejected_candidates")
+    .select("id, title, url, source_domain, reason, created_at, rescued_at")
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(30);
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
 
   return {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
+    rejectedCandidates: (rejectedCandidates ?? []) as RejectedCandidateRow[],
     control,
   };
 }

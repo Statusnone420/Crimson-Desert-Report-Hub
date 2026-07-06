@@ -33,8 +33,8 @@ export default function AboutPage() {
       <section className="panel space-y-3 text-sm leading-6">
         <h2 className="text-lg font-semibold">Evidence and watchlist</h2>
         <p>
-          Evidence counts come only from approved direct reports, public source signals that pass promotion thresholds,
-          and moderator-approved excerpts. Zero-count watchlist items are maintainer-seeded tracking prompts, not vetted
+          Evidence counts come only from approved direct reports, public signals backed by separate sources, and
+          moderator-approved excerpts. Zero-count watchlist items are maintainer-seeded tracking prompts, not vetted
           proof that an issue is active.
         </p>
       </section>

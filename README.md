@@ -5,28 +5,27 @@
 **An unofficial, privacy-first evidence board for Crimson Desert bug reports.**
 
 <p>
-  <a href="https://crimsonreporthub.com"><img alt="Live site" src="https://img.shields.io/badge/live-crimsonreporthub.com-B42318?style=for-the-badge&logo=vercel&logoColor=white"></a>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/Statusnone420/Crimson-Desert-Report-Hub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white"></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Statusnone420/Crimson-Desert-Report-Hub?style=for-the-badge&color=0E7A5F"></a>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Statusnone420/Crimson-Desert-Report-Hub?style=for-the-badge&logo=github&color=F2C94C"></a>
-  <img alt="Last commit" src="https://img.shields.io/github/last-commit/Statusnone420/Crimson-Desert-Report-Hub?style=for-the-badge&color=5C8DFF">
+  <a href="https://crimsonreporthub.com"><img alt="Crimson Dev badge linking to the live site" src="public/readme/badges/crimson-dev.png" width="156"></a>
+  <a href="docs/README.md"><img alt="Adventurer badge linking to project docs" src="public/readme/badges/adventurer.png" width="156"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/actions/workflows/ci.yml"><img alt="Warrior badge linking to CI" src="public/readme/badges/warrior.png" width="156"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/issues"><img alt="Battle Tested badge linking to issues" src="public/readme/badges/battle-tested.png" width="156"></a>
+  <a href="docs/wiki/Home.md"><img alt="Explorer badge linking to the wiki source" src="public/readme/badges/explorer.png" width="156"></a>
 </p>
 
 <p>
-  <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16.2-000000?style=for-the-badge&logo=nextdotjs&logoColor=white">
-  <img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=for-the-badge&logo=react&logoColor=white">
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white">
-  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?style=for-the-badge&logo=supabase&logoColor=0B1B13">
-  <img alt="Vercel" src="https://img.shields.io/badge/Vercel-ready-000000?style=for-the-badge&logo=vercel&logoColor=white">
-  <img alt="Playwright" src="https://img.shields.io/badge/Playwright-visual%20smoke-45BA4B?style=for-the-badge&logo=playwright&logoColor=white">
+  <a href="SECURITY.md"><img alt="Survivor badge linking to security policy" src="public/readme/badges/survivor.png" width="156"></a>
+  <a href="PRODUCT.md"><img alt="Scout badge linking to product notes" src="public/readme/badges/scout.png" width="156"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions"><img alt="Fan badge linking to discussions" src="public/readme/badges/fan.png" width="156"></a>
+  <a href="docs/OPERATIONS.md"><img alt="Resourceful badge linking to operations docs" src="public/readme/badges/resourceful.png" width="156"></a>
+  <a href="LICENSE"><img alt="Supporter badge linking to the MIT license" src="public/readme/badges/supporter.png" width="156"></a>
 </p>
 
 <p>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions"><img alt="GitHub Discussions" src="https://img.shields.io/badge/Discussions-open-8957E5?style=for-the-badge&logo=github&logoColor=white"></a>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/wiki"><img alt="GitHub Wiki" src="https://img.shields.io/badge/Wiki-live-0969DA?style=for-the-badge&logo=github&logoColor=white"></a>
-  <img alt="No ads" src="https://img.shields.io/badge/no-ads-0E7A5F?style=for-the-badge">
-  <img alt="No analytics trackers" src="https://img.shields.io/badge/no-analytics%20trackers-0E7A5F?style=for-the-badge">
-  <img alt="Fan run" src="https://img.shields.io/badge/fan--run-unofficial-B42318?style=for-the-badge">
+  <a href="CONTRIBUTING.md"><img alt="Contributor badge linking to contributing guide" src="public/readme/badges/contributor.png" width="156"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions"><img alt="Team Player badge linking to discussions" src="public/readme/badges/team-player.png" width="156"></a>
+  <a href="SECURITY.md"><img alt="Guardian badge linking to security policy" src="public/readme/badges/guardian.png" width="156"></a>
+  <a href="docs/README.md"><img alt="Documentor badge linking to documentation" src="public/readme/badges/documentor.png" width="156"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub"><img alt="Legend badge linking to repository home" src="public/readme/badges/legend.png" width="156"></a>
 </p>
 
 <a href="https://crimsonreporthub.com">

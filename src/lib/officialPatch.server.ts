@@ -10,6 +10,7 @@ import {
   type OfficialPatchFetchLike,
   type OfficialPatchNote,
 } from "@/lib/officialPatch";
+import { classifySignal } from "@/lib/reddit";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export { CURRENT_PATCH_TAG, PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
@@ -130,5 +131,54 @@ export async function syncOfficialPatchNote(
   );
   if (upsertError) throw new Error(`official patch upsert failed: ${upsertError.message}`);
 
+  const { error: deleteFixesError } = await supabase
+    .from("official_patch_claimed_fixes")
+    .delete()
+    .eq("board_no", note.boardNo);
+  if (deleteFixesError) throw new Error(`official patch claimed fixes clear failed: ${deleteFixesError.message}`);
+
+  if (note.claimedFixes.length > 0) {
+    const fixRows = note.claimedFixes.map((fixText, index) => {
+      const category = classifySignal(fixText).category;
+      return {
+        board_no: note.boardNo,
+        position: index,
+        fix_text: fixText,
+        category: category === "other" ? null : category,
+      };
+    });
+    const { error: insertFixesError } = await supabase.from("official_patch_claimed_fixes").insert(fixRows);
+    if (insertFixesError) throw new Error(`official patch claimed fixes insert failed: ${insertFixesError.message}`);
+  }
+
   return { status: "synced", changed, patch: noteToCurrent(note) };
+}
+
+type ClaimedFixRow = { fix_text: string; category: string | null };
+
+export type ClaimedFix = { fixText: string; category: string | null };
+
+export async function getClaimedFixesForCurrentPatch(supabase: SupabaseClient): Promise<ClaimedFix[]> {
+  try {
+    const { data: currentRows, error: currentError } = await supabase
+      .from("official_patch_notes")
+      .select("board_no")
+      .eq("is_current", true)
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .limit(1);
+    if (currentError) return [];
+    const boardNo = ((currentRows ?? []) as { board_no: string }[])[0]?.board_no;
+    if (!boardNo) return [];
+
+    const { data: fixRows, error: fixError } = await supabase
+      .from("official_patch_claimed_fixes")
+      .select("fix_text, category")
+      .eq("board_no", boardNo)
+      .order("position", { ascending: true });
+    if (fixError) return [];
+
+    return ((fixRows ?? []) as ClaimedFixRow[]).map((row) => ({ fixText: row.fix_text, category: row.category }));
+  } catch {
+    return [];
+  }
 }

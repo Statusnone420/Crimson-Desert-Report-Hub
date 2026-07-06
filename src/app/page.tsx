@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { Sparkline } from "@/components/Sparkline";
-import { ConfidenceBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
-import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
+import { EvidenceLadderBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
+import { routeToWatchlistCluster } from "@/lib/automation/route";
+import { CATEGORY_LABELS, PLATFORM_LABELS, type Category } from "@/lib/constants";
 import {
   countEvidenceBackedPersistentClusters,
   countUnverifiedClaimedFixWatchlistClusters,
   hasClusterEvidence,
 } from "@/lib/evidence";
+import { clusterEvidenceState } from "@/lib/evidenceLadder";
 import { getDashboardData } from "@/lib/queries";
 
 export const revalidate = 300;
@@ -30,6 +32,25 @@ function statusTone(fixStatus: string): Tone {
   return "dim";
 }
 
+function isContradictedByEvidence(
+  fix: { fixText: string; category: string | null },
+  clusters: { id: string; slug: string; title: string; category: string; strengthScore: number }[],
+): boolean {
+  if (!fix.category) return false;
+  const matched = routeToWatchlistCluster(
+    {
+      issueTitle: fix.fixText,
+      summary: fix.fixText,
+      category: fix.category as Category,
+      llmClusterSlug: null,
+    },
+    clusters,
+  );
+  if (!matched) return false;
+  const cluster = clusters.find((candidate) => candidate.id === matched.id);
+  return (cluster?.strengthScore ?? 0) > 0;
+}
+
 export default async function DashboardPage() {
   const d = await getDashboardData();
   const persistentCount = countEvidenceBackedPersistentClusters(d.topClusters);
@@ -42,6 +63,7 @@ export default async function DashboardPage() {
   const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
   const maxPlatform = Math.max(...platformEntries.map(([, n]) => n), 1);
   const patchLabel = `Patch ${d.currentPatch.version}`;
+  const totalCandidates = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
 
   return (
     <div className="space-y-6">
@@ -50,9 +72,9 @@ export default async function DashboardPage() {
         <div className="min-w-0 space-y-2.5">
           <h1 className="h-display max-w-3xl">Crimson Desert Report Hub</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            An unofficial community evidence tracker: approved player reports and thresholded public signals become
-            evidence; seeded watchlist items stay clearly unverified until data confirms them. Raw submissions stay
-            private.
+            An unofficial community evidence tracker: approved player reports and public signals backed by separate
+            sources become evidence; seeded watchlist items stay clearly unverified until the data confirms them. Raw
+            submissions stay private.
           </p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs" style={{ color: "var(--text-faint)" }}>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.topClusters.length}</span> watchlist items
@@ -83,13 +105,24 @@ export default async function DashboardPage() {
       {/* Headline stats */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rise" style={{ animationDelay: "40ms" }}>
-          <StatCard label="Total reports" value={d.directReports} note={`+${d.weekDelta} this week`} tone="crimson" />
+          <StatCard
+            label="Total reports"
+            value={d.directReports}
+            note={d.directReports === 0 ? "be the first — takes 60 seconds" : `+${d.weekDelta} this week`}
+            tone="crimson"
+          />
         </div>
         <div className="rise" style={{ animationDelay: "80ms" }}>
           <StatCard
             label="Community signals"
             value={d.communitySignals}
-            note={d.communitySignals === 0 ? "None public yet" : "Public · thresholded"}
+            note={
+              d.communitySignals === 0
+                ? totalCandidates > 0
+                  ? `${totalCandidates} unconfirmed mention(s)`
+                  : "none found yet — scanner active"
+                : "Public · sourced"
+            }
             tone="blue"
           />
         </div>
@@ -110,6 +143,32 @@ export default async function DashboardPage() {
           />
         </div>
       </section>
+
+      {/* Official patch-note claimed fixes */}
+      {d.claimedFixes.length > 0 ? (
+        <section className="panel space-y-3">
+          <div className="stat-label">What patch {d.currentPatch.version} claims to fix</div>
+          <div className="space-y-2">
+            {d.claimedFixes.map((fix, index) => {
+              const contradicted = isContradictedByEvidence(fix, d.topClusters);
+              return (
+                <div key={index} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="min-w-0 flex-1" style={{ color: "var(--text-dim)" }}>
+                    {fix.fixText}
+                  </span>
+                  <span className={contradicted ? "badge badge-crimson shrink-0" : "badge badge-dim shrink-0"}>
+                    {contradicted ? "still reported broken" : "no reports against it"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="border-t pt-3 text-xs" style={{ color: "var(--text-faint)" }}>
+            Sourced from Pearl Abyss&apos;s official patch notes. &quot;No reports against it&quot; means no player
+            reports or public sources dispute this fix yet.
+          </p>
+        </section>
+      ) : null}
 
       {/* Top issues + platforms */}
       <section className="grid gap-3 lg:grid-cols-[1.5fr_0.9fr]">
@@ -159,7 +218,13 @@ export default async function DashboardPage() {
                   >
                     <p className="truncate text-sm font-medium">{cluster.title}</p>
                     <div className="flex items-center justify-between gap-2">
-                      <ConfidenceBadge confidence={cluster.confidence} />
+                      <EvidenceLadderBadge
+                        state={clusterEvidenceState({
+                          directReportCount: cluster.directReportCount,
+                          publicSignalCount: cluster.signalCount,
+                          candidateSignalCount: cluster.candidateSignalCount,
+                        })}
+                      />
                       <span className="text-xs" style={{ color: "var(--text-faint)" }}>
                         {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
                       </span>
@@ -247,12 +312,12 @@ export default async function DashboardPage() {
             </span>
           </div>
           <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            Scheduled scans check public web search and optional Reddit sources about {d.currentPatch.version}. They
-            publish nothing unless the source passes relevance and promotion thresholds.
+            Scheduled scans check public web search and optional Reddit sources about {d.currentPatch.version}. Nothing
+            goes public until a find is backed up by separate sources or a player report.
           </p>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
             {d.latestAutomationRun
-              ? `Last non-test run ${timeAgo(d.latestAutomationRun.started_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_queries_used} searches, ${d.latestAutomationRun.signals_inserted} candidate signals`
+              ? `Last scan finished ${timeAgo(d.latestAutomationRun.finished_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_results_seen} sources reviewed · ${d.latestAutomationRun.signals_inserted} mentions kept${d.latestAutomationRun.search_queries_used === 0 ? " · search skipped this run" : ""}`
               : "No non-test scan has run yet."}
           </p>
         </div>

@@ -5,10 +5,11 @@ import {
   extractSignalWithOpenRouter,
   parseOpenRouterExtraction,
 } from "@/lib/automation/extract";
+import { countIndependentDomains, domainTier, registrableDomain } from "@/lib/automation/domains";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
-import { shouldKeepAutomatedSignal } from "@/lib/automation/relevance";
+import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
-import { parseOfficialNoticeList, parseOfficialPatchDetail, patchVersionFromTitle } from "@/lib/officialPatch";
+import { parseClaimedFixes, parseOfficialNoticeList, parseOfficialPatchDetail, patchVersionFromTitle } from "@/lib/officialPatch";
 
 const crashCandidate = {
   title: "Crimson Desert map crash still happens",
@@ -36,6 +37,7 @@ describe("automation extraction", () => {
     expect(result.category).toBe("crash_startup");
     expect(result.confidence).toBe("medium");
     expect(result.issueTitle).toContain("map crash");
+    expect(result.clusterSlug).toBeNull();
   });
 
   it("parses strict OpenRouter JSON and rejects invalid categories", () => {
@@ -51,6 +53,53 @@ describe("automation extraction", () => {
       ).category,
     ).toBe("performance");
     expect(() => parseOpenRouterExtraction(JSON.stringify({ category: "made_up" }))).toThrow(/category/);
+  });
+
+  it("keeps clusterSlug when it is present in validSlugs", () => {
+    expect(
+      parseOpenRouterExtraction(
+        JSON.stringify({
+          issueTitle: "FPS regression since 1.13",
+          category: "performance",
+          platform: "pc_steam",
+          confidence: "high",
+          summary: "Multiple PC players mention FPS drops after patch 1.13.",
+          clusterSlug: "performance_regression",
+        }),
+        ["performance_regression"],
+      ).clusterSlug,
+    ).toBe("performance_regression");
+  });
+
+  it("nulls clusterSlug when it is not in validSlugs", () => {
+    expect(
+      parseOpenRouterExtraction(
+        JSON.stringify({
+          issueTitle: "FPS regression since 1.13",
+          category: "performance",
+          platform: "pc_steam",
+          confidence: "high",
+          summary: "Multiple PC players mention FPS drops after patch 1.13.",
+          clusterSlug: "not_a_real_slug",
+        }),
+        ["performance_regression"],
+      ).clusterSlug,
+    ).toBeNull();
+  });
+
+  it("nulls clusterSlug when the field is missing", () => {
+    expect(
+      parseOpenRouterExtraction(
+        JSON.stringify({
+          issueTitle: "FPS regression since 1.13",
+          category: "performance",
+          platform: "pc_steam",
+          confidence: "high",
+          summary: "Multiple PC players mention FPS drops after patch 1.13.",
+        }),
+        ["performance_regression"],
+      ).clusterSlug,
+    ).toBeNull();
   });
 
   it("falls back without calling OpenRouter when the configured model is not free", async () => {
@@ -242,212 +291,256 @@ describe("automation extraction", () => {
 });
 
 describe("automation promotion", () => {
-  it("keeps one weak source private", () => {
+  it("keeps two signals from the same domain private (below threshold)", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 1,
+        independentDomainCount: 1,
+        trustedDomainCount: 0,
         directReportCount: 0,
-        highestConfidence: "low",
-        hasClearCategory: true,
-        hasClearPlatform: true,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("private");
+      }),
+    ).toEqual({ publicStatus: "private", reason: "below_threshold" });
   });
 
-  it("promotes two independent sources", () => {
+  it("promotes two independent domains when at least one is trusted", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 2,
+        independentDomainCount: 2,
+        trustedDomainCount: 1,
         directReportCount: 0,
-        highestConfidence: "medium",
-        hasClearCategory: true,
-        hasClearPlatform: true,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("public");
+      }),
+    ).toEqual({ publicStatus: "public", reason: "two_independent_domains_trusted" });
   });
 
-  it("direct report promotes a matching signal", () => {
+  it("promotes three independent domains even without a trusted one", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 1,
+        independentDomainCount: 3,
+        trustedDomainCount: 0,
+        directReportCount: 0,
+        hasAdminForcePublic: false,
+        hasAdminForceHidden: false,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "three_independent_domains" });
+  });
+
+  it("keeps two untrusted-only domains private", () => {
+    expect(
+      shouldPromoteSignalCluster({
+        independentDomainCount: 2,
+        trustedDomainCount: 0,
+        directReportCount: 0,
+        hasAdminForcePublic: false,
+        hasAdminForceHidden: false,
+      }),
+    ).toEqual({ publicStatus: "private", reason: "below_threshold" });
+  });
+
+  it("direct report promotes regardless of domain counts", () => {
+    expect(
+      shouldPromoteSignalCluster({
+        independentDomainCount: 0,
+        trustedDomainCount: 0,
         directReportCount: 1,
-        highestConfidence: "low",
-        hasClearCategory: false,
-        hasClearPlatform: false,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("public");
+      }),
+    ).toEqual({ publicStatus: "public", reason: "direct_report_match" });
   });
 
   it("admin force public promotes below-threshold signals", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 0,
+        independentDomainCount: 0,
+        trustedDomainCount: 0,
         directReportCount: 0,
-        highestConfidence: "low",
-        hasClearCategory: false,
-        hasClearPlatform: false,
         hasAdminForcePublic: true,
         hasAdminForceHidden: false,
       }),
     ).toEqual({ publicStatus: "public", reason: "admin_force_public" });
   });
 
-  it("keeps a single high-confidence source private when category or platform is unclear", () => {
+  it("admin force hidden wins over force public", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 1,
-        directReportCount: 0,
-        highestConfidence: "high",
-        hasClearCategory: false,
-        hasClearPlatform: true,
-        hasAdminForcePublic: false,
-        hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("private");
-    expect(
-      shouldPromoteSignalCluster({
-        independentSourceCount: 1,
-        directReportCount: 0,
-        highestConfidence: "high",
-        hasClearCategory: true,
-        hasClearPlatform: false,
-        hasAdminForcePublic: false,
-        hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("private");
-  });
-
-  it("force hidden wins over threshold", () => {
-    expect(
-      shouldPromoteSignalCluster({
-        independentSourceCount: 3,
+        independentDomainCount: 3,
+        trustedDomainCount: 3,
         directReportCount: 3,
-        highestConfidence: "high",
-        hasClearCategory: true,
-        hasClearPlatform: true,
         hasAdminForcePublic: true,
         hasAdminForceHidden: true,
-      }).publicStatus,
-    ).toBe("hidden");
+      }),
+    ).toEqual({ publicStatus: "hidden", reason: "admin_force_hidden" });
+  });
+});
+
+describe("domainTier", () => {
+  it("treats a subdomain of a trusted domain as trusted", () => {
+    expect(domainTier("old.reddit.com")).toBe("trusted");
+  });
+
+  it("does not treat a look-alike domain as trusted", () => {
+    expect(domainTier("evilreddit.com")).toBe("unknown");
+  });
+
+  it("does not treat a trusted apex embedded in another domain as trusted", () => {
+    expect(domainTier("reddit.com.evil.com")).toBe("unknown");
+  });
+
+  it("treats null as unknown", () => {
+    expect(domainTier(null)).toBe("unknown");
+  });
+});
+
+describe("registrableDomain", () => {
+  it("collapses sibling subdomains to one registrable domain", () => {
+    expect(registrableDomain("a.evilfarm.com")).toBe("evilfarm.com");
+    expect(registrableDomain("b.evilfarm.com")).toBe("evilfarm.com");
+    expect(registrableDomain("old.reddit.com")).toBe("reddit.com");
+  });
+
+  it("strips www and trailing dots", () => {
+    expect(registrableDomain("www.pcgamer.com")).toBe("pcgamer.com");
+    expect(registrableDomain("example.com.")).toBe("example.com");
+  });
+
+  it("keeps the eTLD+1 for multi-part public suffixes", () => {
+    expect(registrableDomain("sub.example.co.uk")).toBe("example.co.uk");
+    expect(registrableDomain("example.co.uk")).toBe("example.co.uk");
+  });
+
+  it("returns null for empty input", () => {
+    expect(registrableDomain(null)).toBeNull();
+    expect(registrableDomain("")).toBeNull();
+  });
+});
+
+describe("countIndependentDomains", () => {
+  it("counts sibling subdomains of one registrable domain as a single source", () => {
+    expect(countIndependentDomains(["a.evilfarm.com", "b.evilfarm.com", "c.evilfarm.com"])).toEqual({
+      independentDomainCount: 1,
+      trustedDomainCount: 0,
+    });
+  });
+
+  it("counts genuinely distinct registrable domains and flags trusted ones", () => {
+    expect(countIndependentDomains(["old.reddit.com", "randomblog.example"])).toEqual({
+      independentDomainCount: 2,
+      trustedDomainCount: 1,
+    });
   });
 });
 
 describe("automation relevance", () => {
-  it("keeps direct issue language from public sources", () => {
-    expect(
-      shouldKeepAutomatedSignal({
-        title: "Crimson Desert patch 1.13 FPS regression",
-        snippet: "Players report FPS drops and stutter on Steam after the patch.",
-        sourceDomain: "example.com",
-        extraction: {
-          issueTitle: "FPS regression since 1.13",
-          category: "performance",
-          platform: "pc_steam",
-          confidence: "medium",
-          summary: "Players report FPS drops on Steam after patch 1.13.",
-          extractionProvider: "openrouter",
-          extractionModel: "openrouter/free",
-          llmCallUsed: true,
-        },
-      }),
-    ).toEqual({ keep: true });
+  describe("preScreenCandidate", () => {
+    it("rejects broad content titles like patch notes", () => {
+      expect(
+        preScreenCandidate({
+          title: "Crimson Desert patch notes",
+          snippet: "Official update notes and balance changes.",
+          sourceDomain: "example.com",
+        }),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("rejects issue language from a different patch than the current one", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Game crashes on map open",
+            snippet: "since patch 1.12",
+            sourceDomain: "example.com",
+          },
+          { currentPatchVersion: "1.13.00" },
+        ),
+      ).toEqual({ keep: false, reason: "wrong_patch" });
+    });
+
+    it("rejects titles and snippets with no symptom language", () => {
+      expect(
+        preScreenCandidate({
+          title: "Nice scenery tour",
+          snippet: "beautiful vistas",
+          sourceDomain: "example.com",
+        }),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("keeps candidates with clear symptom language for the current patch", () => {
+      expect(
+        preScreenCandidate({
+          title: "FPS drops hard in combat",
+          snippet: "since 1.13 stutters constantly",
+          sourceDomain: "example.com",
+        }),
+      ).toEqual({ keep: true });
+    });
+
+    it("rejects no-issue language even when symptom words are present", () => {
+      expect(
+        preScreenCandidate({
+          title: "No crashes for me",
+          snippet: "runs without issues",
+          sourceDomain: "example.com",
+        }),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("rejects SEO fix guides framed as troubleshooting content", () => {
+      expect(
+        preScreenCandidate({
+          title: "How To Fix Crimson Desert Low FPS, Lag, Stuttering & FPS Drops",
+          snippet: "A troubleshooting guide for Windows settings.",
+          sourceDomain: "youtube.com",
+        }),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("rejects issue reports pinned to a different explicit patch version", () => {
+      expect(
+        preScreenCandidate({
+          title: "RTX 5080 Ruined After 1.04 Patch - Sudden FPS Drops & Heavy Stuttering",
+          snippet: "Steam discussion about patch 1.04.",
+          sourceDomain: "steamcommunity.com",
+        }),
+      ).toEqual({ keep: false, reason: "wrong_patch" });
+    });
   });
 
-  it("rejects patch notes and review content that does not report a player issue", () => {
-    expect(
-      shouldKeepAutomatedSignal({
-        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
-        snippet: "Official update notes and balance changes.",
-        sourceDomain: "example.com",
-        extraction: {
+  describe("shouldKeepExtractedSignal", () => {
+    it("rejects an extraction classified as other", () => {
+      expect(
+        shouldKeepExtractedSignal({
           issueTitle: "Patch notes",
           category: "other",
           platform: null,
           confidence: "low",
           summary: "No reported issues.",
+          clusterSlug: null,
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
           llmCallUsed: true,
-        },
-      }),
-    ).toEqual({ keep: false, reason: "category_other" });
+        }),
+      ).toEqual({ keep: false, reason: "category_other" });
+    });
 
-    expect(
-      shouldKeepAutomatedSignal({
-        title: "Crimson Desert PS5 Review",
-        snippet: "A general review of the game on PlayStation 5.",
-        sourceDomain: "youtube.com",
-        extraction: {
-          issueTitle: "Crimson Desert PS5 Review",
-          category: "performance",
-          platform: "ps5",
-          confidence: "medium",
-          summary: "Review coverage with no reported issue.",
-          extractionProvider: "deterministic",
-          extractionModel: null,
-          llmCallUsed: false,
-          fallbackReason: "openrouter_provider_failure",
-        },
-      }),
-    ).toEqual({ keep: false, reason: "source_not_issue_report" });
-  });
-
-  it("requires symptom language when deterministic fallback labels performance content", () => {
-    expect(
-      shouldKeepAutomatedSignal({
-        title: "Crimson Desert Steam Deck FSR performance test",
-        snippet: "Benchmark settings for patch 1.13.",
-        sourceDomain: "youtube.com",
-        extraction: {
-          issueTitle: "Crimson Desert Steam Deck FSR performance test",
+    it("keeps an extraction classified with a real category", () => {
+      expect(
+        shouldKeepExtractedSignal({
+          issueTitle: "FPS regression since 1.13",
           category: "performance",
           platform: "pc_steam",
           confidence: "medium",
-          summary: "Performance benchmark video.",
-          extractionProvider: "deterministic",
-          extractionModel: null,
+          summary: "Players report FPS drops on Steam after patch 1.13.",
+          clusterSlug: null,
+          extractionProvider: "openrouter",
+          extractionModel: "openrouter/free",
           llmCallUsed: true,
-          fallbackReason: "openrouter_invalid_json",
-        },
-      }),
-    ).toEqual({ keep: false, reason: "source_not_issue_report" });
-  });
-
-  it("rejects SEO fix guides and issue reports from a different patch", () => {
-    const extraction = {
-      issueTitle: "Low FPS and stuttering",
-      category: "performance",
-      platform: "pc_steam",
-      confidence: "high",
-      summary: "Players experience low FPS, lag, stuttering, and sudden FPS drops.",
-      extractionProvider: "openrouter",
-      extractionModel: "openrouter/free",
-      llmCallUsed: true,
-    } as const;
-
-    expect(
-      shouldKeepAutomatedSignal({
-        title: "How To Fix Crimson Desert Low FPS, Lag, Stuttering & FPS Drops",
-        snippet: "A troubleshooting guide for Windows settings.",
-        sourceDomain: "youtube.com",
-        extraction,
-      }),
-    ).toEqual({ keep: false, reason: "source_not_issue_report" });
-
-    expect(
-      shouldKeepAutomatedSignal({
-        title: "RTX 5080 Ruined After 1.04 Patch - Sudden FPS Drops & Heavy Stuttering",
-        snippet: "Steam discussion about patch 1.04.",
-        sourceDomain: "steamcommunity.com",
-        extraction,
-      }),
-    ).toEqual({ keep: false, reason: "wrong_patch" });
+        }),
+      ).toEqual({ keep: true });
+    });
   });
 });
 
@@ -609,6 +702,43 @@ describe("official patch metadata", () => {
       patchVersion: "1.13.00",
       publishedAt: "2026-07-03T03:00:00.000Z",
       summary: "This patch adds fixes and stability improvements.",
+      claimedFixes: [],
     });
+  });
+
+  it("extracts claimed fixes from patch note list items", () => {
+    const html = `
+      <li>Fixed an issue where the map crashed the game.</li>
+      <li>Improved lighting.</li>
+      <li>Fixed the map crash.</li>
+    `;
+
+    expect(parseClaimedFixes(html)).toEqual([
+      "Fixed an issue where the map crashed the game.",
+      "Fixed the map crash.",
+    ]);
+  });
+
+  it("drops claimed fix candidates outside the 12-300 char bounds", () => {
+    const html = `
+      <li>Fixed it.</li>
+      <li>Fixed ${"a".repeat(295)}.</li>
+    `;
+
+    expect(parseClaimedFixes(html)).toEqual([]);
+  });
+
+  it("strips nested tags before evaluating claimed fix text", () => {
+    const html = `<li>Fixed an issue where <b>the map</b> crashed <i>the game</i>.</li>`;
+
+    expect(parseClaimedFixes(html)).toEqual(["Fixed an issue where the map crashed the game."]);
+  });
+
+  it("dedupes claimed fixes by lowercased text and caps at 30", () => {
+    const html = Array.from({ length: 35 }, (_, index) => `<li>Fixed issue number ${index}.</li>`).join("\n");
+
+    const fixes = parseClaimedFixes(html);
+    expect(fixes).toHaveLength(30);
+    expect(new Set(fixes.map((fix) => fix.toLowerCase())).size).toBe(30);
   });
 });

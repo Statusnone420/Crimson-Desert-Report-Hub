@@ -8,6 +8,7 @@ export type OfficialPatchNote = {
   officialUrl: string;
   publishedAt: string | null;
   summary: string | null;
+  claimedFixes: string[];
 };
 
 export type OfficialPatchFetchLike = (url: string, init?: { headers?: Record<string, string>; cache?: RequestCache }) => Promise<{
@@ -20,13 +21,27 @@ function decodeHtml(value: string): string {
   return value
     .replace(/&nbsp;/g, " ")
     .replace(/&#160;/g, " ")
-    .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    // &amp; must be decoded last so "&amp;lt;" resolves to the literal "&lt;",
+    // not a double-unescaped "<".
+    .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// Remove HTML tags, looping until the string is stable so a partial match left
+// behind by one pass (e.g. "<scr<b>ipt>") cannot survive as a reconstructed tag.
+function stripHtmlTags(value: string): string {
+  let previous: string;
+  let current = value;
+  do {
+    previous = current;
+    current = current.replace(/<[^>]*>/g, "");
+  } while (current !== previous);
+  return current;
 }
 
 function absoluteOfficialUrl(url: string): string {
@@ -50,7 +65,7 @@ export function parseOfficialNoticeList(html: string): Pick<OfficialPatchNote, "
     const rawTitle = cardHtml?.match(/<p\s+class="title[^"]*"[^>]*>([\s\S]*?)<\/p>/i)?.[1];
     if (!rawUrl || !rawTitle) continue;
 
-    const title = decodeHtml(rawTitle.replace(/<[^>]*>/g, ""));
+    const title = decodeHtml(stripHtmlTags(rawTitle));
     const patchVersion = patchVersionFromTitle(title);
     const boardNo = boardNoFromUrl(rawUrl);
     if (!patchVersion || !boardNo) continue;
@@ -84,6 +99,24 @@ function cleanSummary(value: string): string {
   return value.replace(/([a-z])([A-Z][a-z])/g, "$1 $2").replace(/\s+/g, " ").trim();
 }
 
+const FIX_LANGUAGE = /\b(fixed|resolved|addressed|corrected|no longer)\b/i;
+
+export function parseClaimedFixes(html: string): string[] {
+  const fixes: string[] = [];
+  const seen = new Set<string>();
+  for (const match of html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
+    const text = decodeHtml(stripHtmlTags(match[1] ?? ""));
+    if (!text || text.length < 12 || text.length > 300) continue;
+    if (!FIX_LANGUAGE.test(text)) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fixes.push(text);
+    if (fixes.length >= 30) break;
+  }
+  return fixes;
+}
+
 export function parseOfficialPatchDetail(
   html: string,
   base: Pick<OfficialPatchNote, "boardNo" | "title" | "patchVersion" | "officialUrl">,
@@ -98,6 +131,7 @@ export function parseOfficialPatchDetail(
     patchVersion,
     publishedAt: parsePublishedAt(html),
     summary: summary ? cleanSummary(summary).slice(0, 360) : null,
+    claimedFixes: parseClaimedFixes(html),
   };
 }
 

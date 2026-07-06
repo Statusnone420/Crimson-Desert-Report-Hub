@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   redirect: vi.fn(),
   requireAdmin: vi.fn(),
+  rescueCandidateSignal: vi.fn(),
   revalidatePath: vi.fn(),
   revalidateTag: vi.fn(),
   runAutomationMonitor: vi.fn(),
@@ -18,22 +19,33 @@ vi.mock("next/cache", () => ({
 }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
-vi.mock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+vi.mock("@/lib/automation/run", () => ({
+  runAutomationMonitor: mocks.runAutomationMonitor,
+  rescueCandidateSignal: mocks.rescueCandidateSignal,
+}));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from }) }));
 
-type TableName = "bug_reports" | "approved_excerpts";
+type TableName = "bug_reports" | "approved_excerpts" | "automation_rejected_candidates";
 type AdminTableName = TableName | "automation_settings";
 
 let insertFailure: { table: TableName; message: string } | null = null;
+let seedRows: Partial<Record<AdminTableName, Record<string, unknown>[]>> = {};
 const mutations: { table: AdminTableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
 
 class FakeQuery {
   private filters: { column: string; value: unknown }[] = [];
   private insertRow: Record<string, unknown> | null = null;
+  private limitCount: number | null = null;
   private patch: Record<string, unknown> | null = null;
+  private selecting = false;
   private upsertRow: Record<string, unknown> | null = null;
 
   constructor(private readonly table: AdminTableName) {}
+
+  select() {
+    this.selecting = true;
+    return this;
+  }
 
   insert(row: Record<string, unknown>) {
     this.insertRow = row;
@@ -52,6 +64,11 @@ class FakeQuery {
 
   eq(column: string, value: unknown) {
     this.filters.push({ column, value });
+    return this;
+  }
+
+  limit(count: number) {
+    this.limitCount = count;
     return this;
   }
 
@@ -79,6 +96,14 @@ class FakeQuery {
       return { data: [this.patch], error: null };
     }
 
+    if (this.selecting) {
+      const rows = (seedRows[this.table] ?? []).filter((row) =>
+        this.filters.every((filter) => row[filter.column] === filter.value),
+      );
+      const limited = this.limitCount !== null ? rows.slice(0, this.limitCount) : rows;
+      return { data: limited, error: null };
+    }
+
     return { data: [], error: null };
   }
 }
@@ -88,6 +113,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
   insertFailure = null;
+  seedRows = {};
   mutations.length = 0;
   mocks.from.mockImplementation((table: AdminTableName) => new FakeQuery(table));
 });
@@ -162,5 +188,65 @@ describe("runAutomationCappedScan", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/source-monitor");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+  });
+});
+
+describe("rescueRejectedCandidate", () => {
+  it("reads the rejected candidate, persists it as a signal, and marks it rescued", async () => {
+    seedRows = {
+      automation_rejected_candidates: [
+        {
+          id: "rejected-one",
+          title: "Nice scenery tour",
+          url: "https://example.com/scenery",
+          source_domain: "example.com",
+          snippet: "beautiful vistas but actually a crash report",
+          reason: "source_not_issue_report",
+        },
+      ],
+    };
+    mocks.rescueCandidateSignal.mockResolvedValue(undefined);
+    const { rescueRejectedCandidate } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "rejected-one");
+
+    await rescueRejectedCandidate(formData);
+
+    expect(mocks.rescueCandidateSignal).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        title: "Nice scenery tour",
+        url: "https://example.com/scenery",
+        sourceDomain: "example.com",
+        snippet: "beautiful vistas but actually a crash report",
+      }),
+    );
+    expect(mutations).toContainEqual({
+      table: "automation_rejected_candidates",
+      type: "update",
+      row: {
+        patch: expect.objectContaining({ rescued_at: expect.any(String) }),
+        filters: [{ column: "id", value: "rejected-one" }],
+      },
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/source-monitor");
+  });
+
+  it("throws when the rejected candidate id is missing", async () => {
+    const { rescueRejectedCandidate } = await import("@/app/admin/actions");
+    const formData = new FormData();
+
+    await expect(rescueRejectedCandidate(formData)).rejects.toThrow("bad input");
+    expect(mocks.rescueCandidateSignal).not.toHaveBeenCalled();
+  });
+
+  it("throws when the rejected candidate cannot be found", async () => {
+    seedRows = { automation_rejected_candidates: [] };
+    const { rescueRejectedCandidate } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "missing-candidate");
+
+    await expect(rescueRejectedCandidate(formData)).rejects.toThrow("rejected candidate not found");
+    expect(mocks.rescueCandidateSignal).not.toHaveBeenCalled();
   });
 });

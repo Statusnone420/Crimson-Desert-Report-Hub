@@ -1,4 +1,9 @@
-import { runAutomationCappedScan, runAutomationDryScan, setAutomationPaused } from "@/app/admin/actions";
+import {
+  rescueRejectedCandidate,
+  runAutomationCappedScan,
+  runAutomationDryScan,
+  setAutomationPaused,
+} from "@/app/admin/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { CATEGORY_LABELS } from "@/lib/constants";
@@ -26,6 +31,22 @@ function workSummary(run: RunWork): string {
   return `${base} · ${run.signals_inserted} inserted · ${run.signals_deduped} deduped · ${run.clusters_promoted} promoted`;
 }
 
+function funnelSummary(funnel: Record<string, number> | null): string | null {
+  if (!funnel) return null;
+  const { candidatesSeen, deduped, prefilterRejected, llmCalls, kept, promoted } = funnel;
+  if (
+    candidatesSeen === undefined ||
+    deduped === undefined ||
+    prefilterRejected === undefined ||
+    llmCalls === undefined ||
+    kept === undefined ||
+    promoted === undefined
+  ) {
+    return null;
+  }
+  return `${candidatesSeen} seen → ${deduped} deduped → ${prefilterRejected} pre-filtered → ${llmCalls} LLM → ${kept} kept → ${promoted} promoted`;
+}
+
 function formatUsd(value: number): string {
   return `$${Number(value).toFixed(3)}`;
 }
@@ -41,7 +62,7 @@ export default async function SourceMonitorPage() {
   await requireAdmin();
   const f = features();
   const budget = automationBudgetUsd();
-  const { runs, signals, control } = await getAutomationAdminData();
+  const { runs, signals, rejectedCandidates, control } = await getAutomationAdminData();
 
   return (
     <div className="space-y-6">
@@ -136,6 +157,12 @@ export default async function SourceMonitorPage() {
                       </div>
                     </div>
 
+                    {funnelSummary(run.funnel) ? (
+                      <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                        {funnelSummary(run.funnel)}
+                      </p>
+                    ) : null}
+
                     {messages.skipGroups.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {messages.skipGroups.map((group) => (
@@ -197,6 +224,50 @@ export default async function SourceMonitorPage() {
         {signals.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--text-dim)" }}>
             No signals yet.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="panel">
+        <div className="stat-label mb-2">Rejected candidates (last 7 days)</div>
+        {rejectedCandidates.map((candidate) => (
+          <div
+            key={candidate.id}
+            className="border-b py-2 text-sm last:border-0"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-dim)" }}>
+              <span className="chip">{candidate.reason.replace(/_/g, " ")}</span>
+              {candidate.source_domain ? <span className="badge badge-dim">{candidate.source_domain}</span> : null}
+              <span>{formatEasternDateTime(candidate.created_at)}</span>
+            </div>
+            <p className="mt-1 font-medium">{candidate.title}</p>
+            <a
+              href={candidate.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="break-all text-xs"
+              style={{ color: "var(--blue)" }}
+            >
+              {candidate.url}
+            </a>
+            <div className="mt-2">
+              {candidate.rescued_at ? (
+                <span className="badge badge-green">rescued</span>
+              ) : (
+                <form action={rescueRejectedCandidate}>
+                  <input type="hidden" name="id" value={candidate.id} />
+                  <SubmitButton className="btn btn-ghost btn-sm" pendingText="Rescuing…">
+                    Rescue
+                  </SubmitButton>
+                </form>
+              )}
+            </div>
+          </div>
+        ))}
+        {rejectedCandidates.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+            No rejected candidates in the last 7 days.
           </p>
         ) : null}
       </div>

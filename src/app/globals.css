@@ -188,6 +188,7 @@ p { text-wrap: pretty; }
 .badge-amber { color: var(--amber-bright); border-color: var(--amber-edge); background: var(--amber-tint); }
 .badge-green { color: var(--green-bright); border-color: var(--green-edge); background: var(--green-tint); }
 .badge-dim { color: var(--text-dim); background: var(--surface-2); }
+.badge-blue { color: var(--blue); border-color: var(--blue); background: var(--blue-tint); }
 
 .badge-dot::before {
   content: "";
@@ -346,11 +347,11 @@ label { font-size: 0.8rem; color: var(--text-dim); display: block; margin-bottom
   letter-spacing: -0.01em;
   color: var(--text);
 }
-.brand-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  background: var(--crimson);
+.brand-logo {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  object-fit: contain;
 }
 
 .nav-link {

@@ -319,7 +319,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("High confidence")).toBeVisible();
     await expect(page.getByText("Confirmed")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
-    await expect(page.getByText("Seeded watchlist items remain unverified until data confirms them.")).toBeVisible();
+    await expect(page.getByText("Seeded watchlist items stay unverified until the data confirms them.")).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("issues.png", { fullPage: true });
   });
@@ -393,7 +393,13 @@ test.describe("public surface visual regression", () => {
     await page.setInputFiles("#save_import", saveFolder);
     await page.getByText("Add technical detail Pearl Abyss can use").click();
 
+    // Selecting files shows a preview but must NOT mutate the form until the user opts in.
     await expect(page.getByText("1 local file inspected in this browser.")).toBeVisible();
+    await expect(page.getByText(/Preview.*nothing added yet/)).toBeVisible();
+    await expect(page.getByLabel("Graphics mode / FPS setting")).toHaveValue("");
+
+    // Applying the preview fills the visible technical fields.
+    await page.getByRole("button", { name: "Add to report" }).click();
     await expect(page.getByText("Raw files are not uploaded").first()).toBeVisible();
     await expect(page.getByLabel("Graphics mode / FPS setting")).toHaveValue(
       "NVIDIA DLSS 4.0 / AA / Frame Generation on / VSync off / HDR on",

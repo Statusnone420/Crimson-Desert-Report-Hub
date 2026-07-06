@@ -50,6 +50,7 @@ vi.mock("@/lib/officialPatch.server", () => ({
 type Row = Record<string, unknown>;
 type TableName =
   | "automation_runs"
+  | "automation_rejected_candidates"
   | "official_patch_notes"
   | "source_signals"
   | "issue_clusters"
@@ -65,6 +66,7 @@ type Filter =
 
 const tables: Record<TableName, Row[]> = {
   automation_runs: [],
+  automation_rejected_candidates: [],
   official_patch_notes: [],
   source_signals: [],
   issue_clusters: [],
@@ -72,11 +74,12 @@ const tables: Record<TableName, Row[]> = {
   approved_excerpts: [],
   automation_settings: [],
 };
-const mutations: { table: TableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
+const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
 let selectFailure: { table: TableName; message: string } | null = null;
 let updateFailure: { table: TableName; message: string } | null = null;
+let deleteFailure: { table: TableName; message: string } | null = null;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -96,10 +99,16 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   openRouterAttempts = 0;
   selectFailure = null;
   updateFailure = null;
+  deleteFailure = null;
 }
 
 function nextId(table: TableName) {
   return `${table}-${idSeq++}`;
+}
+
+function likeToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*");
+  return new RegExp(`^${escaped}$`);
 }
 
 function passesFilter(row: Row, filter: Filter): boolean {
@@ -109,12 +118,14 @@ function passesFilter(row: Row, filter: Filter): boolean {
   if (filter.type === "gte") return String(value) >= String(filter.value);
   if (filter.type === "lt") return String(value) < String(filter.value);
   if (filter.type === "not" && filter.operator === "is" && filter.value === null) return value !== null;
+  if (filter.type === "not" && filter.operator === "like") return !likeToRegExp(String(filter.value)).test(String(value ?? ""));
   throw new Error(`unsupported filter ${filter.type}`);
 }
 
 class FakeQuery {
   private filters: Filter[] = [];
   private insertRows: Row[] | null = null;
+  private isDelete = false;
   private limitCount: number | null = null;
   private orderBy: { column: string; ascending: boolean } | null = null;
   private patch: Row | null = null;
@@ -137,6 +148,11 @@ class FakeQuery {
 
   update(patch: Row) {
     this.patch = patch;
+    return this;
+  }
+
+  delete() {
+    this.isDelete = true;
     return this;
   }
 
@@ -196,8 +212,19 @@ class FakeQuery {
   private async execute() {
     if (this.insertRows) return this.executeInsert();
     if (this.upsertRows) return this.executeUpsert();
+    if (this.isDelete) return this.executeDelete();
     if (this.patch) return this.executeUpdate();
     return this.executeSelect();
+  }
+
+  private executeDelete() {
+    if (deleteFailure?.table === this.table) {
+      return { data: null, error: { message: deleteFailure.message } };
+    }
+    const matching = this.filteredRows();
+    tables[this.table] = tables[this.table].filter((row) => !matching.includes(row));
+    mutations.push({ table: this.table, type: "delete", row: { filters: this.filters } });
+    return { data: matching, error: null };
   }
 
   private executeInsert() {
@@ -267,6 +294,10 @@ class FakeQuery {
 
 function sourceSignalRows() {
   return tables.source_signals;
+}
+
+function rejectedCandidateRows() {
+  return tables.automation_rejected_candidates;
 }
 
 async function importRunner() {
@@ -418,7 +449,16 @@ describe("runAutomationMonitor", () => {
     expect(mutations.filter((mutation) => mutation.table !== "automation_runs")).toHaveLength(0);
   });
 
-  it("non-dry runs cluster two independent sources and promote them public", async () => {
+  it("non-dry runs cluster two independent trusted+unknown domains and promote them public", async () => {
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-fps",
+        title: "FPS drops since 1.13",
+        selftext: "Steam users are seeing stutter.",
+        permalink: "/r/CrimsonDesert/comments/reddit-fps/fps/",
+        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
+      },
+    ]);
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -437,6 +477,10 @@ describe("runAutomationMonitor", () => {
     });
     expect(new Set(sourceSignalRows().map((row) => row.cluster_id))).toEqual(new Set([tables.issue_clusters[0].id]));
     expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+    expect(sourceSignalRows().map((row) => row.promotion_reason)).toEqual([
+      "two_independent_domains_trusted",
+      "two_independent_domains_trusted",
+    ]);
     expect(sourceSignalRows()[0]).toMatchObject({
       extraction_provider: "openrouter",
       extraction_model: "meta-llama/llama-3.3-70b-instruct:free",
@@ -550,7 +594,7 @@ describe("runAutomationMonitor", () => {
     });
   });
 
-  it("promotes two fresh distinct canonical URLs on the same domain", async () => {
+  it("does not promote two fresh distinct canonical URLs on the same domain (not independent)", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.OPENROUTER_API_KEY;
     mocks.tavilySearch.mockImplementationOnce(async () => [
@@ -575,16 +619,17 @@ describe("runAutomationMonitor", () => {
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(result.signalsInserted).toBe(2);
-    expect(result.clustersPromoted).toBe(1);
+    expect(result.clustersPromoted).toBe(0);
     expect(sourceSignalRows()).toHaveLength(2);
     expect(new Set(sourceSignalRows().map((row) => row.canonical_url))).toEqual(
       new Set(["https://same.example/fps-one", "https://same.example/fps-two"]),
     );
-    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["private", "private"]);
+    expect(sourceSignalRows().map((row) => row.promotion_reason)).toEqual(["below_threshold", "below_threshold"]);
     expect(tables.issue_clusters[0]).toMatchObject({
       signal_count: 2,
-      public_signal_count: 2,
-      auto_public: true,
+      public_signal_count: 0,
+      auto_public: false,
     });
   });
 
@@ -658,12 +703,204 @@ describe("runAutomationMonitor", () => {
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(result.signalsInserted).toBe(1);
-    expect(result.skips).toEqual(expect.arrayContaining(["category_other", "source_not_issue_report"]));
+    expect(result.skips.filter((skip) => skip === "source_not_issue_report")).toHaveLength(2);
+    expect(result.prefilterRejected).toBe(2);
     expect(sourceSignalRows()).toHaveLength(1);
     expect(sourceSignalRows()[0]).toMatchObject({
       title: "Crimson Desert patch 1.13 FPS drops",
       category: "performance",
       public_status: "private",
+    });
+    expect(rejectedCandidateRows()).toHaveLength(2);
+    const runId = tables.automation_runs[0].id;
+    expect(rejectedCandidateRows().every((row) => row.run_id === runId)).toBe(true);
+    expect(rejectedCandidateRows().map((row) => row.reason)).toEqual([
+      "source_not_issue_report",
+      "source_not_issue_report",
+    ]);
+    expect(rejectedCandidateRows()[0]).toMatchObject({
+      title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+      url: "https://example.com/patch-notes",
+      source_domain: "example.com",
+    });
+  });
+
+  it("dry runs record zero rejected candidates even when candidates fail pre-screen", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "dry_run", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.prefilterRejected).toBeGreaterThan(0);
+    expect(rejectedCandidateRows()).toHaveLength(0);
+    expect(mutations.filter((mutation) => mutation.table === "automation_rejected_candidates")).toHaveLength(0);
+  });
+
+  it("deletes expired rejected-candidate rows on a non-dry run", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "rejected-old",
+          run_id: "run-old",
+          title: "Old rejected candidate",
+          url: "https://example.com/old",
+          source_domain: "example.com",
+          snippet: "stale",
+          reason: "source_not_issue_report",
+          created_at: "2026-06-01T00:00:00.000Z",
+          expires_at: "2026-06-08T00:00:00.000Z",
+          rescued_at: null,
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(rejectedCandidateRows().find((row) => row.id === "rejected-old")).toBeUndefined();
+    expect(mutations.some((mutation) => mutation.table === "automation_rejected_candidates" && mutation.type === "delete")).toBe(
+      true,
+    );
+  });
+
+  it("makes zero LLM calls and records the run funnel when every candidate fails pre-screen", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert PS5 Review",
+        url: "https://www.youtube.com/watch?v=review",
+        snippet: "A general review of the game on PlayStation 5.",
+        sourceDomain: "youtube.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.llmCallsUsed).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(result.candidatesSeen).toBe(2);
+    expect(result.prefilterRejected).toBe(2);
+    expect(result.signalsInserted).toBe(0);
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      funnel: {
+        candidatesSeen: 2,
+        deduped: 0,
+        prefilterRejected: 2,
+        llmCalls: 0,
+        kept: 0,
+        promoted: 0,
+      },
+    });
+  });
+
+  it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-fps-route",
+        title: "FPS drops since 1.13",
+        selftext: "Steam users are seeing stutter.",
+        permalink: "/r/CrimsonDesert/comments/reddit-fps-route/fps/",
+        created_utc: 1783260000,
+      },
+    ]);
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.issue_clusters).toHaveLength(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-seeded-perf",
+    });
+  });
+
+  it("keeps a public seeded watchlist cluster visible when a below-threshold signal routes into it", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "seed_unverified",
+          is_public: true,
+          auto_public: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-fps-seed-visible",
+        title: "FPS drops since 1.13",
+        selftext: "Steam users are seeing stutter.",
+        permalink: "/r/CrimsonDesert/comments/reddit-fps-seed-visible/fps/",
+        created_utc: 1783260000,
+      },
+    ]);
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    // The lone routed signal is below the promotion threshold and stays private...
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-seeded-perf", public_status: "private" });
+    // ...but the seeded watchlist item must remain publicly visible, not vanish.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: true,
     });
   });
 

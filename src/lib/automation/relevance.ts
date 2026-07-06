@@ -5,11 +5,10 @@ export type RelevanceSkipReason = "category_other" | "source_not_issue_report" |
 
 export type SignalRelevanceDecision = { keep: true } | { keep: false; reason: RelevanceSkipReason };
 
-export type SignalRelevanceInput = {
+export type CandidatePreScreenInput = {
   title: string;
   snippet: string;
   sourceDomain: string | null;
-  extraction: ExtractionResult;
 };
 
 const SYMPTOM_PATTERNS = [
@@ -87,34 +86,35 @@ function mentionsOnlyOtherPatch(text: string, currentPatchVersion: string): bool
   return !versions.includes(normalizePatch(currentPatchVersion));
 }
 
-export function shouldKeepAutomatedSignal(
-  input: SignalRelevanceInput,
+/**
+ * Cheap gate on raw source text. Runs BEFORE any LLM call.
+ *
+ * Trade-off: a source whose raw title+snippet has no symptom language is rejected
+ * WITHOUT giving the LLM a chance to rescue it. That rescue path was the waste this
+ * split exists to remove — most candidates a free regex would kill never needed an
+ * LLM call in the first place.
+ */
+export function preScreenCandidate(
+  input: CandidatePreScreenInput,
   options: { currentPatchVersion?: string } = {},
 ): SignalRelevanceDecision {
-  if (input.extraction.category === "other") {
-    return { keep: false, reason: "category_other" };
-  }
-
   const sourceText = compact(`${input.title} ${input.snippet}`);
-  const extractionText = compact(`${input.extraction.issueTitle} ${input.extraction.summary}`);
   if (mentionsOnlyOtherPatch(sourceText, options.currentPatchVersion ?? CURRENT_PATCH)) {
     return { keep: false, reason: "wrong_patch" };
   }
-
-  const sourceHasSymptom = hasSymptomLanguage(sourceText);
-  const extractionHasSymptom = hasSymptomLanguage(extractionText) && !saysNoIssue(extractionText);
-
   if (isBroadContentTitle(input.title)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
-
-  if (!sourceHasSymptom && !extractionHasSymptom) {
+  if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
+  return { keep: true };
+}
 
-  if (input.extraction.extractionProvider === "deterministic" && !sourceHasSymptom) {
-    return { keep: false, reason: "source_not_issue_report" };
+/** Post-extraction gate. Runs AFTER extraction (deterministic or LLM). */
+export function shouldKeepExtractedSignal(extraction: ExtractionResult): SignalRelevanceDecision {
+  if (extraction.category === "other") {
+    return { keep: false, reason: "category_other" };
   }
-
   return { keep: true };
 }

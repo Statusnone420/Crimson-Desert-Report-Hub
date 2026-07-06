@@ -2,9 +2,11 @@ import "server-only";
 
 import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation/budget";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
-import { extractSignalWithOpenRouter, type ExtractionResult } from "@/lib/automation/extract";
+import { countIndependentDomains } from "@/lib/automation/domains";
+import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
-import { shouldKeepAutomatedSignal } from "@/lib/automation/relevance";
+import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
+import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { buildSearchQueries, tavilySearch, type SearchResult } from "@/lib/automation/search";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
@@ -21,6 +23,8 @@ export type AutomationResult = {
   searchQueriesUsed: number;
   searchResultsSeen: number;
   llmCallsUsed: number;
+  candidatesSeen: number;
+  prefilterRejected: number;
   signalsInserted: number;
   signalsDeduped: number;
   clustersPromoted: number;
@@ -46,11 +50,20 @@ type PreparedSignal = SourceInput & {
   extraction: ExtractionResult;
 };
 
+export type RejectedCandidate = {
+  title: string;
+  url: string;
+  sourceDomain: string | null;
+  snippet: string;
+  reason: string;
+};
+
 type ClusterRow = {
   id: string;
   category: Category;
   admin_visibility_override?: "force_public" | "force_hidden" | null;
   auto_public?: boolean | null;
+  is_public?: boolean | null;
 };
 
 type SourceSignalRow = {
@@ -79,7 +92,6 @@ type ApprovedExcerptRow = {
 };
 
 const SEARCH_QUERY_COST_USD = 0.008;
-const CONFIDENCE_RANK = { low: 0, medium: 1, high: 2 } as const;
 
 function searchResultToInput(result: SearchResult): SourceInput {
   return {
@@ -105,25 +117,6 @@ function clusterConfidence(confidence: "low" | "medium" | "high"): "low" | "medi
   return confidence === "low" ? "low" : "medium";
 }
 
-function highestConfidence(rows: SourceSignalRow[]): "low" | "medium" | "high" {
-  return rows.reduce<"low" | "medium" | "high">((highest, row) => {
-    const confidence = row.confidence ?? "low";
-    return CONFIDENCE_RANK[confidence] > CONFIDENCE_RANK[highest] ? confidence : highest;
-  }, "low");
-}
-
-function isClearCategory(category: string | null | undefined): boolean {
-  return Boolean(category && category !== "other");
-}
-
-function isClearPlatform(platform: string | null | undefined): boolean {
-  return Boolean(platform && platform !== "other");
-}
-
-function signalPlatform(row: SourceSignalRow): Platform | null {
-  return row.extracted_facts?.platform ?? null;
-}
-
 function isObservedWithinWindow(row: SourceSignalRow, now: Date, windowMs: number): boolean {
   if (!row.observed_at) return false;
   const observedAt = new Date(row.observed_at).getTime();
@@ -131,14 +124,23 @@ function isObservedWithinWindow(row: SourceSignalRow, now: Date, windowMs: numbe
   return observedAt >= now.getTime() - windowMs && observedAt <= now.getTime();
 }
 
-function independentSourceCount(rows: SourceSignalRow[], now: Date): number {
+function signalDomain(row: SourceSignalRow): string | null {
+  if (row.source_domain) return row.source_domain;
+  if (!row.canonical_url) return null;
+  try {
+    return new URL(row.canonical_url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+function domainCounts(rows: SourceSignalRow[], now: Date): { independentDomainCount: number; trustedDomainCount: number } {
   const recentWindowMs = 14 * 24 * 60 * 60 * 1000;
-  return new Set(
-    rows
-      .filter((row) => isObservedWithinWindow(row, now, recentWindowMs))
-      .map((row) => row.canonical_url)
-      .filter((url): url is string => Boolean(url)),
-  ).size;
+  const hostnames = rows
+    .filter((row) => isObservedWithinWindow(row, now, recentWindowMs))
+    .map(signalDomain)
+    .filter((domain): domain is string => Boolean(domain));
+  return countIndependentDomains(hostnames);
 }
 
 function lastObservedAt(rows: SourceSignalRow[]): string | null {
@@ -224,13 +226,17 @@ async function prepareSignals(
   result: AutomationResult,
   budget: AutomationBudget,
   patchVersion: string,
-): Promise<PreparedSignal[]> {
+  clusterOptions: ClusterOption[],
+): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[] }> {
   const prepared: PreparedSignal[] = [];
+  const rejected: RejectedCandidate[] = [];
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
   const limit = Math.max(25, budget.maxSearchResults + 25);
+  const candidates = inputs.slice(0, limit);
+  result.candidatesSeen += candidates.length;
 
-  for (const signal of inputs.slice(0, limit)) {
+  for (const signal of candidates) {
     let canonicalUrl: string;
     try {
       canonicalUrl = canonicalizeUrl(signal.url);
@@ -248,24 +254,43 @@ async function prepareSignals(
     seenUrls.add(canonicalUrl);
     seenExternalIds.add(externalHash);
 
+    // Cheap gate on raw source text, runs BEFORE any LLM call. Trade-off: a source
+    // whose raw title+snippet has no symptom language is rejected without giving the
+    // LLM a chance to rescue it. That rescue path was the waste this prefilter removes.
+    const preScreen = preScreenCandidate(
+      { title: signal.title, snippet: signal.body, sourceDomain: signal.sourceDomain },
+      { currentPatchVersion: patchVersion },
+    );
+    if (!preScreen.keep) {
+      result.skips.push(preScreen.reason);
+      result.prefilterRejected += 1;
+      rejected.push({
+        title: signal.title,
+        url: canonicalUrl,
+        sourceDomain: signal.sourceDomain,
+        snippet: signal.body.slice(0, 500),
+        reason: preScreen.reason,
+      });
+      continue;
+    }
+
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
-      { llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed) },
+      { llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed), clusterOptions },
     );
     if (extraction.llmCallUsed) result.llmCallsUsed += 1;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
 
-    const relevance = shouldKeepAutomatedSignal(
-      {
-        title: signal.title,
-        snippet: signal.body,
-        sourceDomain: signal.sourceDomain,
-        extraction,
-      },
-      { currentPatchVersion: patchVersion },
-    );
+    const relevance = shouldKeepExtractedSignal(extraction);
     if (!relevance.keep) {
       result.skips.push(relevance.reason);
+      rejected.push({
+        title: signal.title,
+        url: canonicalUrl,
+        sourceDomain: signal.sourceDomain,
+        snippet: signal.body.slice(0, 500),
+        reason: relevance.reason,
+      });
       continue;
     }
 
@@ -279,7 +304,7 @@ async function prepareSignals(
     result.signalsInserted += 1;
   }
 
-  return prepared;
+  return { prepared, rejected };
 }
 
 async function loadApprovedReports(supabase: ReturnType<typeof createServiceClient>): Promise<ApprovedReportRow[]> {
@@ -295,6 +320,17 @@ async function loadApprovedExcerpts(supabase: ReturnType<typeof createServiceCli
   const { data, error } = await supabase.from("approved_excerpts").select("id, report_id");
   if (error) throw new Error(`approved excerpts read failed: ${error.message}`);
   return (data ?? []) as ApprovedExcerptRow[];
+}
+
+type RoutableClusterRow = { id: string; slug: string; title: string; category: string };
+
+async function loadRoutableClusters(supabase: ReturnType<typeof createServiceClient>): Promise<RoutableClusterRow[]> {
+  const { data, error } = await supabase
+    .from("issue_clusters")
+    .select("id, slug, title, category")
+    .not("slug", "like", "auto-%");
+  if (error) throw new Error(`routable clusters read failed: ${error.message}`);
+  return (data ?? []) as RoutableClusterRow[];
 }
 
 function matchingReportCluster(signal: PreparedSignal, reports: ApprovedReportRow[]): string | null {
@@ -352,13 +388,23 @@ async function resolveClusterId(
   signal: PreparedSignal,
   reports: ApprovedReportRow[],
   clusterBySemantic: Map<string, string>,
+  routableClusters: RoutableCluster[],
 ): Promise<string> {
   const cached = clusterBySemantic.get(signal.semantic);
   if (cached) return cached;
 
   const existingSignalCluster = await findExistingSignalCluster(supabase, signal.semantic);
-  const reportCluster = existingSignalCluster ?? matchingReportCluster(signal, reports);
-  const clusterId = reportCluster ?? (await createCluster(supabase, signal));
+  const routedCluster = routeToWatchlistCluster(
+    {
+      issueTitle: signal.extraction.issueTitle,
+      summary: signal.extraction.summary,
+      category: signal.extraction.category,
+      llmClusterSlug: signal.extraction.clusterSlug,
+    },
+    routableClusters,
+  );
+  const clusterId =
+    existingSignalCluster ?? routedCluster?.id ?? matchingReportCluster(signal, reports) ?? (await createCluster(supabase, signal));
   clusterBySemantic.set(signal.semantic, clusterId);
   return clusterId;
 }
@@ -404,7 +450,7 @@ async function upsertSignal(
 async function loadCluster(supabase: ReturnType<typeof createServiceClient>, clusterId: string): Promise<ClusterRow> {
   const { data, error } = await supabase
     .from("issue_clusters")
-    .select("id, category, admin_visibility_override, auto_public")
+    .select("id, category, admin_visibility_override, auto_public, is_public")
     .eq("id", clusterId)
     .limit(1);
   if (error) throw new Error(`automation cluster read failed: ${error.message}`);
@@ -438,15 +484,12 @@ async function refreshClusterStats(
   const verifiedReportCount = new Set(
     excerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
   ).size;
-  const directPlatforms = clusterReports.map((report) => report.platform);
-  const signalPlatforms = signals.map(signalPlatform);
+  const { independentDomainCount, trustedDomainCount } = domainCounts(signals, now);
 
   const decision = shouldPromoteSignalCluster({
-    independentSourceCount: independentSourceCount(signals, now),
+    independentDomainCount,
+    trustedDomainCount,
     directReportCount: clusterReports.length,
-    highestConfidence: highestConfidence(signals),
-    hasClearCategory: isClearCategory(cluster.category),
-    hasClearPlatform: [...directPlatforms, ...signalPlatforms].some(isClearPlatform),
     hasAdminForcePublic: cluster.admin_visibility_override === "force_public",
     hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",
   });
@@ -462,6 +505,16 @@ async function refreshClusterStats(
   if (signalUpdateError) throw new Error(`source signal promotion update failed: ${signalUpdateError.message}`);
 
   const publicSignalCount = decision.publicStatus === "public" ? signals.length : 0;
+  // Promotion can turn a cluster public or (via admin force-hidden) hide it, but a
+  // below-threshold decision must NOT hide a cluster that is already public — that
+  // would make a seeded watchlist item vanish the moment a private scanner signal
+  // routes into it. Below threshold, keep the cluster's existing visibility.
+  const isPublic =
+    decision.publicStatus === "public"
+      ? true
+      : decision.publicStatus === "hidden"
+        ? false
+        : (cluster.is_public ?? false);
   const { error: clusterUpdateError } = await supabase
     .from("issue_clusters")
     .update({
@@ -471,7 +524,7 @@ async function refreshClusterStats(
       public_signal_count: publicSignalCount,
       last_signal_at: lastObservedAt(signals),
       auto_public: decision.publicStatus === "public",
-      is_public: decision.publicStatus === "public",
+      is_public: isPublic,
     })
     .eq("id", clusterId);
   if (clusterUpdateError) throw new Error(`issue cluster promotion update failed: ${clusterUpdateError.message}`);
@@ -479,11 +532,32 @@ async function refreshClusterStats(
   return decision.publicStatus === "public" && !cluster.auto_public;
 }
 
+/**
+ * Persist one prepared signal into its resolved cluster and refresh that
+ * cluster's promotion stats. Shared by the batch `persistSignals` path and
+ * the single-signal admin rescue path.
+ */
+async function persistOneSignal(
+  supabase: ReturnType<typeof createServiceClient>,
+  signal: PreparedSignal,
+  reports: ApprovedReportRow[],
+  excerpts: ApprovedExcerptRow[],
+  clusterBySemantic: Map<string, string>,
+  routableClusters: RoutableCluster[],
+  now: Date,
+): Promise<{ clusterId: string; promoted: boolean }> {
+  const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
+  await upsertSignal(supabase, signal, clusterId, now);
+  const promoted = await refreshClusterStats(supabase, clusterId, reports, excerpts, now);
+  return { clusterId, promoted };
+}
+
 async function persistSignals(
   supabase: ReturnType<typeof createServiceClient>,
   signals: PreparedSignal[],
   result: AutomationResult,
   now: Date,
+  routableClusters: RoutableCluster[],
 ) {
   const reports = await loadApprovedReports(supabase);
   const excerpts = await loadApprovedExcerpts(supabase);
@@ -491,7 +565,7 @@ async function persistSignals(
   const touchedClusters = new Set<string>();
 
   for (const signal of signals) {
-    const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic);
+    const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
     await upsertSignal(supabase, signal, clusterId, now);
     touchedClusters.add(clusterId);
   }
@@ -509,26 +583,77 @@ async function insertRunLedger(
   budget: AutomationBudget,
   result: AutomationResult,
   now: Date,
-) {
-  const { error } = await supabase.from("automation_runs").insert({
-    started_at: now.toISOString(),
-    finished_at: new Date().toISOString(),
-    status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
-    mode,
-    budget_monthly_usd: budget.monthlyBudgetUsd,
-    budget_remaining_before_usd: budget.remainingMonthUsd,
-    estimated_cost_usd: result.estimatedCostUsd,
-    reddit_posts_seen: result.redditPostsSeen,
-    search_queries_used: result.searchQueriesUsed,
-    search_results_seen: result.searchResultsSeen,
-    llm_calls_used: result.llmCallsUsed,
-    signals_inserted: result.signalsInserted,
-    signals_deduped: result.signalsDeduped,
-    clusters_promoted: result.clustersPromoted,
-    skips: result.skips,
-    errors: result.errors,
-  });
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("automation_runs")
+    .insert({
+      started_at: now.toISOString(),
+      finished_at: new Date().toISOString(),
+      status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
+      mode,
+      budget_monthly_usd: budget.monthlyBudgetUsd,
+      budget_remaining_before_usd: budget.remainingMonthUsd,
+      estimated_cost_usd: result.estimatedCostUsd,
+      reddit_posts_seen: result.redditPostsSeen,
+      search_queries_used: result.searchQueriesUsed,
+      search_results_seen: result.searchResultsSeen,
+      llm_calls_used: result.llmCallsUsed,
+      signals_inserted: result.signalsInserted,
+      signals_deduped: result.signalsDeduped,
+      clusters_promoted: result.clustersPromoted,
+      skips: result.skips,
+      errors: result.errors,
+      funnel: {
+        candidatesSeen: result.candidatesSeen,
+        deduped: result.signalsDeduped,
+        prefilterRejected: result.prefilterRejected,
+        llmCalls: result.llmCallsUsed,
+        kept: result.signalsInserted,
+        promoted: result.clustersPromoted,
+      },
+    })
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
+  const id = (data as { id?: string } | null)?.id;
+  if (!id) throw new Error("automation run ledger insert returned no id");
+  return id;
+}
+
+const MAX_REJECTED_CANDIDATES_PER_RUN = 50;
+
+async function persistRejectedCandidates(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  rejected: RejectedCandidate[],
+  result: AutomationResult,
+): Promise<void> {
+  if (rejected.length === 0) return;
+  const rows = rejected.slice(0, MAX_REJECTED_CANDIDATES_PER_RUN).map((candidate) => ({
+    run_id: runId,
+    title: candidate.title,
+    url: candidate.url,
+    source_domain: candidate.sourceDomain,
+    snippet: candidate.snippet,
+    reason: candidate.reason,
+  }));
+  const { error } = await supabase.from("automation_rejected_candidates").insert(rows);
+  if (error) {
+    result.status = result.status === "success" ? "partial" : result.status;
+    result.errors.push(`rejected candidates insert failed: ${error.message}`);
+  }
+}
+
+async function deleteExpiredRejectedCandidates(
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+  result: AutomationResult,
+): Promise<void> {
+  const { error } = await supabase.from("automation_rejected_candidates").delete().lt("expires_at", now.toISOString());
+  if (error) {
+    result.status = result.status === "success" ? "partial" : result.status;
+    result.errors.push(`expired rejected candidates cleanup failed: ${error.message}`);
+  }
 }
 
 export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date }): Promise<AutomationResult> {
@@ -555,6 +680,8 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     searchQueriesUsed: 0,
     searchResultsSeen: 0,
     llmCallsUsed: 0,
+    candidatesSeen: 0,
+    prefilterRejected: 0,
     signalsInserted: 0,
     signalsDeduped: 0,
     clustersPromoted: 0,
@@ -581,12 +708,15 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     }
   }
 
+  const routableClusters = await loadRoutableClusters(supabase);
+  const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+
   const inputs = await collectInputs(result, budget, now, currentPatch.version);
-  const prepared = await prepareSignals(inputs, result, budget, currentPatch.version);
+  const { prepared, rejected } = await prepareSignals(inputs, result, budget, currentPatch.version, clusterOptions);
 
   if (input.mode !== "dry_run") {
     try {
-      await persistSignals(supabase, prepared, result, now);
+      await persistSignals(supabase, prepared, result, now, routableClusters);
     } catch (error) {
       result.status = "failed";
       result.errors.push(toErrorMessage(error, "automation persistence failed"));
@@ -594,6 +724,54 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
   }
 
   if (result.errors.length > 0 && result.status === "success") result.status = "partial";
-  await insertRunLedger(supabase, input.mode, budget, result, now);
+  const runId = await insertRunLedger(supabase, input.mode, budget, result, now);
+
+  if (input.mode !== "dry_run") {
+    await persistRejectedCandidates(supabase, runId, rejected, result);
+    await deleteExpiredRejectedCandidates(supabase, now, result);
+  }
+
   return result;
+}
+
+export async function rescueCandidateSignal(
+  supabase: ReturnType<typeof createServiceClient>,
+  candidate: { title: string; url: string; sourceDomain: string | null; snippet: string },
+): Promise<void> {
+  const now = new Date();
+  const canonicalUrl = canonicalizeUrl(candidate.url);
+  const source: SourceInput = {
+    source: "web_search",
+    id: canonicalUrl,
+    title: candidate.title,
+    body: candidate.snippet,
+    url: canonicalUrl,
+    observedAt: now.toISOString(),
+    sourceDomain: candidate.sourceDomain,
+  };
+
+  const routableClusters = await loadRoutableClusters(supabase);
+  const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+
+  // Rescue deliberately skips preScreenCandidate and shouldKeepExtractedSignal —
+  // an admin rescuing a candidate has already judged it relevant, so re-running
+  // the automated relevance gates here would defeat the point of a rescue.
+  const extraction = await extractSignalWithOpenRouter(
+    { title: source.title, snippet: source.body, url: canonicalUrl },
+    { llmCallsRemaining: 1, clusterOptions },
+  );
+
+  const externalHash = externalIdHash(source.source, source.id);
+  const prepared: PreparedSignal = {
+    ...source,
+    canonicalUrl,
+    externalHash,
+    semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
+    extraction,
+  };
+
+  const reports = await loadApprovedReports(supabase);
+  const excerpts = await loadApprovedExcerpts(supabase);
+  const clusterBySemantic = new Map<string, string>();
+  await persistOneSignal(supabase, prepared, reports, excerpts, clusterBySemantic, routableClusters, now);
 }

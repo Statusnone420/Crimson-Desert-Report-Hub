@@ -2,7 +2,11 @@ import "server-only";
 
 import { canonicalizeUrl } from "@/lib/automation/dedupe";
 import { extractSignalWithOpenRouter, type ExtractionResult } from "@/lib/automation/extract";
-import { shouldKeepAutomatedSignal, type SignalRelevanceDecision } from "@/lib/automation/relevance";
+import {
+  preScreenCandidate,
+  shouldKeepExtractedSignal,
+  type SignalRelevanceDecision,
+} from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 
@@ -52,10 +56,17 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
         continue;
       }
 
+      const preScreen = preScreenCandidate(
+        { title: result.title, snippet: result.snippet, sourceDomain: result.sourceDomain },
+        { currentPatchVersion: currentPatch.version },
+      );
+
       const extraction = await extractSignalWithOpenRouter(
         { title: result.title, snippet: result.snippet, url },
-        { llmCallsRemaining: 1 },
+        { llmCallsRemaining: preScreen.keep ? 1 : 0 },
       );
+
+      const relevance: SignalRelevanceDecision = preScreen.keep ? shouldKeepExtractedSignal(extraction) : preScreen;
 
       previews.push({
         query,
@@ -63,15 +74,7 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
         url,
         sourceDomain: result.sourceDomain,
         extraction,
-        relevance: shouldKeepAutomatedSignal(
-          {
-            title: result.title,
-            snippet: result.snippet,
-            sourceDomain: result.sourceDomain,
-            extraction,
-          },
-          { currentPatchVersion: currentPatch.version },
-        ),
+        relevance,
       });
 
       if (previews.length >= MAX_PREVIEW_RESULTS) break;

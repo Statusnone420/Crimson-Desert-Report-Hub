@@ -3,7 +3,7 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
-import { runAutomationMonitor } from "@/lib/automation/run";
+import { rescueCandidateSignal, runAutomationMonitor } from "@/lib/automation/run";
 import {
   setAutomationPaused as setAutomationPausedState,
   type AutomationSettingsClient,
@@ -328,6 +328,38 @@ export async function setAutomationPaused(formData: FormData): Promise<void> {
   const paused = formData.get("paused") === "true";
   await setAutomationPausedState(createServiceClient() as unknown as AutomationSettingsClient, paused);
   revalidatePath("/admin");
+  revalidatePath("/admin/source-monitor");
+  revalidatePublicSurfaces();
+}
+
+export async function rescueRejectedCandidate(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const id = String(formData.get("id") ?? "");
+  if (!id) throw new Error("bad input");
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("automation_rejected_candidates")
+    .select("id, title, url, source_domain, snippet")
+    .eq("id", id)
+    .limit(1);
+  if (error) throw new Error(`rejected candidate read failed: ${error.message}`);
+  const candidate = (data ?? [])[0];
+  if (!candidate) throw new Error("rejected candidate not found");
+
+  await rescueCandidateSignal(supabase, {
+    title: candidate.title,
+    url: candidate.url,
+    sourceDomain: candidate.source_domain ?? null,
+    snippet: candidate.snippet ?? "",
+  });
+
+  const { error: markError } = await supabase
+    .from("automation_rejected_candidates")
+    .update({ rescued_at: new Date().toISOString() })
+    .eq("id", id);
+  if (markError) throw new Error(`rescue mark failed: ${markError.message}`);
+
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
 }
