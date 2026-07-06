@@ -35,10 +35,6 @@ async function callCron(env: Env): Promise<Response> {
 }
 
 const worker = {
-  async fetch(_request: Request, env: Env): Promise<Response> {
-    return callCron(env);
-  },
-
   async scheduled(_controller: CronController, env: Env, ctx: WorkerExecutionContext): Promise<void> {
     ctx.waitUntil(callCron(env));
   },

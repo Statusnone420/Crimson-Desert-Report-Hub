@@ -215,7 +215,7 @@ export function parseOpenRouterExtraction(content: string, validSlugs: string[] 
 
 type AttemptOutcome =
   | { ok: true; signal: ExtractedSignal; costUsd: number }
-  | { ok: false; reason: "openrouter_provider_failure" | "openrouter_invalid_json" };
+  | { ok: false; reason: "openrouter_provider_failure" | "openrouter_invalid_json"; costUsd: number };
 
 function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
@@ -284,17 +284,26 @@ async function attemptOpenRouterExtraction(
       }),
     });
   } catch {
-    return { ok: false, reason: "openrouter_provider_failure" };
+    return { ok: false, reason: "openrouter_provider_failure", costUsd: 0 };
   }
-  if (!response.ok) return { ok: false, reason: "openrouter_provider_failure" };
+  if (!response.ok) return { ok: false, reason: "openrouter_provider_failure", costUsd: 0 };
+
+  let data: unknown;
   try {
-    const data = await response.json();
-    const content = readOpenRouterContent(data);
-    if (!content) return { ok: false, reason: "openrouter_invalid_json" };
-    const validSlugs = clusterOptions.map((option) => option.slug);
-    return { ok: true, signal: parseOpenRouterExtraction(content, validSlugs), costUsd: usageOrEstimatedCostUsd(data, model) };
+    data = await response.json();
   } catch {
-    return { ok: false, reason: "openrouter_invalid_json" };
+    return { ok: false, reason: "openrouter_invalid_json", costUsd: estimatedCallCostUsd(model) };
+  }
+
+  const costUsd = usageOrEstimatedCostUsd(data, model);
+  const content = readOpenRouterContent(data);
+  if (!content) return { ok: false, reason: "openrouter_invalid_json", costUsd };
+
+  try {
+    const validSlugs = clusterOptions.map((option) => option.slug);
+    return { ok: true, signal: parseOpenRouterExtraction(content, validSlugs), costUsd };
+  } catch {
+    return { ok: false, reason: "openrouter_invalid_json", costUsd };
   }
 }
 
@@ -322,7 +331,7 @@ export async function extractSignalWithOpenRouter(
     }
     callsUsed += 1;
     const outcome = await attemptOpenRouterExtraction(candidate, fetcher, apiKey, model, clusterOptions);
-    if (outcome.ok) costUsd += outcome.costUsd;
+    costUsd += outcome.costUsd;
     if (outcome.ok) {
       return {
         ...outcome.signal,

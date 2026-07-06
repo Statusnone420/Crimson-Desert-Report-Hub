@@ -304,6 +304,7 @@ describe("automation extraction", () => {
       status: 200,
       json: async () => ({
         choices: [{ message: { content: "{not json" } }],
+        usage: { cost: 0.0002 },
       }),
     }));
 
@@ -317,6 +318,7 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(1);
+    expect(result.llmCostUsd).toBe(0.0002);
     expect(result.fallbackReason).toBe("openrouter_invalid_json");
   });
 
@@ -345,7 +347,7 @@ describe("automation extraction", () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ choices: [{ message: { content: "{not json" } }] }),
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -365,6 +367,7 @@ describe("automation extraction", () => {
               },
             },
           ],
+          usage: { cost: 0.0003 },
         }),
       });
 
@@ -379,6 +382,7 @@ describe("automation extraction", () => {
     expect(result.extractionProvider).toBe("openrouter");
     expect(result.extractionModel).toBe("qwen/qwen3-235b-a22b-2507");
     expect(result.llmCallsUsed).toBe(2);
+    expect(result.llmCostUsd).toBe(0.0005);
     expect(result.fallbackReason).toBeUndefined();
     expect(fetcher).toHaveBeenCalledTimes(2);
     const models = fetcher.mock.calls.map(([, init]) => JSON.parse((init as { body: string }).body).model);
@@ -391,7 +395,7 @@ describe("automation extraction", () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ choices: [{ message: { content: "{not json" } }] }),
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
       })
       .mockRejectedValueOnce(new Error("network down"));
 
@@ -405,6 +409,7 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(2);
+    expect(result.llmCostUsd).toBe(0.0002);
     expect(result.fallbackReason).toBe("openrouter_provider_failure");
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
@@ -415,7 +420,7 @@ describe("automation extraction", () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ choices: [{ message: { content: "{not json" } }] }),
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
       })
       .mockRejectedValueOnce(new Error("network down"))
       .mockResolvedValueOnce({
@@ -452,13 +457,36 @@ describe("automation extraction", () => {
     expect(result.extractionProvider).toBe("openrouter");
     expect(result.extractionModel).toBe("deepseek/deepseek-v4-pro");
     expect(result.llmCallsUsed).toBe(3);
-    expect(result.llmCostUsd).toBe(0.001);
+    expect(result.llmCostUsd).toBeCloseTo(0.0012, 8);
     const models = fetcher.mock.calls.map(([, init]) => JSON.parse((init as { body: string }).body).model);
     expect(models).toEqual([
       "deepseek/deepseek-v4-flash",
       "qwen/qwen3-235b-a22b-2507",
       "deepseek/deepseek-v4-pro",
     ]);
+  });
+
+  it("charges invalid JSON attempts before retry budget checks", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+      },
+      fetcher,
+      llmCallsRemaining: 2,
+      llmBudgetRemainingUsd: 0.0003,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallsUsed).toBe(1);
+    expect(result.llmCostUsd).toBe(0.0002);
+    expect(result.fallbackReason).toBe("llm_budget_capped");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("does not retry beyond the LLM allowance when only one call remains", async () => {
