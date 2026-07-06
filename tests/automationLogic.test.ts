@@ -5,6 +5,7 @@ import {
   extractSignalWithOpenRouter,
   parseOpenRouterExtraction,
 } from "@/lib/automation/extract";
+import { domainTier } from "@/lib/automation/domains";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
@@ -290,99 +291,102 @@ describe("automation extraction", () => {
 });
 
 describe("automation promotion", () => {
-  it("keeps one weak source private", () => {
+  it("keeps two signals from the same domain private (below threshold)", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 1,
+        independentDomainCount: 1,
+        trustedDomainCount: 0,
         directReportCount: 0,
-        highestConfidence: "low",
-        hasClearCategory: true,
-        hasClearPlatform: true,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("private");
+      }),
+    ).toEqual({ publicStatus: "private", reason: "below_threshold" });
   });
 
-  it("promotes two independent sources", () => {
+  it("promotes two independent domains when at least one is trusted", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 2,
+        independentDomainCount: 2,
+        trustedDomainCount: 1,
         directReportCount: 0,
-        highestConfidence: "medium",
-        hasClearCategory: true,
-        hasClearPlatform: true,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("public");
+      }),
+    ).toEqual({ publicStatus: "public", reason: "two_independent_domains_trusted" });
   });
 
-  it("direct report promotes a matching signal", () => {
+  it("promotes three independent domains even without a trusted one", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 1,
+        independentDomainCount: 3,
+        trustedDomainCount: 0,
+        directReportCount: 0,
+        hasAdminForcePublic: false,
+        hasAdminForceHidden: false,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "three_independent_domains" });
+  });
+
+  it("keeps two untrusted-only domains private", () => {
+    expect(
+      shouldPromoteSignalCluster({
+        independentDomainCount: 2,
+        trustedDomainCount: 0,
+        directReportCount: 0,
+        hasAdminForcePublic: false,
+        hasAdminForceHidden: false,
+      }),
+    ).toEqual({ publicStatus: "private", reason: "below_threshold" });
+  });
+
+  it("direct report promotes regardless of domain counts", () => {
+    expect(
+      shouldPromoteSignalCluster({
+        independentDomainCount: 0,
+        trustedDomainCount: 0,
         directReportCount: 1,
-        highestConfidence: "low",
-        hasClearCategory: false,
-        hasClearPlatform: false,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("public");
+      }),
+    ).toEqual({ publicStatus: "public", reason: "direct_report_match" });
   });
 
   it("admin force public promotes below-threshold signals", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 0,
+        independentDomainCount: 0,
+        trustedDomainCount: 0,
         directReportCount: 0,
-        highestConfidence: "low",
-        hasClearCategory: false,
-        hasClearPlatform: false,
         hasAdminForcePublic: true,
         hasAdminForceHidden: false,
       }),
     ).toEqual({ publicStatus: "public", reason: "admin_force_public" });
   });
 
-  it("keeps a single high-confidence source private when category or platform is unclear", () => {
+  it("admin force hidden wins over force public", () => {
     expect(
       shouldPromoteSignalCluster({
-        independentSourceCount: 1,
-        directReportCount: 0,
-        highestConfidence: "high",
-        hasClearCategory: false,
-        hasClearPlatform: true,
-        hasAdminForcePublic: false,
-        hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("private");
-    expect(
-      shouldPromoteSignalCluster({
-        independentSourceCount: 1,
-        directReportCount: 0,
-        highestConfidence: "high",
-        hasClearCategory: true,
-        hasClearPlatform: false,
-        hasAdminForcePublic: false,
-        hasAdminForceHidden: false,
-      }).publicStatus,
-    ).toBe("private");
-  });
-
-  it("force hidden wins over threshold", () => {
-    expect(
-      shouldPromoteSignalCluster({
-        independentSourceCount: 3,
+        independentDomainCount: 3,
+        trustedDomainCount: 3,
         directReportCount: 3,
-        highestConfidence: "high",
-        hasClearCategory: true,
-        hasClearPlatform: true,
         hasAdminForcePublic: true,
         hasAdminForceHidden: true,
-      }).publicStatus,
-    ).toBe("hidden");
+      }),
+    ).toEqual({ publicStatus: "hidden", reason: "admin_force_hidden" });
+  });
+});
+
+describe("domainTier", () => {
+  it("treats a subdomain of a trusted domain as trusted", () => {
+    expect(domainTier("old.reddit.com")).toBe("trusted");
+  });
+
+  it("does not treat a look-alike domain as trusted", () => {
+    expect(domainTier("evilreddit.com")).toBe("unknown");
+  });
+
+  it("treats null as unknown", () => {
+    expect(domainTier(null)).toBe("unknown");
   });
 });
 

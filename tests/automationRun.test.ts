@@ -424,7 +424,16 @@ describe("runAutomationMonitor", () => {
     expect(mutations.filter((mutation) => mutation.table !== "automation_runs")).toHaveLength(0);
   });
 
-  it("non-dry runs cluster two independent sources and promote them public", async () => {
+  it("non-dry runs cluster two independent trusted+unknown domains and promote them public", async () => {
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-fps",
+        title: "FPS drops since 1.13",
+        selftext: "Steam users are seeing stutter.",
+        permalink: "/r/CrimsonDesert/comments/reddit-fps/fps/",
+        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
+      },
+    ]);
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -443,6 +452,10 @@ describe("runAutomationMonitor", () => {
     });
     expect(new Set(sourceSignalRows().map((row) => row.cluster_id))).toEqual(new Set([tables.issue_clusters[0].id]));
     expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+    expect(sourceSignalRows().map((row) => row.promotion_reason)).toEqual([
+      "two_independent_domains_trusted",
+      "two_independent_domains_trusted",
+    ]);
     expect(sourceSignalRows()[0]).toMatchObject({
       extraction_provider: "openrouter",
       extraction_model: "meta-llama/llama-3.3-70b-instruct:free",
@@ -556,7 +569,7 @@ describe("runAutomationMonitor", () => {
     });
   });
 
-  it("promotes two fresh distinct canonical URLs on the same domain", async () => {
+  it("does not promote two fresh distinct canonical URLs on the same domain (not independent)", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.OPENROUTER_API_KEY;
     mocks.tavilySearch.mockImplementationOnce(async () => [
@@ -581,16 +594,17 @@ describe("runAutomationMonitor", () => {
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(result.signalsInserted).toBe(2);
-    expect(result.clustersPromoted).toBe(1);
+    expect(result.clustersPromoted).toBe(0);
     expect(sourceSignalRows()).toHaveLength(2);
     expect(new Set(sourceSignalRows().map((row) => row.canonical_url))).toEqual(
       new Set(["https://same.example/fps-one", "https://same.example/fps-two"]),
     );
-    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["private", "private"]);
+    expect(sourceSignalRows().map((row) => row.promotion_reason)).toEqual(["below_threshold", "below_threshold"]);
     expect(tables.issue_clusters[0]).toMatchObject({
       signal_count: 2,
-      public_signal_count: 2,
-      auto_public: true,
+      public_signal_count: 0,
+      auto_public: false,
     });
   });
 

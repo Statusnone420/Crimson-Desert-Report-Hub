@@ -2,6 +2,7 @@ import "server-only";
 
 import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation/budget";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
+import { domainTier } from "@/lib/automation/domains";
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
@@ -82,7 +83,6 @@ type ApprovedExcerptRow = {
 };
 
 const SEARCH_QUERY_COST_USD = 0.008;
-const CONFIDENCE_RANK = { low: 0, medium: 1, high: 2 } as const;
 
 function searchResultToInput(result: SearchResult): SourceInput {
   return {
@@ -108,25 +108,6 @@ function clusterConfidence(confidence: "low" | "medium" | "high"): "low" | "medi
   return confidence === "low" ? "low" : "medium";
 }
 
-function highestConfidence(rows: SourceSignalRow[]): "low" | "medium" | "high" {
-  return rows.reduce<"low" | "medium" | "high">((highest, row) => {
-    const confidence = row.confidence ?? "low";
-    return CONFIDENCE_RANK[confidence] > CONFIDENCE_RANK[highest] ? confidence : highest;
-  }, "low");
-}
-
-function isClearCategory(category: string | null | undefined): boolean {
-  return Boolean(category && category !== "other");
-}
-
-function isClearPlatform(platform: string | null | undefined): boolean {
-  return Boolean(platform && platform !== "other");
-}
-
-function signalPlatform(row: SourceSignalRow): Platform | null {
-  return row.extracted_facts?.platform ?? null;
-}
-
 function isObservedWithinWindow(row: SourceSignalRow, now: Date, windowMs: number): boolean {
   if (!row.observed_at) return false;
   const observedAt = new Date(row.observed_at).getTime();
@@ -134,14 +115,27 @@ function isObservedWithinWindow(row: SourceSignalRow, now: Date, windowMs: numbe
   return observedAt >= now.getTime() - windowMs && observedAt <= now.getTime();
 }
 
-function independentSourceCount(rows: SourceSignalRow[], now: Date): number {
+function signalDomain(row: SourceSignalRow): string | null {
+  if (row.source_domain) return row.source_domain;
+  if (!row.canonical_url) return null;
+  try {
+    return new URL(row.canonical_url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+function domainCounts(rows: SourceSignalRow[], now: Date): { independentDomainCount: number; trustedDomainCount: number } {
   const recentWindowMs = 14 * 24 * 60 * 60 * 1000;
-  return new Set(
+  const domains = new Set(
     rows
       .filter((row) => isObservedWithinWindow(row, now, recentWindowMs))
-      .map((row) => row.canonical_url)
-      .filter((url): url is string => Boolean(url)),
-  ).size;
+      .map(signalDomain)
+      .filter((domain): domain is string => Boolean(domain)),
+  );
+  let trustedDomainCount = 0;
+  for (const domain of domains) if (domainTier(domain) === "trusted") trustedDomainCount += 1;
+  return { independentDomainCount: domains.size, trustedDomainCount };
 }
 
 function lastObservedAt(rows: SourceSignalRow[]): string | null {
@@ -470,15 +464,12 @@ async function refreshClusterStats(
   const verifiedReportCount = new Set(
     excerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
   ).size;
-  const directPlatforms = clusterReports.map((report) => report.platform);
-  const signalPlatforms = signals.map(signalPlatform);
+  const { independentDomainCount, trustedDomainCount } = domainCounts(signals, now);
 
   const decision = shouldPromoteSignalCluster({
-    independentSourceCount: independentSourceCount(signals, now),
+    independentDomainCount,
+    trustedDomainCount,
     directReportCount: clusterReports.length,
-    highestConfidence: highestConfidence(signals),
-    hasClearCategory: isClearCategory(cluster.category),
-    hasClearPlatform: [...directPlatforms, ...signalPlatforms].some(isClearPlatform),
     hasAdminForcePublic: cluster.admin_visibility_override === "force_public",
     hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",
   });
