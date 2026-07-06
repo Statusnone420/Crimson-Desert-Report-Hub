@@ -50,6 +50,7 @@ vi.mock("@/lib/officialPatch.server", () => ({
 type Row = Record<string, unknown>;
 type TableName =
   | "automation_runs"
+  | "automation_rejected_candidates"
   | "official_patch_notes"
   | "source_signals"
   | "issue_clusters"
@@ -65,6 +66,7 @@ type Filter =
 
 const tables: Record<TableName, Row[]> = {
   automation_runs: [],
+  automation_rejected_candidates: [],
   official_patch_notes: [],
   source_signals: [],
   issue_clusters: [],
@@ -72,11 +74,12 @@ const tables: Record<TableName, Row[]> = {
   approved_excerpts: [],
   automation_settings: [],
 };
-const mutations: { table: TableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
+const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
 let selectFailure: { table: TableName; message: string } | null = null;
 let updateFailure: { table: TableName; message: string } | null = null;
+let deleteFailure: { table: TableName; message: string } | null = null;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -96,6 +99,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   openRouterAttempts = 0;
   selectFailure = null;
   updateFailure = null;
+  deleteFailure = null;
 }
 
 function nextId(table: TableName) {
@@ -121,6 +125,7 @@ function passesFilter(row: Row, filter: Filter): boolean {
 class FakeQuery {
   private filters: Filter[] = [];
   private insertRows: Row[] | null = null;
+  private isDelete = false;
   private limitCount: number | null = null;
   private orderBy: { column: string; ascending: boolean } | null = null;
   private patch: Row | null = null;
@@ -143,6 +148,11 @@ class FakeQuery {
 
   update(patch: Row) {
     this.patch = patch;
+    return this;
+  }
+
+  delete() {
+    this.isDelete = true;
     return this;
   }
 
@@ -202,8 +212,19 @@ class FakeQuery {
   private async execute() {
     if (this.insertRows) return this.executeInsert();
     if (this.upsertRows) return this.executeUpsert();
+    if (this.isDelete) return this.executeDelete();
     if (this.patch) return this.executeUpdate();
     return this.executeSelect();
+  }
+
+  private executeDelete() {
+    if (deleteFailure?.table === this.table) {
+      return { data: null, error: { message: deleteFailure.message } };
+    }
+    const matching = this.filteredRows();
+    tables[this.table] = tables[this.table].filter((row) => !matching.includes(row));
+    mutations.push({ table: this.table, type: "delete", row: { filters: this.filters } });
+    return { data: matching, error: null };
   }
 
   private executeInsert() {
@@ -273,6 +294,10 @@ class FakeQuery {
 
 function sourceSignalRows() {
   return tables.source_signals;
+}
+
+function rejectedCandidateRows() {
+  return tables.automation_rejected_candidates;
 }
 
 async function importRunner() {
@@ -686,6 +711,71 @@ describe("runAutomationMonitor", () => {
       category: "performance",
       public_status: "private",
     });
+    expect(rejectedCandidateRows()).toHaveLength(2);
+    const runId = tables.automation_runs[0].id;
+    expect(rejectedCandidateRows().every((row) => row.run_id === runId)).toBe(true);
+    expect(rejectedCandidateRows().map((row) => row.reason)).toEqual([
+      "source_not_issue_report",
+      "source_not_issue_report",
+    ]);
+    expect(rejectedCandidateRows()[0]).toMatchObject({
+      title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+      url: "https://example.com/patch-notes",
+      source_domain: "example.com",
+    });
+  });
+
+  it("dry runs record zero rejected candidates even when candidates fail pre-screen", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "dry_run", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.prefilterRejected).toBeGreaterThan(0);
+    expect(rejectedCandidateRows()).toHaveLength(0);
+    expect(mutations.filter((mutation) => mutation.table === "automation_rejected_candidates")).toHaveLength(0);
+  });
+
+  it("deletes expired rejected-candidate rows on a non-dry run", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "rejected-old",
+          run_id: "run-old",
+          title: "Old rejected candidate",
+          url: "https://example.com/old",
+          source_domain: "example.com",
+          snippet: "stale",
+          reason: "source_not_issue_report",
+          created_at: "2026-06-01T00:00:00.000Z",
+          expires_at: "2026-06-08T00:00:00.000Z",
+          rescued_at: null,
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(rejectedCandidateRows().find((row) => row.id === "rejected-old")).toBeUndefined();
+    expect(mutations.some((mutation) => mutation.table === "automation_rejected_candidates" && mutation.type === "delete")).toBe(
+      true,
+    );
   });
 
   it("makes zero LLM calls and records the run funnel when every candidate fails pre-screen", async () => {

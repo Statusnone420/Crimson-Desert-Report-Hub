@@ -52,6 +52,17 @@ export type AutomationRunRow = {
   clusters_promoted: number;
   skips: string[];
   errors: string[];
+  funnel: Record<string, number> | null;
+};
+
+export type RejectedCandidateRow = {
+  id: string;
+  title: string;
+  url: string;
+  source_domain: string | null;
+  reason: string;
+  created_at: string;
+  rescued_at: string | null;
 };
 
 export type PublicAutomationRunRow = {
@@ -327,16 +338,24 @@ export async function getAutomationAdminData() {
   const { data: runs } = await supabase
     .from("automation_runs")
     .select(
-      "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors",
+      "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors, funnel",
     )
     .order("started_at", { ascending: false })
     .limit(10);
+
+  const { data: rejectedCandidates } = await supabase
+    .from("automation_rejected_candidates")
+    .select("id, title, url, source_domain, reason, created_at, rescued_at")
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(30);
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
 
   return {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
+    rejectedCandidates: (rejectedCandidates ?? []) as RejectedCandidateRow[],
     control,
   };
 }

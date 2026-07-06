@@ -50,6 +50,14 @@ type PreparedSignal = SourceInput & {
   extraction: ExtractionResult;
 };
 
+export type RejectedCandidate = {
+  title: string;
+  url: string;
+  sourceDomain: string | null;
+  snippet: string;
+  reason: string;
+};
+
 type ClusterRow = {
   id: string;
   category: Category;
@@ -222,8 +230,9 @@ async function prepareSignals(
   budget: AutomationBudget,
   patchVersion: string,
   clusterOptions: ClusterOption[],
-): Promise<PreparedSignal[]> {
+): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[] }> {
   const prepared: PreparedSignal[] = [];
+  const rejected: RejectedCandidate[] = [];
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
   const limit = Math.max(25, budget.maxSearchResults + 25);
@@ -258,6 +267,13 @@ async function prepareSignals(
     if (!preScreen.keep) {
       result.skips.push(preScreen.reason);
       result.prefilterRejected += 1;
+      rejected.push({
+        title: signal.title,
+        url: canonicalUrl,
+        sourceDomain: signal.sourceDomain,
+        snippet: signal.body.slice(0, 500),
+        reason: preScreen.reason,
+      });
       continue;
     }
 
@@ -271,6 +287,13 @@ async function prepareSignals(
     const relevance = shouldKeepExtractedSignal(extraction);
     if (!relevance.keep) {
       result.skips.push(relevance.reason);
+      rejected.push({
+        title: signal.title,
+        url: canonicalUrl,
+        sourceDomain: signal.sourceDomain,
+        snippet: signal.body.slice(0, 500),
+        reason: relevance.reason,
+      });
       continue;
     }
 
@@ -284,7 +307,7 @@ async function prepareSignals(
     result.signalsInserted += 1;
   }
 
-  return prepared;
+  return { prepared, rejected };
 }
 
 async function loadApprovedReports(supabase: ReturnType<typeof createServiceClient>): Promise<ApprovedReportRow[]> {
@@ -502,6 +525,26 @@ async function refreshClusterStats(
   return decision.publicStatus === "public" && !cluster.auto_public;
 }
 
+/**
+ * Persist one prepared signal into its resolved cluster and refresh that
+ * cluster's promotion stats. Shared by the batch `persistSignals` path and
+ * the single-signal admin rescue path.
+ */
+async function persistOneSignal(
+  supabase: ReturnType<typeof createServiceClient>,
+  signal: PreparedSignal,
+  reports: ApprovedReportRow[],
+  excerpts: ApprovedExcerptRow[],
+  clusterBySemantic: Map<string, string>,
+  routableClusters: RoutableCluster[],
+  now: Date,
+): Promise<{ clusterId: string; promoted: boolean }> {
+  const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
+  await upsertSignal(supabase, signal, clusterId, now);
+  const promoted = await refreshClusterStats(supabase, clusterId, reports, excerpts, now);
+  return { clusterId, promoted };
+}
+
 async function persistSignals(
   supabase: ReturnType<typeof createServiceClient>,
   signals: PreparedSignal[],
@@ -533,34 +576,77 @@ async function insertRunLedger(
   budget: AutomationBudget,
   result: AutomationResult,
   now: Date,
-) {
-  const { error } = await supabase.from("automation_runs").insert({
-    started_at: now.toISOString(),
-    finished_at: new Date().toISOString(),
-    status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
-    mode,
-    budget_monthly_usd: budget.monthlyBudgetUsd,
-    budget_remaining_before_usd: budget.remainingMonthUsd,
-    estimated_cost_usd: result.estimatedCostUsd,
-    reddit_posts_seen: result.redditPostsSeen,
-    search_queries_used: result.searchQueriesUsed,
-    search_results_seen: result.searchResultsSeen,
-    llm_calls_used: result.llmCallsUsed,
-    signals_inserted: result.signalsInserted,
-    signals_deduped: result.signalsDeduped,
-    clusters_promoted: result.clustersPromoted,
-    skips: result.skips,
-    errors: result.errors,
-    funnel: {
-      candidatesSeen: result.candidatesSeen,
-      deduped: result.signalsDeduped,
-      prefilterRejected: result.prefilterRejected,
-      llmCalls: result.llmCallsUsed,
-      kept: result.signalsInserted,
-      promoted: result.clustersPromoted,
-    },
-  });
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("automation_runs")
+    .insert({
+      started_at: now.toISOString(),
+      finished_at: new Date().toISOString(),
+      status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
+      mode,
+      budget_monthly_usd: budget.monthlyBudgetUsd,
+      budget_remaining_before_usd: budget.remainingMonthUsd,
+      estimated_cost_usd: result.estimatedCostUsd,
+      reddit_posts_seen: result.redditPostsSeen,
+      search_queries_used: result.searchQueriesUsed,
+      search_results_seen: result.searchResultsSeen,
+      llm_calls_used: result.llmCallsUsed,
+      signals_inserted: result.signalsInserted,
+      signals_deduped: result.signalsDeduped,
+      clusters_promoted: result.clustersPromoted,
+      skips: result.skips,
+      errors: result.errors,
+      funnel: {
+        candidatesSeen: result.candidatesSeen,
+        deduped: result.signalsDeduped,
+        prefilterRejected: result.prefilterRejected,
+        llmCalls: result.llmCallsUsed,
+        kept: result.signalsInserted,
+        promoted: result.clustersPromoted,
+      },
+    })
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
+  const id = (data as { id?: string } | null)?.id;
+  if (!id) throw new Error("automation run ledger insert returned no id");
+  return id;
+}
+
+const MAX_REJECTED_CANDIDATES_PER_RUN = 50;
+
+async function persistRejectedCandidates(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  rejected: RejectedCandidate[],
+  result: AutomationResult,
+): Promise<void> {
+  if (rejected.length === 0) return;
+  const rows = rejected.slice(0, MAX_REJECTED_CANDIDATES_PER_RUN).map((candidate) => ({
+    run_id: runId,
+    title: candidate.title,
+    url: candidate.url,
+    source_domain: candidate.sourceDomain,
+    snippet: candidate.snippet,
+    reason: candidate.reason,
+  }));
+  const { error } = await supabase.from("automation_rejected_candidates").insert(rows);
+  if (error) {
+    result.status = result.status === "success" ? "partial" : result.status;
+    result.errors.push(`rejected candidates insert failed: ${error.message}`);
+  }
+}
+
+async function deleteExpiredRejectedCandidates(
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+  result: AutomationResult,
+): Promise<void> {
+  const { error } = await supabase.from("automation_rejected_candidates").delete().lt("expires_at", now.toISOString());
+  if (error) {
+    result.status = result.status === "success" ? "partial" : result.status;
+    result.errors.push(`expired rejected candidates cleanup failed: ${error.message}`);
+  }
 }
 
 export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date }): Promise<AutomationResult> {
@@ -619,7 +705,7 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
   const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
 
   const inputs = await collectInputs(result, budget, now, currentPatch.version);
-  const prepared = await prepareSignals(inputs, result, budget, currentPatch.version, clusterOptions);
+  const { prepared, rejected } = await prepareSignals(inputs, result, budget, currentPatch.version, clusterOptions);
 
   if (input.mode !== "dry_run") {
     try {
@@ -631,6 +717,54 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
   }
 
   if (result.errors.length > 0 && result.status === "success") result.status = "partial";
-  await insertRunLedger(supabase, input.mode, budget, result, now);
+  const runId = await insertRunLedger(supabase, input.mode, budget, result, now);
+
+  if (input.mode !== "dry_run") {
+    await persistRejectedCandidates(supabase, runId, rejected, result);
+    await deleteExpiredRejectedCandidates(supabase, now, result);
+  }
+
   return result;
+}
+
+export async function rescueCandidateSignal(
+  supabase: ReturnType<typeof createServiceClient>,
+  candidate: { title: string; url: string; sourceDomain: string | null; snippet: string },
+): Promise<void> {
+  const now = new Date();
+  const canonicalUrl = canonicalizeUrl(candidate.url);
+  const source: SourceInput = {
+    source: "web_search",
+    id: canonicalUrl,
+    title: candidate.title,
+    body: candidate.snippet,
+    url: canonicalUrl,
+    observedAt: now.toISOString(),
+    sourceDomain: candidate.sourceDomain,
+  };
+
+  const routableClusters = await loadRoutableClusters(supabase);
+  const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+
+  // Rescue deliberately skips preScreenCandidate and shouldKeepExtractedSignal —
+  // an admin rescuing a candidate has already judged it relevant, so re-running
+  // the automated relevance gates here would defeat the point of a rescue.
+  const extraction = await extractSignalWithOpenRouter(
+    { title: source.title, snippet: source.body, url: canonicalUrl },
+    { llmCallsRemaining: 1, clusterOptions },
+  );
+
+  const externalHash = externalIdHash(source.source, source.id);
+  const prepared: PreparedSignal = {
+    ...source,
+    canonicalUrl,
+    externalHash,
+    semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
+    extraction,
+  };
+
+  const reports = await loadApprovedReports(supabase);
+  const excerpts = await loadApprovedExcerpts(supabase);
+  const clusterBySemantic = new Map<string, string>();
+  await persistOneSignal(supabase, prepared, reports, excerpts, clusterBySemantic, routableClusters, now);
 }
