@@ -77,9 +77,11 @@ export function ReportForm({
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [message, setMessage] = useState("");
   const [saveImport, setSaveImport] = useState<SaveImportAnalysis | null>(null);
+  const [pendingImport, setPendingImport] = useState<SaveImportAnalysis | null>(null);
   const [saveImportMessage, setSaveImportMessage] = useState("");
   const graphicsModeRef = useRef<HTMLTextAreaElement>(null);
   const troubleshootingRef = useRef<HTMLTextAreaElement>(null);
+  const saveImportInputRef = useRef<HTMLInputElement>(null);
 
   async function onSaveImport(event: ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.currentTarget.files ?? []).slice(0, MAX_IMPORT_FILES);
@@ -102,16 +104,31 @@ export function ReportForm({
       }),
     );
     const analysis = analyzeSaveImport(files);
-    setSaveImport(analysis);
+    setPendingImport(analysis);
     setSaveImportMessage(`${files.length} local file${files.length === 1 ? "" : "s"} inspected in this browser.`);
+  }
 
-    if (analysis.graphicsMode && graphicsModeRef.current && !graphicsModeRef.current.value.trim()) {
-      graphicsModeRef.current.value = analysis.graphicsMode;
+  function onAddSaveImport() {
+    if (!pendingImport) return;
+
+    if (pendingImport.graphicsMode && graphicsModeRef.current && !graphicsModeRef.current.value.trim()) {
+      graphicsModeRef.current.value = pendingImport.graphicsMode;
     }
-    if (troubleshootingRef.current && !troubleshootingRef.current.value.includes(analysis.evidenceNote)) {
+    if (troubleshootingRef.current && !troubleshootingRef.current.value.includes(pendingImport.evidenceNote)) {
       troubleshootingRef.current.value = troubleshootingRef.current.value.trim()
-        ? `${troubleshootingRef.current.value.trim()}\n\n${analysis.evidenceNote}`
-        : analysis.evidenceNote;
+        ? `${troubleshootingRef.current.value.trim()}\n\n${pendingImport.evidenceNote}`
+        : pendingImport.evidenceNote;
+    }
+
+    setSaveImport(pendingImport);
+    setPendingImport(null);
+  }
+
+  function onDiscardSaveImport() {
+    setPendingImport(null);
+    setSaveImportMessage("");
+    if (saveImportInputRef.current) {
+      saveImportInputRef.current.value = "";
     }
   }
 
@@ -338,16 +355,21 @@ export function ReportForm({
           <div className="panel space-y-3">
             <div className="stat-label">Evidence assistant</div>
             <h2 className="text-base font-semibold">Use local save / config files</h2>
-            <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              Select the Crimson Desert save folder or settings XML. Your browser reads useful settings locally and writes
-              only a sanitized note &mdash; nothing is uploaded.
-            </p>
+            <ol className="space-y-1 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              <li>
+                1. Pick your settings/log files &mdash; on PC look in Documents\Crimson Desert\ (the settings file is
+                user_engine_option_save.xml). Console players: skip this, it&rsquo;s PC-only.
+              </li>
+              <li>2. Your browser reads them locally and drafts one short note (GPU settings, file names &mdash; no personal data).</li>
+              <li>3. You preview the note before it touches your report. Nothing uploads until you press Submit, and only the note is sent.</li>
+            </ol>
             <input
               id="save_import"
               type="file"
               multiple
               accept=".xml,.save,.log,.txt"
               onChange={onSaveImport}
+              ref={saveImportInputRef}
               {...DIRECTORY_INPUT_PROPS}
             />
             <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
@@ -358,10 +380,32 @@ export function ReportForm({
                 {saveImportMessage}
               </p>
             ) : null}
+            {pendingImport ? (
+              <div className="space-y-2 border-t pt-3">
+                <div className="stat-label">Preview &mdash; nothing added yet</div>
+                <div className="panel-inset border p-2 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+                  {pendingImport.evidenceNote}
+                </div>
+                {pendingImport.graphicsMode ? (
+                  <div className="panel-inset border p-2 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+                    {pendingImport.graphicsMode}
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <button className="btn btn-sm" type="button" onClick={onAddSaveImport}>
+                    Add to report
+                  </button>
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={onDiscardSaveImport}>
+                    Discard
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {saveImport ? (
               <div className="space-y-2 border-t pt-3 text-xs leading-5">
                 <p style={{ color: "var(--text-dim)" }}>{saveImport.privacyNote}</p>
                 <p style={{ color: "var(--text-faint)" }}>{saveImport.evidenceNote}</p>
+                <span className="badge badge-green">added to Troubleshooting field</span>
               </div>
             ) : null}
           </div>
