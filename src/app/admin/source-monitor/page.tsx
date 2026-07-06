@@ -5,7 +5,7 @@ import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/ru
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
 import { CATEGORY_LABELS } from "@/lib/constants";
-import { features } from "@/lib/env";
+import { features, integrationStatuses } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
 import { getAutomationAdminData } from "@/lib/queries";
 
@@ -111,6 +111,7 @@ function scannerStatus(
 export default async function SourceMonitorPage() {
   await requireAdmin();
   const f = features();
+  const integrations = integrationStatuses();
   const { runs, signals, rejectedCandidates, control, activeRun } = await getAutomationAdminData();
   const now = new Date();
   const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
@@ -335,6 +336,30 @@ export default async function SourceMonitorPage() {
           </p>
         </div>
       </section>
+
+      <div className="panel">
+        <div className="stat-label mb-2">Source integrations</div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {integrations.map((integration) => (
+            <div key={integration.key} className="panel-inset space-y-1 border p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold">{integration.label}</span>
+                <span className={integration.connected ? "badge badge-green" : "badge badge-amber"}>
+                  {integration.connected ? "connected" : "not connected"}
+                </span>
+              </div>
+              <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+                {integration.detail}
+              </p>
+              {integration.missingEnv.length > 0 ? (
+                <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+                  Missing: {integration.missingEnv.join(", ")}
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="panel">
         <div className="stat-label mb-2">Recent signals ({signals.length})</div>
