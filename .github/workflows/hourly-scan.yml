@@ -1,0 +1,26 @@
+name: Hourly scanner wake-up
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call scanner keepalive
+        env:
+          CRON_URL: ${{ secrets.CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_URL"
+          test -n "$CRON_SECRET"
+          curl --fail --show-error --silent --max-time 60 --retry 2 --retry-all-errors \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "User-Agent: crimson-report-hub-github-cron" \
+            "$CRON_URL"

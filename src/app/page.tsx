@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Sparkline } from "@/components/Sparkline";
 import { EvidenceLadderBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
-import { routeToWatchlistCluster } from "@/lib/automation/route";
-import { CATEGORY_LABELS, PLATFORM_LABELS, type Category } from "@/lib/constants";
+import { assessClaims } from "@/lib/claims";
+import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import {
   countEvidenceBackedPersistentClusters,
   countUnverifiedClaimedFixWatchlistClusters,
@@ -32,25 +32,6 @@ function statusTone(fixStatus: string): Tone {
   return "dim";
 }
 
-function isContradictedByEvidence(
-  fix: { fixText: string; category: string | null },
-  clusters: { id: string; slug: string; title: string; category: string; strengthScore: number }[],
-): boolean {
-  if (!fix.category) return false;
-  const matched = routeToWatchlistCluster(
-    {
-      issueTitle: fix.fixText,
-      summary: fix.fixText,
-      category: fix.category as Category,
-      llmClusterSlug: null,
-    },
-    clusters,
-  );
-  if (!matched) return false;
-  const cluster = clusters.find((candidate) => candidate.id === matched.id);
-  return (cluster?.strengthScore ?? 0) > 0;
-}
-
 export default async function DashboardPage() {
   const d = await getDashboardData();
   const persistentCount = countEvidenceBackedPersistentClusters(d.topClusters);
@@ -64,6 +45,8 @@ export default async function DashboardPage() {
   const maxPlatform = Math.max(...platformEntries.map(([, n]) => n), 1);
   const patchLabel = `Patch ${d.currentPatch.version}`;
   const totalCandidates = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
+  const claims = assessClaims(d.claimedFixes, d.topClusters);
+  const watchClusters = d.topClusters.filter((cluster) => cluster.fix_status === "fix_claimed");
 
   return (
     <div className="space-y-6">
@@ -144,28 +127,115 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Official patch-note claimed fixes */}
+      {/* Claimed fixes vs community evidence */}
       {d.claimedFixes.length > 0 ? (
-        <section className="panel space-y-3">
-          <div className="stat-label">What patch {d.currentPatch.version} claims to fix</div>
-          <div className="space-y-2">
-            {d.claimedFixes.map((fix, index) => {
-              const contradicted = isContradictedByEvidence(fix, d.topClusters);
-              return (
+        <section className="panel space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="stat-label">Patch {d.currentPatch.version} · claimed fixes vs community evidence</h2>
+            <a
+              href={d.currentPatch.officialUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="link text-xs"
+            >
+              Official notes ↗
+            </a>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="panel-inset px-4 py-3">
+              <div className="stat-value">{claims.total}</div>
+              <div className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
+                official fix claims
+              </div>
+            </div>
+            <div
+              className="panel-inset px-4 py-3"
+              style={claims.disputed.length > 0 ? { border: "1px solid var(--crimson-edge)" } : undefined}
+            >
+              <div
+                className="stat-value"
+                style={{ color: claims.disputed.length > 0 ? "var(--crimson-bright)" : "var(--green-bright)" }}
+              >
+                {claims.disputed.length}
+              </div>
+              <div className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
+                challenged by evidence
+              </div>
+            </div>
+            <div className="panel-inset px-4 py-3">
+              <div className="stat-value" style={{ color: "var(--amber-bright)" }}>
+                {watchClusters.length}
+              </div>
+              <div className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
+                under watch after claimed fix
+              </div>
+            </div>
+          </div>
+
+          {claims.disputed.length === 0 ? (
+            <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              No claimed fix currently overlaps an active, evidence-backed issue. The scanner re-checks every scan.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {claims.disputed.map((claim, index) => (
+                <div
+                  key={index}
+                  className="space-y-1.5 border px-3.5 py-3"
+                  style={{ borderRadius: "var(--r-md)", borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
+                    <span className="min-w-0 flex-1">&ldquo;{claim.fixText}&rdquo;</span>
+                    <span className="badge badge-crimson shrink-0">
+                      {(claim.cluster?.directReportCount ?? 0) > 0 ? "players still reporting issues" : "sources still flag issues"}
+                    </span>
+                  </div>
+                  {claim.cluster ? (
+                    <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                      <span className="num">{claim.cluster.directReportCount}</span> approved reports ·{" "}
+                      <span className="num">{claim.cluster.signalCount}</span> cited sources on this issue —{" "}
+                      <Link href="/issues" className="link">
+                        view the evidence →
+                      </Link>
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {watchClusters.length > 0 ? (
+            <div className="space-y-1 border-t pt-3">
+              {watchClusters.map((cluster) => (
+                <Link key={cluster.id} href="/issues" className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <span className="truncate">{cluster.title}</span>
+                  <span className="badge badge-amber shrink-0">watching</span>
+                </Link>
+              ))}
+            </div>
+          ) : null}
+
+          <details className="border-t pt-3 text-sm">
+            <summary className="cursor-pointer py-1 text-xs" style={{ color: "var(--text-faint)" }}>
+              View all {claims.total} claims
+            </summary>
+            <div className="mt-3 space-y-2">
+              {claims.all.map((claim, index) => (
                 <div key={index} className="flex items-start justify-between gap-3 text-sm">
                   <span className="min-w-0 flex-1" style={{ color: "var(--text-dim)" }}>
-                    {fix.fixText}
+                    {claim.fixText}
                   </span>
-                  <span className={contradicted ? "badge badge-crimson shrink-0" : "badge badge-dim shrink-0"}>
-                    {contradicted ? "still reported broken" : "no reports against it"}
-                  </span>
+                  {claim.disputed ? <span className="badge badge-crimson shrink-0">challenged</span> : null}
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          </details>
+
           <p className="border-t pt-3 text-xs" style={{ color: "var(--text-faint)" }}>
-            Sourced from Pearl Abyss&apos;s official patch notes. &quot;No reports against it&quot; means no player
-            reports or public sources dispute this fix yet.
+            Sourced from Pearl Abyss&apos;s official patch notes. A claim is challenged when the community evidence
+            board still shows an active issue in the area it covers — follow the evidence link and judge for
+            yourself.
           </p>
         </section>
       ) : null}

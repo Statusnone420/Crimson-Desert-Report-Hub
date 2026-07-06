@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
-import { runAutomationMonitor } from "@/lib/automation/run";
+import { insertSkippedScheduledRun, runAutomationMonitor } from "@/lib/automation/run";
+import { scheduledScanDecision } from "@/lib/automation/schedule";
 import { getAutomationControlState } from "@/lib/automation/settings";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { createServiceClient } from "@/lib/supabase";
+
+export const maxDuration = 300;
 
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -24,23 +27,28 @@ export async function GET(req: Request) {
     .lt("raw_expires_at", new Date().toISOString())
     .not("raw_text", "is", null);
 
-  let automation: Awaited<ReturnType<typeof runAutomationMonitor>> | { status: "skipped"; reason: string } = {
-    status: "skipped",
-    reason: "recent_run",
-  };
+  const now = new Date();
   const control = await getAutomationControlState();
-  if (control.paused) {
-    automation = { status: "skipped", reason: "paused" };
+  const minIntervalMinutes =
+    Number.isFinite(control.minIntervalMinutes) && control.minIntervalMinutes > 0 ? control.minIntervalMinutes : 60;
+  let automation:
+    | Awaited<ReturnType<typeof runAutomationMonitor>>
+    | { status: "skipped"; reason: string } = { status: "skipped", reason: "recent_run" };
+  const { data: recent } = await supabase
+    .from("automation_runs")
+    .select("mode, status, started_at")
+    .gte("started_at", new Date(now.getTime() - minIntervalMinutes * 60 * 1000).toISOString());
+  const decision = scheduledScanDecision(
+    control.paused,
+    (recent ?? []) as { mode: string; status: string; started_at?: string | null }[],
+    now,
+    minIntervalMinutes,
+  );
+  if (decision.run) {
+    automation = await runAutomationMonitor({ mode: "scheduled", scannerPolicy: control });
   } else {
-    const { data: recent } = await supabase
-      .from("automation_runs")
-      .select("started_at")
-      .gte("started_at", new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
-      .order("started_at", { ascending: false })
-      .limit(1);
-    if ((recent ?? []).length === 0) {
-      automation = await runAutomationMonitor({ mode: "scheduled" });
-    }
+    automation = { status: "skipped", reason: decision.skipReason };
+    await insertSkippedScheduledRun(supabase, decision.skipReason, now);
   }
 
   return NextResponse.json({

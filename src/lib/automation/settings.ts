@@ -2,8 +2,25 @@ import "server-only";
 
 import { createServiceClient } from "@/lib/supabase";
 
-export type AutomationControlState = {
+const MIN_INTERVAL_MINUTES = [60, 120, 360, 1440] as const;
+const SCHEDULED_SEARCH_CREDITS_PER_RUN = [1, 2, 3] as const;
+const MODEL_PRESET = "deepseek_qwen_pro";
+const MAX_MONTHLY_TAVILY_CREDIT_CAP = 900;
+
+type ScannerMinIntervalMinutes = (typeof MIN_INTERVAL_MINUTES)[number];
+type ScannerSearchCreditsPerRun = (typeof SCHEDULED_SEARCH_CREDITS_PER_RUN)[number];
+type ScannerModelPreset = typeof MODEL_PRESET;
+
+export type ScannerPolicy = {
   paused: boolean;
+  minIntervalMinutes: ScannerMinIntervalMinutes;
+  scheduledSearchCreditsPerRun: ScannerSearchCreditsPerRun;
+  monthlyTavilyCreditCap: number;
+  monthlyLlmUsdCap: number;
+  modelPreset: ScannerModelPreset;
+};
+
+export type AutomationControlState = ScannerPolicy & {
   updatedAt: string | null;
 };
 
@@ -33,13 +50,76 @@ export type AutomationSettingsClient = {
 };
 
 const SCANNER_KEY = "scanner";
+const DEFAULT_SCANNER_POLICY: ScannerPolicy = {
+  paused: false,
+  minIntervalMinutes: 60,
+  scheduledSearchCreditsPerRun: 1,
+  monthlyTavilyCreditCap: 900,
+  monthlyLlmUsdCap: 1,
+  modelPreset: MODEL_PRESET,
+};
 
 function settingsClient(client?: AutomationSettingsClient): AutomationSettingsClient {
   return client ?? (createServiceClient() as unknown as AutomationSettingsClient);
 }
 
-function isScannerPaused(value: unknown): boolean {
-  return Boolean(value && typeof value === "object" && "paused" in value && value.paused === true);
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function numberValue(value: unknown): number | null {
+  const parsed = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : null;
+}
+
+function oneOfNumber<T extends readonly number[]>(value: unknown, allowed: T, fallback: T[number]): T[number] {
+  const parsed = numberValue(value);
+  return allowed.includes(parsed as T[number]) ? (parsed as T[number]) : fallback;
+}
+
+function monthlyTavilyCreditCap(value: unknown): number {
+  const parsed = numberValue(value);
+  return parsed === null || parsed < 0
+    ? DEFAULT_SCANNER_POLICY.monthlyTavilyCreditCap
+    : Math.min(Math.floor(parsed), MAX_MONTHLY_TAVILY_CREDIT_CAP);
+}
+
+function monthlyLlmUsdCap(value: unknown): number {
+  const parsed = numberValue(value);
+  if (parsed === null || parsed < 0) return DEFAULT_SCANNER_POLICY.monthlyLlmUsdCap;
+  return Math.min(parsed, 5);
+}
+
+export function normalizeScannerPolicy(value: unknown): ScannerPolicy {
+  const settings = recordValue(value);
+  return {
+    paused: settings.paused === true || settings.paused === "true",
+    minIntervalMinutes: oneOfNumber(
+      settings.minIntervalMinutes,
+      MIN_INTERVAL_MINUTES,
+      DEFAULT_SCANNER_POLICY.minIntervalMinutes,
+    ),
+    scheduledSearchCreditsPerRun: oneOfNumber(
+      settings.scheduledSearchCreditsPerRun,
+      SCHEDULED_SEARCH_CREDITS_PER_RUN,
+      DEFAULT_SCANNER_POLICY.scheduledSearchCreditsPerRun,
+    ),
+    monthlyTavilyCreditCap: monthlyTavilyCreditCap(settings.monthlyTavilyCreditCap),
+    monthlyLlmUsdCap: monthlyLlmUsdCap(settings.monthlyLlmUsdCap),
+    modelPreset: settings.modelPreset === MODEL_PRESET ? MODEL_PRESET : DEFAULT_SCANNER_POLICY.modelPreset,
+  };
+}
+
+export function scannerPolicyFromFormData(formData: FormData): ScannerPolicy {
+  const cadence = formData.get("cadence");
+  return normalizeScannerPolicy({
+    paused: cadence === "paused" ? true : (formData.get("paused") ?? (cadence ? "false" : null)),
+    minIntervalMinutes: cadence && cadence !== "paused" ? cadence : formData.get("minIntervalMinutes"),
+    scheduledSearchCreditsPerRun: formData.get("scheduledSearchCreditsPerRun"),
+    monthlyTavilyCreditCap: formData.get("monthlyTavilyCreditCap"),
+    monthlyLlmUsdCap: formData.get("monthlyLlmUsdCap"),
+    modelPreset: formData.get("modelPreset"),
+  });
 }
 
 export async function getAutomationControlState(
@@ -54,19 +134,24 @@ export async function getAutomationControlState(
 
   const row = data?.[0] ?? null;
   return {
-    paused: isScannerPaused(row?.value),
+    ...normalizeScannerPolicy(row?.value),
     updatedAt: row?.updated_at ?? null,
   };
 }
 
-export async function setAutomationPaused(client: AutomationSettingsClient, paused: boolean): Promise<void> {
+export async function setScannerPolicy(client: AutomationSettingsClient, policy: unknown): Promise<void> {
   const { error } = await settingsClient(client).from("automation_settings").upsert(
     {
       key: SCANNER_KEY,
-      value: { paused },
+      value: normalizeScannerPolicy(policy),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "key" },
   );
   if (error) throw new Error(`automation settings write failed: ${error.message}`);
+}
+
+export async function setAutomationPaused(client: AutomationSettingsClient, paused: boolean): Promise<void> {
+  const policy = await getAutomationControlState(client);
+  await setScannerPolicy(client, { ...policy, paused });
 }

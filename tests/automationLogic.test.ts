@@ -102,62 +102,7 @@ describe("automation extraction", () => {
     ).toBeNull();
   });
 
-  it("falls back without calling OpenRouter when the configured model is not free", async () => {
-    const fetcher = vi.fn();
-
-    const result = await extractSignalWithOpenRouter(crashCandidate, {
-      env: {
-        OPENROUTER_API_KEY: "key",
-        OPENROUTER_FREE_MODEL: "openai/gpt-4.1",
-      },
-      fetcher,
-      llmCallsRemaining: 1,
-    });
-
-    expect(result.extractionProvider).toBe("deterministic");
-    expect(result.extractionModel).toBeNull();
-    expect(result.llmCallUsed).toBe(false);
-    expect(result.fallbackReason).toBe("openrouter_paid_model");
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("falls back without calling OpenRouter when config is missing", async () => {
-    const fetcher = vi.fn();
-
-    const result = await extractSignalWithOpenRouter(crashCandidate, {
-      env: {
-        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
-      },
-      fetcher,
-      llmCallsRemaining: 1,
-    });
-
-    expect(result.extractionProvider).toBe("deterministic");
-    expect(result.extractionModel).toBeNull();
-    expect(result.llmCallUsed).toBe(false);
-    expect(result.fallbackReason).toBe("openrouter_missing_config");
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("falls back without calling OpenRouter when there is no LLM allowance", async () => {
-    const fetcher = vi.fn();
-
-    const result = await extractSignalWithOpenRouter(crashCandidate, {
-      env: {
-        OPENROUTER_API_KEY: "key",
-        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
-      },
-      fetcher,
-      llmCallsRemaining: 0,
-    });
-
-    expect(result.extractionProvider).toBe("deterministic");
-    expect(result.llmCallUsed).toBe(false);
-    expect(result.fallbackReason).toBe("llm_allowance_exhausted");
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("uses a free OpenRouter model with mocked fetch", async () => {
+  it("uses DeepSeek Flash first even when a legacy free-model env var exists", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -171,10 +116,103 @@ describe("automation extraction", () => {
                 platform: "pc_steam",
                 confidence: "high",
                 summary: "Players on Steam report FPS drops after patch 1.13.",
+                clusterSlug: null,
               }),
             },
           },
         ],
+        usage: { cost: 0.0002 },
+      }),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+        OPENROUTER_FREE_MODEL: "openai/gpt-4.1",
+      },
+      fetcher,
+      llmCallsRemaining: 1,
+    });
+
+    const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body).model).toBe("deepseek/deepseek-v4-flash");
+    expect(result.extractionProvider).toBe("openrouter");
+    expect(result.extractionModel).toBe("deepseek/deepseek-v4-flash");
+    expect(result.llmCostUsd).toBe(0.0002);
+  });
+
+  it("falls back without calling OpenRouter when config is missing", async () => {
+    const fetcher = vi.fn();
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {},
+      fetcher,
+      llmCallsRemaining: 1,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.extractionModel).toBeNull();
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.fallbackReason).toBe("openrouter_missing_config");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("falls back without calling OpenRouter when there is no LLM allowance", async () => {
+    const fetcher = vi.fn();
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+      },
+      fetcher,
+      llmCallsRemaining: 0,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.fallbackReason).toBe("llm_allowance_exhausted");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("falls back without calling OpenRouter when the LLM dollar cap is exhausted", async () => {
+    const fetcher = vi.fn();
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+      },
+      fetcher,
+      llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 0,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.fallbackReason).toBe("llm_budget_capped");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("uses strict JSON Schema with the DeepSeek primary model", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                issueTitle: "FPS regression since 1.13",
+                category: "performance",
+                platform: "pc_steam",
+                confidence: "high",
+                summary: "Players on Steam report FPS drops after patch 1.13.",
+                clusterSlug: null,
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1000, completion_tokens: 500 },
       }),
     }));
 
@@ -187,16 +225,17 @@ describe("automation extraction", () => {
       {
         env: {
           OPENROUTER_API_KEY: "key",
-          OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
         },
         fetcher,
         llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 1,
       },
     );
 
     expect(result.extractionProvider).toBe("openrouter");
-    expect(result.extractionModel).toBe("meta-llama/llama-3.3-70b-instruct:free");
-    expect(result.llmCallUsed).toBe(true);
+    expect(result.extractionModel).toBe("deepseek/deepseek-v4-flash");
+    expect(result.llmCallsUsed).toBe(1);
+    expect(result.llmCostUsd).toBeCloseTo(0.00018, 8);
     expect(result.category).toBe("performance");
     expect(fetcher).toHaveBeenCalledWith(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -205,9 +244,24 @@ describe("automation extraction", () => {
         headers: expect.objectContaining({ authorization: "Bearer key" }),
       }),
     );
+    const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).toMatchObject({
+      model: "deepseek/deepseek-v4-flash",
+      provider: { require_parameters: true },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          strict: true,
+          schema: expect.objectContaining({
+            required: ["issueTitle", "category", "platform", "confidence", "summary", "clusterSlug"],
+          }),
+        },
+      },
+    });
+    expect(JSON.parse(init.body).messages[1].content).toContain("clusterSlug");
   });
 
-  it("uses OpenRouter's free router with structured JSON requested", async () => {
+  it("records an estimated LLM cost when OpenRouter omits usage metadata", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -221,6 +275,7 @@ describe("automation extraction", () => {
                 platform: "ps5",
                 confidence: "medium",
                 summary: "Players report map-open crashes after the patch.",
+                clusterSlug: null,
               }),
             },
           },
@@ -231,19 +286,16 @@ describe("automation extraction", () => {
     const result = await extractSignalWithOpenRouter(crashCandidate, {
       env: {
         OPENROUTER_API_KEY: "key",
-        OPENROUTER_FREE_MODEL: "openrouter/free",
       },
       fetcher,
       llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
     });
 
-    const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
-    expect(JSON.parse(init.body)).toMatchObject({
-      model: "openrouter/free",
-      response_format: { type: "json_object" },
-    });
     expect(result.extractionProvider).toBe("openrouter");
-    expect(result.extractionModel).toBe("openrouter/free");
+    expect(result.extractionModel).toBe("deepseek/deepseek-v4-flash");
+    expect(result.llmCostUsd).toBeGreaterThan(0);
+    expect(result.llmCostUsd).toBeCloseTo(0.000207, 8);
   });
 
   it("falls back to deterministic extraction when OpenRouter returns invalid JSON", async () => {
@@ -252,20 +304,21 @@ describe("automation extraction", () => {
       status: 200,
       json: async () => ({
         choices: [{ message: { content: "{not json" } }],
+        usage: { cost: 0.0002 },
       }),
     }));
 
     const result = await extractSignalWithOpenRouter(crashCandidate, {
       env: {
         OPENROUTER_API_KEY: "key",
-        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
       },
       fetcher,
       llmCallsRemaining: 1,
     });
 
     expect(result.extractionProvider).toBe("deterministic");
-    expect(result.llmCallUsed).toBe(true);
+    expect(result.llmCallsUsed).toBe(1);
+    expect(result.llmCostUsd).toBe(0.0002);
     expect(result.fallbackReason).toBe("openrouter_invalid_json");
   });
 
@@ -277,16 +330,184 @@ describe("automation extraction", () => {
     const result = await extractSignalWithOpenRouter(crashCandidate, {
       env: {
         OPENROUTER_API_KEY: "key",
-        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
       },
       fetcher,
       llmCallsRemaining: 1,
     });
 
     expect(result.extractionProvider).toBe("deterministic");
-    expect(result.llmCallUsed).toBe(true);
+    expect(result.llmCallsUsed).toBe(1);
     expect(result.fallbackReason).toBe("openrouter_provider_failure");
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once and succeeds after an initial invalid-JSON failure", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  issueTitle: "Map crash after patch",
+                  category: "crash_startup",
+                  platform: "ps5",
+                  confidence: "medium",
+                  summary: "Players report map-open crashes after the patch.",
+                  clusterSlug: null,
+                }),
+              },
+            },
+          ],
+          usage: { cost: 0.0003 },
+        }),
+      });
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+      },
+      fetcher,
+      llmCallsRemaining: 2,
+    });
+
+    expect(result.extractionProvider).toBe("openrouter");
+    expect(result.extractionModel).toBe("qwen/qwen3-235b-a22b-2507");
+    expect(result.llmCallsUsed).toBe(2);
+    expect(result.llmCostUsd).toBe(0.0005);
+    expect(result.fallbackReason).toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const models = fetcher.mock.calls.map(([, init]) => JSON.parse((init as { body: string }).body).model);
+    expect(models).toEqual(["deepseek/deepseek-v4-flash", "qwen/qwen3-235b-a22b-2507"]);
+  });
+
+  it("falls back to deterministic extraction with the last failure reason after two failed attempts", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
+      })
+      .mockRejectedValueOnce(new Error("network down"));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+      },
+      fetcher,
+      llmCallsRemaining: 2,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallsUsed).toBe(2);
+    expect(result.llmCostUsd).toBe(0.0002);
+    expect(result.fallbackReason).toBe("openrouter_provider_failure");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses DeepSeek Pro as a third rescue model when budget allows", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
+      })
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  issueTitle: "Map crash after patch",
+                  category: "crash_startup",
+                  platform: "ps5",
+                  confidence: "medium",
+                  summary: "Players report map-open crashes after the patch.",
+                  clusterSlug: null,
+                }),
+              },
+            },
+          ],
+          usage: { cost: 0.001 },
+        }),
+      });
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+      },
+      fetcher,
+      llmCallsRemaining: 3,
+      llmBudgetRemainingUsd: 1,
+    });
+
+    expect(result.extractionProvider).toBe("openrouter");
+    expect(result.extractionModel).toBe("deepseek/deepseek-v4-pro");
+    expect(result.llmCallsUsed).toBe(3);
+    expect(result.llmCostUsd).toBeCloseTo(0.0012, 8);
+    const models = fetcher.mock.calls.map(([, init]) => JSON.parse((init as { body: string }).body).model);
+    expect(models).toEqual([
+      "deepseek/deepseek-v4-flash",
+      "qwen/qwen3-235b-a22b-2507",
+      "deepseek/deepseek-v4-pro",
+    ]);
+  });
+
+  it("charges invalid JSON attempts before retry budget checks", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+      },
+      fetcher,
+      llmCallsRemaining: 2,
+      llmBudgetRemainingUsd: 0.0003,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallsUsed).toBe(1);
+    expect(result.llmCostUsd).toBe(0.0002);
+    expect(result.fallbackReason).toBe("llm_budget_capped");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry beyond the LLM allowance when only one call remains", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+      },
+      fetcher,
+      llmCallsRemaining: 1,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallsUsed).toBe(1);
+    expect(result.fallbackReason).toBe("openrouter_provider_failure");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -478,6 +699,19 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("keeps current-patch complaint language from Reddit-style titles", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Awful performance after patch 1.13",
+            snippet: "base PS5 performance on 1.13 is HORRIBLE after the latest update",
+            sourceDomain: "reddit.com",
+          },
+          { currentPatchVersion: "1.13.00" },
+        ),
+      ).toEqual({ keep: true });
+    });
+
     it("rejects no-issue language even when symptom words are present", () => {
       expect(
         preScreenCandidate({
@@ -507,6 +741,19 @@ describe("automation relevance", () => {
         }),
       ).toEqual({ keep: false, reason: "wrong_patch" });
     });
+
+    it("rejects after-version complaints for old patch numbers", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Awful performance after 1.04",
+            snippet: "stutter and low fps since v1.04",
+            sourceDomain: "steamcommunity.com",
+          },
+          { currentPatchVersion: "1.13.00" },
+        ),
+      ).toEqual({ keep: false, reason: "wrong_patch" });
+    });
   });
 
   describe("shouldKeepExtractedSignal", () => {
@@ -521,7 +768,8 @@ describe("automation relevance", () => {
           clusterSlug: null,
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
-          llmCallUsed: true,
+          llmCallsUsed: 1,
+          llmCostUsd: 0,
         }),
       ).toEqual({ keep: false, reason: "category_other" });
     });
@@ -537,7 +785,8 @@ describe("automation relevance", () => {
           clusterSlug: null,
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
-          llmCallUsed: true,
+          llmCallsUsed: 1,
+          llmCostUsd: 0,
         }),
       ).toEqual({ keep: true });
     });
@@ -558,7 +807,7 @@ describe("search planning", () => {
   });
 
   it("caps query planning to the fixed query pack", () => {
-    expect(buildSearchQueries(999)).toHaveLength(5);
+    expect(buildSearchQueries(999)).toHaveLength(6);
   });
 
   it("can target a server-derived patch version", () => {

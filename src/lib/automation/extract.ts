@@ -1,6 +1,5 @@
 import { CATEGORIES, PLATFORMS, type Category, type Platform } from "@/lib/constants";
 import { classifySignal, summarize } from "@/lib/reddit";
-import { rejectPaidOpenRouterModel } from "@/lib/automation/budget";
 
 type EnvLike = Record<string, string | undefined>;
 
@@ -23,15 +22,16 @@ export type ExtractionProvider = "deterministic" | "openrouter";
 
 export type ExtractionFallbackReason =
   | "openrouter_missing_config"
-  | "openrouter_paid_model"
   | "llm_allowance_exhausted"
+  | "llm_budget_capped"
   | "openrouter_provider_failure"
   | "openrouter_invalid_json";
 
 export type ExtractionResult = ExtractedSignal & {
   extractionProvider: ExtractionProvider;
   extractionModel: string | null;
-  llmCallUsed: boolean;
+  llmCallsUsed: number;
+  llmCostUsd: number;
   fallbackReason?: ExtractionFallbackReason;
 };
 
@@ -56,10 +56,28 @@ export type OpenRouterExtractionOptions = {
   env?: EnvLike;
   fetcher?: OpenRouterFetch;
   llmCallsRemaining: number;
+  llmBudgetRemainingUsd?: number;
   clusterOptions?: ClusterOption[];
 };
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+const MODEL_ROUTE = [
+  "deepseek/deepseek-v4-flash",
+  "qwen/qwen3-235b-a22b-2507",
+  "deepseek/deepseek-v4-pro",
+] as const;
+
+type RoutedModel = (typeof MODEL_ROUTE)[number];
+
+const MODEL_PRICE_USD_PER_M_TOKENS: Record<RoutedModel, { input: number; output: number }> = {
+  "deepseek/deepseek-v4-flash": { input: 0.09, output: 0.18 },
+  "qwen/qwen3-235b-a22b-2507": { input: 0.09, output: 0.1 },
+  "deepseek/deepseek-v4-pro": { input: 0.435, output: 0.87 },
+};
+
+const ESTIMATED_INPUT_TOKENS_PER_EXTRACTION = 1500;
+const ESTIMATED_OUTPUT_TOKENS_PER_EXTRACTION = 400;
 
 const platformPatterns: { platform: Platform; patterns: RegExp[] }[] = [
   { platform: "pc_steam", patterns: [/\bpc\b/i, /\bsteam\b/i, /\brtx\b/i, /\bgtx\b/i] },
@@ -88,13 +106,15 @@ function asConfidence(value: unknown): "low" | "medium" | "high" {
 function deterministicResult(
   candidate: SourceCandidate,
   fallbackReason?: ExtractionFallbackReason,
-  llmCallUsed = false,
+  llmCallsUsed = 0,
+  llmCostUsd = 0,
 ): ExtractionResult {
   return {
     ...deterministicExtract(candidate),
     extractionProvider: "deterministic",
     extractionModel: null,
-    llmCallUsed,
+    llmCallsUsed,
+    llmCostUsd,
     ...(fallbackReason ? { fallbackReason } : {}),
   };
 }
@@ -114,7 +134,7 @@ function buildPrompt(candidate: SourceCandidate, clusterOptions: ClusterOption[]
     'Use category one of "performance", "crash_startup", "controls_gameplay", "graphics_visual", "audio", "quest_progression", "other".',
     'Use confidence one of "low", "medium", "high".',
     'Use platform one of "pc_steam", "ps5", "ps5_pro", "xbox_series_x", "xbox_series_s", "other", or null.',
-    "Return only JSON with issueTitle, category, platform, confidence, summary.",
+    "Return only JSON with issueTitle, category, platform, confidence, summary, clusterSlug.",
     `Title: ${candidate.title}`,
     `Snippet: ${candidate.snippet}`,
     `URL: ${candidate.url}`,
@@ -126,7 +146,28 @@ function buildPrompt(candidate: SourceCandidate, clusterOptions: ClusterOption[]
     );
     lines.push("Return clusterSlug as one of the listed slugs or null.");
   }
+  lines.push("Use clusterSlug null when no known cluster matches.");
   return lines.join("\n");
+}
+
+function extractionJsonSchema(clusterOptions: ClusterOption[]) {
+  const clusterSlugs = clusterOptions.map((option) => option.slug);
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["issueTitle", "category", "platform", "confidence", "summary", "clusterSlug"],
+    properties: {
+      issueTitle: { type: "string", minLength: 1, maxLength: 120 },
+      category: { type: "string", enum: CATEGORIES },
+      platform: { anyOf: [{ type: "string", enum: PLATFORMS }, { type: "null" }] },
+      confidence: { type: "string", enum: ["low", "medium", "high"] },
+      summary: { type: "string", minLength: 1, maxLength: 280 },
+      clusterSlug:
+        clusterSlugs.length > 0
+          ? { anyOf: [{ type: "string", enum: clusterSlugs }, { type: "null" }] }
+          : { type: "null" },
+    },
+  };
 }
 
 export function deterministicExtract(candidate: SourceCandidate): ExtractedSignal {
@@ -172,24 +213,53 @@ export function parseOpenRouterExtraction(content: string, validSlugs: string[] 
   };
 }
 
-export async function extractSignalWithOpenRouter(
+type AttemptOutcome =
+  | { ok: true; signal: ExtractedSignal; costUsd: number }
+  | { ok: false; reason: "openrouter_provider_failure" | "openrouter_invalid_json"; costUsd: number };
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function readUsageCostUsd(data: unknown, model: RoutedModel): number {
+  const usage = data && typeof data === "object" ? (data as { usage?: unknown }).usage : null;
+  if (!usage || typeof usage !== "object") return 0;
+
+  const directCost =
+    asNumber((usage as { cost?: unknown }).cost) ??
+    asNumber((usage as { cost_usd?: unknown }).cost_usd) ??
+    asNumber((usage as { total_cost?: unknown }).total_cost);
+  if (directCost !== null) return directCost;
+
+  const promptTokens =
+    asNumber((usage as { prompt_tokens?: unknown }).prompt_tokens) ??
+    asNumber((usage as { input_tokens?: unknown }).input_tokens) ??
+    0;
+  const completionTokens =
+    asNumber((usage as { completion_tokens?: unknown }).completion_tokens) ??
+    asNumber((usage as { output_tokens?: unknown }).output_tokens) ??
+    0;
+  const price = MODEL_PRICE_USD_PER_M_TOKENS[model];
+  return (promptTokens * price.input + completionTokens * price.output) / 1_000_000;
+}
+
+function estimatedCallCostUsd(model: RoutedModel): number {
+  const price = MODEL_PRICE_USD_PER_M_TOKENS[model];
+  return (ESTIMATED_INPUT_TOKENS_PER_EXTRACTION * price.input + ESTIMATED_OUTPUT_TOKENS_PER_EXTRACTION * price.output) / 1_000_000;
+}
+
+function usageOrEstimatedCostUsd(data: unknown, model: RoutedModel): number {
+  const usageCost = readUsageCostUsd(data, model);
+  return usageCost > 0 ? usageCost : estimatedCallCostUsd(model);
+}
+
+async function attemptOpenRouterExtraction(
   candidate: SourceCandidate,
-  options: OpenRouterExtractionOptions,
-): Promise<ExtractionResult> {
-  const env = options.env ?? process.env;
-  const apiKey = env.OPENROUTER_API_KEY?.trim();
-  const model = env.OPENROUTER_FREE_MODEL?.trim();
-
-  if (!apiKey || !model) return deterministicResult(candidate, "openrouter_missing_config");
-  if (options.llmCallsRemaining <= 0) return deterministicResult(candidate, "llm_allowance_exhausted");
-
-  try {
-    rejectPaidOpenRouterModel(model);
-  } catch {
-    return deterministicResult(candidate, "openrouter_paid_model");
-  }
-
-  const fetcher = options.fetcher ?? (fetch as unknown as OpenRouterFetch);
+  fetcher: OpenRouterFetch,
+  apiKey: string,
+  model: RoutedModel,
+  clusterOptions: ClusterOption[],
+): Promise<AttemptOutcome> {
   let response: OpenRouterFetchResponse;
   try {
     response = await fetcher(OPENROUTER_CHAT_COMPLETIONS_URL, {
@@ -198,33 +268,80 @@ export async function extractSignalWithOpenRouter(
       body: JSON.stringify({
         model,
         temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: "You extract game issue reports and return only valid JSON.",
+        provider: { require_parameters: true },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "crimson_desert_issue_signal",
+            strict: true,
+            schema: extractionJsonSchema(clusterOptions),
           },
-          { role: "user", content: buildPrompt(candidate, options.clusterOptions ?? []) },
+        },
+        messages: [
+          { role: "system", content: "You extract game issue reports and return only valid JSON." },
+          { role: "user", content: buildPrompt(candidate, clusterOptions) },
         ],
       }),
     });
   } catch {
-    return deterministicResult(candidate, "openrouter_provider_failure", true);
+    return { ok: false, reason: "openrouter_provider_failure", costUsd: 0 };
+  }
+  if (!response.ok) return { ok: false, reason: "openrouter_provider_failure", costUsd: 0 };
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    return { ok: false, reason: "openrouter_invalid_json", costUsd: estimatedCallCostUsd(model) };
   }
 
-  if (!response.ok) return deterministicResult(candidate, "openrouter_provider_failure", true);
+  const costUsd = usageOrEstimatedCostUsd(data, model);
+  const content = readOpenRouterContent(data);
+  if (!content) return { ok: false, reason: "openrouter_invalid_json", costUsd };
 
   try {
-    const content = readOpenRouterContent(await response.json());
-    if (!content) return deterministicResult(candidate, "openrouter_invalid_json", true);
-    const validSlugs = (options.clusterOptions ?? []).map((option) => option.slug);
-    return {
-      ...parseOpenRouterExtraction(content, validSlugs),
-      extractionProvider: "openrouter",
-      extractionModel: model,
-      llmCallUsed: true,
-    };
+    const validSlugs = clusterOptions.map((option) => option.slug);
+    return { ok: true, signal: parseOpenRouterExtraction(content, validSlugs), costUsd };
   } catch {
-    return deterministicResult(candidate, "openrouter_invalid_json", true);
+    return { ok: false, reason: "openrouter_invalid_json", costUsd };
   }
+}
+
+export async function extractSignalWithOpenRouter(
+  candidate: SourceCandidate,
+  options: OpenRouterExtractionOptions,
+): Promise<ExtractionResult> {
+  const env = options.env ?? process.env;
+  const apiKey = env.OPENROUTER_API_KEY?.trim();
+
+  if (!apiKey) return deterministicResult(candidate, "openrouter_missing_config");
+  if (options.llmCallsRemaining <= 0) return deterministicResult(candidate, "llm_allowance_exhausted");
+  if ((options.llmBudgetRemainingUsd ?? Number.POSITIVE_INFINITY) <= 0) return deterministicResult(candidate, "llm_budget_capped");
+
+  const fetcher = options.fetcher ?? (fetch as unknown as OpenRouterFetch);
+  const clusterOptions = options.clusterOptions ?? [];
+  const maxAttempts = Math.min(MODEL_ROUTE.length, Math.max(1, options.llmCallsRemaining));
+  let callsUsed = 0;
+  let costUsd = 0;
+  let lastReason: "openrouter_provider_failure" | "openrouter_invalid_json" = "openrouter_provider_failure";
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const model = MODEL_ROUTE[attempt];
+    if (options.llmBudgetRemainingUsd !== undefined && options.llmBudgetRemainingUsd - costUsd < estimatedCallCostUsd(model)) {
+      return deterministicResult(candidate, "llm_budget_capped", callsUsed, costUsd);
+    }
+    callsUsed += 1;
+    const outcome = await attemptOpenRouterExtraction(candidate, fetcher, apiKey, model, clusterOptions);
+    costUsd += outcome.costUsd;
+    if (outcome.ok) {
+      return {
+        ...outcome.signal,
+        extractionProvider: "openrouter",
+        extractionModel: model,
+        llmCallsUsed: callsUsed,
+        llmCostUsd: costUsd,
+      };
+    }
+    lastReason = outcome.reason;
+  }
+  return deterministicResult(candidate, lastReason, callsUsed, costUsd);
 }

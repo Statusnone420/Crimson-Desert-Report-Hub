@@ -14,6 +14,8 @@ export type CandidatePreScreenInput = {
 const SYMPTOM_PATTERNS = [
   /\b(?:fps|frame ?rate|framerate|performance mode)\b.{0,60}\b(?:drop|drops|dropped|low|lower|regress|regression|stutter|stutters|stuttering|hitch|hitching)\b/i,
   /\b(?:drop|drops|dropped|low|lower|regress|regression|stutter|stutters|stuttering|hitch|hitching)\b.{0,60}\b(?:fps|frame ?rate|framerate)\b/i,
+  /\b(?:awful|bad|poor|terrible|horrible|worse|broken)\b.{0,50}\bperformance\b/i,
+  /\bperformance\b.{0,50}\b(?:awful|bad|poor|terrible|horrible|worse|broken)\b/i,
   /\b(?:crash|crashes|crashed|crashing|crash-to-desktop|ctd|freeze|freezes|freezing|hang|hangs|hanging)\b/i,
   /\b(?:lockup|lockups|locks up|input lock|input locks|unresponsive|controls? (?:stop|stops|stopped|locked|freeze|freezes))\b/i,
   /\b(?:artifact|artifacts|ghosting|flicker|flickering|texture shimmer|screen tearing)\b/i,
@@ -70,6 +72,7 @@ function explicitPatchVersions(text: string): string[] {
   const versions: string[] = [];
   const patterns = [
     /\b(?:patch|update|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
+    /\b(?:after|since|on)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
     /\b(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update)\b/gi,
   ] as const;
   for (const pattern of patterns) {

@@ -33,4 +33,39 @@ describe("source monitor run display", () => {
     );
     expect(summary.errorSummary).toBe("No errors");
   });
+
+  it("labels a stood-down scheduled attempt as a recent scan already ran", () => {
+    const summary = summarizeRunMessages(["recent_run"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({ code: "recent_run", count: 1, label: "Recent scan already ran" }),
+    ]);
+  });
+
+  it("labels a stood-down scheduled attempt as paused when scans are paused", () => {
+    const summary = summarizeRunMessages(["paused"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({ code: "paused", count: 1, label: "Scheduled scans paused" }),
+    ]);
+  });
+
+  it("labels policy cap skip reasons in plain language", () => {
+    const summary = summarizeRunMessages(["tavily_credit_cap", "llm_budget_capped"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({ code: "tavily_credit_cap", count: 1, label: "Search credit cap reached" }),
+      expect.objectContaining({ code: "llm_budget_capped", count: 1, label: "LLM cap reached" }),
+    ]);
+  });
+
+  it("maps known error codes to plain-language labels in the error summary", () => {
+    expect(summarizeRunMessages([], ["stale_running_run"]).errorSummary).toBe("Crashed run cleaned up");
+  });
+
+  it("leaves unrecognized error strings untouched alongside mapped codes", () => {
+    expect(summarizeRunMessages([], ["stale_running_run", "reddit failed: timeout"]).errorSummary).toBe(
+      "Crashed run cleaned up; reddit failed: timeout",
+    );
+  });
 });

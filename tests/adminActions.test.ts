@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   rescueCandidateSignal: vi.fn(),
   revalidatePath: vi.fn(),
   revalidateTag: vi.fn(),
-  runAutomationMonitor: vi.fn(),
   unstableCache: vi.fn((fn: unknown) => fn),
 }));
 
@@ -20,7 +19,6 @@ vi.mock("next/cache", () => ({
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/automation/run", () => ({
-  runAutomationMonitor: mocks.runAutomationMonitor,
   rescueCandidateSignal: mocks.rescueCandidateSignal,
 }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from }) }));
@@ -168,7 +166,7 @@ describe("setAutomationPaused", () => {
       type: "upsert",
       row: expect.objectContaining({
         key: "scanner",
-        value: { paused: true },
+        value: expect.objectContaining({ paused: true }),
       }),
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/source-monitor");
@@ -177,14 +175,34 @@ describe("setAutomationPaused", () => {
   });
 });
 
-describe("runAutomationCappedScan", () => {
-  it("revalidates the admin dashboard after a manual scanner run", async () => {
-    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
-    const { runAutomationCappedScan } = await import("@/app/admin/actions");
+describe("setScannerPolicy", () => {
+  it("persists a clamped scanner policy behind admin auth", async () => {
+    const { setScannerPolicy } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("paused", "true");
+    formData.set("minIntervalMinutes", "120");
+    formData.set("scheduledSearchCreditsPerRun", "3");
+    formData.set("monthlyTavilyCreditCap", "-5");
+    formData.set("monthlyLlmUsdCap", "7");
+    formData.set("modelPreset", "expensive-model");
 
-    await runAutomationCappedScan();
+    await setScannerPolicy(formData);
 
-    expect(mocks.runAutomationMonitor).toHaveBeenCalledWith({ mode: "manual" });
+    expect(mutations).toContainEqual({
+      table: "automation_settings",
+      type: "upsert",
+      row: expect.objectContaining({
+        key: "scanner",
+        value: {
+          paused: true,
+          minIntervalMinutes: 120,
+          scheduledSearchCreditsPerRun: 3,
+          monthlyTavilyCreditCap: 900,
+          monthlyLlmUsdCap: 5,
+          modelPreset: "deepseek_qwen_pro",
+        },
+      }),
+    });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/source-monitor");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");

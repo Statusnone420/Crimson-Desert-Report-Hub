@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getRedditToken: vi.fn(),
   getAutomationControlState: vi.fn(),
   runAutomationMonitor: vi.fn(),
+  insertSkippedScheduledRun: vi.fn(),
   syncOfficialPatchNote: vi.fn(),
   tavilySearch: vi.fn(),
 }));
@@ -77,7 +78,7 @@ const tables: Record<TableName, Row[]> = {
 const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
-let selectFailure: { table: TableName; message: string } | null = null;
+let selectFailure: { table: TableName; message: string; columns?: string } | null = null;
 let updateFailure: { table: TableName; message: string } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
 
@@ -129,6 +130,7 @@ class FakeQuery {
   private limitCount: number | null = null;
   private orderBy: { column: string; ascending: boolean } | null = null;
   private patch: Row | null = null;
+  private selectedColumns: string | undefined;
   private selectOptions: { count?: "exact"; head?: boolean } | undefined;
   private singleResult = false;
   private upsertRows: Row[] | null = null;
@@ -136,7 +138,8 @@ class FakeQuery {
 
   constructor(private readonly table: TableName) {}
 
-  select(_columns?: string, options?: { count?: "exact"; head?: boolean }) {
+  select(columns?: string, options?: { count?: "exact"; head?: boolean }) {
+    this.selectedColumns = columns;
     this.selectOptions = options;
     return this;
   }
@@ -236,7 +239,10 @@ class FakeQuery {
         ...row,
       };
       tables[this.table].push(next);
-      mutations.push({ table: this.table, type: "insert", row: next });
+      // Snapshot at insert time: `next` is also the live row in `tables`, and later
+      // updates mutate it in place, so the mutation log would otherwise reflect the
+      // row's final state instead of what was actually inserted.
+      mutations.push({ table: this.table, type: "insert", row: { ...next } });
       return next;
     });
     return { data: this.singleResult ? inserted[0] : inserted, error: null };
@@ -270,7 +276,15 @@ class FakeQuery {
   }
 
   private executeSelect() {
-    if (selectFailure?.table === this.table) {
+    // A failure with `columns` set targets only queries whose select string
+    // contains it (e.g. loadMonthSpend's "estimated_cost_usd"). Substring match,
+    // not equality, so adding a column to the production select can't silently
+    // turn the injection into a no-op. Without `columns`, every select on the
+    // table fails.
+    if (
+      selectFailure?.table === this.table &&
+      (!selectFailure.columns || (this.selectedColumns ?? "").includes(selectFailure.columns))
+    ) {
       return { data: null, count: null, error: { message: selectFailure.message } };
     }
     let rows = this.filteredRows().map((row) => ({ ...row }));
@@ -343,10 +357,19 @@ function configureProviders() {
       summary: isCrash ? "Map crash on PS5." : "Players report FPS drops on Steam.",
       extractionProvider: canUseOpenRouter ? "openrouter" : "deterministic",
       extractionModel: canUseOpenRouter ? process.env.OPENROUTER_FREE_MODEL : null,
-      llmCallUsed: Boolean(canUseOpenRouter),
+      llmCallsUsed: canUseOpenRouter ? 1 : 0,
+      llmCostUsd: canUseOpenRouter ? 0.0002 : 0,
     };
   });
-  mocks.getAutomationControlState.mockResolvedValue({ paused: false, updatedAt: null });
+  mocks.getAutomationControlState.mockResolvedValue({
+    paused: false,
+    minIntervalMinutes: 60,
+    scheduledSearchCreditsPerRun: 1,
+    monthlyTavilyCreditCap: 900,
+    monthlyLlmUsdCap: 1,
+    modelPreset: "deepseek_qwen_pro",
+    updatedAt: null,
+  });
 }
 
 beforeEach(() => {
@@ -405,6 +428,41 @@ describe("runAutomationMonitor", () => {
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("patch 1.14.00");
   });
 
+  it("rotates one-credit scheduled web search across adjacent hourly scans", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe("Crimson Desert patch 1.13.00 FPS drops stutter issue");
+    expect(mocks.tavilySearch.mock.calls[1][0]).toBe("Crimson Desert patch 1.13.00 crash freeze issue");
+  });
+
   it("budget 0 skips paid search and OpenRouter attempts but still stores deterministic Reddit signals", async () => {
     process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
     const { runAutomationMonitor } = await importRunner();
@@ -426,27 +484,135 @@ describe("runAutomationMonitor", () => {
     });
   });
 
-  it("fails closed when the monthly automation spend ledger cannot be read", async () => {
+  it("scheduled runs with an exhausted Tavily credit cap write a skipped ledger row without providers", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-used-credit",
+          started_at: "2026-07-01T12:00:00.000Z",
+          estimated_cost_usd: 0.008,
+          search_queries_used: 1,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(result.status).toBe("skipped");
+    expect(result.skips).toContain("tavily_credit_cap");
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs).toHaveLength(2);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "skipped",
+      mode: "scheduled",
+      skips: expect.arrayContaining(["tavily_credit_cap"]),
+    });
+  });
+
+  it("scheduled runs with an exhausted LLM cap write a skipped ledger row without providers", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-used-llm",
+          started_at: "2026-07-01T12:00:00.000Z",
+          estimated_cost_usd: 1.008,
+          search_queries_used: 1,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(result.status).toBe("skipped");
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "skipped",
+      mode: "scheduled",
+      skips: expect.arrayContaining(["llm_budget_capped"]),
+    });
+  });
+
+  it("fails closed when the automation_runs ledger cannot be read for the active-run check", async () => {
+    // The active-run pre-flight check reads automation_runs before any ledger row
+    // exists for this attempt, so a broadly unreadable ledger table must abort
+    // before touching Reddit/search/LLM providers, with zero ledger rows written.
     selectFailure = { table: "automation_runs", message: "ledger unavailable" };
+    const { runAutomationMonitor } = await importRunner();
+
+    await expect(runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") })).rejects.toThrow(
+      "ledger unavailable",
+    );
+
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs).toHaveLength(0);
+    expect(mutations.filter((mutation) => mutation.type === "insert")).toHaveLength(0);
+  });
+
+  it("skips the run but still writes and finalizes a ledger row when only the month spend read fails", async () => {
+    // Fail ONLY loadMonthSpend's select (estimated_cost_usd); hasActiveRun's
+    // select (id) succeeds, so the run starts, creates a running ledger row,
+    // and finalizes it as skipped with the budget read error recorded.
+    selectFailure = { table: "automation_runs", columns: "estimated_cost_usd", message: "spend ledger unavailable" };
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(result.status).toBe("skipped");
     expect(result.skips).toContain("budget_read_failed");
-    expect(result.errors[0]).toContain("ledger unavailable");
+    expect(result.errors[0]).toContain("spend ledger unavailable");
     expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(openRouterAttempts).toBe(0);
+
+    const insertMutation = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "insert");
+    expect(insertMutation).toBeDefined();
+    expect(insertMutation!.row).toMatchObject({ status: "running" });
+
     expect(tables.automation_runs).toHaveLength(1);
     expect(tables.automation_runs[0]).toMatchObject({
       status: "skipped",
-      search_queries_used: 0,
-      llm_calls_used: 0,
-      signals_inserted: 0,
-      errors: [expect.stringContaining("ledger unavailable")],
+      skips: expect.arrayContaining(["budget_read_failed"]),
+      errors: [expect.stringContaining("spend ledger unavailable")],
     });
-    expect(mutations.filter((mutation) => mutation.table !== "automation_runs")).toHaveLength(0);
+    expect(tables.automation_runs[0].finished_at).toBeTruthy();
+    expect(mutations.filter((mutation) => mutation.type === "insert" && mutation.table !== "automation_runs")).toHaveLength(0);
   });
 
   it("non-dry runs cluster two independent trusted+unknown domains and promote them public", async () => {
@@ -671,7 +837,8 @@ describe("runAutomationMonitor", () => {
           summary: "No reported issues.",
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
-          llmCallUsed: true,
+          llmCallsUsed: 1,
+          llmCostUsd: 0,
         };
       }
       if (/review/i.test(candidate.title)) {
@@ -683,7 +850,8 @@ describe("runAutomationMonitor", () => {
           summary: "Review coverage with no reported issue.",
           extractionProvider: "deterministic",
           extractionModel: null,
-          llmCallUsed: true,
+          llmCallsUsed: 1,
+          llmCostUsd: 0,
           fallbackReason: "openrouter_invalid_json",
         };
       }
@@ -695,7 +863,8 @@ describe("runAutomationMonitor", () => {
         summary: "Players report FPS drops on Steam after patch 1.13.",
         extractionProvider: "openrouter",
         extractionModel: "openrouter/free",
-        llmCallUsed: true,
+        llmCallsUsed: 1,
+        llmCostUsd: 0,
       };
     });
     const { runAutomationMonitor } = await importRunner();
@@ -972,6 +1141,87 @@ describe("runAutomationMonitor", () => {
       errors: [expect.stringContaining("source signal status update failed")],
     });
   });
+
+  it("creates a running ledger row first, then finalizes the same row with a terminal status", async () => {
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.automation_runs).toHaveLength(1);
+    const insertMutation = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "insert");
+    expect(insertMutation).toBeDefined();
+    expect(insertMutation!.row).toMatchObject({ status: "running" });
+    expect((insertMutation!.row as { finished_at?: unknown }).finished_at).toBeUndefined();
+
+    const finalRow = tables.automation_runs[0];
+    expect(finalRow.id).toBe((insertMutation!.row as { id: string }).id);
+    expect(finalRow.status).toBe(result.status);
+    expect(finalRow.finished_at).toBeTruthy();
+
+    const updateMutations = mutations.filter(
+      (mutation) => mutation.table === "automation_runs" && mutation.type === "update",
+    );
+    const finalizeMutation = updateMutations.find(
+      (mutation) => (mutation.row as { finished_at?: unknown }).finished_at,
+    );
+    expect(finalizeMutation).toBeDefined();
+  });
+
+  it("sweeps stale running runs to failed with a 15-minute started_at cutoff", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-stale",
+          status: "running",
+          started_at: "2026-07-05T11:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    const { sweepStaleRuns } = await importRunner();
+
+    const now = new Date("2026-07-05T12:00:00.000Z");
+    await sweepStaleRuns({ from: mocks.from } as unknown as Parameters<typeof sweepStaleRuns>[0], now);
+
+    const sweepUpdate = mutations.find(
+      (mutation) => mutation.table === "automation_runs" && mutation.type === "update" && (mutation.row as { status?: unknown }).status === "failed",
+    );
+    expect(sweepUpdate).toBeDefined();
+    expect(tables.automation_runs[0]).toMatchObject({ status: "failed", finished_at: now.toISOString() });
+  });
+
+  it("startAutomationScan reports already_running when a running row exists within the stale window", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-active",
+          status: "running",
+          started_at: "2026-07-05T11:55:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    const { startAutomationScan } = await importRunner();
+
+    const started = await startAutomationScan({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(started).toEqual({ status: "already_running", runId: null });
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+  });
+
+  it("writes a screening-stage progress update while candidates are being processed", async () => {
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const progressUpdates = mutations
+      .filter((mutation) => mutation.table === "automation_runs" && mutation.type === "update")
+      .map((mutation) => (mutation.row as { progress?: { stage?: string } }).progress)
+      .filter((progress): progress is { stage?: string } => Boolean(progress));
+
+    expect(progressUpdates.some((progress) => progress.stage === "screening")).toBe(true);
+  });
 });
 
 describe("cron keepalive route", () => {
@@ -980,7 +1230,10 @@ describe("cron keepalive route", () => {
     process.env.VERCEL_ENV = "preview";
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1001,7 +1254,10 @@ describe("cron keepalive route", () => {
     process.env.CRON_SECRET = "cron-secret";
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1017,7 +1273,10 @@ describe("cron keepalive route", () => {
     delete process.env.CRON_SECRET;
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1039,7 +1298,10 @@ describe("cron keepalive route", () => {
     mocks.getAutomationControlState.mockResolvedValue({ paused: true, updatedAt: "2026-07-05T12:00:00.000Z" });
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1055,6 +1317,7 @@ describe("cron keepalive route", () => {
       automation: { status: "skipped", reason: "paused" },
     });
     expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "paused", expect.any(Date));
   });
 
   it("preserves keepalive and purge work but skips automation when a recent run exists", async () => {
@@ -1062,7 +1325,15 @@ describe("cron keepalive route", () => {
     vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
     process.env.CRON_SECRET = "cron-secret";
     resetDb({
-      automation_runs: [{ id: "run-recent", started_at: "2026-07-05T08:00:00.000Z", estimated_cost_usd: 0 }],
+      automation_runs: [
+        {
+          id: "run-recent",
+          started_at: "2026-07-05T11:30:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
       issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
       source_signals: [
         {
@@ -1075,7 +1346,10 @@ describe("cron keepalive route", () => {
     configureProviders();
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
     vi.resetModules();
-    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
     vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
     const { GET } = await import("@/app/api/cron/keepalive/route");
 
@@ -1093,7 +1367,150 @@ describe("cron keepalive route", () => {
       automation: { status: "skipped", reason: "recent_run" },
     });
     expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "recent_run", expect.any(Date));
     expect(tables.source_signals[0]).toMatchObject({ raw_text: null, raw_expires_at: null });
+  });
+
+  it("uses the scanner policy interval when deciding whether a run is recent", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-recent-policy",
+          started_at: "2026-07-05T10:30:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "manual",
+          status: "success",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.getAutomationControlState.mockResolvedValue({
+      paused: false,
+      minIntervalMinutes: 120,
+      scheduledSearchCreditsPerRun: 1,
+      monthlyTavilyCreditCap: 900,
+      monthlyLlmUsdCap: 1,
+      modelPreset: "deepseek_qwen_pro",
+      updatedAt: "2026-07-05T12:00:00.000Z",
+    });
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      automation: { status: "skipped", reason: "recent_run" },
+    });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "recent_run", expect.any(Date));
+  });
+
+  it("skips with a running reason when a scheduled attempt finds an active scan", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-active",
+          started_at: "2026-07-05T11:55:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "manual",
+          status: "running",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      automation: { status: "skipped", reason: "scan_already_running" },
+    });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(
+      expect.anything(),
+      "scan_already_running",
+      expect.any(Date),
+    );
+  });
+
+  it("runs the scheduled scan when only a dry run is recent and writes no skip marker", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-dry",
+          started_at: "2026-07-05T08:00:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "dry_run",
+          status: "success",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      automation: { status: "success" },
+    });
+    expect(mocks.runAutomationMonitor).toHaveBeenCalledWith({
+      mode: "scheduled",
+      scannerPolicy: expect.objectContaining({
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+      }),
+    });
+    expect(mocks.insertSkippedScheduledRun).not.toHaveBeenCalled();
   });
 });
 
@@ -1134,7 +1551,8 @@ describe("cron source preview route", () => {
             summary: "Players report FPS drops after patch 1.13.",
             extractionProvider: "openrouter",
             extractionModel: "openrouter/free",
-            llmCallUsed: true,
+            llmCallsUsed: 1,
+            llmCostUsd: 0,
           },
         },
       ],

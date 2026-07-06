@@ -8,6 +8,7 @@ import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { buildSearchQueries, tavilySearch, type SearchResult } from "@/lib/automation/search";
+import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { automationBudgetUsd, automationSubreddits, features } from "@/lib/env";
@@ -29,9 +30,90 @@ export type AutomationResult = {
   signalsDeduped: number;
   clustersPromoted: number;
   estimatedCostUsd: number;
+  llmCostUsd: number;
   skips: string[];
   errors: string[];
 };
+
+export type RunProgress = {
+  stage: "starting" | "searching" | "screening" | "persisting" | "done";
+  searchesDone: number;
+  searchTotal: number;
+  candidatesSeen: number;
+  prefilterRejected: number;
+  llmCallsUsed: number;
+  kept: number;
+  promoted: number;
+};
+
+function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
+  return {
+    stage,
+    searchesDone: result.searchQueriesUsed,
+    searchTotal,
+    candidatesSeen: result.candidatesSeen,
+    prefilterRejected: result.prefilterRejected,
+    llmCallsUsed: result.llmCallsUsed,
+    kept: result.signalsInserted,
+    promoted: result.clustersPromoted,
+  };
+}
+
+/** Best-effort progress write — never throws, never fails a run. */
+async function writeProgress(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  progress: RunProgress,
+): Promise<void> {
+  try {
+    await supabase.from("automation_runs").update({ progress }).eq("id", runId);
+  } catch {
+    // best-effort by design
+  }
+}
+
+const STALE_RUN_MINUTES = 15;
+
+/** Finalize crashed runs: a killed serverless function can never finalize its own row. */
+export async function sweepStaleRuns(
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+): Promise<void> {
+  try {
+    await supabase
+      .from("automation_runs")
+      .update({
+        status: "failed",
+        finished_at: now.toISOString(),
+        errors: ["stale_running_run"],
+      })
+      .eq("status", "running")
+      .lt("started_at", new Date(now.getTime() - STALE_RUN_MINUTES * 60 * 1000).toISOString());
+  } catch {
+    // best-effort by design
+  }
+}
+
+/**
+ * BEST-EFFORT concurrency protection, not a lock. The sweep -> check -> create
+ * sequence is not atomic and there is no DB unique constraint on
+ * status = 'running', so two simultaneous starts can both pass this check and
+ * both create a run. Upstream guards (cron's policy recency check, single-admin
+ * manual use) make that acceptable — do not rely on this as mutual exclusion.
+ */
+export async function hasActiveRun(
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("automation_runs")
+    .select("id")
+    .eq("status", "running")
+    .gte("started_at", new Date(now.getTime() - STALE_RUN_MINUTES * 60 * 1000).toISOString())
+    .limit(1);
+  if (error) throw new Error(`active run read failed: ${error.message}`);
+  return ((data ?? []) as { id: string }[]).length > 0;
+}
 
 type SourceInput = {
   source: "reddit" | "web_search";
@@ -92,6 +174,7 @@ type ApprovedExcerptRow = {
 };
 
 const SEARCH_QUERY_COST_USD = 0.008;
+const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
 
 function searchResultToInput(result: SearchResult): SourceInput {
   return {
@@ -154,16 +237,27 @@ function lastObservedAt(rows: SourceSignalRow[]): string | null {
 async function loadMonthSpend(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
-): Promise<number> {
+): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number }> {
   const { data, error } = await supabase
     .from("automation_runs")
-    .select("estimated_cost_usd")
+    .select("estimated_cost_usd, search_queries_used")
     .gte("started_at", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString());
   if (error) throw new Error(`automation spend read failed: ${error.message}`);
-  return ((data ?? []) as { estimated_cost_usd?: number | string | null }[]).reduce(
-    (sum, row) => sum + Number(row.estimated_cost_usd ?? 0),
-    0,
+  const usage = ((data ?? []) as { estimated_cost_usd?: number | string | null; search_queries_used?: number | string | null }[]).reduce(
+    (sum, row) => ({
+      estimatedCostUsd: sum.estimatedCostUsd + Number(row.estimated_cost_usd ?? 0),
+      tavilyCredits: sum.tavilyCredits + Number(row.search_queries_used ?? 0),
+    }),
+    { estimatedCostUsd: 0, tavilyCredits: 0 },
   );
+  return {
+    ...usage,
+    llmCostUsd: Math.max(0, usage.estimatedCostUsd - usage.tavilyCredits * SEARCH_QUERY_COST_USD),
+  };
+}
+
+function searchRotationOffset(now: Date): number {
+  return Math.floor(now.getTime() / SEARCH_ROTATION_WINDOW_MS);
 }
 
 async function collectInputs(
@@ -171,6 +265,7 @@ async function collectInputs(
   budget: AutomationBudget,
   now: Date,
   patchVersion: string,
+  report?: () => Promise<void>,
 ): Promise<SourceInput[]> {
   const inputs: SourceInput[] = [];
   const f = features();
@@ -202,7 +297,7 @@ async function collectInputs(
   }
 
   if (f.webSearch && budget.allowPaidSearch) {
-    for (const query of buildSearchQueries(budget.maxSearchQueries, patchVersion)) {
+    for (const query of buildSearchQueries(budget.maxSearchQueries, patchVersion, { rotationOffset: searchRotationOffset(now) })) {
       try {
         result.searchQueriesUsed += 1;
         result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
@@ -213,6 +308,7 @@ async function collectInputs(
         result.status = "partial";
         result.errors.push(toErrorMessage(error, "search failed"));
       }
+      await report?.();
     }
   } else if (!f.webSearch) {
     result.skips.push("search_disabled");
@@ -227,6 +323,7 @@ async function prepareSignals(
   budget: AutomationBudget,
   patchVersion: string,
   clusterOptions: ClusterOption[],
+  report?: () => Promise<void>,
 ): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[] }> {
   const prepared: PreparedSignal[] = [];
   const rejected: RejectedCandidate[] = [];
@@ -271,14 +368,21 @@ async function prepareSignals(
         snippet: signal.body.slice(0, 500),
         reason: preScreen.reason,
       });
+      await report?.();
       continue;
     }
 
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
-      { llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed), clusterOptions },
+      {
+        llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed),
+        llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
+        clusterOptions,
+      },
     );
-    if (extraction.llmCallUsed) result.llmCallsUsed += 1;
+    result.llmCallsUsed += extraction.llmCallsUsed;
+    result.llmCostUsd += extraction.llmCostUsd ?? 0;
+    result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
 
     const relevance = shouldKeepExtractedSignal(extraction);
@@ -291,6 +395,7 @@ async function prepareSignals(
         snippet: signal.body.slice(0, 500),
         reason: relevance.reason,
       });
+      await report?.();
       continue;
     }
 
@@ -302,6 +407,7 @@ async function prepareSignals(
       extraction,
     });
     result.signalsInserted += 1;
+    await report?.();
   }
 
   return { prepared, rejected };
@@ -440,7 +546,7 @@ async function upsertSignal(
       public_status: "private",
       extraction_provider: signal.extraction.extractionProvider,
       extraction_model: signal.extraction.extractionModel,
-      cost_estimate_usd: 0,
+      cost_estimate_usd: signal.extraction.llmCostUsd ?? 0,
     },
     { onConflict: "external_id_hash" },
   );
@@ -577,22 +683,49 @@ async function persistSignals(
   }
 }
 
-async function insertRunLedger(
+async function createRunLedger(
   supabase: ReturnType<typeof createServiceClient>,
   mode: AutomationMode,
   budget: AutomationBudget,
-  result: AutomationResult,
   now: Date,
 ): Promise<string> {
   const { data, error } = await supabase
     .from("automation_runs")
     .insert({
       started_at: now.toISOString(),
-      finished_at: new Date().toISOString(),
-      status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
+      status: "running",
       mode,
       budget_monthly_usd: budget.monthlyBudgetUsd,
       budget_remaining_before_usd: budget.remainingMonthUsd,
+      progress: {
+        stage: "starting",
+        searchesDone: 0,
+        searchTotal: budget.maxSearchQueries,
+        candidatesSeen: 0,
+        prefilterRejected: 0,
+        llmCallsUsed: 0,
+        kept: 0,
+        promoted: 0,
+      } satisfies RunProgress,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`automation run create failed: ${error.message}`);
+  const id = (data as { id?: string } | null)?.id;
+  if (!id) throw new Error("automation run create returned no id");
+  return id;
+}
+
+async function finalizeRunLedger(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  result: AutomationResult,
+): Promise<void> {
+  const { error } = await supabase
+    .from("automation_runs")
+    .update({
+      finished_at: new Date().toISOString(),
+      status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
       estimated_cost_usd: result.estimatedCostUsd,
       reddit_posts_seen: result.redditPostsSeen,
       search_queries_used: result.searchQueriesUsed,
@@ -611,13 +744,10 @@ async function insertRunLedger(
         kept: result.signalsInserted,
         promoted: result.clustersPromoted,
       },
+      progress: snapshotProgress("done", result, result.searchQueriesUsed),
     })
-    .select("id")
-    .single();
-  if (error) throw new Error(error.message);
-  const id = (data as { id?: string } | null)?.id;
-  if (!id) throw new Error("automation run ledger insert returned no id");
-  return id;
+    .eq("id", runId);
+  if (error) throw new Error(`automation run finalize failed: ${error.message}`);
 }
 
 const MAX_REJECTED_CANDIDATES_PER_RUN = 50;
@@ -656,24 +786,35 @@ async function deleteExpiredRejectedCandidates(
   }
 }
 
-export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date }): Promise<AutomationResult> {
-  const now = input.now ?? new Date();
-  const supabase = createServiceClient();
-  const monthlyBudgetUsd = automationBudgetUsd();
-  let budgetReadError: string | null = null;
-  let spentMonthToDateUsd = 0;
+/**
+ * Finalize without ever throwing: `executeAutomationRun`'s promise is handed out
+ * detached (`StartedScan.completion`), so a rejection here would be an
+ * unhandled-rejection crash for any fire-and-forget caller. If the finalize
+ * write fails, the row stays `running` and the stale sweep marks it failed
+ * later — that is the designed recovery path.
+ */
+async function finalizeRunLedgerSafely(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  result: AutomationResult,
+): Promise<void> {
   try {
-    spentMonthToDateUsd = await loadMonthSpend(supabase, now);
+    await finalizeRunLedger(supabase, runId, result);
   } catch (error) {
-    budgetReadError = toErrorMessage(error, "automation spend read failed");
-    spentMonthToDateUsd = monthlyBudgetUsd;
+    result.errors.push(toErrorMessage(error, "automation run finalize failed"));
+    if (result.status === "success") result.status = "failed";
   }
-  const budget = computeAutomationBudget({
-    monthlyBudgetUsd,
-    spentMonthToDateUsd,
-    now,
-  });
+}
 
+/** Never rejects — always resolves to an AutomationResult (see finalizeRunLedgerSafely). */
+async function executeAutomationRun(
+  supabase: ReturnType<typeof createServiceClient>,
+  runId: string,
+  mode: AutomationMode,
+  budget: AutomationBudget,
+  budgetReadError: string | null,
+  now: Date,
+): Promise<AutomationResult> {
   const result: AutomationResult = {
     status: "success",
     redditPostsSeen: 0,
@@ -686,6 +827,7 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     signalsDeduped: 0,
     clustersPromoted: 0,
     estimatedCostUsd: 0,
+    llmCostUsd: 0,
     skips: [...budget.skipReasons],
     errors: [],
   };
@@ -694,44 +836,152 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     result.status = "skipped";
     result.skips.push("budget_read_failed");
     result.errors.push(budgetReadError);
-    await insertRunLedger(supabase, input.mode, budget, result, now);
+    await finalizeRunLedgerSafely(supabase, runId, result);
+    return result;
+  }
+  if (mode === "scheduled" && budget.skipReasons.length > 0) {
+    result.status = "skipped";
+    await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }
 
-  let currentPatch = await getCurrentPatchMetadata(supabase);
-  if (input.mode !== "dry_run") {
-    try {
-      currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
-    } catch (error) {
-      result.status = "partial";
-      result.errors.push(toErrorMessage(error, "official patch sync failed"));
+  const report = (stage: RunProgress["stage"]) =>
+    writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
+
+  let rejected: RejectedCandidate[] = [];
+
+  try {
+    let currentPatch = await getCurrentPatchMetadata(supabase);
+    if (mode !== "dry_run") {
+      try {
+        currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
+      } catch (error) {
+        result.status = "partial";
+        result.errors.push(toErrorMessage(error, "official patch sync failed"));
+      }
     }
+
+    const routableClusters = await loadRoutableClusters(supabase);
+    const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+
+    await report("searching");
+    const inputs = await collectInputs(result, budget, now, currentPatch.version, () => report("searching"));
+    const prepared = await prepareSignals(
+      inputs,
+      result,
+      budget,
+      currentPatch.version,
+      clusterOptions,
+      () => report("screening"),
+    );
+    rejected = prepared.rejected;
+
+    if (mode !== "dry_run") {
+      await report("persisting");
+      try {
+        await persistSignals(supabase, prepared.prepared, result, now, routableClusters);
+      } catch (error) {
+        result.status = "failed";
+        result.errors.push(toErrorMessage(error, "automation persistence failed"));
+      }
+    }
+
+    if (result.errors.length > 0 && result.status === "success") result.status = "partial";
+  } catch (error) {
+    result.status = "failed";
+    result.errors.push(toErrorMessage(error, "automation run crashed"));
   }
 
-  const routableClusters = await loadRoutableClusters(supabase);
-  const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
-
-  const inputs = await collectInputs(result, budget, now, currentPatch.version);
-  const { prepared, rejected } = await prepareSignals(inputs, result, budget, currentPatch.version, clusterOptions);
-
-  if (input.mode !== "dry_run") {
-    try {
-      await persistSignals(supabase, prepared, result, now, routableClusters);
-    } catch (error) {
-      result.status = "failed";
-      result.errors.push(toErrorMessage(error, "automation persistence failed"));
-    }
-  }
-
-  if (result.errors.length > 0 && result.status === "success") result.status = "partial";
-  const runId = await insertRunLedger(supabase, input.mode, budget, result, now);
-
-  if (input.mode !== "dry_run") {
+  if (mode !== "dry_run") {
     await persistRejectedCandidates(supabase, runId, rejected, result);
     await deleteExpiredRejectedCandidates(supabase, now, result);
   }
 
+  await finalizeRunLedgerSafely(supabase, runId, result);
   return result;
+}
+
+export type StartedScan =
+  | { status: "started"; runId: string; completion: Promise<AutomationResult> }
+  | { status: "already_running"; runId: null };
+
+export async function startAutomationScan(input: { mode: AutomationMode; now?: Date; scannerPolicy?: ScannerPolicy }): Promise<StartedScan> {
+  const now = input.now ?? new Date();
+  const supabase = createServiceClient();
+  await sweepStaleRuns(supabase, now);
+  if (await hasActiveRun(supabase, now)) return { status: "already_running", runId: null };
+
+  const monthlyBudgetUsd = input.scannerPolicy?.monthlyLlmUsdCap ?? automationBudgetUsd();
+  let budgetReadError: string | null = null;
+  let spentMonthToDateUsd = 0;
+  let tavilyCreditsMonthToDate = 0;
+  let llmSpentMonthToDateUsd = 0;
+  try {
+    const monthSpend = await loadMonthSpend(supabase, now);
+    spentMonthToDateUsd = monthSpend.estimatedCostUsd;
+    tavilyCreditsMonthToDate = monthSpend.tavilyCredits;
+    llmSpentMonthToDateUsd = monthSpend.llmCostUsd;
+  } catch (error) {
+    budgetReadError = toErrorMessage(error, "automation spend read failed");
+    spentMonthToDateUsd = monthlyBudgetUsd;
+    llmSpentMonthToDateUsd = monthlyBudgetUsd;
+  }
+  const budget = computeAutomationBudget({
+    monthlyBudgetUsd,
+    spentMonthToDateUsd,
+    tavilyCreditsMonthToDate,
+    llmSpentMonthToDateUsd,
+    mode: input.mode,
+    now,
+    scannerPolicy: input.scannerPolicy,
+  });
+
+  const runId = await createRunLedger(supabase, input.mode, budget, now);
+  const completion = executeAutomationRun(supabase, runId, input.mode, budget, budgetReadError, now);
+  return { status: "started", runId, completion };
+}
+
+/** Awaits the whole scan inline — used by the cron and tests. */
+export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date; scannerPolicy?: ScannerPolicy }): Promise<AutomationResult> {
+  const started = await startAutomationScan(input);
+  if (started.status === "already_running") {
+    return {
+      status: "skipped",
+      redditPostsSeen: 0,
+      searchQueriesUsed: 0,
+      searchResultsSeen: 0,
+      llmCallsUsed: 0,
+      candidatesSeen: 0,
+      prefilterRejected: 0,
+      signalsInserted: 0,
+      signalsDeduped: 0,
+      clustersPromoted: 0,
+      estimatedCostUsd: 0,
+      llmCostUsd: 0,
+      skips: ["scan_already_running"],
+      errors: [],
+    };
+  }
+  return started.completion;
+}
+
+/** Zero-cost ledger trace: proves the cron fired and explains why it didn't scan. Best-effort. */
+export async function insertSkippedScheduledRun(
+  supabase: ReturnType<typeof createServiceClient>,
+  reason: "paused" | "recent_run" | "scan_already_running" | "budget_zero" | "budget_capped" | "tavily_credit_cap" | "llm_budget_capped",
+  now: Date,
+): Promise<void> {
+  try {
+    await supabase.from("automation_runs").insert({
+      started_at: now.toISOString(),
+      finished_at: now.toISOString(),
+      status: "skipped",
+      mode: "scheduled",
+      skips: [reason],
+    });
+  } catch {
+    // best-effort by design
+  }
 }
 
 export async function rescueCandidateSignal(
