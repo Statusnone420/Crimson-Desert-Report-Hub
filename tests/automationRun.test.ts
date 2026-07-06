@@ -861,6 +861,49 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("keeps a public seeded watchlist cluster visible when a below-threshold signal routes into it", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "seed_unverified",
+          is_public: true,
+          auto_public: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-fps-seed-visible",
+        title: "FPS drops since 1.13",
+        selftext: "Steam users are seeing stutter.",
+        permalink: "/r/CrimsonDesert/comments/reddit-fps-seed-visible/fps/",
+        created_utc: 1783260000,
+      },
+    ]);
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    // The lone routed signal is below the promotion threshold and stays private...
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-seeded-perf", public_status: "private" });
+    // ...but the seeded watchlist item must remain publicly visible, not vanish.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: true,
+    });
+  });
+
   it("does not promote from a stale existing signal plus one fresh source", async () => {
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;

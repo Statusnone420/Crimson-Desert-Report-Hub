@@ -63,6 +63,7 @@ type ClusterRow = {
   category: Category;
   admin_visibility_override?: "force_public" | "force_hidden" | null;
   auto_public?: boolean | null;
+  is_public?: boolean | null;
 };
 
 type SourceSignalRow = {
@@ -449,7 +450,7 @@ async function upsertSignal(
 async function loadCluster(supabase: ReturnType<typeof createServiceClient>, clusterId: string): Promise<ClusterRow> {
   const { data, error } = await supabase
     .from("issue_clusters")
-    .select("id, category, admin_visibility_override, auto_public")
+    .select("id, category, admin_visibility_override, auto_public, is_public")
     .eq("id", clusterId)
     .limit(1);
   if (error) throw new Error(`automation cluster read failed: ${error.message}`);
@@ -504,6 +505,16 @@ async function refreshClusterStats(
   if (signalUpdateError) throw new Error(`source signal promotion update failed: ${signalUpdateError.message}`);
 
   const publicSignalCount = decision.publicStatus === "public" ? signals.length : 0;
+  // Promotion can turn a cluster public or (via admin force-hidden) hide it, but a
+  // below-threshold decision must NOT hide a cluster that is already public — that
+  // would make a seeded watchlist item vanish the moment a private scanner signal
+  // routes into it. Below threshold, keep the cluster's existing visibility.
+  const isPublic =
+    decision.publicStatus === "public"
+      ? true
+      : decision.publicStatus === "hidden"
+        ? false
+        : (cluster.is_public ?? false);
   const { error: clusterUpdateError } = await supabase
     .from("issue_clusters")
     .update({
@@ -513,7 +524,7 @@ async function refreshClusterStats(
       public_signal_count: publicSignalCount,
       last_signal_at: lastObservedAt(signals),
       auto_public: decision.publicStatus === "public",
-      is_public: decision.publicStatus === "public",
+      is_public: isPublic,
     })
     .eq("id", clusterId);
   if (clusterUpdateError) throw new Error(`issue cluster promotion update failed: ${clusterUpdateError.message}`);
