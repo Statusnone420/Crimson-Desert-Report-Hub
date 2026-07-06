@@ -356,7 +356,7 @@ function configureProviders() {
       summary: isCrash ? "Map crash on PS5." : "Players report FPS drops on Steam.",
       extractionProvider: canUseOpenRouter ? "openrouter" : "deterministic",
       extractionModel: canUseOpenRouter ? process.env.OPENROUTER_FREE_MODEL : null,
-      llmCallUsed: Boolean(canUseOpenRouter),
+      llmCallsUsed: canUseOpenRouter ? 1 : 0,
     };
   });
   mocks.getAutomationControlState.mockResolvedValue({ paused: false, updatedAt: null });
@@ -709,7 +709,7 @@ describe("runAutomationMonitor", () => {
           summary: "No reported issues.",
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
-          llmCallUsed: true,
+          llmCallsUsed: 1,
         };
       }
       if (/review/i.test(candidate.title)) {
@@ -721,7 +721,7 @@ describe("runAutomationMonitor", () => {
           summary: "Review coverage with no reported issue.",
           extractionProvider: "deterministic",
           extractionModel: null,
-          llmCallUsed: true,
+          llmCallsUsed: 1,
           fallbackReason: "openrouter_invalid_json",
         };
       }
@@ -733,7 +733,7 @@ describe("runAutomationMonitor", () => {
         summary: "Players report FPS drops on Steam after patch 1.13.",
         extractionProvider: "openrouter",
         extractionModel: "openrouter/free",
-        llmCallUsed: true,
+        llmCallsUsed: 1,
       };
     });
     const { runAutomationMonitor } = await importRunner();
@@ -1253,7 +1253,7 @@ describe("cron source preview route", () => {
             summary: "Players report FPS drops after patch 1.13.",
             extractionProvider: "openrouter",
             extractionModel: "openrouter/free",
-            llmCallUsed: true,
+            llmCallsUsed: 1,
           },
         },
       ],

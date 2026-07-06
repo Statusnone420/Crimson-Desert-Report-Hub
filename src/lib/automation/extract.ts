@@ -31,7 +31,7 @@ export type ExtractionFallbackReason =
 export type ExtractionResult = ExtractedSignal & {
   extractionProvider: ExtractionProvider;
   extractionModel: string | null;
-  llmCallUsed: boolean;
+  llmCallsUsed: number;
   fallbackReason?: ExtractionFallbackReason;
 };
 
@@ -88,13 +88,13 @@ function asConfidence(value: unknown): "low" | "medium" | "high" {
 function deterministicResult(
   candidate: SourceCandidate,
   fallbackReason?: ExtractionFallbackReason,
-  llmCallUsed = false,
+  llmCallsUsed = 0,
 ): ExtractionResult {
   return {
     ...deterministicExtract(candidate),
     extractionProvider: "deterministic",
     extractionModel: null,
-    llmCallUsed,
+    llmCallsUsed,
     ...(fallbackReason ? { fallbackReason } : {}),
   };
 }
@@ -172,6 +172,46 @@ export function parseOpenRouterExtraction(content: string, validSlugs: string[] 
   };
 }
 
+type AttemptOutcome =
+  | { ok: true; signal: ExtractedSignal }
+  | { ok: false; reason: "openrouter_provider_failure" | "openrouter_invalid_json" };
+
+async function attemptOpenRouterExtraction(
+  candidate: SourceCandidate,
+  fetcher: OpenRouterFetch,
+  apiKey: string,
+  model: string,
+  clusterOptions: ClusterOption[],
+): Promise<AttemptOutcome> {
+  let response: OpenRouterFetchResponse;
+  try {
+    response = await fetcher(OPENROUTER_CHAT_COMPLETIONS_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "You extract game issue reports and return only valid JSON." },
+          { role: "user", content: buildPrompt(candidate, clusterOptions) },
+        ],
+      }),
+    });
+  } catch {
+    return { ok: false, reason: "openrouter_provider_failure" };
+  }
+  if (!response.ok) return { ok: false, reason: "openrouter_provider_failure" };
+  try {
+    const content = readOpenRouterContent(await response.json());
+    if (!content) return { ok: false, reason: "openrouter_invalid_json" };
+    const validSlugs = clusterOptions.map((option) => option.slug);
+    return { ok: true, signal: parseOpenRouterExtraction(content, validSlugs) };
+  } catch {
+    return { ok: false, reason: "openrouter_invalid_json" };
+  }
+}
+
 export async function extractSignalWithOpenRouter(
   candidate: SourceCandidate,
   options: OpenRouterExtractionOptions,
@@ -190,41 +230,17 @@ export async function extractSignalWithOpenRouter(
   }
 
   const fetcher = options.fetcher ?? (fetch as unknown as OpenRouterFetch);
-  let response: OpenRouterFetchResponse;
-  try {
-    response = await fetcher(OPENROUTER_CHAT_COMPLETIONS_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: "You extract game issue reports and return only valid JSON.",
-          },
-          { role: "user", content: buildPrompt(candidate, options.clusterOptions ?? []) },
-        ],
-      }),
-    });
-  } catch {
-    return deterministicResult(candidate, "openrouter_provider_failure", true);
+  const clusterOptions = options.clusterOptions ?? [];
+  const maxAttempts = Math.min(2, Math.max(1, options.llmCallsRemaining));
+  let callsUsed = 0;
+  let lastReason: "openrouter_provider_failure" | "openrouter_invalid_json" = "openrouter_provider_failure";
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    callsUsed += 1;
+    const outcome = await attemptOpenRouterExtraction(candidate, fetcher, apiKey, model, clusterOptions);
+    if (outcome.ok) {
+      return { ...outcome.signal, extractionProvider: "openrouter", extractionModel: model, llmCallsUsed: callsUsed };
+    }
+    lastReason = outcome.reason;
   }
-
-  if (!response.ok) return deterministicResult(candidate, "openrouter_provider_failure", true);
-
-  try {
-    const content = readOpenRouterContent(await response.json());
-    if (!content) return deterministicResult(candidate, "openrouter_invalid_json", true);
-    const validSlugs = (options.clusterOptions ?? []).map((option) => option.slug);
-    return {
-      ...parseOpenRouterExtraction(content, validSlugs),
-      extractionProvider: "openrouter",
-      extractionModel: model,
-      llmCallUsed: true,
-    };
-  } catch {
-    return deterministicResult(candidate, "openrouter_invalid_json", true);
-  }
+  return deterministicResult(candidate, lastReason, callsUsed);
 }

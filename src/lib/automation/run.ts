@@ -362,7 +362,7 @@ async function prepareSignals(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
       { llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed), clusterOptions },
     );
-    if (extraction.llmCallUsed) result.llmCallsUsed += 1;
+    result.llmCallsUsed += extraction.llmCallsUsed;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
 
     const relevance = shouldKeepExtractedSignal(extraction);

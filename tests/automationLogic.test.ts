@@ -116,7 +116,7 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.extractionModel).toBeNull();
-    expect(result.llmCallUsed).toBe(false);
+    expect(result.llmCallsUsed).toBe(0);
     expect(result.fallbackReason).toBe("openrouter_paid_model");
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -134,7 +134,7 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.extractionModel).toBeNull();
-    expect(result.llmCallUsed).toBe(false);
+    expect(result.llmCallsUsed).toBe(0);
     expect(result.fallbackReason).toBe("openrouter_missing_config");
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -152,7 +152,7 @@ describe("automation extraction", () => {
     });
 
     expect(result.extractionProvider).toBe("deterministic");
-    expect(result.llmCallUsed).toBe(false);
+    expect(result.llmCallsUsed).toBe(0);
     expect(result.fallbackReason).toBe("llm_allowance_exhausted");
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -196,7 +196,7 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("openrouter");
     expect(result.extractionModel).toBe("meta-llama/llama-3.3-70b-instruct:free");
-    expect(result.llmCallUsed).toBe(true);
+    expect(result.llmCallsUsed).toBe(1);
     expect(result.category).toBe("performance");
     expect(fetcher).toHaveBeenCalledWith(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -265,7 +265,7 @@ describe("automation extraction", () => {
     });
 
     expect(result.extractionProvider).toBe("deterministic");
-    expect(result.llmCallUsed).toBe(true);
+    expect(result.llmCallsUsed).toBe(1);
     expect(result.fallbackReason).toBe("openrouter_invalid_json");
   });
 
@@ -284,9 +284,99 @@ describe("automation extraction", () => {
     });
 
     expect(result.extractionProvider).toBe("deterministic");
-    expect(result.llmCallUsed).toBe(true);
+    expect(result.llmCallsUsed).toBe(1);
     expect(result.fallbackReason).toBe("openrouter_provider_failure");
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once and succeeds after an initial invalid-JSON failure", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "{not json" } }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  issueTitle: "Map crash after patch",
+                  category: "crash_startup",
+                  platform: "ps5",
+                  confidence: "medium",
+                  summary: "Players report map-open crashes after the patch.",
+                }),
+              },
+            },
+          ],
+        }),
+      });
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
+      },
+      fetcher,
+      llmCallsRemaining: 2,
+    });
+
+    expect(result.extractionProvider).toBe("openrouter");
+    expect(result.llmCallsUsed).toBe(2);
+    expect(result.fallbackReason).toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to deterministic extraction with the last failure reason after two failed attempts", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "{not json" } }] }),
+      })
+      .mockRejectedValueOnce(new Error("network down"));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
+      },
+      fetcher,
+      llmCallsRemaining: 2,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallsUsed).toBe(2);
+    expect(result.fallbackReason).toBe("openrouter_provider_failure");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry beyond the LLM allowance when only one call remains", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+        OPENROUTER_FREE_MODEL: "meta-llama/llama-3.3-70b-instruct:free",
+      },
+      fetcher,
+      llmCallsRemaining: 1,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.llmCallsUsed).toBe(1);
+    expect(result.fallbackReason).toBe("openrouter_provider_failure");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -521,7 +611,7 @@ describe("automation relevance", () => {
           clusterSlug: null,
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
-          llmCallUsed: true,
+          llmCallsUsed: 1,
         }),
       ).toEqual({ keep: false, reason: "category_other" });
     });
@@ -537,7 +627,7 @@ describe("automation relevance", () => {
           clusterSlug: null,
           extractionProvider: "openrouter",
           extractionModel: "openrouter/free",
-          llmCallUsed: true,
+          llmCallsUsed: 1,
         }),
       ).toEqual({ keep: true });
     });

@@ -55,7 +55,7 @@ beforeEach(() => {
     summary: "Players report FPS drops on Steam after patch 1.13.",
     extractionProvider: "openrouter",
     extractionModel: "openrouter/free",
-    llmCallUsed: true,
+    llmCallsUsed: 1,
   });
 });
 
