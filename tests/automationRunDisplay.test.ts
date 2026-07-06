@@ -33,4 +33,20 @@ describe("source monitor run display", () => {
     );
     expect(summary.errorSummary).toBe("No errors");
   });
+
+  it("labels a stood-down scheduled attempt as a recent scan already ran", () => {
+    const summary = summarizeRunMessages(["recent_run"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({ code: "recent_run", count: 1, label: "Recent scan already ran" }),
+    ]);
+  });
+
+  it("labels a stood-down scheduled attempt as paused when scans are paused", () => {
+    const summary = summarizeRunMessages(["paused"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({ code: "paused", count: 1, label: "Scheduled scans paused" }),
+    ]);
+  });
 });

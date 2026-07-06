@@ -2,6 +2,7 @@ import { rescueRejectedCandidate, setAutomationPaused } from "@/app/admin/action
 import { ScanControls } from "@/components/ScanControls";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
+import { nextScheduledScanAt } from "@/lib/automation/schedule";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { automationBudgetUsd, features } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 type RunWork = {
   mode: string;
+  status: string;
   search_queries_used: number;
   llm_calls_used: number;
   signals_inserted: number;
@@ -19,6 +21,7 @@ type RunWork = {
 };
 
 function workSummary(run: RunWork): string {
+  if (run.status === "skipped") return "no scan started — see operator readout";
   const base = `${run.search_queries_used} searches · ${run.llm_calls_used} LLM`;
   if (run.mode === "dry_run") {
     // A dry run writes nothing to the database except this ledger row.
@@ -59,6 +62,8 @@ export default async function SourceMonitorPage() {
   const f = features();
   const budget = automationBudgetUsd();
   const { runs, signals, rejectedCandidates, control, activeRun } = await getAutomationAdminData();
+  const nextAttempt = nextScheduledScanAt(new Date());
+  const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
 
   return (
     <div className="space-y-6">
@@ -85,8 +90,23 @@ export default async function SourceMonitorPage() {
           </p>
           <div className="panel-inset border p-3 text-xs leading-5" style={{ color: "var(--text-dim)" }}>
             <div className="stat-label mb-1">Scheduled cadence</div>
-            Vercel cron attempts a scheduled scan daily at 09:00 UTC, which is 5:00 AM in Florida during daylight
-            saving time. It skips automation when any run started in the previous 6 hours.
+            <p>
+              Vercel cron attempts a scheduled scan daily at 09:00 UTC. Dry runs never block it; only a real scan in the
+              previous 6 hours makes it stand down — and every attempt now leaves a ledger entry below.
+            </p>
+            <p className="mt-1">
+              Next attempt: <span className="num">{formatEasternDateTime(nextAttempt.toISOString())}</span>
+            </p>
+            <p className="mt-1">
+              Last attempt:{" "}
+              {lastScheduled
+                ? `${formatEasternDateTime(lastScheduled.started_at)} — ${
+                    lastScheduled.status === "skipped"
+                      ? summarizeRunMessages(lastScheduled.skips, []).operatorSummary
+                      : lastScheduled.status
+                  }`
+                : "none recorded yet"}
+            </p>
           </div>
           <ScanControls activeRunId={activeRun?.id ?? null} />
           <div className="flex flex-wrap gap-2">

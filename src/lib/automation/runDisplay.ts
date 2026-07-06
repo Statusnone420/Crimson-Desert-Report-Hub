@@ -65,10 +65,25 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "OpenRouter failed or returned an error; deterministic extraction was used as a fallback.",
     summaryLabel: "OpenRouter provider failure",
   },
+  paused: {
+    label: "Scheduled scans paused",
+    detail: "The cron fired, but scheduled scans are paused, so no scan started.",
+    summaryLabel: "paused",
+  },
+  recent_run: {
+    label: "Recent scan already ran",
+    detail: "The cron fired, but a real scan started within the previous 6 hours, so this attempt stood down. Dry runs never block it.",
+    summaryLabel: "recent scan already ran",
+  },
   reddit_disabled: {
     label: "Reddit disabled",
     detail: "Reddit API credentials are not configured, so this run used web search only.",
     summaryLabel: "Reddit disabled",
+  },
+  scan_already_running: {
+    label: "Scan already running",
+    detail: "Another scan was still in progress, so this one did not start.",
+    summaryLabel: "scan already running",
   },
   search_disabled: {
     label: "Search disabled",
@@ -79,6 +94,11 @@ const SKIP_META: Record<string, MessageMeta> = {
     label: "Not issue reports",
     detail: "The source looked like patch notes, reviews, guides, or general content instead of a player issue report.",
     summaryLabel: "not issue reports",
+  },
+  stale_running_run: {
+    label: "Crashed run cleaned up",
+    detail: "A previous run never finished (likely a serverless timeout) and was marked failed by the sweeper.",
+    summaryLabel: "crashed run cleaned up",
   },
   wrong_patch: {
     label: "Wrong patch",
