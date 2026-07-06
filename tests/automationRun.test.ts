@@ -360,7 +360,15 @@ function configureProviders() {
       llmCallsUsed: canUseOpenRouter ? 1 : 0,
     };
   });
-  mocks.getAutomationControlState.mockResolvedValue({ paused: false, updatedAt: null });
+  mocks.getAutomationControlState.mockResolvedValue({
+    paused: false,
+    minIntervalMinutes: 60,
+    scheduledSearchCreditsPerRun: 1,
+    monthlyTavilyCreditCap: 900,
+    monthlyLlmUsdCap: 1,
+    modelPreset: "deepseek_qwen_pro",
+    updatedAt: null,
+  });
 }
 
 beforeEach(() => {
@@ -437,6 +445,89 @@ describe("runAutomationMonitor", () => {
       extraction_provider: "deterministic",
       extraction_model: null,
       public_status: "private",
+    });
+  });
+
+  it("scheduled runs with an exhausted Tavily credit cap write a skipped ledger row without providers", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-used-credit",
+          started_at: "2026-07-01T12:00:00.000Z",
+          estimated_cost_usd: 0.008,
+          search_queries_used: 1,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(result.status).toBe("skipped");
+    expect(result.skips).toContain("tavily_credit_cap");
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs).toHaveLength(2);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "skipped",
+      mode: "scheduled",
+      skips: expect.arrayContaining(["tavily_credit_cap"]),
+    });
+  });
+
+  it("scheduled runs with an exhausted LLM cap write a skipped ledger row without providers", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-used-llm",
+          started_at: "2026-07-01T12:00:00.000Z",
+          estimated_cost_usd: 1.008,
+          search_queries_used: 1,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(result.status).toBe("skipped");
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "skipped",
+      mode: "scheduled",
+      skips: expect.arrayContaining(["llm_budget_capped"]),
     });
   });
 
@@ -1198,7 +1289,7 @@ describe("cron keepalive route", () => {
       automation_runs: [
         {
           id: "run-recent",
-          started_at: "2026-07-05T08:00:00.000Z",
+          started_at: "2026-07-05T11:30:00.000Z",
           estimated_cost_usd: 0,
           mode: "scheduled",
           status: "success",
@@ -1241,6 +1332,99 @@ describe("cron keepalive route", () => {
     expect(tables.source_signals[0]).toMatchObject({ raw_text: null, raw_expires_at: null });
   });
 
+  it("uses the scanner policy interval when deciding whether a run is recent", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-recent-policy",
+          started_at: "2026-07-05T10:30:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "manual",
+          status: "success",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.getAutomationControlState.mockResolvedValue({
+      paused: false,
+      minIntervalMinutes: 120,
+      scheduledSearchCreditsPerRun: 1,
+      monthlyTavilyCreditCap: 900,
+      monthlyLlmUsdCap: 1,
+      modelPreset: "deepseek_qwen_pro",
+      updatedAt: "2026-07-05T12:00:00.000Z",
+    });
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      automation: { status: "skipped", reason: "recent_run" },
+    });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "recent_run", expect.any(Date));
+  });
+
+  it("skips with a running reason when a scheduled attempt finds an active scan", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-active",
+          started_at: "2026-07-05T11:55:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "manual",
+          status: "running",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      automation: { status: "skipped", reason: "scan_already_running" },
+    });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(
+      expect.anything(),
+      "scan_already_running",
+      expect.any(Date),
+    );
+  });
+
   it("runs the scheduled scan when only a dry run is recent and writes no skip marker", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
@@ -1278,7 +1462,15 @@ describe("cron keepalive route", () => {
       ok: true,
       automation: { status: "success" },
     });
-    expect(mocks.runAutomationMonitor).toHaveBeenCalledWith({ mode: "scheduled" });
+    expect(mocks.runAutomationMonitor).toHaveBeenCalledWith({
+      mode: "scheduled",
+      scannerPolicy: expect.objectContaining({
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+      }),
+    });
     expect(mocks.insertSkippedScheduledRun).not.toHaveBeenCalled();
   });
 });

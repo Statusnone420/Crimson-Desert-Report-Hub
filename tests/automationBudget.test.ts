@@ -18,33 +18,72 @@ describe("automation budget", () => {
     expect(budget.skipReasons).toContain("budget_zero");
   });
 
-  it("budget 5 derives bounded per-run caps", () => {
+  it("default scanner policy gives scheduled runs one Tavily credit with hourly month math", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 5,
       spentMonthToDateUsd: 0,
+      mode: "scheduled",
       now: new Date("2026-07-05T12:00:00Z"),
     });
     expect(budget.allowPaidSearch).toBe(true);
-    expect(budget.maxSearchQueries).toBeGreaterThan(0);
-    expect(budget.maxSearchQueries).toBeLessThanOrEqual(5);
-    expect(budget.maxLlmCalls).toBeLessThanOrEqual(20);
+    expect(budget.monthlyTavilyCreditCap).toBe(900);
+    expect(budget.remainingTavilyCredits).toBe(900);
+    expect(budget.maxSearchQueries).toBe(1);
+    expect(budget.maxLlmCalls).toBe(4);
     expect(budget.estimatedRunAllowanceUsd).toBeGreaterThan(0);
   });
 
-  it("exhausted budget skips paid work", () => {
+  it("honors the scanner policy search credits per scheduled run", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 5,
-      spentMonthToDateUsd: 5.01,
+      spentMonthToDateUsd: 0,
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00Z"),
+      scannerPolicy: {
+        scheduledSearchCreditsPerRun: 3,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+      },
+    });
+    expect(budget.maxSearchQueries).toBe(3);
+    expect(budget.maxSearchResults).toBe(15);
+    expect(budget.maxLlmCalls).toBe(12);
+  });
+
+  it("caps scheduled paid search by monthly Tavily credits instead of dollar run math", () => {
+    const budget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      tavilyCreditsMonthToDate: 900,
+      mode: "scheduled",
       now: new Date("2026-07-20T12:00:00Z"),
     });
     expect(budget.allowPaidSearch).toBe(false);
     expect(budget.maxSearchQueries).toBe(0);
-    expect(budget.skipReasons).toContain("budget_capped");
+    expect(budget.skipReasons).toContain("tavily_credit_cap");
   });
 
-  it("counts 6-hour runs remaining in the month", () => {
-    expect(countRemainingRunsThisMonth(new Date("2026-07-31T18:00:00Z"))).toBe(1);
-    expect(countRemainingRunsThisMonth(new Date("2026-07-31T00:00:00Z"))).toBe(4);
+  it("caps LLM calls by the scanner policy monthly LLM spend", () => {
+    const budget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      llmSpentMonthToDateUsd: 1,
+      mode: "scheduled",
+      now: new Date("2026-07-20T12:00:00Z"),
+    });
+    expect(budget.allowPaidSearch).toBe(false);
+    expect(budget.maxSearchQueries).toBe(0);
+    expect(budget.maxLlmCalls).toBe(0);
+    expect(budget.skipReasons).toContain("llm_budget_capped");
+  });
+
+  it("counts hourly runs remaining in the month by default", () => {
+    expect(countRemainingRunsThisMonth(new Date("2026-07-31T18:00:00Z"))).toBe(6);
+    expect(countRemainingRunsThisMonth(new Date("2026-07-31T00:00:00Z"))).toBe(24);
+  });
+
+  it("counts remaining runs with a custom policy interval", () => {
+    expect(countRemainingRunsThisMonth(new Date("2026-07-31T00:00:00Z"), 120)).toBe(12);
   });
 
   it("rejects non-free OpenRouter model IDs while allowing the free router", () => {

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   isAdmin: vi.fn(),
   isVercelPreview: vi.fn(),
   startAutomationScan: vi.fn(),
+  getAutomationControlState: vi.fn(),
   sweepStaleRuns: vi.fn(),
   revalidateTag: vi.fn(),
   revalidatePath: vi.fn(),
@@ -16,6 +17,9 @@ vi.mock("@/lib/previewGuard", () => ({ isVercelPreview: mocks.isVercelPreview })
 vi.mock("@/lib/automation/run", () => ({
   startAutomationScan: mocks.startAutomationScan,
   sweepStaleRuns: mocks.sweepStaleRuns,
+}));
+vi.mock("@/lib/automation/settings", () => ({
+  getAutomationControlState: mocks.getAutomationControlState,
 }));
 vi.mock("next/cache", () => ({
   revalidateTag: mocks.revalidateTag,
@@ -73,6 +77,15 @@ beforeEach(() => {
   mocks.isAdmin.mockReset().mockResolvedValue(true);
   mocks.isVercelPreview.mockReset().mockReturnValue(false);
   mocks.startAutomationScan.mockReset();
+  mocks.getAutomationControlState.mockReset().mockResolvedValue({
+    paused: false,
+    minIntervalMinutes: 60,
+    scheduledSearchCreditsPerRun: 1,
+    monthlyTavilyCreditCap: 900,
+    monthlyLlmUsdCap: 1,
+    modelPreset: "deepseek_qwen_pro",
+    updatedAt: null,
+  });
   mocks.sweepStaleRuns.mockReset().mockResolvedValue(undefined);
   mocks.revalidateTag.mockClear();
   mocks.revalidatePath.mockClear();
@@ -115,7 +128,15 @@ describe("POST /api/admin/scan", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ runId: "run-1" });
-    expect(mocks.startAutomationScan).toHaveBeenCalledWith({ mode: "dry_run" });
+    expect(mocks.startAutomationScan).toHaveBeenCalledWith({
+      mode: "dry_run",
+      scannerPolicy: expect.objectContaining({
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+      }),
+    });
     expect(mocks.after).toHaveBeenCalledTimes(1);
     // The registered callback must not have executed on its own.
     expect(mocks.revalidateTag).not.toHaveBeenCalled();

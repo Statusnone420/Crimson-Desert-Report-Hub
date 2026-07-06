@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "crimson-report-hub-scanner-cron",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "workers_dev": true,
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
+  "vars": {
+    "CRON_URL": "https://crimsonreporthub.com/api/cron/keepalive"
+  }
+}

@@ -50,6 +50,15 @@ describe("source monitor run display", () => {
     ]);
   });
 
+  it("labels policy cap skip reasons in plain language", () => {
+    const summary = summarizeRunMessages(["tavily_credit_cap", "llm_budget_capped"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({ code: "tavily_credit_cap", count: 1, label: "Search credit cap reached" }),
+      expect.objectContaining({ code: "llm_budget_capped", count: 1, label: "LLM cap reached" }),
+    ]);
+  });
+
   it("maps known error codes to plain-language labels in the error summary", () => {
     expect(summarizeRunMessages([], ["stale_running_run"]).errorSummary).toBe("Crashed run cleaned up");
   });

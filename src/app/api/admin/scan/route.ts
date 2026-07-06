@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { isAdmin } from "@/lib/adminGuard";
 import { startAutomationScan } from "@/lib/automation/run";
+import { getAutomationControlState } from "@/lib/automation/settings";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
 
@@ -21,7 +22,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad_mode" }, { status: 400 });
   }
 
-  const started = await startAutomationScan({ mode });
+  const scannerPolicy = await getAutomationControlState();
+  const started = await startAutomationScan({ mode, scannerPolicy });
   if (started.status === "already_running") {
     return NextResponse.json({ error: "scan_already_running" }, { status: 409 });
   }

@@ -30,6 +30,11 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "Paid web search and LLM work are disabled by the monthly budget setting.",
     summaryLabel: "budget zero",
   },
+  llm_budget_capped: {
+    label: "LLM cap reached",
+    detail: "The scheduled scanner reached its monthly LLM budget cap, so this attempt did not start.",
+    summaryLabel: "LLM cap reached",
+  },
   category_other: {
     label: "Other category",
     detail: "Extraction classified the item as other, so it was not kept as an issue signal.",
@@ -72,7 +77,7 @@ const SKIP_META: Record<string, MessageMeta> = {
   },
   recent_run: {
     label: "Recent scan already ran",
-    detail: "The cron fired, but a real scan started within the previous 6 hours, so this attempt stood down. Dry runs never block it.",
+    detail: "The cron fired, but a real scan started inside the scanner policy window, so this attempt stood down. Dry runs never block it.",
     summaryLabel: "recent scan already ran",
   },
   reddit_disabled: {
@@ -89,6 +94,11 @@ const SKIP_META: Record<string, MessageMeta> = {
     label: "Search disabled",
     detail: "Web search credentials are not configured, so paid search was skipped.",
     summaryLabel: "search disabled",
+  },
+  tavily_credit_cap: {
+    label: "Search credit cap reached",
+    detail: "The scheduled scanner reached its monthly Tavily credit cap, so this attempt did not start.",
+    summaryLabel: "search credit cap reached",
   },
   source_not_issue_report: {
     label: "Not issue reports",

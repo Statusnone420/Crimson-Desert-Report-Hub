@@ -8,6 +8,7 @@ import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { buildSearchQueries, tavilySearch, type SearchResult } from "@/lib/automation/search";
+import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { automationBudgetUsd, automationSubreddits, features } from "@/lib/env";
@@ -234,16 +235,23 @@ function lastObservedAt(rows: SourceSignalRow[]): string | null {
 async function loadMonthSpend(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
-): Promise<number> {
+): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number }> {
   const { data, error } = await supabase
     .from("automation_runs")
-    .select("estimated_cost_usd")
+    .select("estimated_cost_usd, search_queries_used")
     .gte("started_at", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString());
   if (error) throw new Error(`automation spend read failed: ${error.message}`);
-  return ((data ?? []) as { estimated_cost_usd?: number | string | null }[]).reduce(
-    (sum, row) => sum + Number(row.estimated_cost_usd ?? 0),
-    0,
+  const usage = ((data ?? []) as { estimated_cost_usd?: number | string | null; search_queries_used?: number | string | null }[]).reduce(
+    (sum, row) => ({
+      estimatedCostUsd: sum.estimatedCostUsd + Number(row.estimated_cost_usd ?? 0),
+      tavilyCredits: sum.tavilyCredits + Number(row.search_queries_used ?? 0),
+    }),
+    { estimatedCostUsd: 0, tavilyCredits: 0 },
   );
+  return {
+    ...usage,
+    llmCostUsd: Math.max(0, usage.estimatedCostUsd - usage.tavilyCredits * SEARCH_QUERY_COST_USD),
+  };
 }
 
 async function collectInputs(
@@ -818,6 +826,11 @@ async function executeAutomationRun(
     await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }
+  if (mode === "scheduled" && budget.skipReasons.length > 0) {
+    result.status = "skipped";
+    await finalizeRunLedgerSafely(supabase, runId, result);
+    return result;
+  }
 
   const report = (stage: RunProgress["stage"]) =>
     writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
@@ -879,22 +892,36 @@ export type StartedScan =
   | { status: "started"; runId: string; completion: Promise<AutomationResult> }
   | { status: "already_running"; runId: null };
 
-export async function startAutomationScan(input: { mode: AutomationMode; now?: Date }): Promise<StartedScan> {
+export async function startAutomationScan(input: { mode: AutomationMode; now?: Date; scannerPolicy?: ScannerPolicy }): Promise<StartedScan> {
   const now = input.now ?? new Date();
   const supabase = createServiceClient();
   await sweepStaleRuns(supabase, now);
   if (await hasActiveRun(supabase, now)) return { status: "already_running", runId: null };
 
-  const monthlyBudgetUsd = automationBudgetUsd();
+  const monthlyBudgetUsd = input.scannerPolicy?.monthlyLlmUsdCap ?? automationBudgetUsd();
   let budgetReadError: string | null = null;
   let spentMonthToDateUsd = 0;
+  let tavilyCreditsMonthToDate = 0;
+  let llmSpentMonthToDateUsd = 0;
   try {
-    spentMonthToDateUsd = await loadMonthSpend(supabase, now);
+    const monthSpend = await loadMonthSpend(supabase, now);
+    spentMonthToDateUsd = monthSpend.estimatedCostUsd;
+    tavilyCreditsMonthToDate = monthSpend.tavilyCredits;
+    llmSpentMonthToDateUsd = monthSpend.llmCostUsd;
   } catch (error) {
     budgetReadError = toErrorMessage(error, "automation spend read failed");
     spentMonthToDateUsd = monthlyBudgetUsd;
+    llmSpentMonthToDateUsd = monthlyBudgetUsd;
   }
-  const budget = computeAutomationBudget({ monthlyBudgetUsd, spentMonthToDateUsd, now });
+  const budget = computeAutomationBudget({
+    monthlyBudgetUsd,
+    spentMonthToDateUsd,
+    tavilyCreditsMonthToDate,
+    llmSpentMonthToDateUsd,
+    mode: input.mode,
+    now,
+    scannerPolicy: input.scannerPolicy,
+  });
 
   const runId = await createRunLedger(supabase, input.mode, budget, now);
   const completion = executeAutomationRun(supabase, runId, input.mode, budget, budgetReadError, now);
@@ -902,7 +929,7 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
 }
 
 /** Awaits the whole scan inline — used by the cron and tests. */
-export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date }): Promise<AutomationResult> {
+export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date; scannerPolicy?: ScannerPolicy }): Promise<AutomationResult> {
   const started = await startAutomationScan(input);
   if (started.status === "already_running") {
     return {
@@ -927,7 +954,7 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
 /** Zero-cost ledger trace: proves the cron fired and explains why it didn't scan. Best-effort. */
 export async function insertSkippedScheduledRun(
   supabase: ReturnType<typeof createServiceClient>,
-  reason: "paused" | "recent_run",
+  reason: "paused" | "recent_run" | "scan_already_running" | "budget_zero" | "budget_capped" | "tavily_credit_cap" | "llm_budget_capped",
   now: Date,
 ): Promise<void> {
   try {

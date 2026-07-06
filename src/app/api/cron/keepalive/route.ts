@@ -28,17 +28,24 @@ export async function GET(req: Request) {
     .not("raw_text", "is", null);
 
   const now = new Date();
+  const control = await getAutomationControlState();
+  const minIntervalMinutes =
+    Number.isFinite(control.minIntervalMinutes) && control.minIntervalMinutes > 0 ? control.minIntervalMinutes : 60;
   let automation:
     | Awaited<ReturnType<typeof runAutomationMonitor>>
     | { status: "skipped"; reason: string } = { status: "skipped", reason: "recent_run" };
-  const control = await getAutomationControlState();
   const { data: recent } = await supabase
     .from("automation_runs")
-    .select("mode, status")
-    .gte("started_at", new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString());
-  const decision = scheduledScanDecision(control.paused, (recent ?? []) as { mode: string; status: string }[]);
+    .select("mode, status, started_at")
+    .gte("started_at", new Date(now.getTime() - minIntervalMinutes * 60 * 1000).toISOString());
+  const decision = scheduledScanDecision(
+    control.paused,
+    (recent ?? []) as { mode: string; status: string; started_at?: string | null }[],
+    now,
+    minIntervalMinutes,
+  );
   if (decision.run) {
-    automation = await runAutomationMonitor({ mode: "scheduled" });
+    automation = await runAutomationMonitor({ mode: "scheduled", scannerPolicy: control });
   } else {
     automation = { status: "skipped", reason: decision.skipReason };
     await insertSkippedScheduledRun(supabase, decision.skipReason, now);

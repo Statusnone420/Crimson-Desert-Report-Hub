@@ -1,7 +1,16 @@
 export type BudgetInput = {
   monthlyBudgetUsd: number;
   spentMonthToDateUsd: number;
+  tavilyCreditsMonthToDate?: number;
+  llmSpentMonthToDateUsd?: number;
+  mode?: "scheduled" | "manual" | "dry_run";
   now: Date;
+  scannerPolicy?: {
+    minIntervalMinutes?: number;
+    scheduledSearchCreditsPerRun?: number;
+    monthlyTavilyCreditCap?: number;
+    monthlyLlmUsdCap?: number;
+  };
 };
 
 export type AutomationBudget = {
@@ -9,6 +18,10 @@ export type AutomationBudget = {
   remainingMonthUsd: number;
   remainingRuns: number;
   estimatedRunAllowanceUsd: number;
+  monthlyTavilyCreditCap: number;
+  remainingTavilyCredits: number;
+  monthlyLlmUsdCap: number;
+  remainingLlmUsd: number;
   allowPaidSearch: boolean;
   maxSearchQueries: number;
   maxSearchResults: number;
@@ -16,14 +29,20 @@ export type AutomationBudget = {
   skipReasons: string[];
 };
 
-const RUN_INTERVAL_HOURS = 6;
+const DEFAULT_MIN_INTERVAL_MINUTES = 60;
+const DEFAULT_MONTHLY_TAVILY_CREDIT_CAP = 900;
+const DEFAULT_MONTHLY_LLM_USD_CAP = 1;
 const SEARCH_QUERY_COST_USD = 0.008;
 const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
 
-export function countRemainingRunsThisMonth(now: Date): number {
+function positiveNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+export function countRemainingRunsThisMonth(now: Date, intervalMinutes = DEFAULT_MIN_INTERVAL_MINUTES): number {
   const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0);
   const remainingMs = Math.max(0, end - now.getTime());
-  return Math.max(1, Math.ceil(remainingMs / (RUN_INTERVAL_HOURS * 60 * 60 * 1000)));
+  return Math.max(1, Math.ceil(remainingMs / (positiveNumber(intervalMinutes, DEFAULT_MIN_INTERVAL_MINUTES) * 60 * 1000)));
 }
 
 export function rejectPaidOpenRouterModel(model: string): string {
@@ -36,22 +55,41 @@ export function rejectPaidOpenRouterModel(model: string): string {
 export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
   const monthlyBudgetUsd = Math.max(0, input.monthlyBudgetUsd);
   const remainingMonthUsd = Math.max(0, monthlyBudgetUsd - Math.max(0, input.spentMonthToDateUsd));
-  const remainingRuns = countRemainingRunsThisMonth(input.now);
+  const monthlyTavilyCreditCap = Math.max(
+    0,
+    Math.floor(input.scannerPolicy?.monthlyTavilyCreditCap ?? DEFAULT_MONTHLY_TAVILY_CREDIT_CAP),
+  );
+  const remainingTavilyCredits = Math.max(0, monthlyTavilyCreditCap - Math.max(0, input.tavilyCreditsMonthToDate ?? 0));
+  const monthlyLlmUsdCap = Math.max(0, input.scannerPolicy?.monthlyLlmUsdCap ?? DEFAULT_MONTHLY_LLM_USD_CAP);
+  const remainingLlmUsd = Math.max(0, monthlyLlmUsdCap - Math.max(0, input.llmSpentMonthToDateUsd ?? 0));
+  const remainingRuns = countRemainingRunsThisMonth(input.now, input.scannerPolicy?.minIntervalMinutes);
   const estimatedRunAllowanceUsd = remainingMonthUsd / remainingRuns;
   const skipReasons: string[] = [];
 
   if (monthlyBudgetUsd === 0) skipReasons.push("budget_zero");
   if (monthlyBudgetUsd > 0 && remainingMonthUsd <= 0) skipReasons.push("budget_capped");
+  if (monthlyTavilyCreditCap === 0 || remainingTavilyCredits <= 0) skipReasons.push("tavily_credit_cap");
+  if (monthlyLlmUsdCap === 0 || remainingLlmUsd <= 0) skipReasons.push("llm_budget_capped");
 
-  const allowPaidSearch = estimatedRunAllowanceUsd >= SEARCH_QUERY_COST_USD && skipReasons.length === 0;
-  const queryBudget = allowPaidSearch ? Math.floor(estimatedRunAllowanceUsd / SEARCH_QUERY_COST_USD) : 0;
-  const maxSearchQueries = Math.max(0, Math.min(5, queryBudget));
+  const canSpendSearch =
+    skipReasons.length === 0 &&
+    (input.mode === "scheduled" || remainingMonthUsd >= SEARCH_QUERY_COST_USD);
+  const requestedQueries =
+    input.mode === "scheduled"
+      ? Math.max(0, Math.min(3, Math.floor(input.scannerPolicy?.scheduledSearchCreditsPerRun ?? 1)))
+      : 5;
+  const maxSearchQueries = canSpendSearch ? Math.max(0, Math.min(requestedQueries, remainingTavilyCredits)) : 0;
+  const allowPaidSearch = maxSearchQueries > 0;
 
   return {
     monthlyBudgetUsd,
     remainingMonthUsd,
     remainingRuns,
     estimatedRunAllowanceUsd,
+    monthlyTavilyCreditCap,
+    remainingTavilyCredits,
+    monthlyLlmUsdCap,
+    remainingLlmUsd,
     allowPaidSearch,
     maxSearchQueries,
     maxSearchResults: maxSearchQueries * 5,
