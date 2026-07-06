@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NavLinks } from "@/components/NavLinks";
@@ -23,7 +24,7 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: `${SITE_NAME} - unofficial community tracker`,
     description: SITE_DESCRIPTION,
   },
@@ -46,7 +47,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="site-header">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3">
             <Link href="/" className="brand-mark">
-              <span className="brand-dot" aria-hidden="true" />
+              <Image
+                aria-hidden="true"
+                alt=""
+                className="brand-logo"
+                src="/brand/warrior-logo.png"
+                width={32}
+                height={32}
+              />
               <span>
                 <span style={{ color: "var(--crimson)" }}>Crimson Desert</span> Report Hub
               </span>
