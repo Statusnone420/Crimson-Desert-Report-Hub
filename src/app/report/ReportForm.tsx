@@ -57,6 +57,15 @@ type ReportPatchMetadata = {
   officialUrl: string;
 };
 
+function FieldError({ messages }: { messages?: string[] }) {
+  if (!messages?.length) return null;
+  return (
+    <p className="mt-1 text-xs" style={{ color: "var(--crimson-bright)" }}>
+      {messages[0]}
+    </p>
+  );
+}
+
 export function ReportForm({
   currentPatch,
   patchVersions,
@@ -148,28 +157,42 @@ export function ReportForm({
 
   if (status === "done") {
     return (
-      <div className="panel mx-auto max-w-xl space-y-3 text-center">
-        <p className="stat-label">Report received</p>
-        <h1 className="text-2xl font-semibold">Thanks for the clean signal.</h1>
-        <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-          Your report is in the moderation queue and will appear in the public counts once reviewed.
-          If you have crash logs, also file through Pearl Abyss support so engineers get the technical data.
-        </p>
-        <button className="btn btn-ghost" type="button" onClick={() => setStatus("idle")}>
-          Submit another report
-        </button>
+      <div className="mx-auto max-w-xl">
+        <div className="panel space-y-4 py-10 text-center">
+          <div
+            className="mx-auto flex h-12 w-12 items-center justify-center rounded-full"
+            style={{ background: "var(--green-tint)", border: "1px solid var(--green-edge)" }}
+            aria-hidden="true"
+          >
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="var(--green-bright)" strokeWidth="2.5">
+              <path d="M20 6 9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="h-display">Report received</h1>
+            <p className="mx-auto max-w-md text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              It&rsquo;s checked and sorted into the right issue automatically &mdash; no queue, no waiting. Your raw words
+              stay private; only counts and a neutral summary ever go public. Crash logs? File through Pearl Abyss support
+              too.
+            </p>
+          </div>
+          <button className="btn btn-ghost" type="button" onClick={() => setStatus("idle")}>
+            Submit another report
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="mx-auto max-w-6xl space-y-6">
-      <section className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
-        <div className="space-y-2">
-          <p className="stat-label">Anonymous structured report</p>
-          <h1 className="text-3xl font-semibold">Submit a patch report</h1>
+    <form onSubmit={onSubmit} className="space-y-6">
+      <section className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0 space-y-2">
+          <div className="stat-label">Anonymous structured report</div>
+          <h1 className="h-display">Submit a patch report</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            No account or email. Reports are reviewed before public counts change. Add hardware and repro detail when you can.
+            No account, no email. Reports are checked and sorted automatically the moment they arrive. The more detail you
+            add, the stronger the evidence Pearl Abyss sees.
           </p>
         </div>
         <a
@@ -183,8 +206,9 @@ export function ReportForm({
         </a>
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[1.35fr_0.85fr] lg:items-start">
+      <div className="grid gap-3 lg:grid-cols-[1.4fr_0.85fr] lg:items-start">
         <section className="panel space-y-5">
+          <div className="stat-label">The basics</div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div>
               <label htmlFor="patch_version">Patch version</label>
@@ -252,13 +276,9 @@ export function ReportForm({
               required
               minLength={5}
               maxLength={120}
-              placeholder="FPS drops to about 20 in open-field combat since 1.13"
+              placeholder="FPS drops to ~20 in open-field combat since 1.13"
             />
-            {errors.issue_title ? (
-              <p className="mt-1 text-xs" style={{ color: "var(--crimson)" }}>
-                {errors.issue_title[0]}
-              </p>
-            ) : null}
+            <FieldError messages={errors.issue_title} />
           </div>
 
           <div>
@@ -272,86 +292,90 @@ export function ReportForm({
               rows={6}
               placeholder="What were you doing, what went wrong, and how does it compare to before the patch?"
             />
-            {errors.description ? (
-              <p className="mt-1 text-xs" style={{ color: "var(--crimson)" }}>
-                {errors.description[0]}
-              </p>
-            ) : null}
+            <FieldError messages={errors.description} />
           </div>
+
+          <details className="panel-inset group border px-4 py-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold">
+              <span>Add technical detail Pearl Abyss can use</span>
+              <span className="text-xs font-normal" style={{ color: "var(--text-faint)" }}>
+                optional · stronger evidence
+              </span>
+            </summary>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {OPTIONAL_FIELDS.map((field) => (
+                <div key={field.name} className={field.textarea ? "md:col-span-2" : undefined}>
+                  <label htmlFor={field.name}>{field.label}</label>
+                  {field.textarea ? (
+                    <textarea
+                      id={field.name}
+                      name={field.name}
+                      rows={field.name === "troubleshooting_tried" ? 4 : 3}
+                      placeholder={field.placeholder}
+                      ref={
+                        field.name === "troubleshooting_tried"
+                          ? troubleshootingRef
+                          : field.name === "graphics_mode"
+                            ? graphicsModeRef
+                            : undefined
+                      }
+                    />
+                  ) : (
+                    <input id={field.name} name={field.name} placeholder={field.placeholder} />
+                  )}
+                  <FieldError messages={errors[field.name]} />
+                </div>
+              ))}
+              <label className="flex items-center gap-2 text-sm md:col-span-2" style={{ color: "var(--text-dim)" }}>
+                <input type="checkbox" name="official_report_submitted" className="w-auto" />
+                I also filed this through Pearl Abyss&apos;s official report tool
+              </label>
+            </div>
+          </details>
         </section>
 
-        <aside className="panel space-y-4">
-          <div className="space-y-2">
-            <p className="stat-label">Evidence assistant</p>
-            <h2 className="text-lg font-semibold">Use local save/config files</h2>
+        <aside className="space-y-3">
+          <div className="panel space-y-3">
+            <div className="stat-label">Evidence assistant</div>
+            <h2 className="text-base font-semibold">Use local save / config files</h2>
             <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              Select the Crimson Desert save folder or the settings XML. The browser reads useful settings locally and
-              writes only a sanitized note into the report.
+              Select the Crimson Desert save folder or settings XML. Your browser reads useful settings locally and writes
+              only a sanitized note &mdash; nothing is uploaded.
             </p>
+            <input
+              id="save_import"
+              type="file"
+              multiple
+              accept=".xml,.save,.log,.txt"
+              onChange={onSaveImport}
+              {...DIRECTORY_INPUT_PROPS}
+            />
+            <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+              Inspects at most {MAX_IMPORT_FILES} selected files, reads only small XML/log/text files.
+            </p>
+            {saveImportMessage ? (
+              <p className="badge badge-green" aria-live="polite">
+                {saveImportMessage}
+              </p>
+            ) : null}
+            {saveImport ? (
+              <div className="space-y-2 border-t pt-3 text-xs leading-5">
+                <p style={{ color: "var(--text-dim)" }}>{saveImport.privacyNote}</p>
+                <p style={{ color: "var(--text-faint)" }}>{saveImport.evidenceNote}</p>
+              </div>
+            ) : null}
           </div>
 
-          <input
-            id="save_import"
-            type="file"
-            multiple
-            accept=".xml,.save,.log,.txt"
-            onChange={onSaveImport}
-            {...DIRECTORY_INPUT_PROPS}
-          />
-          <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-            Raw files are not uploaded by this helper. It inspects at most {MAX_IMPORT_FILES} selected files and reads only
-            small XML/log/text files.
-          </p>
-          {saveImportMessage ? (
-            <p className="badge badge-green" aria-live="polite">
-              {saveImportMessage}
-            </p>
-          ) : null}
-          {saveImport ? (
-            <div className="space-y-2 border-t pt-3 text-xs leading-5" style={{ borderColor: "var(--border)" }}>
-              <p style={{ color: "var(--text-dim)" }}>{saveImport.privacyNote}</p>
-              <p style={{ color: "var(--text-faint)" }}>{saveImport.evidenceNote}</p>
-            </div>
-          ) : null}
+          <div className="panel space-y-2">
+            <div className="stat-label">What happens next</div>
+            <ul className="space-y-2 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              <li>Checked and sorted into the right issue automatically &mdash; instantly, no queue.</li>
+              <li>Your raw words stay private. Only counts and a neutral summary go public.</li>
+              <li>Duplicates merge automatically, so one real bug reads as one strong signal.</li>
+            </ul>
+          </div>
         </aside>
       </div>
-
-      <details className="panel group">
-        <summary className="cursor-pointer text-sm font-semibold">Add technical detail Pearl Abyss can use</summary>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {OPTIONAL_FIELDS.map((field) => (
-            <div key={field.name} className={field.textarea ? "md:col-span-2" : undefined}>
-              <label htmlFor={field.name}>{field.label}</label>
-              {field.textarea ? (
-                <textarea
-                  id={field.name}
-                  name={field.name}
-                  rows={field.name === "troubleshooting_tried" ? 4 : 3}
-                  placeholder={field.placeholder}
-                  ref={
-                    field.name === "troubleshooting_tried"
-                      ? troubleshootingRef
-                      : field.name === "graphics_mode"
-                        ? graphicsModeRef
-                        : undefined
-                  }
-                />
-              ) : (
-                <input id={field.name} name={field.name} placeholder={field.placeholder} />
-              )}
-              {errors[field.name] ? (
-                <p className="mt-1 text-xs" style={{ color: "var(--crimson)" }}>
-                  {errors[field.name][0]}
-                </p>
-              ) : null}
-            </div>
-          ))}
-          <label className="flex items-center gap-2 text-sm md:col-span-2" style={{ color: "var(--text-dim)" }}>
-            <input type="checkbox" name="official_report_submitted" className="w-auto" />
-            I also filed this through Pearl Abyss&apos;s official report tool
-          </label>
-        </div>
-      </details>
 
       {SITE_KEY ? (
         <>
@@ -361,17 +385,17 @@ export function ReportForm({
       ) : null}
 
       {status === "error" ? (
-        <p className="text-sm" style={{ color: "var(--crimson)" }}>
+        <p className="text-sm" style={{ color: "var(--crimson-bright)" }} role="alert">
           {message}
         </p>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <button className="btn" type="submit" disabled={status === "sending"}>
-          {status === "sending" ? "Submitting..." : "Submit report"}
+          {status === "sending" ? "Submitting…" : "Submit report"}
         </button>
-        <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-          Public pages show approved counts and excerpts only.
+        <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+          Public pages show sorted counts and neutral summaries only.
         </p>
       </div>
     </form>

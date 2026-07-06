@@ -1,10 +1,29 @@
 import { runAutomationCappedScan, runAutomationDryScan, setAutomationPaused } from "@/app/admin/actions";
+import { SubmitButton } from "@/components/SubmitButton";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { automationBudgetUsd, features } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
 import { getAutomationAdminData } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
+
+type RunWork = {
+  mode: string;
+  search_queries_used: number;
+  llm_calls_used: number;
+  signals_inserted: number;
+  signals_deduped: number;
+  clusters_promoted: number;
+};
+
+function workSummary(run: RunWork): string {
+  const base = `${run.search_queries_used} searches · ${run.llm_calls_used} LLM`;
+  if (run.mode === "dry_run") {
+    // A dry run writes nothing to the database except this ledger row.
+    return `${base} · ${run.signals_inserted} would insert · ${run.signals_deduped} deduped · preview only, nothing saved`;
+  }
+  return `${base} · ${run.signals_inserted} inserted · ${run.signals_deduped} deduped · ${run.clusters_promoted} promoted`;
+}
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "not finished";
@@ -36,7 +55,7 @@ export default async function SourceMonitorPage() {
     <div className="space-y-6">
       <section>
         <p className="stat-label">Admin evidence intake</p>
-        <h1 className="text-3xl font-semibold">Source monitor</h1>
+        <h1 className="h-display">Source monitor</h1>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-[0.8fr_1.2fr]">
@@ -57,21 +76,27 @@ export default async function SourceMonitorPage() {
           </p>
           <div className="flex flex-wrap gap-2">
             <form action={runAutomationDryScan}>
-              <button className="btn btn-ghost">Test scan without publishing</button>
+              <SubmitButton className="btn btn-ghost" pendingText="Scanning… up to ~2 min">
+                Test scan without publishing
+              </SubmitButton>
             </form>
             <form action={runAutomationCappedScan}>
-              <button className="btn">Run capped scan now</button>
+              <SubmitButton className="btn" pendingText="Scanning… up to ~2 min">
+                Run capped scan now
+              </SubmitButton>
             </form>
             <form action={setAutomationPaused}>
               <input type="hidden" name="paused" value={control.paused ? "false" : "true"} />
-              <button className="btn btn-ghost">
+              <SubmitButton className="btn btn-ghost" pendingText="Saving…">
                 {control.paused ? "Resume scheduled scans" : "Pause scheduled scans"}
-              </button>
+              </SubmitButton>
             </form>
           </div>
           <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-            Test scans write only the run ledger. Capped scans use the monthly budget guardrail and promote only qualifying
-            public signals. Pause affects scheduled scans only; manual runs still work.
+            A scan runs several web searches and AI calls one at a time, so it can take 1–2 minutes — the button shows
+            &quot;Scanning…&quot; while it works. Test scans write only the run ledger (nothing public changes). Capped scans use the
+            monthly budget guardrail and promote only qualifying public signals. Pause affects scheduled scans only; manual
+            runs still work.
           </p>
           {control.updatedAt ? (
             <p className="text-xs" style={{ color: "var(--text-faint)" }}>
@@ -89,7 +114,7 @@ export default async function SourceMonitorPage() {
                   <th className="py-2 pr-3 font-medium">Started</th>
                   <th className="py-2 pr-3 font-medium">Status</th>
                   <th className="py-2 pr-3 font-medium">Mode</th>
-                  <th className="py-2 pr-3 font-medium">Cost</th>
+                  <th className="py-2 pr-3 font-medium">Est. spend</th>
                   <th className="py-2 pr-3 font-medium">Work</th>
                   <th className="py-2 font-medium">Skips / errors</th>
                 </tr>
@@ -104,8 +129,7 @@ export default async function SourceMonitorPage() {
                     <td className="py-2 pr-3">{run.mode.replace("_", " ")}</td>
                     <td className="py-2 pr-3">{formatUsd(run.estimated_cost_usd)}</td>
                     <td className="py-2 pr-3" style={{ color: "var(--text-dim)" }}>
-                      {run.search_queries_used} searches · {run.llm_calls_used} LLM · {run.signals_inserted} inserted ·{" "}
-                      {run.signals_deduped} deduped · {run.clusters_promoted} promoted
+                      {workSummary(run)}
                     </td>
                     <td className="py-2" style={{ color: "var(--text-dim)" }}>
                       skips: {messageList(run.skips)}
@@ -121,6 +145,10 @@ export default async function SourceMonitorPage() {
               No automation runs yet.
             </p>
           )}
+          <p className="mt-3 text-xs" style={{ color: "var(--text-faint)" }}>
+            &quot;Est. spend&quot; is estimated from a fixed per-search rate for budget tracking — it is not a real charge. On the
+            free Tavily and OpenRouter tiers your actual dollar cost is $0.
+          </p>
         </div>
       </section>
 
@@ -143,7 +171,7 @@ export default async function SourceMonitorPage() {
               href={signal.source_url}
               target="_blank"
               rel="noreferrer noopener"
-              className="text-xs"
+              className="break-all text-xs"
               style={{ color: "var(--blue)" }}
             >
               {signal.source_url}

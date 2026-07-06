@@ -23,6 +23,7 @@ type DashboardReportRow = {
   platform: string | null;
   created_at: string;
   cluster_id: string | null;
+  hardware_specs?: string | null;
 };
 
 export type SignalRow = {
@@ -107,6 +108,24 @@ export function countDistinctVerifiedReportsByCluster(rows: VerifiedReportCluste
   return countClusterIds(clusterRows);
 }
 
+const GPU_PATTERN = /\b(rtx|gtx|rx|arc)\s*-?\s*(\d{3,4})\s*(ti|super|xt|xtx|gre)?\b/gi;
+
+function countGpus(rows: DashboardReportRow[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    if (!row.hardware_specs) continue;
+    const seen = new Set<string>();
+    for (const match of row.hardware_specs.matchAll(GPU_PATTERN)) {
+      const suffix = match[3] ? ` ${match[3].toUpperCase()}` : "";
+      const label = `${match[1].toUpperCase()} ${match[2]}${suffix}`;
+      if (seen.has(label)) continue;
+      seen.add(label);
+      counts[label] = (counts[label] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
 async function getDashboardDataUncached() {
   if (!hasSupabaseServiceConfig()) {
     return {
@@ -118,6 +137,7 @@ async function getDashboardDataUncached() {
       byCategory: {},
       signalByCategory: {},
       platforms: {},
+      gpus: {},
       series: buildDailySeries([], 30, new Date()),
       topClusters: [],
       pendingCount: 0,
@@ -132,7 +152,7 @@ async function getDashboardDataUncached() {
 
   const { data: reports } = await supabase
     .from("bug_reports")
-    .select("category, platform, created_at, cluster_id")
+    .select("category, platform, created_at, cluster_id, hardware_specs")
     .eq("moderation_status", "approved");
   const rows = (reports ?? []) as DashboardReportRow[];
 
@@ -170,6 +190,7 @@ async function getDashboardDataUncached() {
     supabase
       .from("automation_runs")
       .select("started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted")
+      .neq("mode", "dry_run")
       .order("started_at", { ascending: false })
       .limit(1),
     getCurrentPatchMetadata(supabase),
@@ -194,7 +215,6 @@ async function getDashboardDataUncached() {
         strengthScore: signalCount + directReportCount * 3,
       };
     })
-    .filter((cluster) => cluster.directReportCount > 0 || cluster.signalCount > 0)
     .sort((a, b) => b.strengthScore - a.strengthScore);
 
   return {
@@ -206,6 +226,7 @@ async function getDashboardDataUncached() {
     byCategory: countBy(rows, (row) => row.category),
     signalByCategory: countBy(signalRows, (row) => row.category),
     platforms: countBy(rows, (row) => row.platform),
+    gpus: countGpus(rows),
     series: buildDailySeries(rows, 30, new Date()),
     topClusters,
     pendingCount: pendingCount ?? 0,

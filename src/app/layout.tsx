@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import localFont from "next/font/local";
+import { Geist, Geist_Mono } from "next/font/google";
+import { NavLinks } from "@/components/NavLinks";
 import { OwnerConsole } from "@/components/OwnerConsole";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL, SOURCE_URL } from "@/lib/site";
 import "./globals.css";
@@ -13,9 +14,7 @@ export const metadata: Metadata = {
     template: `%s | ${SITE_NAME}`,
   },
   description: SITE_DESCRIPTION,
-  alternates: {
-    canonical: "/",
-  },
+  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     url: "/",
@@ -28,53 +27,43 @@ export const metadata: Metadata = {
     title: `${SITE_NAME} - unofficial community tracker`,
     description: SITE_DESCRIPTION,
   },
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-    },
-  },
+  robots: { index: true, follow: true, googleBot: { index: true, follow: true } },
 };
 
-const geist = localFont({
-  src: "../../node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf",
-  variable: "--font-geist",
-  display: "swap",
-});
-
-const nav = [
-  { href: "/", label: "Dashboard" },
-  { href: "/report", label: "Submit report" },
-  { href: "/issues", label: "Issues" },
-  { href: "/about", label: "About" },
-];
+const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap" });
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={geist.variable}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
-        <header className="border-b border-[var(--border)]">
-          <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-3">
-            <Link href="/" className="font-semibold">
-              <span style={{ color: "var(--crimson)" }}>Crimson Desert</span> report hub
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[var(--z-toast)] focus:rounded-md focus:border focus:bg-[var(--surface-2)] focus:px-3 focus:py-2 focus:text-sm"
+        >
+          Skip to content
+        </a>
+        <header className="site-header">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3">
+            <Link href="/" className="brand-mark">
+              <span className="brand-dot" aria-hidden="true" />
+              <span>
+                <span style={{ color: "var(--crimson)" }}>Crimson Desert</span> Report Hub
+              </span>
             </Link>
-            <nav className="flex flex-wrap gap-4 text-sm" style={{ color: "var(--text-dim)" }} aria-label="Primary">
-              {nav.map((n) => (
-                <Link key={n.href} href={n.href} className="hover:text-[var(--text)]">
-                  {n.label}
-                </Link>
-              ))}
-            </nav>
+            <NavLinks />
           </div>
         </header>
-        <main id="main-content" className="mx-auto max-w-5xl px-4 py-8">{children}</main>
-        <footer className="border-t border-[var(--border)] px-4 py-6 text-xs" style={{ color: "var(--text-dim)" }}>
-          <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
-            <p>
-              Unofficial fan-run tracker. Not affiliated with Pearl Abyss, Reddit, or X. No accounts, no ads, no
-              tracking. For crash logs use Pearl Abyss&apos;s official support channels.
+
+        <main id="main-content" className="mx-auto max-w-6xl px-4 py-8 md:py-10">
+          {children}
+        </main>
+
+        <footer className="mt-8 border-t px-4 py-6 text-xs" style={{ color: "var(--text-faint)" }}>
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+            <p className="max-w-2xl leading-5">
+              Unofficial, fan-run tracker. Not affiliated with Pearl Abyss, Reddit, or X. No accounts, no ads, no
+              tracking. For crash logs, use Pearl Abyss&apos;s official support channels.
             </p>
             <div className="flex items-center gap-4">
               <OwnerConsole />
