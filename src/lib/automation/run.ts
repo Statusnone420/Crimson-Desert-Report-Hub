@@ -530,6 +530,11 @@ async function prepareSignals(
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
   let reconFetchesUsed = 0;
+  // Recon uses Tavily's extract endpoint, so it must be gated on the SAME
+  // configured-web-search signal as paid search in collectInputs. Without this,
+  // an unset/rotated TAVILY_API_KEY makes tavilyExtract a no-op that still books
+  // phantom credits into the monthly ledger. Computed once per run.
+  const webSearchEnabled = features().webSearch;
   const limit = Math.max(25, budget.maxSearchResults + 25);
   const candidates = inputs.slice(0, limit);
   result.candidatesSeen += candidates.length;
@@ -574,6 +579,7 @@ async function prepareSignals(
         // borderline behavior — strict enhancement, never a regression.
         let reconText: string | null = null;
         if (
+          webSearchEnabled &&
           budget.allowPaidSearch &&
           reconFetchesUsed < MAX_RECON_FETCHES_PER_RUN &&
           result.searchQueriesUsed < budget.remainingTavilyCredits

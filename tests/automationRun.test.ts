@@ -1092,6 +1092,14 @@ describe("runAutomationMonitor", () => {
     expect(result.prefilterRejected).toBe(0);
     expect(result.skips).toContain("candidate_recon");
     expect(result.skips).toContain("candidate_rescued");
+    // Ledger: each search query and each recon fetch books exactly one Tavily
+    // credit, so searchQueriesUsed = search queries issued + recon fetches, and
+    // estimatedCostUsd rises by SEARCH_QUERY_COST_USD (0.008) per recon fetch.
+    const reconFetches = mocks.tavilyExtract.mock.calls.length;
+    expect(reconFetches).toBe(1);
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + reconFetches);
+    expect(result.estimatedCostUsd).toBeCloseTo(result.searchQueriesUsed * 0.008 + result.llmCostUsd, 10);
     // The LLM classified the FULL recon text, not the thin snippet.
     expect(mocks.extractSignalWithOpenRouter.mock.calls[0][0].snippet).toContain("constant stutter and fps drops");
     expect(sourceSignalRows()).toHaveLength(1);
@@ -1130,6 +1138,12 @@ describe("runAutomationMonitor", () => {
     expect(mocks.tavilyExtract).toHaveBeenCalledTimes(3);
     expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(3);
     expect(result.status).not.toBe("failed");
+    // Ledger: exactly three recon credits booked (the overflow candidate books none).
+    const reconFetches = mocks.tavilyExtract.mock.calls.length;
+    expect(reconFetches).toBe(3);
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + reconFetches);
+    expect(result.estimatedCostUsd).toBeCloseTo(result.searchQueriesUsed * 0.008 + result.llmCostUsd, 10);
     // The three recon-rescued candidates are kept; the overflow one still runs the
     // old snippet-only borderline extract (which also keeps under the default mock).
     expect(result.candidatesRescued).toBe(4);
@@ -1185,6 +1199,42 @@ describe("runAutomationMonitor", () => {
     expect(result.skips).toContain("budget_zero");
     expect(mocks.tavilyExtract).not.toHaveBeenCalled();
     expect(result.skips).not.toContain("candidate_recon");
+  });
+
+  it("does not book a phantom recon credit when Tavily is unconfigured but paid search is allowed", async () => {
+    // The phantom-charge bug: allowPaidSearch stays true (budget-driven), but with
+    // TAVILY_API_KEY unset tavilyExtract makes ZERO network calls and returns null.
+    // Recon must be gated on features().webSearch so it never books a credit here.
+    const savedKey = process.env.TAVILY_API_KEY;
+    delete process.env.TAVILY_API_KEY;
+    // A trusted reddit.com borderline current-patch candidate arrives via Reddit
+    // (web search can't run without the key, but Reddit still can).
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-borderline-nokey",
+        title: "Crimson Desert patch 1.13 player discussion",
+        selftext: "Body retained for moderator review.",
+        permalink: "/r/CrimsonDesert/comments/reddit-borderline-nokey/current_patch/",
+        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
+      },
+    ]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    try {
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+      expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+      expect(result.skips).not.toContain("candidate_recon");
+      // No phantom Tavily credit booked and no phantom cost.
+      expect(result.searchQueriesUsed).toBe(0);
+      expect(result.estimatedCostUsd).toBeCloseTo(result.llmCostUsd, 10);
+    } finally {
+      if (savedKey === undefined) delete process.env.TAVILY_API_KEY;
+      else process.env.TAVILY_API_KEY = savedKey;
+    }
   });
 
   it("hides existing public stale source links during a later scan even when no new mentions are kept", async () => {
