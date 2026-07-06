@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Sparkline } from "@/components/Sparkline";
-import { ConfidenceBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
+import { EvidenceLadderBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
 import { routeToWatchlistCluster } from "@/lib/automation/route";
 import { CATEGORY_LABELS, PLATFORM_LABELS, type Category } from "@/lib/constants";
 import {
@@ -8,6 +8,7 @@ import {
   countUnverifiedClaimedFixWatchlistClusters,
   hasClusterEvidence,
 } from "@/lib/evidence";
+import { clusterEvidenceState } from "@/lib/evidenceLadder";
 import { getDashboardData } from "@/lib/queries";
 
 export const revalidate = 300;
@@ -62,6 +63,7 @@ export default async function DashboardPage() {
   const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
   const maxPlatform = Math.max(...platformEntries.map(([, n]) => n), 1);
   const patchLabel = `Patch ${d.currentPatch.version}`;
+  const totalCandidates = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
 
   return (
     <div className="space-y-6">
@@ -103,13 +105,24 @@ export default async function DashboardPage() {
       {/* Headline stats */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rise" style={{ animationDelay: "40ms" }}>
-          <StatCard label="Total reports" value={d.directReports} note={`+${d.weekDelta} this week`} tone="crimson" />
+          <StatCard
+            label="Total reports"
+            value={d.directReports}
+            note={d.directReports === 0 ? "be the first — takes 60 seconds" : `+${d.weekDelta} this week`}
+            tone="crimson"
+          />
         </div>
         <div className="rise" style={{ animationDelay: "80ms" }}>
           <StatCard
             label="Community signals"
             value={d.communitySignals}
-            note={d.communitySignals === 0 ? "None public yet" : "Public · thresholded"}
+            note={
+              d.communitySignals === 0
+                ? totalCandidates > 0
+                  ? `${totalCandidates} candidate(s) under review`
+                  : "none found yet — scanner active"
+                : "Public · thresholded"
+            }
             tone="blue"
           />
         </div>
@@ -205,7 +218,13 @@ export default async function DashboardPage() {
                   >
                     <p className="truncate text-sm font-medium">{cluster.title}</p>
                     <div className="flex items-center justify-between gap-2">
-                      <ConfidenceBadge confidence={cluster.confidence} />
+                      <EvidenceLadderBadge
+                        state={clusterEvidenceState({
+                          directReportCount: cluster.directReportCount,
+                          publicSignalCount: cluster.signalCount,
+                          candidateSignalCount: cluster.candidateSignalCount,
+                        })}
+                      />
                       <span className="text-xs" style={{ color: "var(--text-faint)" }}>
                         {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
                       </span>
@@ -298,7 +317,7 @@ export default async function DashboardPage() {
           </p>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
             {d.latestAutomationRun
-              ? `Last non-test run ${timeAgo(d.latestAutomationRun.started_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_queries_used} searches, ${d.latestAutomationRun.signals_inserted} candidate signals`
+              ? `Last scan finished ${timeAgo(d.latestAutomationRun.finished_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_results_seen} sources reviewed · ${d.latestAutomationRun.signals_inserted} kept as candidates${d.latestAutomationRun.search_queries_used === 0 ? " · search skipped this run" : ""}`
               : "No non-test scan has run yet."}
           </p>
         </div>

@@ -188,6 +188,7 @@ p { text-wrap: pretty; }
 .badge-amber { color: var(--amber-bright); border-color: var(--amber-edge); background: var(--amber-tint); }
 .badge-green { color: var(--green-bright); border-color: var(--green-edge); background: var(--green-tint); }
 .badge-dim { color: var(--text-dim); background: var(--surface-2); }
+.badge-blue { color: var(--blue); border-color: var(--blue); background: var(--blue-tint); }
 
 .badge-dot::before {
   content: "";

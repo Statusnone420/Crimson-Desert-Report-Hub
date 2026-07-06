@@ -1,16 +1,28 @@
 import Link from "next/link";
-import { ConfidenceBadge, FixStatusBadge, SectionHeader, SignalConfidenceBadge } from "@/components/ui";
+import { EvidenceLadderBadge, FixStatusBadge, SectionHeader, SignalConfidenceBadge } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { countEvidenceBackedPersistentClusters, hasClusterEvidence, isUnverifiedWatchlistCluster } from "@/lib/evidence";
+import { clusterEvidenceState } from "@/lib/evidenceLadder";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { getIssuesData } from "@/lib/queries";
+import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 
 export const revalidate = 300;
 
+function timeAgo(iso: string | null): string {
+  if (!iso) return "no runs yet";
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export default async function IssuesPage() {
-  const [{ clusters, excerptsByCluster, signalsByCluster }, currentPatch] = await Promise.all([
+  const [{ clusters, excerptsByCluster, signalsByCluster }, currentPatch, scanMeta] = await Promise.all([
     getIssuesData(),
     getCurrentPatchMetadata(),
+    getLatestPublicScanMeta(),
   ]);
   const active = clusters.filter(hasClusterEvidence);
   const watchlist = clusters.filter((c) => !hasClusterEvidence(c));
@@ -21,6 +33,11 @@ export default async function IssuesPage() {
     const excerpts = excerptsByCluster[cluster.id] ?? [];
     const empty = !hasClusterEvidence(cluster);
     const unverified = isUnverifiedWatchlistCluster(cluster);
+    const state = clusterEvidenceState({
+      directReportCount: cluster.directReportCount,
+      publicSignalCount: cluster.signalCount,
+      candidateSignalCount: cluster.candidateSignalCount,
+    });
     return (
       <article className="panel space-y-3.5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -36,13 +53,19 @@ export default async function IssuesPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <FixStatusBadge status={cluster.fix_status} unverified={unverified} />
-            <ConfidenceBadge confidence={cluster.confidence} />
+            <EvidenceLadderBadge state={state} />
           </div>
         </div>
 
         <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
           {cluster.description}
         </p>
+
+        {state === "candidates" ? (
+          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+            {cluster.candidateSignalCount} candidate signal(s) under review — not yet independent enough to publish.
+          </p>
+        ) : null}
 
         {signals.length > 0 ? (
           <div className="space-y-3 border-t pt-3">
@@ -79,7 +102,8 @@ export default async function IssuesPage() {
         {empty ? (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
             <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-              No approved reports or public signals yet. Seeing this on {currentPatch.version}?
+              ○ Watching · scanner last finished {timeAgo(scanMeta?.finishedAt ?? null)} · Seeing this on{" "}
+              {currentPatch.version}?
             </p>
             <Link href="/report" className="btn btn-ghost btn-sm">
               Report this
@@ -106,6 +130,11 @@ export default async function IssuesPage() {
         <div className="panel">
           <div className="stat-label">With evidence</div>
           <div className="stat-value mt-1.5">{active.length}</div>
+          {active.length === 0 ? (
+            <div className="mt-1.5 text-xs font-medium" style={{ color: "var(--text-dim)" }}>
+              scanner active — nothing corroborated yet
+            </div>
+          ) : null}
         </div>
         <div className="panel">
           <div className="stat-label">Evidence-backed persistent</div>
