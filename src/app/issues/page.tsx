@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { EvidenceLadderBadge, FixStatusBadge, SectionHeader, SignalConfidenceBadge } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
-import { countEvidenceBackedPersistentClusters, hasClusterEvidence, isUnverifiedWatchlistCluster } from "@/lib/evidence";
+import {
+  countEvidenceBackedPersistentClusters,
+  hasClusterEvidence,
+  isUnverifiedWatchlistCluster,
+  monitoredAreasNote,
+  splitWatchlistByCandidates,
+  unconfirmedMentionsNote,
+} from "@/lib/evidence";
 import { clusterEvidenceState } from "@/lib/evidenceLadder";
 import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 
@@ -24,8 +31,7 @@ export default async function IssuesPage() {
   ]);
   const active = clusters.filter(hasClusterEvidence);
   const watchlist = clusters.filter((c) => !hasClusterEvidence(c));
-  const candidates = watchlist.filter((c) => c.candidateSignalCount > 0);
-  const monitored = watchlist.filter((c) => c.candidateSignalCount === 0);
+  const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
   const persistent = countEvidenceBackedPersistentClusters(clusters);
 
   function ClusterCard({ cluster }: { cluster: (typeof clusters)[number] }) {
@@ -62,8 +68,7 @@ export default async function IssuesPage() {
 
         {state === "candidates" ? (
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            {cluster.candidateSignalCount} unconfirmed {cluster.candidateSignalCount === 1 ? "mention" : "mentions"} —
-            not enough separate sources to back it yet
+            {unconfirmedMentionsNote(cluster.candidateSignalCount)}
           </p>
         ) : null}
 
@@ -172,9 +177,7 @@ export default async function IssuesPage() {
                         </span>
                       </div>
                       <p className="text-xs" style={{ color: "var(--blue)" }}>
-                        {cluster.candidateSignalCount} unconfirmed{" "}
-                        {cluster.candidateSignalCount === 1 ? "mention" : "mentions"} — not enough separate sources to
-                        back it yet
+                        {unconfirmedMentionsNote(cluster.candidateSignalCount)}
                       </p>
                     </div>
                   ))}
@@ -186,8 +189,7 @@ export default async function IssuesPage() {
                   style={{ color: "var(--text-faint)" }}
                   title="The scanner checks public sources each run."
                 >
-                  Monitoring {monitored.length} more known problem {monitored.length === 1 ? "area" : "areas"} — no
-                  player reports or public sources yet.
+                  {monitoredAreasNote(monitored.length)}
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">

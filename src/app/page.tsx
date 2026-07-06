@@ -7,6 +7,9 @@ import {
   countEvidenceBackedPersistentClusters,
   countUnverifiedClaimedFixWatchlistClusters,
   hasClusterEvidence,
+  monitoredAreasNote,
+  splitWatchlistByCandidates,
+  unconfirmedMentionsNote,
 } from "@/lib/evidence";
 import { clusterEvidenceState } from "@/lib/evidenceLadder";
 import { getDashboardData } from "@/lib/queries";
@@ -57,8 +60,7 @@ export default async function DashboardPage() {
   const claimedFixWatchlistCount = countUnverifiedClaimedFixWatchlistClusters(d.topClusters);
   const active = d.topClusters.filter(hasClusterEvidence);
   const watchlist = d.topClusters.filter((c) => !hasClusterEvidence(c));
-  const candidates = watchlist.filter((c) => c.candidateSignalCount > 0);
-  const monitored = watchlist.filter((c) => c.candidateSignalCount === 0);
+  const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
   const maxStrength = Math.max(...active.map((c) => c.strengthScore), 1);
   const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
   const gpuEntries = Object.entries(d.gpus).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -322,9 +324,7 @@ export default async function DashboardPage() {
                         </span>
                       </div>
                       <p className="text-xs" style={{ color: "var(--blue)" }}>
-                        {cluster.candidateSignalCount} unconfirmed{" "}
-                        {cluster.candidateSignalCount === 1 ? "mention" : "mentions"} — not enough separate sources to
-                        back it yet
+                        {unconfirmedMentionsNote(cluster.candidateSignalCount)}
                       </p>
                     </Link>
                   ))}
@@ -336,8 +336,7 @@ export default async function DashboardPage() {
                   style={{ color: "var(--text-faint)" }}
                   title="The scanner checks public sources each run."
                 >
-                  Monitoring {monitored.length} more known problem {monitored.length === 1 ? "area" : "areas"} — no
-                  player reports or public sources yet.
+                  {monitoredAreasNote(monitored.length)}
                 </p>
               ) : null}
             </div>
