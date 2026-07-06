@@ -1,9 +1,5 @@
-import {
-  rescueRejectedCandidate,
-  runAutomationCappedScan,
-  runAutomationDryScan,
-  setAutomationPaused,
-} from "@/app/admin/actions";
+import { rescueRejectedCandidate, setAutomationPaused } from "@/app/admin/actions";
+import { ScanControls } from "@/components/ScanControls";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { CATEGORY_LABELS } from "@/lib/constants";
@@ -62,7 +58,7 @@ export default async function SourceMonitorPage() {
   await requireAdmin();
   const f = features();
   const budget = automationBudgetUsd();
-  const { runs, signals, rejectedCandidates, control } = await getAutomationAdminData();
+  const { runs, signals, rejectedCandidates, control, activeRun } = await getAutomationAdminData();
 
   return (
     <div className="space-y-6">
@@ -92,17 +88,8 @@ export default async function SourceMonitorPage() {
             Vercel cron attempts a scheduled scan daily at 09:00 UTC, which is 5:00 AM in Florida during daylight
             saving time. It skips automation when any run started in the previous 6 hours.
           </div>
+          <ScanControls activeRunId={activeRun?.id ?? null} />
           <div className="flex flex-wrap gap-2">
-            <form action={runAutomationDryScan}>
-              <SubmitButton className="btn btn-ghost" pendingText="Scanning… up to ~2 min">
-                Test scan without publishing
-              </SubmitButton>
-            </form>
-            <form action={runAutomationCappedScan}>
-              <SubmitButton className="btn" pendingText="Scanning… up to ~2 min">
-                Run capped scan now
-              </SubmitButton>
-            </form>
             <form action={setAutomationPaused}>
               <input type="hidden" name="paused" value={control.paused ? "false" : "true"} />
               <SubmitButton className="btn btn-ghost" pendingText="Saving…">
@@ -111,10 +98,10 @@ export default async function SourceMonitorPage() {
             </form>
           </div>
           <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-            A scan runs several web searches and AI calls one at a time, so it can take 1–2 minutes — the button shows
-            &quot;Scanning…&quot; while it works. Test scans write only the run ledger (nothing public changes). Capped scans use the
-            monthly budget guardrail and promote only qualifying public signals. Pause affects scheduled scans only; manual
-            runs still work.
+            A scan runs in the background — the card above updates itself every few seconds and the rest of the site
+            stays usable. Test scans write only the run ledger (nothing public changes). Capped scans use the monthly
+            budget guardrail and promote only qualifying public signals. Pause affects scheduled scans only; manual runs
+            still work.
           </p>
           {control.updatedAt ? (
             <p className="text-xs" style={{ color: "var(--text-faint)" }}>

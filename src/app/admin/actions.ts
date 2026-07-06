@@ -1,14 +1,13 @@
 "use server";
 
-import { revalidatePath, revalidateTag } from "next/cache";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
-import { rescueCandidateSignal, runAutomationMonitor } from "@/lib/automation/run";
+import { rescueCandidateSignal } from "@/lib/automation/run";
 import {
   setAutomationPaused as setAutomationPausedState,
   type AutomationSettingsClient,
 } from "@/lib/automation/settings";
-import { CURRENT_PATCH_TAG } from "@/lib/cacheTags";
 import { FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { draftDossierWithAi } from "@/lib/ai";
@@ -292,24 +291,6 @@ export async function runRedditMonitor(formData: FormData): Promise<void> {
     }
   }
 
-  revalidatePath("/admin/source-monitor");
-  revalidatePublicSurfaces();
-}
-
-export async function runAutomationDryScan(): Promise<void> {
-  await requireAdmin();
-  assertProductionWriteAllowed();
-  await runAutomationMonitor({ mode: "dry_run" });
-  revalidatePath("/admin");
-  revalidatePath("/admin/source-monitor");
-  revalidateTag(CURRENT_PATCH_TAG, "max");
-}
-
-export async function runAutomationCappedScan(): Promise<void> {
-  await requireAdmin();
-  assertProductionWriteAllowed();
-  await runAutomationMonitor({ mode: "manual" });
-  revalidatePath("/admin");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
 }

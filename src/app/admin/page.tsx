@@ -1,11 +1,6 @@
 import Link from "next/link";
-import {
-  moderateReport,
-  runAutomationCappedScan,
-  runAutomationDryScan,
-  setAutomationPaused,
-  setClusterFixStatus,
-} from "@/app/admin/actions";
+import { moderateReport, setAutomationPaused, setClusterFixStatus } from "@/app/admin/actions";
+import { ScanControls } from "@/components/ScanControls";
 import { SubmitButton } from "@/components/SubmitButton";
 import { FixStatusBadge, SectionHeader, StatCard } from "@/components/ui";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
@@ -41,31 +36,54 @@ export default async function AdminPage() {
   await requireAdmin();
   const supabase = createServiceClient();
 
-  const [{ data: flagged }, { data: clusters }, approved, pending, spam, latestAutomation, automationControl] =
-    await Promise.all([
-      supabase
-        .from("bug_reports")
-        .select("*")
-        .eq("moderation_status", "pending")
-        .order("created_at", { ascending: true })
-        .limit(50),
-      supabase.from("issue_clusters").select("id, title, fix_status").order("title"),
-      supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
-      supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
-      supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
-      supabase
-        .from("automation_runs")
-        .select(
-          "started_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors",
-        )
-        .order("started_at", { ascending: false })
-        .limit(1),
-      getAutomationControlState(supabase as unknown as AutomationSettingsClient),
-    ]);
+  const [
+    { data: flagged },
+    { data: clusters },
+    approved,
+    pending,
+    spam,
+    latestAutomation,
+    automationControl,
+    activeAutomationRun,
+  ] = await Promise.all([
+    supabase
+      .from("bug_reports")
+      .select("*")
+      .eq("moderation_status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(50),
+    supabase.from("issue_clusters").select("id, title, fix_status").order("title"),
+    supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
+    supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
+    supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
+    supabase
+      .from("automation_runs")
+      .select(
+        "started_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors",
+      )
+      .order("started_at", { ascending: false })
+      .limit(1),
+    getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+    supabase
+      .from("automation_runs")
+      .select("id, status, mode, started_at")
+      .eq("status", "running")
+      .order("started_at", { ascending: false })
+      .limit(1),
+  ]);
 
   const flaggedReports = flagged ?? [];
   const latestRun = ((latestAutomation.data ?? []) as AutomationDashboardRun[])[0] ?? null;
   const latestMessages = latestRun ? summarizeRunMessages(latestRun.skips, latestRun.errors) : null;
+  const activeRunId =
+    (
+      (activeAutomationRun.data ?? []) as {
+        id: string;
+        status: string;
+        mode: string;
+        started_at: string;
+      }[]
+    )[0]?.id ?? null;
   const f = features();
   const budget = automationBudgetUsd();
 
@@ -149,26 +167,19 @@ export default async function AdminPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 border-t pt-4">
-          <form action={runAutomationDryScan}>
-            <SubmitButton className="btn btn-ghost btn-sm" pendingText="Scanning...">
-              Test scan
-            </SubmitButton>
-          </form>
-          <form action={runAutomationCappedScan}>
-            <SubmitButton className="btn btn-sm" pendingText="Scanning...">
-              Run capped scan
-            </SubmitButton>
-          </form>
-          <form action={setAutomationPaused}>
-            <input type="hidden" name="paused" value={automationControl.paused ? "false" : "true"} />
-            <SubmitButton className="btn btn-ghost btn-sm" pendingText="Saving...">
-              {automationControl.paused ? "Resume scheduled scans" : "Stop scheduled scans"}
-            </SubmitButton>
-          </form>
-          <Link className="btn btn-ghost btn-sm" href="/admin/source-monitor">
-            Full run ledger
-          </Link>
+        <div className="space-y-3 border-t pt-4">
+          <ScanControls activeRunId={activeRunId} />
+          <div className="flex flex-wrap gap-2">
+            <form action={setAutomationPaused}>
+              <input type="hidden" name="paused" value={automationControl.paused ? "false" : "true"} />
+              <SubmitButton className="btn btn-ghost btn-sm" pendingText="Saving...">
+                {automationControl.paused ? "Resume scheduled scans" : "Stop scheduled scans"}
+              </SubmitButton>
+            </form>
+            <Link className="btn btn-ghost btn-sm" href="/admin/source-monitor">
+              Full run ledger
+            </Link>
+          </div>
         </div>
       </section>
 
