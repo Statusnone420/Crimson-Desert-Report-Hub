@@ -5,6 +5,9 @@ export type ScanIntent =
   | "forum_discovery"
   | "corroborate_cluster"
   | "rescue_candidate"
+  // "quarantine" is a legacy/historical intent, never produced by chooseScanIntent
+  // anymore (staleness is handled by the always-on quarantine step in run.ts). Kept
+  // so older automation_runs.intent records still typecheck.
   | "quarantine";
 
 export type RecentRunMemory = {
@@ -46,7 +49,9 @@ export function chooseScanIntent(memory: ScanMemory, rotationOffset = 0): ScanIn
   const lanes: ScanIntent[] = [discoveryLane];
   if (corroborateEligible) lanes.push("corroborate_cluster");
   if (rescueEligible) lanes.push("rescue_candidate");
-  return lanes[rotationOffset % lanes.length];
+  // Negative-safe modulo, matching the rotation convention in search.ts.
+  const laneIndex = ((rotationOffset % lanes.length) + lanes.length) % lanes.length;
+  return lanes[laneIndex];
 }
 
 export function buildMemorySearchQueries(
@@ -63,7 +68,9 @@ export function buildMemorySearchQueries(
   if (intent === "corroborate_cluster") {
     const titles = options.targetClusterTitles ?? [];
     const rotationOffset = options.rotationOffset ?? 0;
-    const target = titles.length > 0 ? titles[rotationOffset % titles.length]?.trim() : undefined;
+    // Negative-safe modulo, matching the rotation convention in search.ts.
+    const titleIndex = titles.length > 0 ? ((rotationOffset % titles.length) + titles.length) % titles.length : 0;
+    const target = titles.length > 0 ? titles[titleIndex]?.trim() : undefined;
     const targetText = target ? `${target} ` : "";
     return [`Crimson Desert patch ${patchVersion} ${targetText}player reports corroborate crash stutter FPS issues`].slice(0, count);
   }
