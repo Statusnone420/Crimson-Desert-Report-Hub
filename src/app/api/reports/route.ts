@@ -4,6 +4,7 @@ import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { reportFingerprint, hashIp } from "@/lib/crypto";
 import { requiredEnv } from "@/lib/env";
 import { moderateReport, type ClusterRef } from "@/lib/moderation";
+import { isVercelPreview } from "@/lib/previewGuard";
 import { reportSchema } from "@/lib/reportSchema";
 import { createServiceClient } from "@/lib/supabase";
 import { verifyTurnstile } from "@/lib/turnstile";
@@ -11,6 +12,10 @@ import { verifyTurnstile } from "@/lib/turnstile";
 const MAX_PER_HOUR = 5;
 
 export async function POST(req: Request) {
+  if (isVercelPreview()) {
+    return NextResponse.json({ error: "preview_writes_disabled" }, { status: 403 });
+  }
+
   let body: unknown;
   try {
     body = await req.json();

@@ -332,6 +332,7 @@ beforeEach(() => {
   process.env.OPENROUTER_API_KEY = "openrouter-key";
   process.env.OPENROUTER_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
   delete process.env.CRON_SECRET;
+  delete process.env.VERCEL_ENV;
 });
 
 afterEach(() => {
@@ -737,6 +738,28 @@ describe("runAutomationMonitor", () => {
 });
 
 describe("cron keepalive route", () => {
+  it("blocks authenticated cron writes in Vercel preview", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    process.env.VERCEL_ENV = "preview";
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({ runAutomationMonitor: mocks.runAutomationMonitor }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "preview_writes_disabled" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.getAutomationControlState).not.toHaveBeenCalled();
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+  });
+
   it("returns unauthorized when CRON_SECRET is set and the bearer token is missing", async () => {
     process.env.CRON_SECRET = "cron-secret";
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });

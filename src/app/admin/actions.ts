@@ -16,6 +16,7 @@ import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { assertProductionWriteAllowed } from "@/lib/previewGuard";
 import { classifySignal, summarize } from "@/lib/reddit";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { createServiceClient } from "@/lib/supabase";
@@ -99,6 +100,7 @@ function distinctVerifiedClusterRows(rows: CompileVerifiedRow[]): { cluster_id: 
 
 export async function moderateReport(formData: FormData): Promise<void> {
   await requireAdmin();
+  assertProductionWriteAllowed();
   const id = String(formData.get("id") ?? "");
   const decision = String(formData.get("decision") ?? "");
   const clusterId = String(formData.get("cluster_id") ?? "");
@@ -125,6 +127,7 @@ export async function moderateReport(formData: FormData): Promise<void> {
 
 export async function setClusterFixStatus(formData: FormData): Promise<void> {
   await requireAdmin();
+  assertProductionWriteAllowed();
   const clusterId = String(formData.get("cluster_id") ?? "");
   const fixStatus = String(formData.get("fix_status") ?? "");
   if (!clusterId || !(FIX_STATUSES as readonly string[]).includes(fixStatus)) throw new Error("bad input");
@@ -139,6 +142,7 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
 
 export async function compileDossier(formData: FormData): Promise<void> {
   await requireAdmin();
+  assertProductionWriteAllowed();
   const useAi = formData.get("use_ai") === "on";
   const supabase = createServiceClient();
   const currentPatch = await getCurrentPatchMetadata(supabase);
@@ -255,6 +259,7 @@ export async function compileDossier(formData: FormData): Promise<void> {
 
 export async function runRedditMonitor(formData: FormData): Promise<void> {
   await requireAdmin();
+  assertProductionWriteAllowed();
   if (!features().reddit) throw new Error("reddit monitor disabled: keys missing");
 
   const raw = String(formData.get("subreddits") ?? "");
@@ -301,6 +306,7 @@ export async function runRedditMonitor(formData: FormData): Promise<void> {
 
 export async function runAutomationDryScan(): Promise<void> {
   await requireAdmin();
+  assertProductionWriteAllowed();
   await runAutomationMonitor({ mode: "dry_run" });
   revalidatePath("/admin/source-monitor");
   revalidateTag(CURRENT_PATCH_TAG, "max");
@@ -308,6 +314,7 @@ export async function runAutomationDryScan(): Promise<void> {
 
 export async function runAutomationCappedScan(): Promise<void> {
   await requireAdmin();
+  assertProductionWriteAllowed();
   await runAutomationMonitor({ mode: "manual" });
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
@@ -315,6 +322,7 @@ export async function runAutomationCappedScan(): Promise<void> {
 
 export async function setAutomationPaused(formData: FormData): Promise<void> {
   await requireAdmin();
+  assertProductionWriteAllowed();
   const paused = formData.get("paused") === "true";
   await setAutomationPausedState(createServiceClient() as unknown as AutomationSettingsClient, paused);
   revalidatePath("/admin/source-monitor");
