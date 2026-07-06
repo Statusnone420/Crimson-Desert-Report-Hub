@@ -4,7 +4,7 @@ import { ConfidenceBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } fr
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import {
   countEvidenceBackedPersistentClusters,
-  countUnverifiedPersistentWatchlistClusters,
+  countUnverifiedClaimedFixWatchlistClusters,
   hasClusterEvidence,
 } from "@/lib/evidence";
 import { getDashboardData } from "@/lib/queries";
@@ -33,7 +33,7 @@ function statusTone(fixStatus: string): Tone {
 export default async function DashboardPage() {
   const d = await getDashboardData();
   const persistentCount = countEvidenceBackedPersistentClusters(d.topClusters);
-  const persistentWatchlistCount = countUnverifiedPersistentWatchlistClusters(d.topClusters);
+  const claimedFixWatchlistCount = countUnverifiedClaimedFixWatchlistClusters(d.topClusters);
   const active = d.topClusters.filter(hasClusterEvidence);
   const watchlist = d.topClusters.filter((c) => !hasClusterEvidence(c));
   const maxStrength = Math.max(...active.map((c) => c.strengthScore), 1);
@@ -105,7 +105,7 @@ export default async function DashboardPage() {
           <StatCard
             label="Evidence-backed persistence"
             value={persistentCount}
-            note={persistentWatchlistCount > 0 ? `${persistentWatchlistCount} claimed-fix watchlist` : "Only counts vetted evidence"}
+            note={claimedFixWatchlistCount > 0 ? `${claimedFixWatchlistCount} claimed-fix watchlist` : "Only counts vetted evidence"}
             tone="amber"
           />
         </div>

@@ -16,6 +16,9 @@ export function countEvidenceBackedPersistentClusters(clusters: EvidenceCluster[
   return clusters.filter((cluster) => cluster.fix_status === "persists" && hasClusterEvidence(cluster)).length;
 }
 
-export function countUnverifiedPersistentWatchlistClusters(clusters: EvidenceCluster[]): number {
-  return clusters.filter((cluster) => cluster.fix_status === "persists" && isUnverifiedWatchlistCluster(cluster)).length;
+export function countUnverifiedClaimedFixWatchlistClusters(clusters: EvidenceCluster[]): number {
+  return clusters.filter(
+    (cluster) =>
+      (cluster.fix_status === "fix_claimed" || cluster.fix_status === "persists") && isUnverifiedWatchlistCluster(cluster),
+  ).length;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   countEvidenceBackedPersistentClusters,
-  countUnverifiedPersistentWatchlistClusters,
+  countUnverifiedClaimedFixWatchlistClusters,
   hasClusterEvidence,
   isUnverifiedWatchlistCluster,
 } from "@/lib/evidence";
@@ -23,6 +23,6 @@ describe("cluster evidence display rules", () => {
 
   it("counts persistence only when evidence exists", () => {
     expect(countEvidenceBackedPersistentClusters(clusters)).toBe(1);
-    expect(countUnverifiedPersistentWatchlistClusters(clusters)).toBe(1);
+    expect(countUnverifiedClaimedFixWatchlistClusters(clusters)).toBe(2);
   });
 });
