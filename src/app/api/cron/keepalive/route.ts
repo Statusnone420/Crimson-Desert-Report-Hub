@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runAutomationMonitor } from "@/lib/automation/run";
 import { getAutomationControlState } from "@/lib/automation/settings";
+import { isVercelPreview } from "@/lib/previewGuard";
 import { createServiceClient } from "@/lib/supabase";
 
 export async function GET(req: Request) {
@@ -10,6 +11,9 @@ export async function GET(req: Request) {
   }
   if (req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  if (isVercelPreview()) {
+    return NextResponse.json({ error: "preview_writes_disabled" }, { status: 403 });
   }
 
   const supabase = createServiceClient();
