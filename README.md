@@ -1,77 +1,83 @@
+<div align="center">
+
 # Crimson Desert Report Hub
 
-[![CI](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/actions/workflows/ci.yml/badge.svg)](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/actions/workflows/ci.yml)
+**An unofficial, privacy-first evidence board for Crimson Desert bug reports.**
 
-Unofficial, fan-run Crimson Desert issue tracker for turning scattered patch complaints into structured community evidence.
+<p>
+  <a href="https://crimsonreporthub.com"><img alt="Live site" src="https://img.shields.io/badge/live-crimsonreporthub.com-B42318?style=for-the-badge&logo=vercel&logoColor=white"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/Statusnone420/Crimson-Desert-Report-Hub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Statusnone420/Crimson-Desert-Report-Hub?style=for-the-badge&color=0E7A5F"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Statusnone420/Crimson-Desert-Report-Hub?style=for-the-badge&logo=github&color=F2C94C"></a>
+  <img alt="Last commit" src="https://img.shields.io/github/last-commit/Statusnone420/Crimson-Desert-Report-Hub?style=for-the-badge&color=5C8DFF">
+</p>
 
-Live site: [crimsonreporthub.com](https://crimsonreporthub.com)
+<p>
+  <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16.2-000000?style=for-the-badge&logo=nextdotjs&logoColor=white">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=for-the-badge&logo=react&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white">
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?style=for-the-badge&logo=supabase&logoColor=0B1B13">
+  <img alt="Vercel" src="https://img.shields.io/badge/Vercel-ready-000000?style=for-the-badge&logo=vercel&logoColor=white">
+  <img alt="Playwright" src="https://img.shields.io/badge/Playwright-visual%20smoke-45BA4B?style=for-the-badge&logo=playwright&logoColor=white">
+</p>
 
-This project is not affiliated with Pearl Abyss, Reddit, X, Vercel, Supabase, Tavily, or OpenRouter.
+<p>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions"><img alt="GitHub Discussions" src="https://img.shields.io/badge/Discussions-open-8957E5?style=for-the-badge&logo=github&logoColor=white"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/wiki"><img alt="GitHub Wiki" src="https://img.shields.io/badge/Wiki-live-0969DA?style=for-the-badge&logo=github&logoColor=white"></a>
+  <img alt="No ads" src="https://img.shields.io/badge/no-ads-0E7A5F?style=for-the-badge">
+  <img alt="No analytics trackers" src="https://img.shields.io/badge/no-analytics%20trackers-0E7A5F?style=for-the-badge">
+  <img alt="Fan run" src="https://img.shields.io/badge/fan--run-unofficial-B42318?style=for-the-badge">
+</p>
 
-## What It Does
+<a href="https://crimsonreporthub.com">
+  <img alt="Clickable live website preview for Crimson Desert Report Hub" src="https://api.microlink.io/?url=https%3A%2F%2Fcrimsonreporthub.com&screenshot=true&meta=false&embed=screenshot.url" width="920">
+</a>
 
-- Watches public community signals from web search and optional Reddit API access.
-- Reads the official Pearl Abyss announcements page to keep the active patch label and source link current.
-- Uses a budget-capped AI extraction step to identify issue title, category, platform, confidence, and evidence URL.
-- Clusters duplicate signals automatically.
-- Lets players submit anonymous structured reports to strengthen clusters.
-- Keeps raw submissions private unless a moderator approves a public excerpt.
-- Compiles a Pearl Abyss-ready evidence dossier from automated signals and verified reports.
+<br>
 
-The public dashboard intentionally separates:
+<strong>Click the preview to open the live site.</strong>
 
-- `Community signals`: automated public signals that passed confidence rules.
-- `Direct reports`: approved structured player reports.
-- `Verified reports`: moderator-approved excerpts from direct reports.
+</div>
 
-## Privacy Posture
+## What This Is
 
-- No user accounts.
-- No ads.
-- No analytics trackers.
-- No public raw complaint feed.
-- No raw IP storage; the server stores only a salted one-way hash for rate limiting.
-- Secrets live only in deployment environment variables, never in source control.
+Crimson Desert Report Hub turns scattered player bug reports into structured community evidence: public signals, anonymous direct reports, moderation-approved excerpts, and Pearl Abyss-ready dossiers.
 
-See [docs/PRIVACY.md](docs/PRIVACY.md) for the full privacy model.
+It is not affiliated with Pearl Abyss, Reddit, X, Vercel, Supabase, Tavily, or OpenRouter.
 
-## Automation Safety
+## Core Flow
 
-Automation is designed to fail closed:
+```text
+public reports + community signals
+        -> issue clusters
+        -> moderation review
+        -> public evidence board
+        -> exportable dossier
+```
 
-- `AUTOMATION_BUDGET_USD_MONTHLY` is the single monthly cost knob.
-- `0` disables paid search and paid LLM work.
-- Tavily search is capped per run.
-- OpenRouter extraction is configured with `openrouter/free`.
-- Broad patch notes, reviews, benchmarks, and unclear `other` extractions are filtered before database writes.
-- Scheduled scans can be paused from `/admin/source-monitor`.
-- A protected source preview route can test live extraction without writing to the database.
-- CI uses mocks only; it never calls Reddit, Tavily, OpenRouter, or Supabase production data.
-- Public dashboard data and current patch metadata are server-cached for five minutes, then explicitly refreshed after real writes.
+## Principles
 
-## Tech Stack
+- Evidence before outrage.
+- Anonymous report intake by default.
+- No accounts, ads, analytics trackers, or public raw complaint feed.
+- Paid integrations are optional and budget-capped.
+- Official patch notes are treated as source metadata, not branding.
 
-- Next.js App Router
-- React
-- TypeScript
-- Supabase Postgres
-- Vercel
-- Vitest
-- Playwright
-- Optional Cloudflare Turnstile
-- Optional Tavily, OpenRouter, and Reddit API integrations
+## Start Here
 
-## Repository Docs
-
-- [docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md): one-page production launch checklist and human setup guide.
-- [docs/OPERATIONS.md](docs/OPERATIONS.md): deployment, environment variables, manual scanner controls, and human setup steps.
-- [docs/PRIVACY.md](docs/PRIVACY.md): what is stored, what is public, and what is never collected.
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute safely.
-- [SECURITY.md](SECURITY.md): vulnerability reporting and secret-handling policy.
-- [DESIGN.md](DESIGN.md): visual and UX direction.
-- [PRODUCT.md](PRODUCT.md): product goals and boundaries.
-
-Use [GitHub Discussions](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions) for setup help, community ideas, and non-sensitive questions. Use issues for concrete bugs or scoped feature requests.
+| Need | Link |
+| --- | --- |
+| Live app | [crimsonreporthub.com](https://crimsonreporthub.com) |
+| Project docs | [docs/README.md](docs/README.md) |
+| GitHub Wiki | [Wiki](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/wiki) |
+| Wiki-ready source pages | [docs/wiki/Home.md](docs/wiki/Home.md) |
+| Community questions | [Discussions](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions) |
+| Discussion guide | [docs/DISCUSSIONS.md](docs/DISCUSSIONS.md) |
+| Bugs and scoped work | [Issues](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/issues) |
+| Privacy model | [docs/PRIVACY.md](docs/PRIVACY.md) |
+| Production setup | [docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md) |
+| Operations | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
+| Security | [SECURITY.md](SECURITY.md) |
 
 ## Local Development
 
@@ -82,7 +88,7 @@ npm run build
 npm run dev
 ```
 
-Create `.env.local` from [.env.local.example](.env.local.example) when running the full app locally. Do not commit `.env.local` or any real credential file.
+Create `.env.local` from [.env.local.example](.env.local.example) for full local runs. Never commit `.env.local`, API keys, passwords, dashboard screenshots with secrets, or local credential notes.
 
 ## Verification
 
@@ -91,11 +97,6 @@ npm run lint
 npm test
 npm exec tsc -- --noEmit
 npm run build
-```
-
-Visual regression coverage:
-
-```bash
 npm run test:e2e
 ```
 
