@@ -46,4 +46,13 @@ describe("assessClaims", () => {
     expect(result.disputed).toHaveLength(0);
     expect(result.all[0]?.cluster).toBeNull();
   });
+
+  it("leaves a claim unrouted when its category matches no keyword route", () => {
+    const result = assessClaims(
+      [{ fixText: "Improved the Dye UI.", category: "controls_gameplay" }],
+      clusters,
+    );
+    expect(result.disputed).toHaveLength(0);
+    expect(result.all[0]?.cluster).toBeNull();
+  });
 });

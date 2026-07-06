@@ -192,7 +192,7 @@ export default async function DashboardPage() {
                   {claim.cluster ? (
                     <p className="text-xs" style={{ color: "var(--text-dim)" }}>
                       <span className="num">{claim.cluster.directReportCount}</span> approved reports ·{" "}
-                      <span className="num">{claim.cluster.signalCount}</span> cited sources since the claim —{" "}
+                      <span className="num">{claim.cluster.signalCount}</span> cited sources on this issue —{" "}
                       <Link href="/issues" className="link">
                         view the evidence →
                       </Link>
