@@ -31,9 +31,11 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const POLL_MS = 2500;
+const MAX_POLL_FAILURES = 4;
 
 export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
   const router = useRouter();
+  // runId seeds from activeRunId only at mount, by design (post-refresh prop changes must not restart polling).
   const [runId, setRunId] = useState<string | null>(activeRunId);
   const [run, setRun] = useState<RunStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,12 +50,22 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
   useEffect(() => {
     if (!runId) return;
     let cancelled = false;
+    let failures = 0;
     const poll = async () => {
       try {
         const res = await fetch(`/api/admin/scan/status?id=${runId}`, { cache: "no-store" });
+        if (res.status === 401) {
+          // Admin session expired mid-scan; the scan itself keeps running server-side.
+          if (cancelled) return;
+          stopPolling();
+          setRunId(null);
+          setError("Your session expired — sign in again to check the scan.");
+          return;
+        }
         if (!res.ok) throw new Error(`status ${res.status}`);
         const data = (await res.json()) as RunStatus;
         if (cancelled) return;
+        failures = 0;
         setRun(data);
         if (data.status !== "running") {
           stopPolling();
@@ -61,7 +73,15 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
           router.refresh();
         }
       } catch {
-        // transient poll failure — keep trying; the server-side stale sweep guards the terminal case
+        // Transient poll failure — keep trying, but not forever: after 4 consecutive
+        // failures stop and tell the admin instead of spinning silently.
+        if (cancelled) return;
+        failures += 1;
+        if (failures >= MAX_POLL_FAILURES) {
+          stopPolling();
+          setRunId(null);
+          setError("Lost contact with the scan — refresh the page to check its status.");
+        }
       }
     };
     void poll();
