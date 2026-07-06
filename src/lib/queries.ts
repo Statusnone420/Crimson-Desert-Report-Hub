@@ -4,7 +4,7 @@ import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
-import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export type ClusterRow = {
@@ -156,6 +156,7 @@ async function getDashboardDataUncached() {
       scanner: { paused: false, updatedAt: null },
       latestAutomationRun: null,
       currentPatch: await getCurrentPatchMetadata(),
+      claimedFixes: [],
     };
   }
 
@@ -196,7 +197,7 @@ async function getDashboardDataUncached() {
     .order("created_at", { ascending: false })
     .limit(1);
 
-  const [scanner, latestAutomation, currentPatch] = await Promise.all([
+  const [scanner, latestAutomation, currentPatch, claimedFixes] = await Promise.all([
     getAutomationControlState(supabase as unknown as AutomationSettingsClient),
     supabase
       .from("automation_runs")
@@ -205,6 +206,7 @@ async function getDashboardDataUncached() {
       .order("started_at", { ascending: false })
       .limit(1),
     getCurrentPatchMetadata(supabase),
+    getClaimedFixesForCurrentPatch(supabase),
   ]);
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -245,6 +247,7 @@ async function getDashboardDataUncached() {
     scanner,
     latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
     currentPatch,
+    claimedFixes,
   };
 }
 

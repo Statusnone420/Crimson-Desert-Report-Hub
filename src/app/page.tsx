@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Sparkline } from "@/components/Sparkline";
 import { ConfidenceBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
-import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
+import { routeToWatchlistCluster } from "@/lib/automation/route";
+import { CATEGORY_LABELS, PLATFORM_LABELS, type Category } from "@/lib/constants";
 import {
   countEvidenceBackedPersistentClusters,
   countUnverifiedClaimedFixWatchlistClusters,
@@ -28,6 +29,25 @@ function statusTone(fixStatus: string): Tone {
   if (fixStatus === "acknowledged" || fixStatus === "fix_claimed") return "amber";
   if (fixStatus === "verified_fixed") return "green";
   return "dim";
+}
+
+function isContradictedByEvidence(
+  fix: { fixText: string; category: string | null },
+  clusters: { id: string; slug: string; title: string; category: string; strengthScore: number }[],
+): boolean {
+  if (!fix.category) return false;
+  const matched = routeToWatchlistCluster(
+    {
+      issueTitle: fix.fixText,
+      summary: fix.fixText,
+      category: fix.category as Category,
+      llmClusterSlug: null,
+    },
+    clusters,
+  );
+  if (!matched) return false;
+  const cluster = clusters.find((candidate) => candidate.id === matched.id);
+  return (cluster?.strengthScore ?? 0) > 0;
 }
 
 export default async function DashboardPage() {
@@ -110,6 +130,32 @@ export default async function DashboardPage() {
           />
         </div>
       </section>
+
+      {/* Official patch-note claimed fixes */}
+      {d.claimedFixes.length > 0 ? (
+        <section className="panel space-y-3">
+          <div className="stat-label">What patch {d.currentPatch.version} claims to fix</div>
+          <div className="space-y-2">
+            {d.claimedFixes.map((fix, index) => {
+              const contradicted = isContradictedByEvidence(fix, d.topClusters);
+              return (
+                <div key={index} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="min-w-0 flex-1" style={{ color: "var(--text-dim)" }}>
+                    {fix.fixText}
+                  </span>
+                  <span className={contradicted ? "badge badge-crimson shrink-0" : "badge badge-dim shrink-0"}>
+                    {contradicted ? "contradicted by evidence" : "no contradicting evidence"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="border-t pt-3 text-xs" style={{ color: "var(--text-faint)" }}>
+            Sourced from Pearl Abyss&apos;s official patch notes. &quot;No contradicting evidence&quot; means no
+            approved reports or corroborated public signals dispute this fix yet.
+          </p>
+        </section>
+      ) : null}
 
       {/* Top issues + platforms */}
       <section className="grid gap-3 lg:grid-cols-[1.5fr_0.9fr]">

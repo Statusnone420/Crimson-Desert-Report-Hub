@@ -9,7 +9,7 @@ import { domainTier } from "@/lib/automation/domains";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
-import { parseOfficialNoticeList, parseOfficialPatchDetail, patchVersionFromTitle } from "@/lib/officialPatch";
+import { parseClaimedFixes, parseOfficialNoticeList, parseOfficialPatchDetail, patchVersionFromTitle } from "@/lib/officialPatch";
 
 const crashCandidate = {
   title: "Crimson Desert map crash still happens",
@@ -659,6 +659,43 @@ describe("official patch metadata", () => {
       patchVersion: "1.13.00",
       publishedAt: "2026-07-03T03:00:00.000Z",
       summary: "This patch adds fixes and stability improvements.",
+      claimedFixes: [],
     });
+  });
+
+  it("extracts claimed fixes from patch note list items", () => {
+    const html = `
+      <li>Fixed an issue where the map crashed the game.</li>
+      <li>Improved lighting.</li>
+      <li>Fixed the map crash.</li>
+    `;
+
+    expect(parseClaimedFixes(html)).toEqual([
+      "Fixed an issue where the map crashed the game.",
+      "Fixed the map crash.",
+    ]);
+  });
+
+  it("drops claimed fix candidates outside the 12-300 char bounds", () => {
+    const html = `
+      <li>Fixed it.</li>
+      <li>Fixed ${"a".repeat(295)}.</li>
+    `;
+
+    expect(parseClaimedFixes(html)).toEqual([]);
+  });
+
+  it("strips nested tags before evaluating claimed fix text", () => {
+    const html = `<li>Fixed an issue where <b>the map</b> crashed <i>the game</i>.</li>`;
+
+    expect(parseClaimedFixes(html)).toEqual(["Fixed an issue where the map crashed the game."]);
+  });
+
+  it("dedupes claimed fixes by lowercased text and caps at 30", () => {
+    const html = Array.from({ length: 35 }, (_, index) => `<li>Fixed issue number ${index}.</li>`).join("\n");
+
+    const fixes = parseClaimedFixes(html);
+    expect(fixes).toHaveLength(30);
+    expect(new Set(fixes.map((fix) => fix.toLowerCase())).size).toBe(30);
   });
 });

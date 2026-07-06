@@ -8,6 +8,7 @@ export type OfficialPatchNote = {
   officialUrl: string;
   publishedAt: string | null;
   summary: string | null;
+  claimedFixes: string[];
 };
 
 export type OfficialPatchFetchLike = (url: string, init?: { headers?: Record<string, string>; cache?: RequestCache }) => Promise<{
@@ -84,6 +85,24 @@ function cleanSummary(value: string): string {
   return value.replace(/([a-z])([A-Z][a-z])/g, "$1 $2").replace(/\s+/g, " ").trim();
 }
 
+const FIX_LANGUAGE = /\b(fixed|resolved|addressed|corrected|no longer)\b/i;
+
+export function parseClaimedFixes(html: string): string[] {
+  const fixes: string[] = [];
+  const seen = new Set<string>();
+  for (const match of html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
+    const text = decodeHtml((match[1] ?? "").replace(/<[^>]*>/g, ""));
+    if (!text || text.length < 12 || text.length > 300) continue;
+    if (!FIX_LANGUAGE.test(text)) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fixes.push(text);
+    if (fixes.length >= 30) break;
+  }
+  return fixes;
+}
+
 export function parseOfficialPatchDetail(
   html: string,
   base: Pick<OfficialPatchNote, "boardNo" | "title" | "patchVersion" | "officialUrl">,
@@ -98,6 +117,7 @@ export function parseOfficialPatchDetail(
     patchVersion,
     publishedAt: parsePublishedAt(html),
     summary: summary ? cleanSummary(summary).slice(0, 360) : null,
+    claimedFixes: parseClaimedFixes(html),
   };
 }
 
