@@ -658,12 +658,56 @@ describe("runAutomationMonitor", () => {
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(result.signalsInserted).toBe(1);
-    expect(result.skips).toEqual(expect.arrayContaining(["category_other", "source_not_issue_report"]));
+    expect(result.skips.filter((skip) => skip === "source_not_issue_report")).toHaveLength(2);
+    expect(result.prefilterRejected).toBe(2);
     expect(sourceSignalRows()).toHaveLength(1);
     expect(sourceSignalRows()[0]).toMatchObject({
       title: "Crimson Desert patch 1.13 FPS drops",
       category: "performance",
       public_status: "private",
+    });
+  });
+
+  it("makes zero LLM calls and records the run funnel when every candidate fails pre-screen", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert PS5 Review",
+        url: "https://www.youtube.com/watch?v=review",
+        snippet: "A general review of the game on PlayStation 5.",
+        sourceDomain: "youtube.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.llmCallsUsed).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(result.candidatesSeen).toBe(2);
+    expect(result.prefilterRejected).toBe(2);
+    expect(result.signalsInserted).toBe(0);
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      funnel: {
+        candidatesSeen: 2,
+        deduped: 0,
+        prefilterRejected: 2,
+        llmCalls: 0,
+        kept: 0,
+        promoted: 0,
+      },
     });
   });
 

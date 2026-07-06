@@ -4,7 +4,7 @@ import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
 import { extractSignalWithOpenRouter, type ExtractionResult } from "@/lib/automation/extract";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
-import { shouldKeepAutomatedSignal } from "@/lib/automation/relevance";
+import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch, type SearchResult } from "@/lib/automation/search";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
@@ -21,6 +21,8 @@ export type AutomationResult = {
   searchQueriesUsed: number;
   searchResultsSeen: number;
   llmCallsUsed: number;
+  candidatesSeen: number;
+  prefilterRejected: number;
   signalsInserted: number;
   signalsDeduped: number;
   clustersPromoted: number;
@@ -229,8 +231,10 @@ async function prepareSignals(
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
   const limit = Math.max(25, budget.maxSearchResults + 25);
+  const candidates = inputs.slice(0, limit);
+  result.candidatesSeen += candidates.length;
 
-  for (const signal of inputs.slice(0, limit)) {
+  for (const signal of candidates) {
     let canonicalUrl: string;
     try {
       canonicalUrl = canonicalizeUrl(signal.url);
@@ -248,6 +252,19 @@ async function prepareSignals(
     seenUrls.add(canonicalUrl);
     seenExternalIds.add(externalHash);
 
+    // Cheap gate on raw source text, runs BEFORE any LLM call. Trade-off: a source
+    // whose raw title+snippet has no symptom language is rejected without giving the
+    // LLM a chance to rescue it. That rescue path was the waste this prefilter removes.
+    const preScreen = preScreenCandidate(
+      { title: signal.title, snippet: signal.body, sourceDomain: signal.sourceDomain },
+      { currentPatchVersion: patchVersion },
+    );
+    if (!preScreen.keep) {
+      result.skips.push(preScreen.reason);
+      result.prefilterRejected += 1;
+      continue;
+    }
+
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
       { llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed) },
@@ -255,15 +272,7 @@ async function prepareSignals(
     if (extraction.llmCallUsed) result.llmCallsUsed += 1;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
 
-    const relevance = shouldKeepAutomatedSignal(
-      {
-        title: signal.title,
-        snippet: signal.body,
-        sourceDomain: signal.sourceDomain,
-        extraction,
-      },
-      { currentPatchVersion: patchVersion },
-    );
+    const relevance = shouldKeepExtractedSignal(extraction);
     if (!relevance.keep) {
       result.skips.push(relevance.reason);
       continue;
@@ -527,6 +536,14 @@ async function insertRunLedger(
     clusters_promoted: result.clustersPromoted,
     skips: result.skips,
     errors: result.errors,
+    funnel: {
+      candidatesSeen: result.candidatesSeen,
+      deduped: result.signalsDeduped,
+      prefilterRejected: result.prefilterRejected,
+      llmCalls: result.llmCallsUsed,
+      kept: result.signalsInserted,
+      promoted: result.clustersPromoted,
+    },
   });
   if (error) throw new Error(error.message);
 }
@@ -555,6 +572,8 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
     searchQueriesUsed: 0,
     searchResultsSeen: 0,
     llmCallsUsed: 0,
+    candidatesSeen: 0,
+    prefilterRejected: 0,
     signalsInserted: 0,
     signalsDeduped: 0,
     clustersPromoted: 0,

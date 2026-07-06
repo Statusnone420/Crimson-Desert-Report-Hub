@@ -106,7 +106,7 @@ describe("previewAutomationSearch", () => {
     expect(mocks.tavilySearch).toHaveBeenCalledTimes(2);
   });
 
-  it("marks broad patch notes as skipped in the no-write preview", async () => {
+  it("marks broad patch notes as skipped in the no-write preview without an LLM call", async () => {
     mocks.tavilySearch.mockResolvedValue([
       {
         title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
@@ -116,23 +116,17 @@ describe("previewAutomationSearch", () => {
         observedAt: "2026-07-05T12:00:00.000Z",
       },
     ]);
-    mocks.extractSignalWithOpenRouter.mockResolvedValue({
-      issueTitle: "Patch notes",
-      category: "other",
-      platform: null,
-      confidence: "low",
-      summary: "No reported issues.",
-      extractionProvider: "openrouter",
-      extractionModel: "openrouter/free",
-      llmCallUsed: true,
-    });
     const { previewAutomationSearch } = await import("@/lib/automation/preview");
 
     const result = await previewAutomationSearch({ maxQueries: 1 });
 
     expect(result.previews[0]).toMatchObject({
       title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
-      relevance: { keep: false, reason: "category_other" },
+      relevance: { keep: false, reason: "source_not_issue_report" },
     });
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.anything(),
+      { llmCallsRemaining: 0 },
+    );
   });
 });
