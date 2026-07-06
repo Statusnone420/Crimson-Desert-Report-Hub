@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ConfidenceBadge, FixStatusBadge, SectionHeader, SignalConfidenceBadge } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
+import { countEvidenceBackedPersistentClusters, hasClusterEvidence, isUnverifiedWatchlistCluster } from "@/lib/evidence";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { getIssuesData } from "@/lib/queries";
 
@@ -11,14 +12,15 @@ export default async function IssuesPage() {
     getIssuesData(),
     getCurrentPatchMetadata(),
   ]);
-  const active = clusters.filter((c) => c.strengthScore > 0);
-  const watchlist = clusters.filter((c) => c.strengthScore === 0);
-  const persistent = clusters.filter((c) => c.fix_status === "persists").length;
+  const active = clusters.filter(hasClusterEvidence);
+  const watchlist = clusters.filter((c) => !hasClusterEvidence(c));
+  const persistent = countEvidenceBackedPersistentClusters(clusters);
 
   function ClusterCard({ cluster }: { cluster: (typeof clusters)[number] }) {
     const signals = signalsByCluster[cluster.id] ?? [];
     const excerpts = excerptsByCluster[cluster.id] ?? [];
-    const empty = cluster.strengthScore === 0;
+    const empty = !hasClusterEvidence(cluster);
+    const unverified = isUnverifiedWatchlistCluster(cluster);
     return (
       <article className="panel space-y-3.5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -33,7 +35,7 @@ export default async function IssuesPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <FixStatusBadge status={cluster.fix_status} />
+            <FixStatusBadge status={cluster.fix_status} unverified={unverified} />
             <ConfidenceBadge confidence={cluster.confidence} />
           </div>
         </div>
@@ -77,7 +79,7 @@ export default async function IssuesPage() {
         {empty ? (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
             <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-              Awaiting first reports. Seeing this on {currentPatch.version}?
+              No approved reports or public signals yet. Seeing this on {currentPatch.version}?
             </p>
             <Link href="/report" className="btn btn-ghost btn-sm">
               Report this
@@ -93,12 +95,12 @@ export default async function IssuesPage() {
       <SectionHeader
         label="Moderated public evidence"
         title="Issue clusters"
-        description="Grouped from approved player reports and public community signals. Public quotes are neutral generated summaries or admin-approved excerpts. Raw submissions are never published."
+        description="Evidence counts come from approved player reports, public signals that pass thresholds, and admin-approved excerpts. Seeded watchlist items remain unverified until data confirms them."
       />
 
       <section className="grid grid-cols-3 gap-3">
         <div className="panel">
-          <div className="stat-label">Tracked</div>
+          <div className="stat-label">Watchlist items</div>
           <div className="stat-value mt-1.5">{clusters.length}</div>
         </div>
         <div className="panel">
@@ -106,7 +108,7 @@ export default async function IssuesPage() {
           <div className="stat-value mt-1.5">{active.length}</div>
         </div>
         <div className="panel">
-          <div className="stat-label">Persistent</div>
+          <div className="stat-label">Evidence-backed persistent</div>
           <div className="stat-value mt-1.5" style={{ color: active.length ? "var(--crimson-bright)" : undefined }}>
             {persistent}
           </div>
@@ -129,7 +131,7 @@ export default async function IssuesPage() {
 
           {watchlist.length > 0 ? (
             <section className="space-y-3">
-              <div className="stat-label">Watchlist · awaiting first reports</div>
+              <div className="stat-label">Unverified watchlist · awaiting evidence</div>
               {watchlist.map((cluster) => (
                 <ClusterCard key={cluster.id} cluster={cluster} />
               ))}

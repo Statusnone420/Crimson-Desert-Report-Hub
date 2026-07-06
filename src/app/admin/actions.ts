@@ -308,6 +308,7 @@ export async function runAutomationDryScan(): Promise<void> {
   await requireAdmin();
   assertProductionWriteAllowed();
   await runAutomationMonitor({ mode: "dry_run" });
+  revalidatePath("/admin");
   revalidatePath("/admin/source-monitor");
   revalidateTag(CURRENT_PATCH_TAG, "max");
 }
@@ -316,6 +317,7 @@ export async function runAutomationCappedScan(): Promise<void> {
   await requireAdmin();
   assertProductionWriteAllowed();
   await runAutomationMonitor({ mode: "manual" });
+  revalidatePath("/admin");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
 }
@@ -325,6 +327,7 @@ export async function setAutomationPaused(formData: FormData): Promise<void> {
   assertProductionWriteAllowed();
   const paused = formData.get("paused") === "true";
   await setAutomationPausedState(createServiceClient() as unknown as AutomationSettingsClient, paused);
+  revalidatePath("/admin");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
 }

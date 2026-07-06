@@ -73,55 +73,59 @@ export function OwnerConsole() {
         Owner
       </button>
       {open ? (
-        <div className="panel absolute right-0 bottom-full z-50 mb-3 w-72 space-y-3 shadow-xl">
-          <div>
-            <div className="stat-label">Owner console</div>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-dim)" }}>
-              Private controls for moderation and scanner runs.
-            </p>
-          </div>
-
-          {busy && admin === null ? (
-            <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-              Checking access...
-            </p>
-          ) : admin ? (
-            <div className="space-y-2">
-              <Link className="btn btn-ghost w-full text-center" href="/admin" onClick={() => setOpen(false)}>
-                Moderation queue
-              </Link>
-              <Link className="btn btn-ghost w-full text-center" href="/admin/source-monitor" onClick={() => setOpen(false)}>
-                Source monitor
-              </Link>
-              <Link className="btn btn-ghost w-full text-center" href="/admin/compile" onClick={() => setOpen(false)}>
-                Compile dossier
-              </Link>
-              <button type="button" className="btn w-full" disabled={busy} onClick={onLogout}>
-                Sign out
-              </button>
-            </div>
-          ) : (
-            <form className="space-y-3" onSubmit={onLogin}>
+        <div className="pointer-events-none fixed inset-0 z-[var(--z-dropdown)]">
+          <div className="pointer-events-auto absolute bottom-16 right-4 w-72 max-w-[calc(100vw-2rem)]">
+            <div className="panel max-h-[calc(100dvh-5rem)] space-y-3 overflow-y-auto shadow-xl">
               <div>
-                <label htmlFor="owner-password">Admin password</label>
-                <input
-                  id="owner-password"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                />
-              </div>
-              {error ? (
-                <p className="text-sm" style={{ color: "var(--crimson)" }}>
-                  Wrong password.
+                <div className="stat-label">Owner console</div>
+                <p className="mt-1 text-sm" style={{ color: "var(--text-dim)" }}>
+                  Private controls for moderation and scanner runs.
                 </p>
-              ) : null}
-              <button className="btn w-full" disabled={busy || password.length === 0}>
-                {busy ? "Checking..." : "Unlock controls"}
-              </button>
-            </form>
-          )}
+              </div>
+
+              {busy && admin === null ? (
+                <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                  Checking access...
+                </p>
+              ) : admin ? (
+                <div className="space-y-2">
+                  <Link className="btn btn-ghost w-full text-center" href="/admin" onClick={() => setOpen(false)}>
+                    Moderation queue
+                  </Link>
+                  <Link className="btn btn-ghost w-full text-center" href="/admin/source-monitor" onClick={() => setOpen(false)}>
+                    Source monitor
+                  </Link>
+                  <Link className="btn btn-ghost w-full text-center" href="/admin/compile" onClick={() => setOpen(false)}>
+                    Compile dossier
+                  </Link>
+                  <button type="button" className="btn w-full" disabled={busy} onClick={onLogout}>
+                    Sign out
+                  </button>
+                </div>
+              ) : (
+                <form className="space-y-3" onSubmit={onLogin}>
+                  <div>
+                    <label htmlFor="owner-password">Admin password</label>
+                    <input
+                      id="owner-password"
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  {error ? (
+                    <p className="text-sm" style={{ color: "var(--crimson)" }}>
+                      Wrong password.
+                    </p>
+                  ) : null}
+                  <button className="btn w-full" disabled={busy || password.length === 0}>
+                    {busy ? "Checking..." : "Unlock controls"}
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

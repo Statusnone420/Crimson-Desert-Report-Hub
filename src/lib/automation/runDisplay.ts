@@ -1,0 +1,150 @@
+export type RunMessageGroup = {
+  code: string;
+  count: number;
+  label: string;
+  detail: string;
+  summaryLabel: string;
+};
+
+type MessageMeta = {
+  label: string;
+  detail: string;
+  summaryLabel: string;
+};
+
+const EASTERN_TIME_ZONE = "America/New_York";
+
+const SKIP_META: Record<string, MessageMeta> = {
+  budget_capped: {
+    label: "Budget capped",
+    detail: "Monthly automation budget has been spent, so paid search was skipped.",
+    summaryLabel: "budget capped",
+  },
+  budget_read_failed: {
+    label: "Budget read failed",
+    detail: "The scanner could not read the spend ledger, so it failed closed.",
+    summaryLabel: "budget read failed",
+  },
+  budget_zero: {
+    label: "Budget is zero",
+    detail: "Paid web search and LLM work are disabled by the monthly budget setting.",
+    summaryLabel: "budget zero",
+  },
+  category_other: {
+    label: "Other category",
+    detail: "Extraction classified the item as other, so it was not kept as an issue signal.",
+    summaryLabel: "other category",
+  },
+  llm_allowance_exhausted: {
+    label: "LLM allowance exhausted",
+    detail: "The run used its LLM call allowance; remaining items fell back to deterministic extraction.",
+    summaryLabel: "LLM allowance exhausted",
+  },
+  openrouter_invalid_json: {
+    label: "OpenRouter invalid JSON",
+    detail: "OpenRouter returned unusable JSON; deterministic extraction was used as a fallback.",
+    summaryLabel: "OpenRouter invalid JSON",
+  },
+  openrouter_missing_config: {
+    label: "OpenRouter not configured",
+    detail: "OpenRouter keys or model settings are missing, so deterministic extraction was used.",
+    summaryLabel: "OpenRouter not configured",
+  },
+  openrouter_missing: {
+    label: "OpenRouter not configured",
+    detail: "OpenRouter keys or model settings are missing, so deterministic extraction was used.",
+    summaryLabel: "OpenRouter not configured",
+  },
+  openrouter_paid_model: {
+    label: "OpenRouter paid model blocked",
+    detail: "The configured model was not marked free, so deterministic extraction was used.",
+    summaryLabel: "OpenRouter paid model blocked",
+  },
+  openrouter_provider_failure: {
+    label: "OpenRouter provider failure",
+    detail: "OpenRouter failed or returned an error; deterministic extraction was used as a fallback.",
+    summaryLabel: "OpenRouter provider failure",
+  },
+  reddit_disabled: {
+    label: "Reddit disabled",
+    detail: "Reddit API credentials are not configured, so this run used web search only.",
+    summaryLabel: "Reddit disabled",
+  },
+  search_disabled: {
+    label: "Search disabled",
+    detail: "Web search credentials are not configured, so paid search was skipped.",
+    summaryLabel: "search disabled",
+  },
+  source_not_issue_report: {
+    label: "Not issue reports",
+    detail: "The source looked like patch notes, reviews, guides, or general content instead of a player issue report.",
+    summaryLabel: "not issue reports",
+  },
+  wrong_patch: {
+    label: "Wrong patch",
+    detail: "The source mentioned a different patch version than the current tracked patch.",
+    summaryLabel: "wrong patch",
+  },
+};
+
+function normalizeSpaces(value: string): string {
+  return value.replace(/[\u00a0\u202f]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function metaFor(code: string): MessageMeta {
+  return (
+    SKIP_META[code] ?? {
+      label: code.replace(/_/g, " "),
+      detail: "Unrecognized scanner code. Check the raw code before acting on it.",
+      summaryLabel: code.replace(/_/g, " "),
+    }
+  );
+}
+
+function groupMessages(messages: string[]): RunMessageGroup[] {
+  const firstSeen = new Map<string, number>();
+  const counts = new Map<string, number>();
+  messages.forEach((message, index) => {
+    if (!firstSeen.has(message)) firstSeen.set(message, index);
+    counts.set(message, (counts.get(message) ?? 0) + 1);
+  });
+
+  return [...counts.entries()]
+    .map(([code, count]) => ({ code, count, ...metaFor(code), firstSeen: firstSeen.get(code) ?? 0 }))
+    .sort((a, b) => b.count - a.count || a.firstSeen - b.firstSeen)
+    .map((group) => ({
+      code: group.code,
+      count: group.count,
+      label: group.label,
+      detail: group.detail,
+      summaryLabel: group.summaryLabel,
+    }));
+}
+
+export function formatEasternDateTime(iso: string | null): string {
+  if (!iso) return "not finished";
+  return normalizeSpaces(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: EASTERN_TIME_ZONE,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date(iso)),
+  );
+}
+
+export function summarizeRunMessages(skips: string[], errors: string[]) {
+  const skipGroups = groupMessages(skips);
+  return {
+    skipGroups,
+    operatorSummary:
+      skipGroups.length > 0
+        ? skipGroups.map((group) => `${group.count} ${group.summaryLabel}`).join("; ")
+        : "No skips",
+    errorSummary: errors.length > 0 ? errors.join("; ") : "No errors",
+  };
+}

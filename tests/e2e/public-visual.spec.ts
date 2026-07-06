@@ -279,7 +279,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Community signals", { exact: true })).toBeVisible();
     await expect(page.getByText("Total reports", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Automated scanner" })).toBeVisible();
-    await expect(page.getByText("watching", { exact: true })).toBeVisible();
+    await expect(page.getByText("scheduled on", { exact: true })).toBeVisible();
     await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
     await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
     await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
@@ -319,7 +319,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("High confidence")).toBeVisible();
     await expect(page.getByText("Confirmed")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
-    await expect(page.getByText("Raw submissions are never published.")).toBeVisible();
+    await expect(page.getByText("Seeded watchlist items remain unverified until data confirms them.")).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("issues.png", { fullPage: true });
   });
