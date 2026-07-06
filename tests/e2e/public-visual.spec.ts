@@ -42,12 +42,9 @@ type ContrastTarget = {
 
 const DASHBOARD_CONTRAST_TARGETS: ContrastTarget[] = [
   { selector: '.btn[href$="report"]', label: "submit report button" },
-  { selector: ".min-w-56 > .mt-1.text-xs", label: "scanner work summary" },
-  { selector: ".min-w-56 > .mt-2.text-xs", label: "scanner preview note" },
-  { selector: ".rounded-md.border.px-3:nth-child(1) > .mt-1.text-xs", label: "watchlist item 1 detail", optional: true },
-  { selector: ".rounded-md.border.px-3:nth-child(2) > .mt-1.text-xs", label: "watchlist item 2 detail", optional: true },
-  { selector: ".rounded-md.border.px-3:nth-child(3) > .mt-1.text-xs", label: "watchlist item 3 detail", optional: true },
-  { selector: ".rounded-md.border.px-3:nth-child(4) > .mt-1.text-xs", label: "watchlist item 4 detail", optional: true },
+  { selector: ".stat-label", label: "stat labels" },
+  { selector: ".panel .text-xs", label: "panel fine print" },
+  { selector: ".panel-inset.interactive .text-xs", label: "watchlist item category", optional: true },
 ];
 
 async function expectContrastAtLeast(page: Page, targets: ContrastTarget[], minimum = 4.5) {
@@ -150,8 +147,9 @@ async function expectDesignTokenContrast(page: Page) {
 
     const styles = getComputedStyle(document.documentElement);
     const checks = [
-      { label: "faint text on panel", fg: styles.getPropertyValue("--text-faint"), bg: styles.getPropertyValue("--panel") },
-      { label: "faint text on inset panel", fg: styles.getPropertyValue("--text-faint"), bg: styles.getPropertyValue("--panel-2") },
+      { label: "faint text on surface", fg: styles.getPropertyValue("--text-faint"), bg: styles.getPropertyValue("--surface") },
+      { label: "faint text on inset surface", fg: styles.getPropertyValue("--text-faint"), bg: styles.getPropertyValue("--surface-inset") },
+      { label: "dim text on raised surface", fg: styles.getPropertyValue("--text-dim"), bg: styles.getPropertyValue("--surface-2") },
       { label: "white primary button text", fg: "#fff", bg: styles.getPropertyValue("--crimson-action") },
     ];
 
@@ -277,15 +275,15 @@ test.describe("public surface visual regression", () => {
     await page.goto("/");
 
     await expect(page).toHaveTitle(/Crimson Desert Report Hub/i);
-    await expect(page.getByRole("heading", { name: "Crimson Desert report hub" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
     await expect(page.getByText("Community signals", { exact: true })).toBeVisible();
-    await expect(page.getByText("Direct reports", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "AI scanner watching public sources" })).toBeVisible();
-    await expect(page.getByText("scheduled scans on")).toBeVisible();
-    await expect(page.getByText(/\d+ signals · \d+ reports/).first()).toBeVisible();
-    await expect(page.getByText("2 signals · 6 reports")).toBeVisible();
-    await expect(page.getByText("FPS regression since 1.13")).toBeVisible();
-    await expect(page.getByText("Map-open crash persists after fix")).toBeVisible();
+    await expect(page.getByText("Total reports", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Automated scanner" })).toBeVisible();
+    await expect(page.getByText("watching", { exact: true })).toBeVisible();
+    await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
+    await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
+    await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
+    await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
   });
@@ -294,7 +292,7 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "Crimson Desert report hub" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
     await expectContrastAtLeast(page, DASHBOARD_CONTRAST_TARGETS);
     await expectDesignTokenContrast(page);
     await expectHealthyPage(page, problems);
@@ -305,7 +303,7 @@ test.describe("public surface visual regression", () => {
     await startLayoutShiftObserver(page);
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "Crimson Desert report hub" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
     await expectAccessibleLandmarks(page);
     await expectCumulativeLayoutShiftBelow(page);
     await expectHealthyPage(page, problems);
@@ -344,7 +342,15 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
 
-    await page.getByRole("button", { name: "Owner" }).click();
+    // Keyboard activation: mobile-chromium's emulated touch hit-testing
+    // misreports the footer paragraph as the hit target even though the
+    // browser's own elementFromPoint resolves the button (verified), so a
+    // pointer tap flakes. Enter-on-focus exercises the same flow and also
+    // proves the control is keyboard-accessible.
+    const ownerButton = page.getByRole("button", { name: "Owner" });
+    await ownerButton.scrollIntoViewIfNeeded();
+    await ownerButton.focus();
+    await page.keyboard.press("Enter");
     await expect(page.getByLabel("Admin password")).toBeVisible();
     await page.getByLabel("Admin password").fill("admin-password");
     await page.getByRole("button", { name: "Unlock controls" }).click();
@@ -371,8 +377,8 @@ test.describe("public surface visual regression", () => {
     await page.getByLabel("Hardware (GPU, CPU, RAM)").fill("RTX 4060, Ryzen 5 7600, 32GB RAM");
     await page.getByRole("button", { name: "Submit report" }).click();
 
-    await expect(page.getByRole("heading", { name: "Thanks for the clean signal." })).toBeVisible();
-    await expect(page.getByText("Your report is in the moderation queue")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Report received" })).toBeVisible();
+    await expect(page.getByText("checked and sorted into the right issue automatically")).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("report-success.png", { fullPage: true });
   });

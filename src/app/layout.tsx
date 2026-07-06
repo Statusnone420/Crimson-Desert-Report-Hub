@@ -65,7 +65,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               Unofficial, fan-run tracker. Not affiliated with Pearl Abyss, Reddit, or X. No accounts, no ads, no
               tracking. For crash logs, use Pearl Abyss&apos;s official support channels.
             </p>
-            <div className="flex items-center gap-4">
+            <div className="ml-auto flex items-center gap-4">
               <OwnerConsole />
               <a
                 href={SOURCE_URL}

@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
+import { rmSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
+
+// A previous `next dev` session against different (or blank) Supabase env can
+// leave stale unstable_cache entries in .next; the mock run must start clean.
+rmSync(path.join(process.cwd(), ".next", "cache"), { recursive: true, force: true });
 
 const appPort = Number(process.env.PLAYWRIGHT_PORT ?? 3100);
 const supabasePort = Number(process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765);
@@ -343,6 +348,22 @@ const server = createServer(async (req, res) => {
       ...parsed,
     };
     bugReports.push(row);
+    // .single() requests ask PostgREST for a bare object, not an array.
+    const wantsObject = (req.headers.accept ?? "").includes("vnd.pgrst.object");
+    sendJson(res, req.method, 201, wantsObject ? row : [row]);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/approved_excerpts" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const row = {
+      id: `excerpt-${excerpts.length + 1}`,
+      created_at: new Date().toISOString(),
+      bug_reports: null,
+      ...parsed,
+    };
+    excerpts.push(row);
     sendJson(res, req.method, 201, [row]);
     return;
   }
