@@ -10,8 +10,18 @@ const optionalText = (max: number) =>
     .optional()
     .transform((value) => (value ? value : null));
 
+// http(s) only: a bare .url() also accepts javascript:/data: schemes, which
+// would become clickable links in the admin review queue.
 const optionalUrl = z
-  .union([z.string().trim().url().max(500), z.literal("")])
+  .union([
+    z
+      .string()
+      .trim()
+      .url()
+      .max(500)
+      .refine((value) => /^https?:\/\//i.test(value), "Evidence link must start with http:// or https://"),
+    z.literal(""),
+  ])
   .optional()
   .transform((value) => (value ? value : null));
 
