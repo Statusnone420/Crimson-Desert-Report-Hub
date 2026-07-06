@@ -63,6 +63,28 @@ describe("source monitor run display", () => {
     expect(summarizeRunMessages([], ["stale_running_run"]).errorSummary).toBe("Crashed run cleaned up");
   });
 
+  it("explains runs where every candidate was filtered before OpenRouter", () => {
+    const summary = summarizeRunMessages(["all_candidates_prefiltered"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({
+        code: "all_candidates_prefiltered",
+        label: "No LLM candidates",
+      }),
+    ]);
+  });
+
+  it("labels private candidate rescues in plain language", () => {
+    const summary = summarizeRunMessages(["candidate_rescued"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({
+        code: "candidate_rescued",
+        label: "Candidate rescued",
+      }),
+    ]);
+  });
+
   it("leaves unrecognized error strings untouched alongside mapped codes", () => {
     expect(summarizeRunMessages([], ["stale_running_run", "reddit failed: timeout"]).errorSummary).toBe(
       "Crashed run cleaned up; reddit failed: timeout",

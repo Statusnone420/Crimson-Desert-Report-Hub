@@ -102,7 +102,7 @@ describe("automation budget", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 5,
       spentMonthToDateUsd: 0,
-      llmSpentMonthToDateUsd: 1,
+      llmSpentMonthToDateUsd: 2,
       mode: "scheduled",
       now: new Date("2026-07-20T12:00:00Z"),
     });

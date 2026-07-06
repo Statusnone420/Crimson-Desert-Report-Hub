@@ -7,6 +7,8 @@ import {
 } from "@/lib/automation/extract";
 import { countIndependentDomains, domainTier, registrableDomain } from "@/lib/automation/domains";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
+import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
+import { buildMemorySearchQueries, chooseScanIntent } from "@/lib/automation/memory";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
 import { parseClaimedFixes, parseOfficialNoticeList, parseOfficialPatchDetail, patchVersionFromTitle } from "@/lib/officialPatch";
@@ -654,7 +656,76 @@ describe("countIndependentDomains", () => {
   });
 });
 
+describe("scanner memory planning", () => {
+  it("uses quarantine as a no-search cleanup intent", () => {
+    const intent = chooseScanIntent({
+      stalePublicSignals: 1,
+      privateSignals: 0,
+      rejectedCandidates: 0,
+      targetClusterTitles: [],
+      recentRuns: [],
+    });
+
+    expect(intent).toBe("quarantine");
+    expect(buildMemorySearchQueries(1, "1.13.00", intent)).toEqual([]);
+  });
+});
+
 describe("automation relevance", () => {
+  describe("evaluateCurrentPatchEligibility", () => {
+    it("hides explicit old-patch source links for the current patch", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "MASSIVE frame drops and stuttering after 1.04",
+            snippet: "Players discuss patch 1.04 regressions.",
+            sourcePublishedAt: "2026-06-01T12:00:00.000Z",
+          },
+          { version: "1.13.00", publishedAt: "2026-07-03T03:00:00.000Z" },
+        ),
+      ).toEqual({ canStore: false, canPublish: false, reason: "wrong_patch" });
+    });
+
+    it("keeps current-patch complaints eligible for public evidence", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "Crimson Desert patch 1.13 FPS drops",
+            snippet: "Players report stutter after patch 1.13.",
+            sourcePublishedAt: "2026-07-05T12:00:00.000Z",
+          },
+          { version: "1.13.00", publishedAt: "2026-07-03T03:00:00.000Z" },
+        ),
+      ).toEqual({ canStore: true, canPublish: true, reason: "current_patch" });
+    });
+
+    it("blocks sources published before the current patch from public evidence", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "Crashes occur when opening the map",
+            snippet: "Players report crashes.",
+            sourcePublishedAt: "2026-06-30T12:00:00.000Z",
+          },
+          { version: "1.13.00", publishedAt: "2026-07-03T03:00:00.000Z" },
+        ),
+      ).toEqual({ canStore: false, canPublish: false, reason: "stale_source" });
+    });
+
+    it("treats date-only sources on the patch publish day as current enough", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "Crashes occur when opening the map",
+            snippet: "Players report crashes.",
+            sourcePublishedAt: "2026-07-03",
+          },
+          { version: "1.13.00", publishedAt: "2026-07-03T03:00:00.000Z" },
+        ),
+      ).toEqual({ canStore: true, canPublish: true, reason: "fresh_source" });
+    });
+  });
+
   describe("preScreenCandidate", () => {
     it("rejects broad content titles like patch notes", () => {
       expect(
@@ -753,6 +824,20 @@ describe("automation relevance", () => {
           { currentPatchVersion: "1.13.00" },
         ),
       ).toEqual({ keep: false, reason: "wrong_patch" });
+    });
+
+    it("rejects known stale source dates before the current patch", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crashes occur when opening the map",
+            snippet: "Players report crashes.",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: "2026-06-30T12:00:00.000Z",
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: "2026-07-03T03:00:00.000Z" },
+        ),
+      ).toEqual({ keep: false, reason: "stale_source" });
     });
   });
 

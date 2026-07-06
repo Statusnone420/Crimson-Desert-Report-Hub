@@ -14,37 +14,52 @@ export const dynamic = "force-dynamic";
 type RunWork = {
   mode: string;
   status: string;
+  intent: string | null;
   search_queries_used: number;
+  search_results_seen: number;
   llm_calls_used: number;
   signals_inserted: number;
   signals_deduped: number;
+  signals_reobserved: number;
+  stale_signals_hidden: number;
+  candidates_rescued: number;
   clusters_promoted: number;
 };
 
 function workSummary(run: RunWork): string {
   if (run.status === "skipped") return "no scan started — see operator readout";
-  const base = `${run.search_queries_used} searches · ${run.llm_calls_used} LLM`;
+  const base = `${run.search_queries_used} searches · ${run.search_results_seen} results · ${run.llm_calls_used} LLM`;
   if (run.mode === "dry_run") {
     // A dry run writes nothing to the database except this ledger row.
     return `${base} · ${run.signals_inserted} would insert · ${run.signals_deduped} deduped · preview only, nothing saved`;
   }
-  return `${base} · ${run.signals_inserted} inserted · ${run.signals_deduped} deduped · ${run.clusters_promoted} promoted`;
+  const outcomes = [
+    run.signals_inserted > 0 ? `${run.signals_inserted} kept` : "no new public evidence",
+    `${run.signals_deduped} deduped`,
+  ];
+  if (run.signals_reobserved > 0) outcomes.push(`${run.signals_reobserved} re-observed`);
+  if (run.stale_signals_hidden > 0) outcomes.push(`${run.stale_signals_hidden} stale hidden`);
+  if (run.candidates_rescued > 0) outcomes.push(`${run.candidates_rescued} rescued`);
+  if (run.clusters_promoted > 0) outcomes.push(`${run.clusters_promoted} promoted`);
+  return `${base} · ${outcomes.join(" · ")}`;
 }
 
 function funnelSummary(funnel: Record<string, number> | null): string | null {
   if (!funnel) return null;
-  const { candidatesSeen, deduped, prefilterRejected, llmCalls, kept, promoted } = funnel;
+  const { searchResultsSeen, candidatesSeen, deduped, prefilterRejected, llmEligible, llmCalls, kept, promoted } = funnel;
   if (
     candidatesSeen === undefined ||
     deduped === undefined ||
     prefilterRejected === undefined ||
+    llmEligible === undefined ||
     llmCalls === undefined ||
     kept === undefined ||
     promoted === undefined
   ) {
     return null;
   }
-  return `${candidatesSeen} seen → ${deduped} deduped → ${prefilterRejected} pre-filtered → ${llmCalls} LLM → ${kept} kept → ${promoted} promoted`;
+  const results = searchResultsSeen === undefined ? "" : `${searchResultsSeen} results → `;
+  return `${results}${candidatesSeen} screened → ${deduped} deduped → ${prefilterRejected} pre-filtered → ${llmEligible} LLM-eligible → ${llmCalls} LLM → ${kept} kept → ${promoted} promoted`;
 }
 
 function formatUsd(value: number): string {
@@ -75,6 +90,11 @@ function runHasCapSkip(run: { status: string; skips: string[] } | null): boolean
     run?.status === "skipped" &&
       run.skips.some((skip) => skip.includes("tavily_credit_cap") || skip.includes("llm_budget_capped")),
   );
+}
+
+function intentLabel(intent: string | null): string {
+  if (!intent) return "discovery";
+  return intent.replace(/_/g, " ");
 }
 
 function scannerStatus(
@@ -259,6 +279,7 @@ export default async function SourceMonitorPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={statusClass(run.status)}>{run.status}</span>
                         <span className="badge badge-dim">{run.mode.replace("_", " ")}</span>
+                        <span className="badge badge-dim">{intentLabel(run.intent)}</span>
                         <span className="badge badge-dim">{formatUsd(run.estimated_cost_usd)} est.</span>
                       </div>
                     </div>
@@ -327,9 +348,14 @@ export default async function SourceMonitorPage() {
               </span>
               <span>{signal.confidence} confidence</span>
               <span>{new Date(signal.observed_at).toLocaleString()}</span>
+              {signal.seen_count ? <span>seen {signal.seen_count}x</span> : null}
             </div>
             {signal.title ? <p className="mt-1 font-medium">{signal.title}</p> : null}
             <p className="mt-1">{signal.summary}</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
+              {signal.source_published_at ? `Published ${formatEasternDateTime(signal.source_published_at)} · ` : ""}
+              {signal.last_seen_at ? `Last seen ${formatEasternDateTime(signal.last_seen_at)}` : "Last seen not stored"}
+            </p>
             <a
               href={signal.source_url}
               target="_blank"

@@ -8,6 +8,7 @@ export type SearchResult = {
   snippet: string;
   sourceDomain: string | null;
   observedAt: string;
+  sourcePublishedAt?: string | null;
 };
 
 type SearchFetchResponse = {
@@ -29,12 +30,14 @@ export type TavilySearchOptions = {
   env?: EnvLike;
   fetcher?: SearchFetch;
   now?: Date;
+  startDate?: string | null;
 };
 
 type TavilyResult = {
   title?: string;
   url?: string;
   content?: string;
+  published_date?: string | null;
 };
 
 export type BuildSearchQueryOptions = {
@@ -84,6 +87,7 @@ function mapTavilyResult(item: TavilyResult, observedAt: string): SearchResult |
     snippet: item.content ?? "",
     sourceDomain,
     observedAt,
+    ...(item.published_date ? { sourcePublishedAt: item.published_date } : {}),
   };
 }
 
@@ -95,7 +99,13 @@ export async function tavilySearch(query: string, options: TavilySearchOptions =
   const res = await fetcher("https://api.tavily.com/search", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ query, max_results: 5, search_depth: "basic", include_usage: true }),
+    body: JSON.stringify({
+      query,
+      max_results: 5,
+      search_depth: "basic",
+      include_usage: true,
+      ...(options.startDate ? { start_date: options.startDate } : {}),
+    }),
   });
   if (!res.ok) throw new Error(`tavily search failed: ${res.status}`);
 

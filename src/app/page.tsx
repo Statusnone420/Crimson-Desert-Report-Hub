@@ -32,6 +32,25 @@ function statusTone(fixStatus: string): Tone {
   return "dim";
 }
 
+function latestScanWorkSummary(run: {
+  status: string;
+  search_results_seen: number;
+  signals_inserted: number;
+  search_queries_used: number;
+  signals_reobserved?: number;
+  stale_signals_hidden?: number;
+}): string {
+  const parts = [
+    `${run.status}`,
+    `${run.search_results_seen} sources reviewed`,
+    run.signals_inserted > 0 ? `${run.signals_inserted} mentions kept` : "no new public evidence",
+  ];
+  if ((run.signals_reobserved ?? 0) > 0) parts.push(`${run.signals_reobserved} re-observed`);
+  if ((run.stale_signals_hidden ?? 0) > 0) parts.push(`${run.stale_signals_hidden} stale hidden`);
+  if (run.search_queries_used === 0) parts.push("search skipped this run");
+  return parts.join(" · ");
+}
+
 export default async function DashboardPage() {
   const d = await getDashboardData();
   const persistentCount = countEvidenceBackedPersistentClusters(d.topClusters);
@@ -387,7 +406,7 @@ export default async function DashboardPage() {
           </p>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
             {d.latestAutomationRun
-              ? `Last scan finished ${timeAgo(d.latestAutomationRun.finished_at)} · ${d.latestAutomationRun.status} · ${d.latestAutomationRun.search_results_seen} sources reviewed · ${d.latestAutomationRun.signals_inserted} mentions kept${d.latestAutomationRun.search_queries_used === 0 ? " · search skipped this run" : ""}`
+              ? `Last scan finished ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
               : "No non-test scan has run yet."}
           </p>
         </div>

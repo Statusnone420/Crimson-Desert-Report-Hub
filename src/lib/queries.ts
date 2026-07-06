@@ -2,6 +2,7 @@ import "server-only";
 
 import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
+import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
@@ -31,10 +32,12 @@ export type SignalRow = {
   cluster_id: string | null;
   source: string;
   source_url: string;
+  title?: string | null;
   summary: string;
   category: string;
   confidence: "low" | "medium" | "high";
   observed_at: string;
+  source_published_at?: string | null;
   public_status: "private" | "public" | "hidden";
 };
 
@@ -50,6 +53,11 @@ export type AutomationRunRow = {
   signals_inserted: number;
   signals_deduped: number;
   clusters_promoted: number;
+  intent: string | null;
+  search_results_seen: number;
+  signals_reobserved: number;
+  stale_signals_hidden: number;
+  candidates_rescued: number;
   skips: string[];
   errors: string[];
   funnel: Record<string, number> | null;
@@ -74,6 +82,9 @@ export type PublicAutomationRunRow = {
   signals_inserted: number;
   clusters_promoted: number;
   search_results_seen: number;
+  signals_reobserved: number;
+  stale_signals_hidden: number;
+  candidates_rescued: number;
   finished_at: string | null;
 };
 
@@ -87,6 +98,10 @@ export type AdminSignalRow = SignalRow & {
   title: string | null;
   source_type: string | null;
   source_domain: string | null;
+  source_published_at: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  seen_count: number | null;
 };
 
 type RelatedReport<T> = T | T[] | null;
@@ -104,6 +119,18 @@ export type VerifiedReportClusterRow = {
 
 function countClusterIds(rows: { cluster_id: string | null }[]): Record<string, number> {
   return countBy(rows, (row) => row.cluster_id);
+}
+
+function filterPublicCurrentPatchSignals<T extends SignalRow>(
+  rows: T[],
+  currentPatch: { version: string; publishedAt: string | null },
+): T[] {
+  return rows.filter((row) =>
+    evaluateCurrentPatchEligibility(
+      { title: row.title ?? null, summary: row.summary, sourcePublishedAt: row.source_published_at ?? null },
+      currentPatch,
+    ).canPublish,
+  );
 }
 
 /**
@@ -194,9 +221,9 @@ async function getDashboardDataUncached() {
 
   const { data: signals } = await supabase
     .from("source_signals")
-    .select("id, cluster_id, source, source_url, summary, category, confidence, observed_at, public_status")
+    .select("id, cluster_id, source, source_url, title, summary, category, confidence, observed_at, source_published_at, public_status")
     .eq("public_status", "public");
-  const signalRows = (signals ?? []) as SignalRow[];
+  const rawSignalRows = (signals ?? []) as SignalRow[];
 
   const { data: verified } = await supabase
     .from("approved_excerpts")
@@ -221,7 +248,7 @@ async function getDashboardDataUncached() {
     supabase
       .from("automation_runs")
       .select(
-        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, finished_at",
+        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, signals_reobserved, stale_signals_hidden, candidates_rescued, finished_at",
       )
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])
@@ -231,6 +258,7 @@ async function getDashboardDataUncached() {
     getClaimedFixesForCurrentPatch(supabase),
     getCandidateSignalCountsByCluster(supabase),
   ]);
+  const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const directByCluster = countClusterIds(rows);
@@ -301,10 +329,11 @@ async function getIssuesDataUncached() {
 
   const { data: signals } = await supabase
     .from("source_signals")
-    .select("id, cluster_id, source, source_url, summary, category, confidence, observed_at, public_status")
+    .select("id, cluster_id, source, source_url, title, summary, category, confidence, observed_at, source_published_at, public_status")
     .eq("public_status", "public")
     .order("observed_at", { ascending: false });
-  const signalRows = (signals ?? []) as SignalRow[];
+  const currentPatch = await getCurrentPatchMetadata(supabase);
+  const signalRows = filterPublicCurrentPatchSignals((signals ?? []) as SignalRow[], currentPatch);
 
   const { data: excerpts } = await supabase
     .from("approved_excerpts")
@@ -383,7 +412,7 @@ export async function getAutomationAdminData() {
   const { data: signals } = await supabase
     .from("source_signals")
     .select(
-      "id, cluster_id, source, source_type, source_url, title, source_domain, summary, category, confidence, observed_at, public_status",
+      "id, cluster_id, source, source_type, source_url, title, source_domain, source_published_at, first_seen_at, last_seen_at, seen_count, summary, category, confidence, observed_at, public_status",
     )
     .order("observed_at", { ascending: false })
     .limit(20);
@@ -391,7 +420,7 @@ export async function getAutomationAdminData() {
   const { data: runs } = await supabase
     .from("automation_runs")
     .select(
-      "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors, funnel",
+      "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, search_results_seen, llm_calls_used, signals_inserted, signals_deduped, signals_reobserved, stale_signals_hidden, candidates_rescued, clusters_promoted, intent, skips, errors, funnel",
     )
     .order("started_at", { ascending: false })
     .limit(10);
