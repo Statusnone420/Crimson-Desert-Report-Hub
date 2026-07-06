@@ -165,6 +165,6 @@ export function summarizeRunMessages(skips: string[], errors: string[]) {
       skipGroups.length > 0
         ? skipGroups.map((group) => `${group.count} ${group.summaryLabel}`).join("; ")
         : "No skips",
-    errorSummary: errors.length > 0 ? errors.join("; ") : "No errors",
+    errorSummary: errors.length > 0 ? errors.map((error) => SKIP_META[error]?.label ?? error).join("; ") : "No errors",
   };
 }

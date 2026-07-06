@@ -49,4 +49,14 @@ describe("source monitor run display", () => {
       expect.objectContaining({ code: "paused", count: 1, label: "Scheduled scans paused" }),
     ]);
   });
+
+  it("maps known error codes to plain-language labels in the error summary", () => {
+    expect(summarizeRunMessages([], ["stale_running_run"]).errorSummary).toBe("Crashed run cleaned up");
+  });
+
+  it("leaves unrecognized error strings untouched alongside mapped codes", () => {
+    expect(summarizeRunMessages([], ["stale_running_run", "reddit failed: timeout"]).errorSummary).toBe(
+      "Crashed run cleaned up; reddit failed: timeout",
+    );
+  });
 });
