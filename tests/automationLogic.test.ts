@@ -945,6 +945,41 @@ describe("automation relevance", () => {
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
 
+    it("rejects official claimed-fix lines that mention back controls or navigation", () => {
+      const snippets = [
+        "Fixed an issue where pressing the back button would crash the game.",
+        "Fixed an issue where returning back to the title screen would crash the game.",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert - Steam Community",
+              snippet,
+              sourceDomain: "steamcommunity.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
+
+    it("keeps a complaint that says the claimed-fix symptom is back", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "map crash after 1.13.00",
+            snippet: "they fixed an issue where the map crashes, but the crash is back on 1.13.00",
+            sourceDomain: "example.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
     it("keeps a complaint that a claimed fix did not actually work", () => {
       expect(
         preScreenCandidate(
