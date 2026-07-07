@@ -818,6 +818,30 @@ describe("scanner memory planning", () => {
     expect(hunted.size).toBe(4);
   });
 
+  it("uses exactly one site: filter per corroborate query and alternates forums across turns", () => {
+    const patchVersion = "1.13.00";
+    const target = "Shader stutter";
+    const sitesSeen = new Set<string>();
+    // laneCount defaults to 1, so turn === rotationOffset: offsets 0 and 1 are two
+    // consecutive corroborate turns.
+    for (const rotationOffset of [0, 1]) {
+      const [query] = buildMemorySearchQueries(1, patchVersion, "corroborate_cluster", {
+        rotationOffset,
+        targetClusterTitles: [target],
+      });
+      // Exactly one reliable site: filter — no unverified `site:A OR site:B` in one query.
+      const siteFilters = query.match(/site:\S+/g) ?? [];
+      expect(siteFilters).toHaveLength(1);
+      expect(query).not.toContain(" OR ");
+      // Patch version and the rotated target title stay present in every corroborate query.
+      expect(query).toContain(patchVersion);
+      expect(query).toContain(target);
+      for (const site of siteFilters) sitesSeen.add(site);
+    }
+    // Consecutive turns alternate across the two forums, preserving cross-domain diversity.
+    expect(sitesSeen).toEqual(new Set(["site:reddit.com", "site:steamcommunity.com"]));
+  });
+
   it("targets r/CrimsonDesert for forum_discovery while keeping a Steam query for domain diversity", () => {
     const queries = buildMemorySearchQueries(2, "1.13.00", "forum_discovery");
     expect(queries).toHaveLength(2);

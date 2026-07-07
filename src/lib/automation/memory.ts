@@ -96,7 +96,11 @@ export function buildMemorySearchQueries(
     const titleIndex = titles.length > 0 ? ((turn % titles.length) + titles.length) % titles.length : 0;
     const target = titles.length > 0 ? titles[titleIndex]?.trim() : undefined;
     const targetText = target ? `${target} ` : "";
-    return [`site:reddit.com OR site:steamcommunity.com Crimson Desert patch ${patchVersion} ${targetText}crash stutter freeze FPS`.replace(/\s+/g, " ").trim()].slice(0, count);
+    // One reliable single-site filter per query (Tavily's `site:A OR site:B` handling is
+    // unverified); alternate the forum per corroborate TURN so a reddit-heavy cluster still
+    // reaches a non-reddit source and clears the 2-independent-domain promotion bar.
+    const corroborateSite = turn % 2 === 0 ? "site:reddit.com" : "site:steamcommunity.com";
+    return [`${corroborateSite} Crimson Desert patch ${patchVersion} ${targetText}crash stutter freeze FPS`.replace(/\s+/g, " ").trim()].slice(0, count);
   }
 
   if (intent === "rescue_candidate") {

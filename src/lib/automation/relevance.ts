@@ -64,8 +64,9 @@ const FIX_PERSISTENCE_CUES = [
   /\bsupposed(?:ly)? fixed\b/i,
 ] as const;
 
-// Prospective/marketing "the fix is coming/included" voice. Positive polarity: the
-// snippet is announcing that a patch improves performance, not reporting a bug.
+// Positive marketing/announcement phrasing (a patch "includes/adds/brings a fix", ships
+// "performance fixes", "improves/optimizes FPS", targets a "stable N fps"). Positive
+// polarity: the snippet is promoting a patch's performance, not reporting a bug.
 const FIX_ANNOUNCEMENT_CUES = [
   /\b(?:includes?|adds?|brings?|shipped|rolling out)\b.{0,40}\b(?:performance\s+)?fix(?:es)?\b/i,
   /\bperformance\s+(?:improvements?|fixes?|optimi[sz]ations?)\b/i,
@@ -80,8 +81,11 @@ const FIX_ANNOUNCEMENT_CUES = [
 // Complaint markers. If any are present the snippet is a real report, not marketing.
 // Covers sentiment words AND crash-class symptom verbs, so a complaint that quotes the
 // marketing claim then reports a crash/freeze/hang (with no adjective) is preserved.
-// fps/drop/stutter are deliberately excluded — they also appear in positive
-// announcements (e.g. "fixes the fps drops"), which must still be rejected.
+// fps/drop/stutter are deliberately excluded — they also appear in genuine positive
+// announcements (e.g. "boosts fps", "smoother performance") that DO match an
+// announcement cue and must still be rejected; scoring them as negative would wrongly
+// rescue those. (A bare "fixes the fps drops" matches no announcement cue, so
+// isFixAnnouncement never rejects it — the promotion guard is the backstop for that.)
 const NEGATIVE_POLARITY_CUES = [
   /\b(?:awful|bad|poor|terrible|horrible|worse|worst|broken|unplayable|ruined|garbage)\b/i,
   /\bstill\s+(?:bad|stutter\w*|crash\w*)\b/i,
@@ -117,9 +121,13 @@ function isClaimedFixNotReport(text: string): boolean {
   return matchesAny(text, CLAIMED_FIX_PATTERNS) && !matchesAny(text, FIX_PERSISTENCE_CUES);
 }
 
-// Fires ONLY on purely-positive announcement text. Any persistence cue ("still",
-// "<symptom> is back", "didn't fix") or negative-polarity marker means it is a real
-// complaint quoting the marketing claim, so the gate must NOT reject it.
+// Fires ONLY on purely-positive text that MATCHES a FIX_ANNOUNCEMENT_CUE. Any persistence
+// cue ("still", "<symptom> is back", "didn't fix") or negative-polarity marker means it is
+// a real complaint quoting the marketing claim, so the gate must NOT reject it. This does
+// NOT claim to catch every "fixes <symptom>" wording: a bare "Patch X fixes the fps drops"
+// matches no announcement cue and is intentionally left to the per-signal promotion guard
+// (resolveSignalPublicStatus / direct_report_match credibility), the backstop for
+// announcement-style phrasings that slip past this cheap pre-screen.
 function isFixAnnouncement(text: string): boolean {
   return (
     matchesAny(text, FIX_ANNOUNCEMENT_CUES) &&
