@@ -510,16 +510,36 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
   const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
   const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
 
+  // Match /issues' evidence rule exactly: a public cluster is "live" when it has a
+  // public signal OR an approved player report (hasClusterEvidence = strengthScore > 0).
+  // Report-only launch clusters must count as published, not just signal-backed ones.
+  // Aggregate-only — selects nothing but cluster_id / public_status / is_public.
   const { data: signalData } = await supabase.from("source_signals").select("cluster_id, public_status");
-  const publicClusters = new Set<string>();
-  const privateClusters = new Set<string>();
+  const publicSignalClusters = new Set<string>();
+  const privateSignalClusters = new Set<string>();
   for (const signal of (signalData ?? []) as { cluster_id: string | null; public_status: string }[]) {
     if (!signal.cluster_id) continue;
-    if (signal.public_status === "public") publicClusters.add(signal.cluster_id);
-    else if (signal.public_status === "private") privateClusters.add(signal.cluster_id);
+    if (signal.public_status === "public") publicSignalClusters.add(signal.cluster_id);
+    else if (signal.public_status === "private") privateSignalClusters.add(signal.cluster_id);
   }
+
+  const { data: reportData } = await supabase
+    .from("bug_reports")
+    .select("cluster_id")
+    .eq("moderation_status", "approved");
+  const approvedReportClusters = new Set<string>();
+  for (const report of (reportData ?? []) as { cluster_id: string | null }[]) {
+    if (report.cluster_id) approvedReportClusters.add(report.cluster_id);
+  }
+
+  const { data: clusterData } = await supabase.from("issue_clusters").select("id").eq("is_public", true);
+  let published = 0;
   let awaiting = 0;
-  for (const id of privateClusters) if (!publicClusters.has(id)) awaiting += 1;
+  for (const cluster of (clusterData ?? []) as { id: string }[]) {
+    const evidenceBacked = publicSignalClusters.has(cluster.id) || approvedReportClusters.has(cluster.id);
+    if (evidenceBacked) published += 1;
+    else if (privateSignalClusters.has(cluster.id)) awaiting += 1;
+  }
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
 
@@ -528,7 +548,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     filteredThisWeek,
     keptThisWeek,
     awaiting,
-    published: publicClusters.size,
+    published,
     lastCheckedAt,
     scannerActive: !control.paused,
   };

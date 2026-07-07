@@ -96,9 +96,11 @@ export function AdminScannerView({
   // The "last scan" panel and verdict describe the literal newest run (accuracy);
   // lastFind is a separate pointer to the most recent run that actually found signal,
   // so a good result is never presented as if it were the latest scan.
-  const latestRun = runs.find((run) => run.mode !== "dry_run") ?? runs[0] ?? null;
+  // Skip ledger rows (paused / recent / already-running) are policy no-ops, not scans —
+  // exclude them so routine skip bookkeeping never masquerades as the last scan.
+  const latestRun = runs.find((run) => run.mode !== "dry_run" && run.status !== "skipped") ?? null;
   const lastFind = runs.find((run) => run.mode !== "dry_run" && run.search_results_seen > 0) ?? null;
-  const latestDidWork = Boolean(latestRun && latestRun.status !== "skipped" && latestRun.search_results_seen > 0);
+  const latestDidWork = Boolean(latestRun && latestRun.search_results_seen > 0);
   const hero = latestDidWork && latestRun ? describeScanPlain(latestRun) : null;
   const heroPct = hero && hero.found > 0 ? Math.round((hero.kept / hero.found) * 100) : 0;
 
