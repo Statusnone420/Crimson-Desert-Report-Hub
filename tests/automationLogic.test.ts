@@ -1347,6 +1347,49 @@ describe("automation relevance", () => {
       }
     });
 
+    it("keeps loading and progression complaints around performance-improvement wording", () => {
+      const snippets = [
+        "1.13 performance improvements caused loading times to double",
+        "The performance fixes are causing quests to get stuck",
+        "Performance optimizations left NPCs missing after 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Patch problems after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps launch and input complaints around performance-improvement wording", () => {
+      const snippets = [
+        "The performance fixes made controls lock during combat",
+        "Performance improvements are causing the game to not launch",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Controls after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
     it("does not keep positive audio discussion as an issue report", () => {
       expect(
         preScreenCandidate(
