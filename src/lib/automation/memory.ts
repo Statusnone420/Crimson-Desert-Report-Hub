@@ -99,7 +99,8 @@ export function buildMemorySearchQueries(
     // One reliable single-site filter per query (Tavily's `site:A OR site:B` handling is
     // unverified); alternate the forum per corroborate TURN so a reddit-heavy cluster still
     // reaches a non-reddit source and clears the 2-independent-domain promotion bar.
-    const corroborateSite = turn % 2 === 0 ? "site:reddit.com" : "site:steamcommunity.com";
+    const siteTurn = Math.floor(turn / Math.max(1, titles.length));
+    const corroborateSite = siteTurn % 2 === 0 ? "site:reddit.com" : "site:steamcommunity.com";
     return [`${corroborateSite} Crimson Desert patch ${patchVersion} ${targetText}crash stutter freeze FPS`.replace(/\s+/g, " ").trim()].slice(0, count);
   }
 

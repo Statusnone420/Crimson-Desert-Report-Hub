@@ -100,7 +100,9 @@ const FIX_ANNOUNCEMENT_CUES = [
 const NEGATIVE_POLARITY_CUES = [
   /\b(?:awful|bad|poor|terrible|horrible|worse|worst|broken|unplayable|ruined|garbage)\b/i,
   /\bstill\s+(?:bad|stutter\w*|crash\w*)\b/i,
-  /\bcrash\w*\b/i,
+  /\bcrash-to-desktop\b/i,
+  /\bctd\b/i,
+  /\bcrash(?:es|ed|ing)?\b(?!\s+fix(?:es)?\b)/i,
   /\bfreez\w*\b/i,
   /\bhang(?:s|ing)?\b/i,
   /\b(?:not|isn'?t|wasn'?t|aren'?t|weren'?t|never)\s+stable\b/i,
@@ -110,6 +112,7 @@ const NEGATIVE_POLARITY_CUES = [
   /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b.{0,40}\b(?:fps|frame ?rate|framerate)\b/i,
   /\b(?:fps|frame ?rate|framerate)\b.{0,60}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b.{0,80}\b(?:after|since|from)\b.{0,40}\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b/i,
   /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caused|introduced|triggered|left|made)\b.{0,40}\b(?:fps|frame ?rate|framerate|stutter|stutters|stuttering|hitch|hitching)\b/i,
+  /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caused|introduced|triggered|left|made|broke)\b.{0,60}\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
   /\bdoesn'?t\s+(?:work|help)\b/i,
   /\bdidn'?t\s+(?:fix|help)\b/i,
   /\bno better\b/i,

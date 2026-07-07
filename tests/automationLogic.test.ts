@@ -842,6 +842,35 @@ describe("scanner memory planning", () => {
     expect(sitesSeen).toEqual(new Set(["site:reddit.com", "site:steamcommunity.com"]));
   });
 
+  it("tries each corroboration target on both forums across turns", () => {
+    const patchVersion = "1.13.00";
+    const titles = ["Alpha crash", "Beta stutter"];
+    const seen = new Map<string, Set<string>>();
+
+    for (const rotationOffset of [0, 1, 2, 3]) {
+      const [query] = buildMemorySearchQueries(1, patchVersion, "corroborate_cluster", {
+        rotationOffset,
+        targetClusterTitles: titles,
+      });
+      const title = titles.find((candidate) => query.includes(candidate));
+      const site = query.includes("site:reddit.com")
+        ? "reddit"
+        : query.includes("site:steamcommunity.com")
+          ? "steam"
+          : null;
+      expect(title).toBeTruthy();
+      expect(site).toBeTruthy();
+      if (title && site) {
+        const sites = seen.get(title) ?? new Set<string>();
+        sites.add(site);
+        seen.set(title, sites);
+      }
+    }
+
+    expect(seen.get("Alpha crash")).toEqual(new Set(["reddit", "steam"]));
+    expect(seen.get("Beta stutter")).toEqual(new Set(["reddit", "steam"]));
+  });
+
   it("targets r/CrimsonDesert for forum_discovery while keeping a Steam query for domain diversity", () => {
     const queries = buildMemorySearchQueries(2, "1.13.00", "forum_discovery");
     expect(queries).toHaveLength(2);
@@ -1149,6 +1178,20 @@ describe("automation relevance", () => {
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
 
+    it("rejects positive crash-fix announcement copy", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update",
+            snippet: "Patch 1.13.00 includes performance fixes and crash fixes for PS5",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
     it("keeps a complaint that says the advertised FPS target is not stable", () => {
       expect(
         preScreenCandidate(
@@ -1218,6 +1261,20 @@ describe("automation relevance", () => {
           {
             title: "No sound after patch 1.13.00",
             snippet: "Audio is missing after the latest update.",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps non-FPS complaints around performance-improvement wording", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "No sound after patch 1.13.00",
+            snippet: "The performance improvements caused no sound on PS5",
             sourceDomain: "reddit.com",
             sourcePublishedAt: null,
           },
