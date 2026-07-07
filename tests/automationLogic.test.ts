@@ -1247,6 +1247,31 @@ describe("automation relevance", () => {
       }
     });
 
+    it("keeps contrastive broken-symptom complaints even without a persistence cue", () => {
+      // These complaints contain no "still"/"persists"/"doesn't work"/"again"/"is back"/"no better",
+      // so they must be rescued purely by the post-contrast symptom clause (not by FIX_PERSISTENCE_CUES).
+      const snippets = [
+        "Patch 1.13.00 includes a fix for broken audio, but no sound on PS5",
+        "Patch 1.13.00 includes a fix for broken rendering, but shadows flicker on PS5",
+        "fixed an issue where the map would crash, but it crashes on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "After 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+
     it("keeps a complaint that says the advertised FPS target is not stable", () => {
       expect(
         preScreenCandidate(

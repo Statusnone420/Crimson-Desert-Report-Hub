@@ -170,7 +170,8 @@ function isClaimedFixNotReport(text: string): boolean {
 
   return (
     (matchesAny(text, CLAIMED_FIX_PATTERNS) || isClaimedFixedSymptomAnnouncement) &&
-    !matchesAny(text, FIX_PERSISTENCE_CUES)
+    !matchesAny(text, FIX_PERSISTENCE_CUES) &&
+    !hasPostContrastSymptomComplaint(text)
   );
 }
 
