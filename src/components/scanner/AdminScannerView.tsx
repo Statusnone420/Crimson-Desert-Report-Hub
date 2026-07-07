@@ -93,11 +93,13 @@ export function AdminScannerView({
   const projectedCredits = projectedMonthlyCredits(control);
   const redditOff = !features.reddit;
 
-  const heroRun =
-    runs.find((run) => run.mode !== "dry_run" && run.search_results_seen > 0) ??
-    runs.find((run) => run.mode !== "dry_run" && run.status !== "skipped") ??
-    null;
-  const hero = heroRun ? describeScanPlain(heroRun) : null;
+  // The "last scan" panel and verdict describe the literal newest run (accuracy);
+  // lastFind is a separate pointer to the most recent run that actually found signal,
+  // so a good result is never presented as if it were the latest scan.
+  const latestRun = runs.find((run) => run.mode !== "dry_run") ?? runs[0] ?? null;
+  const lastFind = runs.find((run) => run.mode !== "dry_run" && run.search_results_seen > 0) ?? null;
+  const latestDidWork = Boolean(latestRun && latestRun.status !== "skipped" && latestRun.search_results_seen > 0);
+  const hero = latestDidWork && latestRun ? describeScanPlain(latestRun) : null;
   const heroPct = hero && hero.found > 0 ? Math.round((hero.kept / hero.found) * 100) : 0;
 
   const heartbeats = runs.filter(
@@ -107,10 +109,9 @@ export function AdminScannerView({
   const pendingRescues = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
   const triage = pendingRescues.slice(0, 6);
 
-  const verdict =
-    hero && hero.kept > 0
-      ? "The scanner is finding real player reports and re-confirming ones it already tracks."
-      : "The scanner is active and screening public sources; no new reports were kept in the latest pass.";
+  const verdict = lastFind
+    ? "The scanner is finding real player reports and re-confirming ones it already tracks."
+    : "The scanner is active and screening public sources; no new reports were kept recently.";
   const verdictTail =
     scoreboard.published === 0
       ? redditOff
@@ -139,9 +140,10 @@ export function AdminScannerView({
                 <span className={status.className}>{status.label.toLowerCase()}</span>
                 {status.label === "Active" ? "Healthy" : status.label}
               </span>
-              {heroRun ? (
+              {latestRun ? (
                 <span className="badge badge-dim">
-                  Last scan {formatEasternDateTime(heroRun.started_at).replace(/:\d\d [A-Z]+$/, "")} · found real signal
+                  Last scan {formatEasternDateTime(latestRun.started_at)}
+                  {latestDidWork ? " · found real signal" : ""}
                 </span>
               ) : null}
               <span className="badge badge-dim">
@@ -182,11 +184,11 @@ export function AdminScannerView({
             <h2 className="h-section">Last scan, in plain English</h2>
             {hero ? <span className="badge badge-green badge-dot">{hero.kept} kept</span> : null}
           </div>
-          {hero && heroRun ? (
+          {hero && latestRun ? (
             <>
               <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-                {formatEasternDateTime(heroRun.started_at)} · {(heroRun.intent ?? "discovery").replace(/_/g, " ")} · cost{" "}
-                <span className="num">{formatUsd(heroRun.estimated_cost_usd)}</span>
+                {formatEasternDateTime(latestRun.started_at)} · {(latestRun.intent ?? "discovery").replace(/_/g, " ")} · cost{" "}
+                <span className="num">{formatUsd(latestRun.estimated_cost_usd)}</span>
               </p>
               <p className="text-base">
                 Checked <span className="num font-semibold">{hero.found}</span> sources, kept{" "}
@@ -233,9 +235,25 @@ export function AdminScannerView({
               ) : null}
             </>
           ) : (
-            <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-              No completed scan with results yet.
-            </p>
+            <div className="space-y-2">
+              <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+                {latestRun
+                  ? `${formatEasternDateTime(latestRun.started_at)} · ${(latestRun.intent ?? "discovery").replace(/_/g, " ")}`
+                  : "No scans recorded yet"}
+              </p>
+              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                {latestRun
+                  ? "The latest scan ran and found nothing new — a normal heartbeat."
+                  : "No completed scan yet."}
+              </p>
+              {lastFind ? (
+                <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                  Most recent find: <span className="num">{formatEasternDateTime(lastFind.started_at)}</span> · kept{" "}
+                  <span className="num font-semibold" style={{ color: "var(--green-bright)" }}>{lastFind.signals_inserted}</span> — see
+                  scan history below.
+                </p>
+              ) : null}
+            </div>
           )}
         </section>
 

@@ -497,7 +497,18 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
   const reviewedThisWeek = runs.reduce((sum, run) => sum + (run.search_results_seen ?? 0), 0);
   const keptThisWeek = runs.reduce((sum, run) => sum + (run.signals_inserted ?? 0), 0);
   const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek);
-  const lastCheckedAt = runs.find((run) => run.finished_at)?.finished_at ?? runs[0]?.started_at ?? null;
+
+  // Heartbeat is independent of the weekly counters: a quiet or paused week must not
+  // erase the real "last checked" time when older runs exist. Unbounded latest lookup.
+  const { data: latestRows } = await supabase
+    .from("automation_runs")
+    .select("finished_at, started_at")
+    .neq("mode", "dry_run")
+    .in("status", ["success", "partial", "failed"])
+    .order("started_at", { ascending: false })
+    .limit(1);
+  const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
+  const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
 
   const { data: signalData } = await supabase.from("source_signals").select("cluster_id, public_status");
   const publicClusters = new Set<string>();

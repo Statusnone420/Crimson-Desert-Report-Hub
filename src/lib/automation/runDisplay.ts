@@ -208,7 +208,6 @@ type PlainScanRun = {
   search_results_seen: number;
   signals_inserted: number;
   signals_reobserved: number;
-  candidates_rescued: number;
   clusters_promoted: number;
   skips: string[];
   funnel: Record<string, number> | null;
@@ -236,13 +235,11 @@ export function describeScanPlain(run: PlainScanRun): PlainScan {
     label: plainSkipPhrase(code),
     count: run.skips.filter((skip) => skip === code).length,
   })).filter((entry) => entry.count > 0);
-  return {
-    found,
-    kept,
-    reConfirmed: run.signals_reobserved ?? 0,
-    held: run.candidates_rescued ?? 0,
-    published: run.clusters_promoted ?? 0,
-    dropped,
-    droppedBreakdown,
-  };
+  const reConfirmed = run.signals_reobserved ?? 0;
+  const published = run.clusters_promoted ?? 0;
+  // "Held" = kept signals still pending a second source: total kept minus the ones
+  // that merely re-confirmed a known issue and the ones promoted public this run.
+  // (candidates_rescued is only the recon-lane subset, so it undercounts held.)
+  const held = Math.max(0, kept - reConfirmed - published);
+  return { found, kept, reConfirmed, held, published, dropped, droppedBreakdown };
 }
