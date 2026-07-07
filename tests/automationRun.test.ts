@@ -487,9 +487,11 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toBe("Crimson Desert patch 1.13.00 FPS drops stutter issue");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
+    );
     expect(mocks.tavilySearch.mock.calls[1][0]).toBe(
-      "site:reddit.com Crimson Desert patch 1.13.00 crash freeze stutter issue",
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash freeze stutter bug",
     );
   });
 

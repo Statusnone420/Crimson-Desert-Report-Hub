@@ -44,14 +44,19 @@ export type BuildSearchQueryOptions = {
   rotationOffset?: number;
 };
 
+// Reddit (esp. r/CrimsonDesert) surfaced via Tavily is where the genuinely useful
+// current-patch signals live, so the pack LEADS with subreddit-targeted queries. But
+// it must stay domain-diverse: promotion needs >= 2 independent domains, so a Reddit-only
+// pack could never corroborate. Keep the Steam query plus general (non-`site:`) web
+// queries so clusters can still reach 2-independent-domain corroboration.
 function queryPack(patchVersion: string): string[] {
   return [
-    `Crimson Desert patch ${patchVersion} FPS drops stutter issue`,
-    `Crimson Desert patch ${patchVersion} crash freeze issue`,
+    `site:reddit.com r/CrimsonDesert Crimson Desert patch ${patchVersion} crash stutter performance bug`,
     `site:reddit.com Crimson Desert patch ${patchVersion} crash freeze stutter issue`,
+    `Crimson Desert patch ${patchVersion} FPS drops stutter issue`,
     `site:steamcommunity.com Crimson Desert patch ${patchVersion} stutter low FPS issue`,
+    `Crimson Desert patch ${patchVersion} crash freeze issue`,
     `Crimson Desert PS5 PC performance drops patch ${patchVersion}`,
-    `Crimson Desert latest patch ${patchVersion} known issue hotfix`,
   ];
 }
 

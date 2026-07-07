@@ -818,6 +818,17 @@ describe("scanner memory planning", () => {
     expect(hunted.size).toBe(4);
   });
 
+  it("targets r/CrimsonDesert for forum_discovery while keeping a Steam query for domain diversity", () => {
+    const queries = buildMemorySearchQueries(2, "1.13.00", "forum_discovery");
+    expect(queries).toHaveLength(2);
+    // Reddit-weighted: the lead forum query is subreddit-targeted for the current patch.
+    expect(queries[0]).toContain("site:reddit.com");
+    expect(queries[0]).toContain("r/CrimsonDesert");
+    expect(queries[0]).toContain("1.13.00");
+    // Domain-diversity guardrail: the Steam query is retained so the lane isn't Reddit-only.
+    expect(queries.some((q) => q.includes("site:steamcommunity.com"))).toBe(true);
+  });
+
   it("still returns no queries for the quarantine intent value when it is passed directly", () => {
     expect(buildMemorySearchQueries(1, "1.13.00", "quarantine")).toEqual([]);
   });
@@ -1214,10 +1225,10 @@ describe("search planning", () => {
     expect(buildSearchQueries(0)).toHaveLength(0);
   });
 
-  it("targets issue language instead of broad reviews or patch-note pages", () => {
+  it("leads with Reddit-targeted issue queries instead of broad reviews or patch-note pages", () => {
     expect(buildSearchQueries(2)).toEqual([
-      "Crimson Desert patch 1.13.00 FPS drops stutter issue",
-      "Crimson Desert patch 1.13.00 crash freeze issue",
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
+      "site:reddit.com Crimson Desert patch 1.13.00 crash freeze stutter issue",
     ]);
   });
 
@@ -1226,7 +1237,9 @@ describe("search planning", () => {
   });
 
   it("can target a server-derived patch version", () => {
-    expect(buildSearchQueries(1, "1.14.00")).toEqual(["Crimson Desert patch 1.14.00 FPS drops stutter issue"]);
+    expect(buildSearchQueries(1, "1.14.00")).toEqual([
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.14.00 crash stutter performance bug",
+    ]);
   });
 
   it("calls Tavily with injected fetch and maps results", async () => {

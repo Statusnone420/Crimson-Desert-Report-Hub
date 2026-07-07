@@ -104,8 +104,10 @@ export function buildMemorySearchQueries(
   }
 
   if (intent === "forum_discovery") {
+    // Reddit-weighted (subreddit-targeted) but still domain-diverse: keep the Steam
+    // query so the forum lane can corroborate across >= 2 registrable domains.
     const forumQueries = [
-      `site:reddit.com Crimson Desert patch ${patchVersion} crash freeze stutter issue`,
+      `site:reddit.com r/CrimsonDesert Crimson Desert patch ${patchVersion} crash freeze stutter bug`,
       `site:steamcommunity.com Crimson Desert patch ${patchVersion} stutter low FPS issue`,
     ];
     return forumQueries.slice(0, count);
