@@ -711,6 +711,27 @@ describe("scanner memory planning", () => {
     }
   });
 
+  it("covers every target title once per corroborate turn when a lane offset gates selection", () => {
+    // With 2 eligible lanes, corroborate only fires on odd offsets (1, 3, 5, 7).
+    // Advancing the title per corroborate TURN (offset / laneCount) instead of per
+    // raw offset guarantees all four titles get hunted — not just an even/odd half.
+    const titles = ["Alpha crash", "Beta stutter", "Gamma freeze", "Delta hitch"];
+    const laneCount = 2;
+    const hunted = new Set<string>();
+    for (const rotationOffset of [1, 3, 5, 7]) {
+      const [query] = buildMemorySearchQueries(1, "1.13.00", "corroborate_cluster", {
+        rotationOffset,
+        targetClusterTitles: titles,
+        laneCount,
+      });
+      const matched = titles.find((title) => query.includes(title));
+      if (matched) hunted.add(matched);
+    }
+    // The OLD `rotationOffset % titles.length` selection would have hit only
+    // indices {1, 3} — two titles — across those offsets. Per-turn selection hits all four.
+    expect(hunted.size).toBe(4);
+  });
+
   it("still returns no queries for the quarantine intent value when it is passed directly", () => {
     expect(buildMemorySearchQueries(1, "1.13.00", "quarantine")).toEqual([]);
   });

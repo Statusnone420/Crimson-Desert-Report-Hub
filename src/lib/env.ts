@@ -49,8 +49,11 @@ export function integrationStatuses(env: EnvLike = process.env): IntegrationStat
 
   const webSearchConnected = hasEnvValue(env.TAVILY_API_KEY);
 
-  const aiConnected = hasEnvValue(env.OPENROUTER_API_KEY) || hasEnvValue(env.GROQ_API_KEY);
-  const aiMissing = aiConnected ? [] : ["OPENROUTER_API_KEY", "GROQ_API_KEY"];
+  // The automation extractor (extractSignalWithOpenRouter) reads OPENROUTER_API_KEY
+  // ONLY and otherwise returns deterministic keyword extraction, so a Groq-only env
+  // is NOT connected for the scanner even though computeFeatures().ai may still be true.
+  const aiConnected = hasEnvValue(env.OPENROUTER_API_KEY);
+  const aiMissing = aiConnected ? [] : ["OPENROUTER_API_KEY"];
 
   return [
     {
@@ -73,7 +76,7 @@ export function integrationStatuses(env: EnvLike = process.env): IntegrationStat
     },
     {
       key: "ai_extraction",
-      label: "AI extraction (OpenRouter/Groq)",
+      label: "AI extraction (OpenRouter)",
       connected: aiConnected,
       missingEnv: aiMissing,
       detail: aiConnected

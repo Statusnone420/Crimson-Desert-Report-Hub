@@ -9,7 +9,7 @@ import {
   type CurrentPatchEligibilityReason,
 } from "@/lib/automation/eligibility";
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
-import { buildMemorySearchQueries, chooseScanIntent, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
+import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
@@ -461,6 +461,7 @@ async function collectInputs(
   now: Date,
   currentPatch: CurrentPatchContext,
   intent: ScanIntent,
+  laneCount: number,
   report?: () => Promise<void>,
 ): Promise<SourceInput[]> {
   const inputs: SourceInput[] = [];
@@ -499,6 +500,7 @@ async function collectInputs(
     for (const query of buildMemorySearchQueries(budget.maxSearchQueries, currentPatch.version, intent, {
       rotationOffset: searchRotationOffset(now),
       targetClusterTitles: result.intent === "corroborate_cluster" ? result.targetClusterTitles : undefined,
+      laneCount,
     })) {
       try {
         result.searchQueriesUsed += 1;
@@ -1296,6 +1298,10 @@ async function executeAutomationRun(
     const scanMemory = await loadScanMemory(supabase, currentPatch, now);
     result.intent = chooseScanIntent(scanMemory, searchRotationOffset(now));
     result.targetClusterTitles = scanMemory.targetClusterTitles;
+    // Corroborate advances its title per TURN (offset / laneCount); computing the
+    // lane count here — where scanMemory is in scope — keeps that rotation from
+    // being aliased by the intent-lane offset (see buildMemorySearchQueries).
+    const laneCount = eligibleLaneCount(scanMemory);
     await updateRunIntent(supabase, runId, result.intent);
 
     if (mode !== "dry_run") {
@@ -1306,7 +1312,7 @@ async function executeAutomationRun(
     const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
 
     await report("searching");
-    const inputs = await collectInputs(result, budget, now, currentPatch, result.intent, () => report("searching"));
+    const inputs = await collectInputs(result, budget, now, currentPatch, result.intent, laneCount, () => report("searching"));
     const prepared = await prepareSignals(
       inputs,
       result,

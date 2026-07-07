@@ -88,9 +88,9 @@ describe("integrationStatuses", () => {
       },
       {
         key: "ai_extraction",
-        label: "AI extraction (OpenRouter/Groq)",
+        label: "AI extraction (OpenRouter)",
         connected: false,
-        missingEnv: ["OPENROUTER_API_KEY", "GROQ_API_KEY"],
+        missingEnv: ["OPENROUTER_API_KEY"],
         detail: "Not connected — falling back to deterministic keyword extraction.",
       },
     ]);
@@ -112,7 +112,7 @@ describe("integrationStatuses", () => {
       REDDIT_CLIENT_SECRET: "b",
       REDDIT_USER_AGENT: "c",
       TAVILY_API_KEY: "t",
-      GROQ_API_KEY: "g",
+      OPENROUTER_API_KEY: "o",
     });
     expect(statuses).toEqual([
       {
@@ -131,7 +131,7 @@ describe("integrationStatuses", () => {
       },
       {
         key: "ai_extraction",
-        label: "AI extraction (OpenRouter/Groq)",
+        label: "AI extraction (OpenRouter)",
         connected: true,
         missingEnv: [],
         detail: "Extracting signals with a free model.",
@@ -139,8 +139,18 @@ describe("integrationStatuses", () => {
     ]);
   });
 
-  it("ai extraction connects with only GROQ_API_KEY set and reports no missing vars", () => {
+  it("ai extraction stays disconnected with only GROQ_API_KEY set because the scanner extractor reads OpenRouter only", () => {
     const statuses = integrationStatuses({ GROQ_API_KEY: "g" });
+    const ai = statuses.find((s) => s.key === "ai_extraction");
+    expect(ai).toMatchObject({
+      connected: false,
+      missingEnv: ["OPENROUTER_API_KEY"],
+      detail: "Not connected — falling back to deterministic keyword extraction.",
+    });
+  });
+
+  it("ai extraction connects with OPENROUTER_API_KEY set and reports no missing vars", () => {
+    const statuses = integrationStatuses({ OPENROUTER_API_KEY: "o" });
     const ai = statuses.find((s) => s.key === "ai_extraction");
     expect(ai).toMatchObject({
       connected: true,
