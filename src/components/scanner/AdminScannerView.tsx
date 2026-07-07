@@ -117,8 +117,10 @@ export function AdminScannerView({
     (run) => run.mode === "scheduled" && run.status === "success" && run.search_results_seen === 0,
   ).length;
 
+  // Show every pending rescue — this is the only page where the admin can action
+  // them, so capping the list would strand candidates 7+ with no way to rescue them.
   const pendingRescues = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
-  const triage = pendingRescues.slice(0, 6);
+  const triage = pendingRescues;
 
   const verdict = lastFind
     ? "The scanner is finding real player reports and re-confirming ones it already tracks."
