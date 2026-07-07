@@ -60,6 +60,9 @@ function plainRunLine(run: AutomationRunRow): string {
   if (run.status === "skipped") {
     return summarizeRunMessages(run.skips, run.errors).operatorSummary;
   }
+  if (run.status === "failed" || run.errors.length > 0) {
+    return `Scan failed — ${summarizeRunMessages(run.skips, run.errors).errorSummary}`;
+  }
   if (run.search_results_seen === 0) return "Ran, nothing new";
   const scan = describeScanPlain(run);
   const parts = [`Found ${scan.found}, kept ${scan.kept}`];
@@ -106,6 +109,7 @@ export function AdminScannerView({
         (run.signals_inserted > 0 || run.signals_reobserved > 0 || run.clusters_promoted > 0),
     ) ?? null;
   const latestDidWork = Boolean(latestRun && latestRun.search_results_seen > 0);
+  const latestFailed = Boolean(latestRun && (latestRun.status === "failed" || latestRun.errors.length > 0));
   const hero = latestDidWork && latestRun ? describeScanPlain(latestRun) : null;
   const heroPct = hero && hero.found > 0 ? Math.round((hero.kept / hero.found) * 100) : 0;
 
@@ -191,6 +195,14 @@ export function AdminScannerView({
             <h2 className="h-section">Last scan, in plain English</h2>
             {hero && hero.kept > 0 ? <span className="badge badge-green badge-dot">{hero.kept} kept</span> : null}
           </div>
+          {latestRun && latestRun.errors.length > 0 ? (
+            <div
+              className="panel-inset text-sm leading-6"
+              style={{ border: "1px solid var(--crimson-edge)", background: "var(--crimson-tint)", color: "var(--crimson-bright)" }}
+            >
+              The latest scan reported errors: {summarizeRunMessages(latestRun.skips, latestRun.errors).errorSummary}
+            </div>
+          ) : null}
           {hero && latestRun ? (
             <>
               <p className="text-xs" style={{ color: "var(--text-faint)" }}>
@@ -248,10 +260,12 @@ export function AdminScannerView({
                   ? `${formatEasternDateTime(latestRun.started_at)} · ${(latestRun.intent ?? "discovery").replace(/_/g, " ")}`
                   : "No scans recorded yet"}
               </p>
-              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                {latestRun
-                  ? "The latest scan ran and found nothing new — a normal heartbeat."
-                  : "No completed scan yet."}
+              <p className="text-sm" style={{ color: latestFailed ? "var(--crimson-bright)" : "var(--text-dim)" }}>
+                {!latestRun
+                  ? "No completed scan yet."
+                  : latestFailed
+                    ? "The latest scan did not finish — see the error above."
+                    : "The latest scan ran and found nothing new — a normal heartbeat."}
               </p>
               {lastFind ? (
                 <p className="text-sm" style={{ color: "var(--text-dim)" }}>
@@ -361,7 +375,7 @@ export function AdminScannerView({
           <form action={setScannerPolicy} className="space-y-3 text-sm">
             <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
             <input type="hidden" name="modelPreset" value={control.modelPreset} />
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <label className="grid gap-1">
                 <span className="stat-label">How often</span>
                 <select name="cadence" defaultValue={control.paused ? "paused" : String(control.minIntervalMinutes)}>
@@ -384,8 +398,11 @@ export function AdminScannerView({
                 <span className="stat-label">Monthly search cap</span>
                 <input name="monthlyTavilyCreditCap" type="number" min="0" max="1000" step="1" defaultValue={control.monthlyTavilyCreditCap} className="num" />
               </label>
+              <label className="grid gap-1">
+                <span className="stat-label">Monthly LLM cap ($)</span>
+                <input name="monthlyLlmUsdCap" type="number" min="1" max="5" step="0.25" defaultValue={control.monthlyLlmUsdCap} className="num" />
+              </label>
             </div>
-            <input type="hidden" name="monthlyLlmUsdCap" value={control.monthlyLlmUsdCap} />
             <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
               {`At this setting the scanner spends about ${projectedCredits} of your ${control.monthlyTavilyCreditCap} free monthly credits, then stands down. Cadence is ${cadenceLabel(control.minIntervalMinutes)}. Test scans never touch the public site.`}
             </p>
