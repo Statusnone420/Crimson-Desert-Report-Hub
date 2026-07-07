@@ -40,9 +40,12 @@ export function resolveSignalPublicStatus(input: {
   decision: PromotionDecision;
   signalTrusted: boolean;
   corroboratedByDomains: boolean;
-}): { publicStatus: "public" | "private"; reason: string } {
+}): { publicStatus: "public" | "private" | "hidden"; reason: string } {
   if (input.decision.publicStatus !== "public") {
-    return { publicStatus: "private", reason: input.decision.reason };
+    // Preserve the decision verbatim: a force-hidden cluster's publishable signal
+    // must stay `hidden` (not leak back into the private-signal targeting pool),
+    // and a below-threshold decision stays `private`.
+    return { publicStatus: input.decision.publicStatus, reason: input.decision.reason };
   }
   if (input.decision.reason === "direct_report_match" && !input.signalTrusted && !input.corroboratedByDomains) {
     return { publicStatus: "private", reason: "below_threshold" };

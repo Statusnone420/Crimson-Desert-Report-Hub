@@ -856,6 +856,66 @@ describe("runAutomationMonitor", () => {
     expect(tables.issue_clusters[0]).toMatchObject({ public_signal_count: 1, is_public: true });
   });
 
+  it("keeps a fresh publishable signal hidden under a force-hidden cluster", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Admin has force-hidden this cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: true,
+          admin_visibility_override: "force_hidden",
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    // A fresh (post-patch) current-patch signal that is publishable on its own,
+    // routed onto a cluster an admin has force-hidden. force_hidden must win at the
+    // per-signal level too: the signal stays hidden rather than being downgraded to
+    // private (which would leak it back into the private-signal targeting pool).
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Map crash on PS5",
+        url: "https://facebook.com/groups/crimsondesert/posts/map-crash",
+        snippet: "The map crash still happens on PS5 after loading.",
+        sourceDomain: "facebook.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-04T10:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      public_status: "hidden",
+      promotion_reason: "admin_force_hidden",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+  });
+
   it("counts duplicate approved excerpts as one verified report per report", async () => {
     delete process.env.TAVILY_API_KEY;
     resetDb({

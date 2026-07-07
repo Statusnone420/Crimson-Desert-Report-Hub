@@ -649,6 +649,16 @@ describe("resolveSignalPublicStatus", () => {
       }),
     ).toEqual({ publicStatus: "private", reason: "below_threshold" });
   });
+
+  it("preserves an admin_force_hidden decision as hidden (does not downgrade to private)", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "hidden", reason: "admin_force_hidden" },
+        signalTrusted: false,
+        corroboratedByDomains: false,
+      }),
+    ).toEqual({ publicStatus: "hidden", reason: "admin_force_hidden" });
+  });
 });
 
 describe("domainTier", () => {
