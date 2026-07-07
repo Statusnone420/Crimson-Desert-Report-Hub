@@ -1163,6 +1163,48 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("keeps a contrastive FPS-drop complaint that quotes a stable-FPS claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "Patch claims stable 60 fps but fps drops to 20 in combat",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps audio-only current-patch complaints before extraction", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "No sound after patch 1.13.00",
+            snippet: "Audio is missing after the latest update.",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("does not keep positive audio discussion as an issue report", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert soundtrack after 1.13.00",
+            snippet: "The music sounds incredible after the latest patch.",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
     it("keeps a persistence-guarded complaint that mentions an improvement claim", () => {
       expect(
         preScreenCandidate(

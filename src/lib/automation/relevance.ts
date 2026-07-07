@@ -22,6 +22,8 @@ const SYMPTOM_PATTERNS = [
   /\b(?:lockup|lockups|locks up|input lock|input locks|unresponsive|controls? (?:stop|stops|stopped|locked|freeze|freezes))\b/i,
   /\b(?:artifact|artifacts|ghosting|flicker|flickering|texture shimmer|screen tearing)\b/i,
   /\b(?:won't|will not|doesn't|does not|can't|cannot)\s+(?:launch|start|load|progress|complete)\b/i,
+  /\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
+  /\b(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b.{0,50}\b(?:missing|gone|muted|silent|broken|cut(?:s|ting)? out|doesn'?t play|not playing|desync(?:ed)?|out of sync)\b/i,
   /\bquest\b.{0,50}\b(?:stuck|blocked|cannot progress|won't complete|will not complete)\b/i,
 ] as const;
 
@@ -94,6 +96,8 @@ const NEGATIVE_POLARITY_CUES = [
   /\bhang(?:s|ing)?\b/i,
   /\b(?:not|isn'?t|wasn'?t|aren'?t|weren'?t|never)\s+stable\b/i,
   /\bunstable\b/i,
+  /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:fps|frame ?rate|framerate)\b.{0,40}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b/i,
+  /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b.{0,40}\b(?:fps|frame ?rate|framerate)\b/i,
   /\bdoesn'?t\s+(?:work|help)\b/i,
   /\bdidn'?t\s+(?:fix|help)\b/i,
   /\bno better\b/i,
