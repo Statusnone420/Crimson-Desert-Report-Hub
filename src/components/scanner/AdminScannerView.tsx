@@ -63,7 +63,7 @@ function plainRunLine(run: AutomationRunRow): string {
   if (run.status === "failed" || run.errors.length > 0) {
     return `Scan failed — ${summarizeRunMessages(run.skips, run.errors).errorSummary}`;
   }
-  if (run.search_results_seen === 0) return "Ran, nothing new";
+  if (run.search_results_seen + run.reddit_posts_seen === 0) return "Ran, nothing new";
   const scan = describeScanPlain(run);
   const parts = [`Found ${scan.found}, kept ${scan.kept}`];
   if (scan.reConfirmed > 0) parts.push(`re-confirmed ${scan.reConfirmed}`);
@@ -109,13 +109,14 @@ export function AdminScannerView({
   // is the newest run that actually kept, re-confirmed, or promoted a signal.
   const latestRun = latestRealRun;
   const lastFind = latestFind;
-  const latestDidWork = Boolean(latestRun && latestRun.search_results_seen > 0);
+  const latestDidWork = Boolean(latestRun && latestRun.search_results_seen + latestRun.reddit_posts_seen > 0);
   const latestFailed = Boolean(latestRun && (latestRun.status === "failed" || latestRun.errors.length > 0));
   const hero = latestDidWork && latestRun ? describeScanPlain(latestRun) : null;
   const heroPct = hero && hero.found > 0 ? Math.round((hero.kept / hero.found) * 100) : 0;
 
   const heartbeats = runs.filter(
-    (run) => run.mode === "scheduled" && run.status === "success" && run.search_results_seen === 0,
+    (run) =>
+      run.mode === "scheduled" && run.status === "success" && run.search_results_seen + run.reddit_posts_seen === 0,
   ).length;
 
   // Show every pending rescue — this is the only page where the admin can action
