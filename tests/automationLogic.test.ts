@@ -884,6 +884,35 @@ describe("automation relevance", () => {
         ),
       ).toEqual({ keep: false, reason: "stale_source" });
     });
+
+    it("rejects an official patch-note claimed-fix line even when it mentions a symptom word", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert - Steam Community",
+            snippet:
+              "Fixed an issue where the game would crash when using Photo Mode after turning off HDR while it was on.",
+            sourceDomain: "steamcommunity.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("keeps a complaint that a claimed fix did not actually work", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "map crash after 1.13.00",
+            snippet: "they supposedly fixed an issue where the map crashes but it still crashes every time on 1.13.00",
+            sourceDomain: "example.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
   });
 
   describe("shouldKeepExtractedSignal", () => {
