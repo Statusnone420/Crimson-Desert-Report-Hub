@@ -109,7 +109,11 @@ export function AdminScannerView({
   // is the newest run that actually kept, re-confirmed, or promoted a signal.
   const latestRun = latestRealRun;
   const lastFind = latestFind;
-  const latestDidWork = Boolean(latestRun && latestRun.search_results_seen + latestRun.reddit_posts_seen > 0);
+  // A failed run's signals_inserted comes from pre-persistence screening, so don't
+  // render its "kept" breakdown — the empty/failed branch surfaces the error instead.
+  const latestDidWork = Boolean(
+    latestRun && latestRun.status !== "failed" && latestRun.search_results_seen + latestRun.reddit_posts_seen > 0,
+  );
   const latestFailed = Boolean(latestRun && (latestRun.status === "failed" || latestRun.errors.length > 0));
   const hero = latestDidWork && latestRun ? describeScanPlain(latestRun) : null;
   const heroPct = hero && hero.found > 0 ? Math.round((hero.kept / hero.found) * 100) : 0;

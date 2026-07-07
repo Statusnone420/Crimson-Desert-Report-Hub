@@ -455,10 +455,14 @@ export async function getAutomationAdminData() {
     .in("status", ["success", "partial", "failed"])
     .order("started_at", { ascending: false })
     .limit(1);
+  // success/partial only: signalsInserted is bumped during screening (before
+  // persistSignals writes to the DB), so a failed run can report inserts that never
+  // landed — it must not pose as the most recent find.
   const { data: latestFindRows } = await supabase
     .from("automation_runs")
     .select(RUN_COLUMNS)
     .neq("mode", "dry_run")
+    .in("status", ["success", "partial"])
     .or("signals_inserted.gt.0,signals_reobserved.gt.0,clusters_promoted.gt.0")
     .order("started_at", { ascending: false })
     .limit(1);
@@ -506,7 +510,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
 
   const { data: runData } = await supabase
     .from("automation_runs")
-    .select("search_results_seen, reddit_posts_seen, signals_inserted, finished_at, started_at")
+    .select("search_results_seen, reddit_posts_seen, signals_inserted, status, finished_at, started_at")
     .neq("mode", "dry_run")
     .in("status", ["success", "partial", "failed"])
     .gte("started_at", weekAgo)
@@ -515,6 +519,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     search_results_seen: number;
     reddit_posts_seen: number;
     signals_inserted: number;
+    status: string;
     finished_at: string | null;
     started_at: string;
   }[];
@@ -522,7 +527,12 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
     0,
   );
-  const keptThisWeek = runs.reduce((sum, run) => sum + (run.signals_inserted ?? 0), 0);
+  // Only success/partial runs actually persisted signals — a failed run can carry a
+  // non-zero signals_inserted from screening that never landed in the DB.
+  const keptThisWeek = runs.reduce(
+    (sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)),
+    0,
+  );
   const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek);
 
   // Heartbeat is independent of the weekly counters: a quiet or paused week must not
