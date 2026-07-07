@@ -1177,6 +1177,27 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("keeps FPS-drop complaints around performance-fix wording", () => {
+      const snippets = [
+        "1.13.00 performance improvements caused FPS drops",
+        "FPS drops after the performance fixes",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Performance after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
     it("keeps audio-only current-patch complaints before extraction", () => {
       expect(
         preScreenCandidate(
@@ -1203,6 +1224,90 @@ describe("automation relevance", () => {
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("keeps quest and NPC progression complaints before extraction", () => {
+      const snippets = [
+        "Quests are stuck after 1.13.00",
+        "NPCs are frozen after the update",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Progression after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps startup and loading complaints before extraction", () => {
+      const snippets = [
+        "Black screen after patch 1.13.00",
+        "Infinite loading on startup after the update",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Startup after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps loading-time and frame-time performance complaints before extraction", () => {
+      const snippets = [
+        "Loading times are worse after 1.13.00",
+        "Frame time spikes after the update",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Performance after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps graphics and visual complaints before extraction", () => {
+      const snippets = [
+        "The visuals are glitchy after 1.13.00",
+        "Shadow rendering is broken after the update",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Graphics after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
     });
 
     it("keeps a persistence-guarded complaint that mentions an improvement claim", () => {
