@@ -949,6 +949,8 @@ describe("automation relevance", () => {
       const snippets = [
         "Fixed an issue where pressing the back button would crash the game.",
         "Fixed an issue where returning back to the title screen would crash the game.",
+        "Fixed an issue where the game would crash when coming back into the title screen.",
+        "Fixed an issue where the game would crash when coming back in the title screen.",
       ];
 
       for (const snippet of snippets) {
