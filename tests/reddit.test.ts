@@ -19,6 +19,35 @@ describe("classifySignal", () => {
     expect(result.category).toBe("other");
     expect(result.confidence).toBe("low");
   });
+
+  it("routes patch-note quest language", () => {
+    expect(classifySignal("Fixed a quest that could not be completed").category).toBe("quest_progression");
+  });
+
+  it("prefers audio over quest when both terms appear", () => {
+    // audio rule is ordered before quest, so 'audio' wins over 'cutscenes'
+    expect(classifySignal("Fixed missing audio during cutscenes").category).toBe("audio");
+  });
+
+  it("routes voice/dialogue language to audio", () => {
+    expect(classifySignal("Fixed voice lines not playing in dialogue").category).toBe("audio");
+  });
+
+  it("routes patch-note startup black screen to crash_startup", () => {
+    expect(classifySignal("Fixed a black screen on startup").category).toBe("crash_startup");
+  });
+
+  it("routes shadow/rendering language to graphics_visual", () => {
+    expect(classifySignal("Improved shadow rendering quality").category).toBe("graphics_visual");
+  });
+
+  it("routes loading-time language to performance", () => {
+    expect(classifySignal("Reduced loading times").category).toBe("performance");
+  });
+
+  it("keeps non-issue patch-note lines as other", () => {
+    expect(classifySignal("Added three new armor sets").category).toBe("other");
+  });
 });
 
 describe("summarize", () => {
