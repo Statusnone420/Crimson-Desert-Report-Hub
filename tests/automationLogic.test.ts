@@ -1079,6 +1079,34 @@ describe("automation relevance", () => {
         ),
       ).toEqual({ keep: true });
     });
+
+    it("keeps a complaint that quotes an improvement claim then reports a crash symptom", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crashes after 1.13.00",
+            snippet: "They said this patch improves performance but my game crashes on the title screen",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a complaint asking where the performance fixes are while reporting crashes and freezes", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "1.13.00 stability",
+            snippet: "where are the performance fixes? game crashes and freezes every session",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
   });
 
   describe("shouldKeepExtractedSignal", () => {

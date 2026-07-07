@@ -78,9 +78,16 @@ const FIX_ANNOUNCEMENT_CUES = [
 ] as const;
 
 // Complaint markers. If any are present the snippet is a real report, not marketing.
+// Covers sentiment words AND crash-class symptom verbs, so a complaint that quotes the
+// marketing claim then reports a crash/freeze/hang (with no adjective) is preserved.
+// fps/drop/stutter are deliberately excluded — they also appear in positive
+// announcements (e.g. "fixes the fps drops"), which must still be rejected.
 const NEGATIVE_POLARITY_CUES = [
   /\b(?:awful|bad|poor|terrible|horrible|worse|worst|broken|unplayable|ruined|garbage)\b/i,
   /\bstill\s+(?:bad|stutter\w*|crash\w*)\b/i,
+  /\bcrash\w*\b/i,
+  /\bfreez\w*\b/i,
+  /\bhang(?:s|ing)?\b/i,
   /\bdoesn'?t\s+(?:work|help)\b/i,
   /\bdidn'?t\s+(?:fix|help)\b/i,
   /\bno better\b/i,
