@@ -982,14 +982,21 @@ async function refreshClusterStats(
   // would make a seeded watchlist item vanish the moment a private scanner signal
   // routes into it. Below threshold, keep the cluster's existing visibility.
   const hasPublicEvidence = publicSignalCount > 0 || clusterReports.length > 0;
+  // An already-visible cluster that drops below threshold but still holds a live
+  // current-patch candidate signal stays VISIBLE as an "Unconfirmed" watchlist row
+  // rather than being hidden. This does NOT publish anything — the candidate stays
+  // private; only the cluster's visibility flag is preserved.
+  const hasLiveCandidates = signals.some((signal) => sourceSignalEligibility(signal, currentPatch).canStore);
   const isPublic =
     decision.publicStatus === "public"
       ? true
       : decision.publicStatus === "hidden"
         ? false
-        : cluster.auto_public && !hasPublicEvidence
-          ? false
-          : (cluster.is_public ?? false);
+        : cluster.is_public && hasLiveCandidates
+          ? true
+          : cluster.auto_public && !hasPublicEvidence
+            ? false
+            : (cluster.is_public ?? false);
   const { error: clusterUpdateError } = await supabase
     .from("issue_clusters")
     .update({

@@ -1854,6 +1854,88 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("keeps an auto-public cluster visible when its public signal goes stale but a live current-patch candidate remains", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-crash-hang",
+          slug: "crash_startup_hang",
+          title: "Crash / hang on startup",
+          category: "crash_startup",
+          description: "Auto-promoted crash cluster whose public evidence went stale.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-crash-stale",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://steamcommunity.com/app/crash-old",
+          canonical_url: "https://steamcommunity.com/app/crash-old",
+          title: "Game crashes on startup after 1.04",
+          summary: "Players report startup crashes on patch 1.04.",
+          source_domain: "steamcommunity.com",
+          source_published_at: "2026-05-01T12:00:00.000Z",
+          semantic_fingerprint: "crash-hang-stale",
+          cluster_id: "cluster-crash-hang",
+          category: "crash_startup",
+          confidence: "medium",
+          observed_at: "2026-05-01T12:00:00.000Z",
+          public_status: "public",
+        },
+        {
+          id: "signal-crash-live",
+          source: "reddit",
+          source_type: "reddit",
+          source_url: "https://reddit.com/r/CrimsonDesert/crash-live",
+          canonical_url: "https://reddit.com/r/CrimsonDesert/crash-live",
+          title: "PS5 crash on startup since latest patch",
+          summary: "PS5 and Steam players hit a startup crash on the current build.",
+          source_domain: "reddit.com",
+          source_published_at: "2026-07-04T12:00:00.000Z",
+          semantic_fingerprint: "crash-hang-live",
+          cluster_id: "cluster-crash-hang",
+          category: "crash_startup",
+          confidence: "medium",
+          observed_at: "2026-07-04T12:00:00.000Z",
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The stale public source is quarantined, dropping the cluster below threshold.
+    expect(result.staleSignalsHidden).toBe(1);
+    const staleRow = sourceSignalRows().find((row) => row.id === "signal-crash-stale");
+    expect(staleRow).toMatchObject({ public_status: "hidden", promotion_reason: "wrong_patch" });
+    // Promotion stays strict: the live current-patch candidate is NOT published.
+    const liveRow = sourceSignalRows().find((row) => row.id === "signal-crash-live");
+    expect(liveRow).toMatchObject({ public_status: "private" });
+    // But the cluster stays VISIBLE as a watchlist row because it still holds a live
+    // current-patch candidate — it must not be hidden.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: true,
+    });
+  });
+
   it("does not promote from a stale existing signal plus one fresh source", async () => {
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
