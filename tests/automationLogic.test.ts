@@ -1214,17 +1214,25 @@ describe("automation relevance", () => {
     });
 
     it("keeps broken-symptom complaints when a claimed fix still fails", () => {
-      expect(
-        preScreenCandidate(
-          {
-            title: "Audio after 1.13.00",
-            snippet: "Patch 1.13.00 includes a fix for broken audio, but audio is still broken on PS5",
-            sourceDomain: "reddit.com",
-            sourcePublishedAt: null,
-          },
-          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
-        ),
-      ).toEqual({ keep: true });
+      const snippets = [
+        "Patch 1.13.00 includes a fix for broken audio, but audio is still broken on PS5",
+        "Patch 1.13.00 includes a fix for broken audio, but it doesn't work; no sound on PS5",
+        "Patch 1.13.00 includes a fix for broken rendering, but it's no better on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Audio after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
     });
 
     it("keeps a complaint that says the advertised FPS target is not stable", () => {

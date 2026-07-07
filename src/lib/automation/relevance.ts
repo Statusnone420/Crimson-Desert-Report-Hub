@@ -75,7 +75,9 @@ const FIX_PERSISTENCE_CUES = [
   /\beven after\b/i,
   /\bagain\b/i,
   /\b(?:is|are|was|were|came|comes|has come|have come)\s+back\b(?!\s+(?:to|from)\b)/i,
+  /\bdoesn'?t (?:fix|work|help)\b/i,
   /\bdidn'?t (?:fix|work|help)\b/i,
+  /\bno better\b/i,
   /\bsupposed(?:ly)? fixed\b/i,
 ] as const;
 
