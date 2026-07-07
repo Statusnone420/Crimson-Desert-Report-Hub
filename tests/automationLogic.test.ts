@@ -980,6 +980,20 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("keeps a complaint that says claimed-fix FPS drops are back", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "FPS drops after 1.13.00",
+            snippet: "they fixed an issue where FPS drops happen, but the FPS drops are back on 1.13.00",
+            sourceDomain: "example.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
     it("keeps a complaint that a claimed fix did not actually work", () => {
       expect(
         preScreenCandidate(
