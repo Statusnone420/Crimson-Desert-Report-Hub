@@ -1023,6 +1023,62 @@ describe("automation relevance", () => {
         ),
       ).toEqual({ keep: true });
     });
+
+    it("rejects a patch fix-announcement snippet framed as a performance fix", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update with new armor and content",
+            snippet: "Patch 1.13.00 includes PS5 performance fixes aimed at achieving stable 60fps on base PS5",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("rejects a fix-announcement even when it names a symptom keyword", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update",
+            snippet: "Patch 1.13.00 improves performance and fixes the fps drops on base PS5",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("keeps a persistence-guarded complaint that mentions an improvement claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "they fixed an issue where the game stutters, but performance is still awful after 1.13.00",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a negative-polarity complaint that quotes a performance-improvement claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "they said 1.13.00 improves performance but it's worse now, constant fps drops",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
   });
 
   describe("shouldKeepExtractedSignal", () => {

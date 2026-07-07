@@ -64,6 +64,28 @@ const FIX_PERSISTENCE_CUES = [
   /\bsupposed(?:ly)? fixed\b/i,
 ] as const;
 
+// Prospective/marketing "the fix is coming/included" voice. Positive polarity: the
+// snippet is announcing that a patch improves performance, not reporting a bug.
+const FIX_ANNOUNCEMENT_CUES = [
+  /\b(?:includes?|adds?|brings?|shipped|rolling out)\b.{0,40}\b(?:performance\s+)?fix(?:es)?\b/i,
+  /\bperformance\s+(?:improvements?|fixes?|optimi[sz]ations?)\b/i,
+  /\b(?:improves?|improved|optimi[sz]es?|optimi[sz]ed)\b.{0,40}\b(?:performance|fps|frame\s?rate|framerate)\b/i,
+  /\b(?:aims?|aimed)\s+(?:for|to)\b/i,
+  /\bachiev(?:e|es|ing|ed)\b.{0,40}\b(?:stable\s+)?\d+\s?fps\b/i,
+  /\bstable\s+\d+\s?fps\b/i,
+  /\bsmoother\s+performance\b/i,
+  /\b(?:boosts?|boosted)\s+performance\b/i,
+] as const;
+
+// Complaint markers. If any are present the snippet is a real report, not marketing.
+const NEGATIVE_POLARITY_CUES = [
+  /\b(?:awful|bad|poor|terrible|horrible|worse|worst|broken|unplayable|ruined|garbage)\b/i,
+  /\bstill\s+(?:bad|stutter\w*|crash\w*)\b/i,
+  /\bdoesn'?t\s+(?:work|help)\b/i,
+  /\bdidn'?t\s+(?:fix|help)\b/i,
+  /\bno better\b/i,
+] as const;
+
 function compact(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -86,6 +108,17 @@ function isBroadContentTitle(title: string): boolean {
 
 function isClaimedFixNotReport(text: string): boolean {
   return matchesAny(text, CLAIMED_FIX_PATTERNS) && !matchesAny(text, FIX_PERSISTENCE_CUES);
+}
+
+// Fires ONLY on purely-positive announcement text. Any persistence cue ("still",
+// "<symptom> is back", "didn't fix") or negative-polarity marker means it is a real
+// complaint quoting the marketing claim, so the gate must NOT reject it.
+function isFixAnnouncement(text: string): boolean {
+  return (
+    matchesAny(text, FIX_ANNOUNCEMENT_CUES) &&
+    !matchesAny(text, FIX_PERSISTENCE_CUES) &&
+    !matchesAny(text, NEGATIVE_POLARITY_CUES)
+  );
 }
 
 /**
@@ -115,6 +148,9 @@ export function preScreenCandidate(
     return { keep: false, reason: "source_not_issue_report" };
   }
   if (isClaimedFixNotReport(sourceText)) {
+    return { keep: false, reason: "source_not_issue_report" };
+  }
+  if (isFixAnnouncement(sourceText)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {
