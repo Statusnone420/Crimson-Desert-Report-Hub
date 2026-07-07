@@ -534,11 +534,17 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
 
   const { data: clusterData } = await supabase.from("issue_clusters").select("id").eq("is_public", true);
   let published = 0;
-  let awaiting = 0;
   for (const cluster of (clusterData ?? []) as { id: string }[]) {
-    const evidenceBacked = publicSignalClusters.has(cluster.id) || approvedReportClusters.has(cluster.id);
-    if (evidenceBacked) published += 1;
-    else if (privateSignalClusters.has(cluster.id)) awaiting += 1;
+    if (publicSignalClusters.has(cluster.id) || approvedReportClusters.has(cluster.id)) published += 1;
+  }
+
+  // Awaiting = every cluster with a private candidate signal that is not yet live
+  // evidence, INCLUDING brand-new candidates whose cluster is still is_public=false
+  // (createCluster starts private). That not-yet-public case is the common pending-
+  // corroboration state, so it must not be filtered out by an is_public check.
+  let awaiting = 0;
+  for (const id of privateSignalClusters) {
+    if (!publicSignalClusters.has(id) && !approvedReportClusters.has(id)) awaiting += 1;
   }
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);

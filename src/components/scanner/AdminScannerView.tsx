@@ -99,7 +99,12 @@ export function AdminScannerView({
   // Skip ledger rows (paused / recent / already-running) are policy no-ops, not scans —
   // exclude them so routine skip bookkeeping never masquerades as the last scan.
   const latestRun = runs.find((run) => run.mode !== "dry_run" && run.status !== "skipped") ?? null;
-  const lastFind = runs.find((run) => run.mode !== "dry_run" && run.search_results_seen > 0) ?? null;
+  const lastFind =
+    runs.find(
+      (run) =>
+        run.mode !== "dry_run" &&
+        (run.signals_inserted > 0 || run.signals_reobserved > 0 || run.clusters_promoted > 0),
+    ) ?? null;
   const latestDidWork = Boolean(latestRun && latestRun.search_results_seen > 0);
   const hero = latestDidWork && latestRun ? describeScanPlain(latestRun) : null;
   const heroPct = hero && hero.found > 0 ? Math.round((hero.kept / hero.found) * 100) : 0;
@@ -184,7 +189,7 @@ export function AdminScannerView({
         <section className="panel space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="h-section">Last scan, in plain English</h2>
-            {hero ? <span className="badge badge-green badge-dot">{hero.kept} kept</span> : null}
+            {hero && hero.kept > 0 ? <span className="badge badge-green badge-dot">{hero.kept} kept</span> : null}
           </div>
           {hero && latestRun ? (
             <>
@@ -250,9 +255,8 @@ export function AdminScannerView({
               </p>
               {lastFind ? (
                 <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                  Most recent find: <span className="num">{formatEasternDateTime(lastFind.started_at)}</span> · kept{" "}
-                  <span className="num font-semibold" style={{ color: "var(--green-bright)" }}>{lastFind.signals_inserted}</span> — see
-                  scan history below.
+                  Most recent find: <span className="num">{formatEasternDateTime(lastFind.started_at)}</span> —{" "}
+                  {plainRunLine(lastFind)}. See scan history below.
                 </p>
               ) : null}
             </div>
