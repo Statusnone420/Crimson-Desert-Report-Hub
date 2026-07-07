@@ -90,6 +90,8 @@ const CRASH_FREEZE_HANG_FIX_LIST = new RegExp(
   String.raw`\b(?:(?:${CRASH_FREEZE_HANG_SERIES})\s+fix(?:es)?|fix(?:es|ed)?\s+(?:a\s+)?(?:bug\s+|issue\s+)?(?:with\s+|for\s+)?(?:${CRASH_FREEZE_HANG_SERIES})(?:\s+issues?)?)\b`,
   "i",
 );
+const CONTRAST_CUE = /\b(?:but|however|though|although|yet|despite)\b/i;
+const STUTTER_HITCH_COMPLAINT = /\b(?:stutters|stuttering|hitches|hitching)\b(?!\s+(?:is|was|got|gets|reduced|fixed|gone|improved|better|less))\b/i;
 
 // Positive marketing/announcement phrasing (a patch "includes/adds/brings a fix", ships
 // "performance fixes", "improves/optimizes FPS", targets a "stable N fps"). Positive
@@ -126,7 +128,7 @@ const NEGATIVE_POLARITY_CUES = [
   /\bstable\s+\d+\s?fps\b.{0,80}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b/i,
   /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:fps|frame ?rate|framerate)\b.{0,40}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b/i,
   /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b.{0,40}\b(?:fps|frame ?rate|framerate)\b/i,
-  /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:stutters|stuttering|hitches|hitching)\b(?!\s+(?:is|was|got|gets|reduced|fixed|gone|improved|better|less))\b/i,
+  new RegExp(String.raw`${CONTRAST_CUE.source}.{0,80}${STUTTER_HITCH_COMPLAINT.source}`, "i"),
   /\b(?:fps|frame ?rate|framerate)\b.{0,60}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b.{0,80}\b(?:after|since|from)\b.{0,40}\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b/i,
   /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caus(?:ed|es?|ing)|introduced|triggered|left|made)\b.{0,40}\b(?:fps|frame ?rate|framerate|stutter|stutters|stuttering|hitch|hitching)\b/i,
   /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caus(?:ed|es?|ing)|introduced|triggered|left|made|broke)\b.{0,60}\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
@@ -173,8 +175,20 @@ function isClaimedFixNotReport(text: string): boolean {
 }
 
 function hasNegativePolarity(text: string): boolean {
-  const withoutFixLists = text.replace(new RegExp(CRASH_FREEZE_HANG_FIX_LIST.source, "gi"), " ");
+  const withoutFixLists = stripFixListCopy(text);
   return matchesAny(withoutFixLists, NEGATIVE_POLARITY_CUES);
+}
+
+function stripFixListCopy(text: string): string {
+  return text.replace(new RegExp(CRASH_FREEZE_HANG_FIX_LIST.source, "gi"), " ");
+}
+
+function hasPostContrastSymptomComplaint(text: string): boolean {
+  const [, ...tails] = text.split(CONTRAST_CUE);
+  return tails.some((tail) => {
+    const withoutFixLists = stripFixListCopy(tail);
+    return hasSymptomLanguage(withoutFixLists) || STUTTER_HITCH_COMPLAINT.test(withoutFixLists);
+  });
 }
 
 // Fires ONLY on purely-positive text that MATCHES a FIX_ANNOUNCEMENT_CUE. Any persistence
@@ -188,7 +202,8 @@ function isFixAnnouncement(text: string): boolean {
   return (
     matchesAny(text, FIX_ANNOUNCEMENT_CUES) &&
     !matchesAny(text, FIX_PERSISTENCE_CUES) &&
-    !hasNegativePolarity(text)
+    !hasNegativePolarity(text) &&
+    !hasPostContrastSymptomComplaint(text)
   );
 }
 

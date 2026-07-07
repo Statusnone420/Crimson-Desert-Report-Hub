@@ -1565,6 +1565,34 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("keeps a complaint that quotes an improvement claim then reports launch failure", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Launch failure after 1.13.00",
+            snippet: "Patch 1.13 improves performance but the game won't launch on PS5",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("rejects contrastive positive fix copy after an improvement claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update",
+            snippet: "Patch 1.13 improves performance but fixes crashes too",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
     it("keeps crash and freeze complaints around fix-list copy", () => {
       const snippets = [
         "Patch 1.13.00 includes performance fixes and crash and freeze fixes, but the game crashes on launch",
