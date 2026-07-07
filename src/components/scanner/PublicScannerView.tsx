@@ -57,7 +57,7 @@ export function PublicScannerView({
       <section className="panel space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="h-section">From scattered posts to verified evidence</h2>
-          <span className="badge badge-dim">This week</span>
+          <span className="badge badge-dim">Last 7 days</span>
         </div>
         <div className="grid gap-px overflow-hidden rounded-[var(--r-md)]" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", background: "var(--border)" }}>
           {steps.map((step) => (
@@ -81,6 +81,11 @@ export function PublicScannerView({
         <p className="text-sm leading-6" style={{ color: "var(--text-faint)" }}>
           {"Nothing here is a raw complaint dump. A report becomes public evidence only when a second independent source or a verified player report confirms it — everything else stays in review."}
         </p>
+        {data.reviewedThisWeek === 0 ? (
+          <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+            {`The scanner has been quiet lately${data.lastCheckedAt ? ` — it last checked ${timeAgo(data.lastCheckedAt)}` : ""}. These counts refresh as it runs.`}
+          </p>
+        ) : null}
       </section>
 
       <section className="panel space-y-3">
