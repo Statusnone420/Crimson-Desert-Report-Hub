@@ -1149,6 +1149,20 @@ describe("automation relevance", () => {
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
 
+    it("keeps a complaint that says the advertised FPS target is not stable", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "1.13.00 is not stable 60 fps on PS5, constant drops in combat",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
     it("keeps a persistence-guarded complaint that mentions an improvement claim", () => {
       expect(
         preScreenCandidate(

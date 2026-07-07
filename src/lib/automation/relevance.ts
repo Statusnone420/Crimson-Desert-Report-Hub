@@ -92,6 +92,8 @@ const NEGATIVE_POLARITY_CUES = [
   /\bcrash\w*\b/i,
   /\bfreez\w*\b/i,
   /\bhang(?:s|ing)?\b/i,
+  /\b(?:not|isn'?t|wasn'?t|aren'?t|weren'?t|never)\s+stable\b/i,
+  /\bunstable\b/i,
   /\bdoesn'?t\s+(?:work|help)\b/i,
   /\bdidn'?t\s+(?:fix|help)\b/i,
   /\bno better\b/i,
