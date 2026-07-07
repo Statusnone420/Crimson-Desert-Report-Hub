@@ -67,6 +67,14 @@ describe("classifySignal", () => {
   it("routes optimization verb forms to performance", () => {
     expect(classifySignal("Optimized memory usage").category).toBe("performance");
   });
+
+  it("routes a performance-caused audio complaint to audio, not performance", () => {
+    expect(classifySignal("Performance improvements caused no sound on PS5").category).toBe("audio");
+  });
+
+  it("routes a performance-caused quest complaint to quest_progression, not performance", () => {
+    expect(classifySignal("Performance optimizations left NPCs missing").category).toBe("quest_progression");
+  });
 });
 
 describe("summarize", () => {

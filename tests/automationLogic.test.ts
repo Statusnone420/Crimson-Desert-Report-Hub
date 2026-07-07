@@ -1652,6 +1652,49 @@ describe("automation relevance", () => {
         ),
       ).toEqual({ keep: true });
     });
+
+    // Root-cause regression guard. The announcement gate defines "is there a complaint?"
+    // with the SINGLE shared SYMPTOM_PATTERNS list, not a parallel polarity list. So a
+    // real symptom next to an announcement cue is kept for EVERY family — even with no
+    // contrast word, no persistence cue, and no explicit "(optimizations) caused (X)"
+    // structure (these quote the marketing verb, e.g. "Optimized"/"Boosted", which the
+    // old per-family causal patterns required as the noun and therefore dropped).
+    it("keeps complaints beside an announcement cue across every symptom family", () => {
+      const snippets = [
+        "Optimized performance, no audio in cutscenes on 1.13.00",
+        "Improved framerate, shadows flicker constantly on 1.13.00",
+        "Boosted performance, NPCs missing from the questline on 1.13.00",
+        "Smoother performance sure, loading times are awful now on 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Regressions after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("still rejects pure marketing copy that carries no symptom", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update",
+            snippet: "Optimized performance and smoother framerate on base PS5 after 1.13.00",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
   });
 
   describe("shouldKeepExtractedSignal", () => {

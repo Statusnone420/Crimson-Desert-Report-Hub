@@ -1,20 +1,12 @@
 import type { Category } from "@/lib/constants";
 
+// Order matters: classifySignal returns the FIRST matching rule. Specific symptom
+// categories (crash/controls/graphics/audio/quest) are listed BEFORE performance so
+// that a report whose real symptom is audio or quest but which merely mentions
+// "performance improvements/optimizations" as the cause routes to the specific
+// symptom. Performance is the LAST, broad, contextual catch-all — it must only win
+// when no specific symptom category matched first.
 const RULES: { category: Category; confidence: "medium" | "low"; patterns: RegExp[] }[] = [
-  {
-    category: "performance",
-    confidence: "medium",
-    patterns: [
-      /\bfps\b/i,
-      /stutter/i,
-      /frame ?(rate|pacing|drops?|gen)/i,
-      /performance/i,
-      /\blag(gy|ging)?\b/i,
-      /optimi[sz](?:ation|ed|ing|es)?/i,
-      /loading time/i,
-      /frame ?time/i,
-    ],
-  },
   {
     category: "crash_startup",
     confidence: "medium",
@@ -76,6 +68,20 @@ const RULES: { category: Category; confidence: "medium" | "low"; patterns: RegEx
       /\bsoftlock\b/i,
       /\bcan'?t (?:complete|continue|proceed|progress)\b/i,
       /\bdialogue\b/i,
+    ],
+  },
+  {
+    category: "performance",
+    confidence: "medium",
+    patterns: [
+      /\bfps\b/i,
+      /stutter/i,
+      /frame ?(rate|pacing|drops?|gen)/i,
+      /performance/i,
+      /\blag(gy|ging)?\b/i,
+      /optimi[sz](?:ation|ed|ing|es)?/i,
+      /loading time/i,
+      /frame ?time/i,
     ],
   },
 ];
