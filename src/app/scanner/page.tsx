@@ -28,6 +28,8 @@ export default async function ScannerPage() {
       rejectedCandidates={adminData.rejectedCandidates}
       control={adminData.control}
       activeRun={adminData.activeRun}
+      latestRealRun={adminData.latestRealRun}
+      latestFind={adminData.latestFind}
       scoreboard={scoreboard}
       features={features()}
       integrations={integrationStatuses()}

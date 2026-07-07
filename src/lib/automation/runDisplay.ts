@@ -206,11 +206,11 @@ export function plainSkipPhrase(code: string): string {
 
 type PlainScanRun = {
   search_results_seen: number;
+  reddit_posts_seen: number;
   signals_inserted: number;
   signals_reobserved: number;
   clusters_promoted: number;
   skips: string[];
-  funnel: Record<string, number> | null;
 };
 
 export type PlainScan = {
@@ -227,10 +227,12 @@ const DROP_CODES = ["wrong_patch", "source_not_issue_report", "category_other"] 
 
 /** Turn a run row into plain-language counts for the "last scan, in plain English" panel. */
 export function describeScanPlain(run: PlainScanRun): PlainScan {
-  const found = run.search_results_seen ?? 0;
+  // Reviewed = web results + Reddit posts, so a Reddit-only scan isn't counted as 0.
+  const found = (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0);
   const kept = run.signals_inserted ?? 0;
-  const prefilterRejected = run.funnel?.prefilterRejected;
-  const dropped = typeof prefilterRejected === "number" ? prefilterRejected : Math.max(0, found - kept);
+  // Dropped = everything reviewed that wasn't kept (dedup + prefilter + LLM reject),
+  // so it matches the kept/dropped bar. The prefilter reasons are only the breakdown.
+  const dropped = Math.max(0, found - kept);
   const droppedBreakdown = DROP_CODES.map((code) => ({
     label: plainSkipPhrase(code),
     count: run.skips.filter((skip) => skip === code).length,

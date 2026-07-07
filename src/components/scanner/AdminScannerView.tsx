@@ -77,6 +77,8 @@ export function AdminScannerView({
   rejectedCandidates,
   control,
   activeRun,
+  latestRealRun,
+  latestFind,
   scoreboard,
   features,
   integrations,
@@ -85,6 +87,8 @@ export function AdminScannerView({
   rejectedCandidates: RejectedCandidateRow[];
   control: AutomationControlState;
   activeRun: { id: string } | null;
+  latestRealRun: AutomationRunRow | null;
+  latestFind: AutomationRunRow | null;
   scoreboard: PublicScannerData;
   features: Features;
   integrations: IntegrationStatus[];
@@ -99,15 +103,12 @@ export function AdminScannerView({
   // The "last scan" panel and verdict describe the literal newest run (accuracy);
   // lastFind is a separate pointer to the most recent run that actually found signal,
   // so a good result is never presented as if it were the latest scan.
-  // Skip ledger rows (paused / recent / already-running) are policy no-ops, not scans —
-  // exclude them so routine skip bookkeeping never masquerades as the last scan.
-  const latestRun = runs.find((run) => run.mode !== "dry_run" && run.status !== "skipped") ?? null;
-  const lastFind =
-    runs.find(
-      (run) =>
-        run.mode !== "dry_run" &&
-        (run.signals_inserted > 0 || run.signals_reobserved > 0 || run.clusters_promoted > 0),
-    ) ?? null;
+  // Both come from unbounded queries, not the 10-row `runs` slice: skip ledger rows
+  // (paused / recent / already-running) can fill that slice and hide the real last
+  // scan / last find. latestRealRun is the newest completed non-dry run; latestFind
+  // is the newest run that actually kept, re-confirmed, or promoted a signal.
+  const latestRun = latestRealRun;
+  const lastFind = latestFind;
   const latestDidWork = Boolean(latestRun && latestRun.search_results_seen > 0);
   const latestFailed = Boolean(latestRun && (latestRun.status === "failed" || latestRun.errors.length > 0));
   const hero = latestDidWork && latestRun ? describeScanPlain(latestRun) : null;

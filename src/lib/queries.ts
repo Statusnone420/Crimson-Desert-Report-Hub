@@ -55,6 +55,7 @@ export type AutomationRunRow = {
   clusters_promoted: number;
   intent: string | null;
   search_results_seen: number;
+  reddit_posts_seen: number;
   signals_reobserved: number;
   stale_signals_hidden: number;
   candidates_rescued: number;
@@ -407,6 +408,9 @@ export async function getLatestPublicScanMeta(): Promise<PublicScanMeta> {
   }
 }
 
+const RUN_COLUMNS =
+  "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, search_results_seen, reddit_posts_seen, llm_calls_used, signals_inserted, signals_deduped, signals_reobserved, stale_signals_hidden, candidates_rescued, clusters_promoted, intent, skips, errors, funnel";
+
 export async function getAutomationAdminData() {
   const supabase = createServiceClient();
 
@@ -421,7 +425,7 @@ export async function getAutomationAdminData() {
   const { data: runs } = await supabase
     .from("automation_runs")
     .select(
-      "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, search_results_seen, llm_calls_used, signals_inserted, signals_deduped, signals_reobserved, stale_signals_hidden, candidates_rescued, clusters_promoted, intent, skips, errors, funnel",
+      RUN_COLUMNS,
     )
     .order("started_at", { ascending: false })
     .limit(10);
@@ -442,12 +446,31 @@ export async function getAutomationAdminData() {
     .order("started_at", { ascending: false })
     .limit(1);
 
+  // Fetched unbounded (not from the 10-row `runs` slice): during a paused/capped
+  // stretch, hourly skip rows can fill that slice and hide the real last scan.
+  const { data: latestRealRows } = await supabase
+    .from("automation_runs")
+    .select(RUN_COLUMNS)
+    .neq("mode", "dry_run")
+    .in("status", ["success", "partial", "failed"])
+    .order("started_at", { ascending: false })
+    .limit(1);
+  const { data: latestFindRows } = await supabase
+    .from("automation_runs")
+    .select(RUN_COLUMNS)
+    .neq("mode", "dry_run")
+    .or("signals_inserted.gt.0,signals_reobserved.gt.0,clusters_promoted.gt.0")
+    .order("started_at", { ascending: false })
+    .limit(1);
+
   return {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
     rejectedCandidates: (rejectedCandidates ?? []) as RejectedCandidateRow[],
     control,
     activeRun: ((activeRunRows ?? []) as { id: string; status: string; mode: string; started_at: string }[])[0] ?? null,
+    latestRealRun: ((latestRealRows ?? []) as AutomationRunRow[])[0] ?? null,
+    latestFind: ((latestFindRows ?? []) as AutomationRunRow[])[0] ?? null,
   };
 }
 
@@ -483,18 +506,22 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
 
   const { data: runData } = await supabase
     .from("automation_runs")
-    .select("search_results_seen, signals_inserted, finished_at, started_at")
+    .select("search_results_seen, reddit_posts_seen, signals_inserted, finished_at, started_at")
     .neq("mode", "dry_run")
     .in("status", ["success", "partial", "failed"])
     .gte("started_at", weekAgo)
     .order("started_at", { ascending: false });
   const runs = (runData ?? []) as {
     search_results_seen: number;
+    reddit_posts_seen: number;
     signals_inserted: number;
     finished_at: string | null;
     started_at: string;
   }[];
-  const reviewedThisWeek = runs.reduce((sum, run) => sum + (run.search_results_seen ?? 0), 0);
+  const reviewedThisWeek = runs.reduce(
+    (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
+    0,
+  );
   const keptThisWeek = runs.reduce((sum, run) => sum + (run.signals_inserted ?? 0), 0);
   const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek);
 
