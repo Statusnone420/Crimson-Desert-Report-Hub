@@ -1216,7 +1216,9 @@ describe("automation relevance", () => {
     it("keeps broken-symptom complaints when a claimed fix still fails", () => {
       const snippets = [
         "Patch 1.13.00 includes a fix for broken audio, but audio is still broken on PS5",
+        "Patch 1.13.00 includes a fix for broken audio, but audio is broken on PS5",
         "Patch 1.13.00 includes a fix for broken audio, but it doesn't work; no sound on PS5",
+        "Patch 1.13.00 includes a fix for broken rendering, but rendering is broken on PS5",
         "Patch 1.13.00 includes a fix for broken rendering, but it's no better on PS5",
       ];
 

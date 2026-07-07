@@ -78,6 +78,8 @@ const FIX_PERSISTENCE_CUES = [
   /\bdoesn'?t (?:fix|work|help)\b/i,
   /\bdidn'?t (?:fix|work|help)\b/i,
   /\bno better\b/i,
+  /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:audio|sound|music|voice(?:s| lines?)?|sfx|rendering|lighting|shadows?|visuals?|pop.?in)\b.{0,40}\b(?:broken|missing|lost|muted|silent|bugged|glitch(?:y|es|ing)?|wrong|bad|worse)\b/i,
+  /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:broken|missing|lost|muted|silent|bugged|glitch(?:y|es|ing)?|wrong|bad|worse)\b.{0,40}\b(?:audio|sound|music|voice(?:s| lines?)?|sfx|rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
   /\bsupposed(?:ly)? fixed\b/i,
 ] as const;
 
