@@ -551,13 +551,27 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
   // public signal OR an approved player report (hasClusterEvidence = strengthScore > 0).
   // Report-only launch clusters must count as published, not just signal-backed ones.
   // Aggregate-only — selects nothing but cluster_id / public_status / is_public.
-  const { data: signalData } = await supabase.from("source_signals").select("cluster_id, public_status");
+  // Public clusters must pass the same current-patch eligibility filter /issues uses,
+  // so a stale or wrong-patch public signal isn't counted as live evidence. The
+  // title/summary/published fields are selected server-side only to run that filter —
+  // they are never returned from this function.
+  const currentPatch = await getCurrentPatchMetadata(supabase);
+  const { data: publicSignalData } = await supabase
+    .from("source_signals")
+    .select("cluster_id, title, summary, source_published_at")
+    .eq("public_status", "public");
   const publicSignalClusters = new Set<string>();
+  for (const signal of filterPublicCurrentPatchSignals((publicSignalData ?? []) as SignalRow[], currentPatch)) {
+    if (signal.cluster_id) publicSignalClusters.add(signal.cluster_id);
+  }
+  // Private candidates: only cluster_id is selected — private content never leaves here.
+  const { data: privateSignalData } = await supabase
+    .from("source_signals")
+    .select("cluster_id")
+    .eq("public_status", "private");
   const privateSignalClusters = new Set<string>();
-  for (const signal of (signalData ?? []) as { cluster_id: string | null; public_status: string }[]) {
-    if (!signal.cluster_id) continue;
-    if (signal.public_status === "public") publicSignalClusters.add(signal.cluster_id);
-    else if (signal.public_status === "private") privateSignalClusters.add(signal.cluster_id);
+  for (const signal of (privateSignalData ?? []) as { cluster_id: string | null }[]) {
+    if (signal.cluster_id) privateSignalClusters.add(signal.cluster_id);
   }
 
   const { data: reportData } = await supabase

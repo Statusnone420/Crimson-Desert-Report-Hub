@@ -60,16 +60,22 @@ function plainRunLine(run: AutomationRunRow): string {
   if (run.status === "skipped") {
     return summarizeRunMessages(run.skips, run.errors).operatorSummary;
   }
-  if (run.status === "failed" || run.errors.length > 0) {
+  if (run.status === "failed") {
     return `Scan failed — ${summarizeRunMessages(run.skips, run.errors).errorSummary}`;
   }
-  if (run.search_results_seen + run.reddit_posts_seen === 0) return "Ran, nothing new";
+  if (run.search_results_seen + run.reddit_posts_seen === 0) {
+    return run.errors.length > 0
+      ? `No sources reviewed — ${summarizeRunMessages(run.skips, run.errors).errorSummary}`
+      : "Ran, nothing new";
+  }
   const scan = describeScanPlain(run);
   const parts = [`Found ${scan.found}, kept ${scan.kept}`];
   if (scan.reConfirmed > 0) parts.push(`re-confirmed ${scan.reConfirmed}`);
   if (scan.held > 0) parts.push(`held ${scan.held}`);
   if (scan.published > 0) parts.push(`published ${scan.published}`);
-  return parts.join(", ");
+  // A partial run that still persisted work is a success with errors, not a failure.
+  const line = parts.join(", ");
+  return run.errors.length > 0 ? `${line} (with errors)` : line;
 }
 
 export function AdminScannerView({
@@ -109,13 +115,18 @@ export function AdminScannerView({
   // is the newest run that actually kept, re-confirmed, or promoted a signal.
   const latestRun = latestRealRun;
   const lastFind = latestFind;
-  // A failed run's signals_inserted comes from pre-persistence screening, so don't
-  // render its "kept" breakdown — the empty/failed branch surfaces the error instead.
-  const latestDidWork = Boolean(
-    latestRun && latestRun.status !== "failed" && latestRun.search_results_seen + latestRun.reddit_posts_seen > 0,
+  // Treat the latest scan as a "find" only when it actually kept / re-confirmed /
+  // promoted signal — a run that merely reviewed noise gets neutral copy, not
+  // "found real signal" or a "kept 0" breakdown. Failed runs are excluded because
+  // signals_inserted is bumped pre-persistence.
+  const latestProduced = Boolean(
+    latestRun &&
+      latestRun.status !== "failed" &&
+      (latestRun.signals_inserted > 0 || latestRun.signals_reobserved > 0 || latestRun.clusters_promoted > 0),
   );
-  const latestFailed = Boolean(latestRun && (latestRun.status === "failed" || latestRun.errors.length > 0));
-  const hero = latestDidWork && latestRun ? describeScanPlain(latestRun) : null;
+  const latestReviewed = latestRun ? latestRun.search_results_seen + latestRun.reddit_posts_seen : 0;
+  const latestFailed = Boolean(latestRun && latestRun.status === "failed");
+  const hero = latestProduced && latestRun ? describeScanPlain(latestRun) : null;
   const heroPct = hero && hero.found > 0 ? Math.round((hero.kept / hero.found) * 100) : 0;
 
   const heartbeats = runs.filter(
@@ -162,7 +173,7 @@ export function AdminScannerView({
               {latestRun ? (
                 <span className="badge badge-dim">
                   Last scan {formatEasternDateTime(latestRun.started_at)}
-                  {latestDidWork ? " · found real signal" : ""}
+                  {latestProduced ? " · found real signal" : ""}
                 </span>
               ) : null}
               <span className="badge badge-dim">
@@ -273,7 +284,9 @@ export function AdminScannerView({
                   ? "No completed scan yet."
                   : latestFailed
                     ? "The latest scan did not finish — see the error above."
-                    : "The latest scan ran and found nothing new — a normal heartbeat."}
+                    : latestReviewed > 0
+                      ? `The latest scan reviewed ${latestReviewed} source${latestReviewed === 1 ? "" : "s"} and kept nothing new.`
+                      : "The latest scan ran and found nothing new — a normal heartbeat."}
               </p>
               {lastFind ? (
                 <p className="text-sm" style={{ color: "var(--text-dim)" }}>
