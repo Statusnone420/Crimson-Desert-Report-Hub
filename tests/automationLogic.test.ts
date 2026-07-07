@@ -1234,10 +1234,11 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
-    it("keeps FPS-drop complaints around performance-fix wording", () => {
+    it("keeps FPS-drop and stutter complaints around performance-fix wording", () => {
       const snippets = [
         "1.13.00 performance improvements caused FPS drops",
         "FPS drops after the performance fixes",
+        "patch 1.13 performance fixes are causing stutter",
       ];
 
       for (const snippet of snippets) {
@@ -1270,17 +1271,24 @@ describe("automation relevance", () => {
     });
 
     it("keeps non-FPS complaints around performance-improvement wording", () => {
-      expect(
-        preScreenCandidate(
-          {
-            title: "No sound after patch 1.13.00",
-            snippet: "The performance improvements caused no sound on PS5",
-            sourceDomain: "reddit.com",
-            sourcePublishedAt: null,
-          },
-          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
-        ),
-      ).toEqual({ keep: true });
+      const snippets = [
+        "The performance improvements caused no sound on PS5",
+        "The performance improvements are causing no sound on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "No sound after patch 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
     });
 
     it("does not keep positive audio discussion as an issue report", () => {
