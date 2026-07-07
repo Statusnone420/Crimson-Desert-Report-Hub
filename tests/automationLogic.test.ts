@@ -1192,6 +1192,41 @@ describe("automation relevance", () => {
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
 
+    it("rejects fix-announcement copy for broken symptom wording", () => {
+      const snippets = [
+        "Patch 1.13.00 includes a fix for broken audio on PS5",
+        "Patch 1.13.00 includes a fix for broken rendering on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert patch 1.13.00 update",
+              snippet,
+              sourceDomain: "facebook.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
+
+    it("keeps broken-symptom complaints when a claimed fix still fails", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Audio after 1.13.00",
+            snippet: "Patch 1.13.00 includes a fix for broken audio, but audio is still broken on PS5",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
     it("keeps a complaint that says the advertised FPS target is not stable", () => {
       expect(
         preScreenCandidate(

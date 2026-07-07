@@ -63,6 +63,10 @@ const CLAIMED_FIX_PATTERNS = [
   /\ban issue where\b.{0,80}\b(?:has been|was)\s+fixed\b/i,
 ] as const;
 
+const CLAIMED_FIXED_SYMPTOM_PATTERNS = [
+  /\bfix(?:es|ed)?\s+(?:a\s+)?(?:bug\s+|issue\s+)?(?:with\s+|for\s+)?(?:broken|missing|lost|muted|silent)\b.{0,40}\b(?:audio|sound|music|voice(?:s| lines?)?|sfx|rendering|lighting|shadow|visuals?|pop.?in)\b/i,
+] as const;
+
 const FIX_PERSISTENCE_CUES = [
   /\bstill\b/i,
   /\bpersists?\b/i,
@@ -139,7 +143,13 @@ function isBroadContentTitle(title: string): boolean {
 }
 
 function isClaimedFixNotReport(text: string): boolean {
-  return matchesAny(text, CLAIMED_FIX_PATTERNS) && !matchesAny(text, FIX_PERSISTENCE_CUES);
+  const isClaimedFixedSymptomAnnouncement =
+    matchesAny(text, FIX_ANNOUNCEMENT_CUES) && matchesAny(text, CLAIMED_FIXED_SYMPTOM_PATTERNS);
+
+  return (
+    (matchesAny(text, CLAIMED_FIX_PATTERNS) || isClaimedFixedSymptomAnnouncement) &&
+    !matchesAny(text, FIX_PERSISTENCE_CUES)
+  );
 }
 
 // Fires ONLY on purely-positive text that MATCHES a FIX_ANNOUNCEMENT_CUE. Any persistence
