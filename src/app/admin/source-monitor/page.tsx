@@ -190,7 +190,7 @@ export default async function SourceMonitorPage() {
                     name="monthlyTavilyCreditCap"
                     type="number"
                     min="0"
-                    max="900"
+                    max="1000"
                     step="1"
                     defaultValue={control.monthlyTavilyCreditCap}
                   />
@@ -213,7 +213,7 @@ export default async function SourceMonitorPage() {
               <p>
                 Current setting projects about <span className="num">{projectedCredits}</span> Tavily credits/month
                 before policy skips, against a <span className="num">{control.monthlyTavilyCreditCap}</span> credit cap.
-                This scanner policy is hard-capped at <span className="num">900</span> to leave free-tier buffer.
+                This scanner policy is hard-capped at <span className="num">1000</span> to stay within the monthly free-tier credits.
               </p>
               <details className="mt-1">
                 <summary className="cursor-pointer">Advanced route</summary>
