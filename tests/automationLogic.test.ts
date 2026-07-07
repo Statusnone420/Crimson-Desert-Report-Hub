@@ -700,6 +700,30 @@ describe("scanner memory planning", () => {
     expect(intents.has("rescue_candidate")).toBe(true);
   });
 
+  it("still emits forum_discovery when a single backlog gates the discovery slot to even offsets", () => {
+    // One backlog (rescue) → laneCount 2, so the discovery slot only lands on even
+    // offsets. Broad/forum must advance per discovery TURN, not raw offset parity, or
+    // forum_discovery (the site:reddit / site:steam lane) would never fire.
+    const intents = new Set(
+      [0, 1, 2, 3, 4, 5, 6, 7].map((rotationOffset) =>
+        chooseScanIntent(
+          {
+            stalePublicSignals: 0,
+            privateSignals: 0,
+            rejectedCandidates: 4,
+            targetClusterTitles: [],
+            recentRuns: [],
+          },
+          rotationOffset,
+        ),
+      ),
+    );
+
+    expect(intents.has("forum_discovery")).toBe(true);
+    expect(intents.has("broad_discovery")).toBe(true);
+    expect(intents.has("rescue_candidate")).toBe(true);
+  });
+
   it("rotates corroborate_cluster through every target cluster title", () => {
     const titles = ["First cluster", "Second cluster", "Third cluster"];
     for (let rotationOffset = 0; rotationOffset < titles.length; rotationOffset += 1) {

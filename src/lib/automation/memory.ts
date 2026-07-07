@@ -39,15 +39,21 @@ function previousRunKeptNoSignals(run: RecentRunMemory): boolean {
 // regular cadence even when a rescue/corroborate backlog exists; the eligible
 // lanes interleave rather than any single backlog monopolizing every run.
 function eligibleLanes(memory: ScanMemory, rotationOffset: number): ScanIntent[] {
-  const discoveryLane: ScanIntent = rotationOffset % 2 === 0 ? "broad_discovery" : "forum_discovery";
-  const lanes: ScanIntent[] = [discoveryLane];
-  if (
+  const corroborateEligible =
     memory.privateSignals > 0 ||
     memory.targetClusterTitles.length > 0 ||
-    memory.recentRuns.some(previousRunKeptNoSignals)
-  )
-    lanes.push("corroborate_cluster");
-  if (memory.rejectedCandidates > 0) lanes.push("rescue_candidate");
+    memory.recentRuns.some(previousRunKeptNoSignals);
+  const rescueEligible = memory.rejectedCandidates > 0;
+  const laneCount = 1 + (corroborateEligible ? 1 : 0) + (rescueEligible ? 1 : 0);
+  // Broad vs forum advances per DISCOVERY TURN (offset / laneCount), not per raw offset
+  // parity. Otherwise, when a single backlog makes laneCount 2, the discovery slot only
+  // lands on even offsets — all "broad" under a parity rule — and forum_discovery (the
+  // site:reddit / site:steam lane) would never fire while the backlog persists.
+  const discoveryTurn = Math.floor(rotationOffset / laneCount);
+  const discoveryLane: ScanIntent = discoveryTurn % 2 === 0 ? "broad_discovery" : "forum_discovery";
+  const lanes: ScanIntent[] = [discoveryLane];
+  if (corroborateEligible) lanes.push("corroborate_cluster");
+  if (rescueEligible) lanes.push("rescue_candidate");
   return lanes;
 }
 
@@ -76,15 +82,16 @@ export function buildMemorySearchQueries(
 
   if (intent === "quarantine") return [];
 
+  const rotationOffset = options.rotationOffset ?? 0;
+  const laneCount = Math.max(1, options.laneCount ?? 1);
+  // Advance one "turn" per full lane cycle, not per raw offset: each lane fires on only
+  // a residue class of offsets, so keying sub-rotations (which title to corroborate,
+  // which broad query pack) off the turn sweeps the whole set instead of stranding a
+  // residue class. laneCount defaults to 1 (turn === offset) so direct callers keep prior behavior.
+  const turn = Math.floor(rotationOffset / laneCount);
+
   if (intent === "corroborate_cluster") {
     const titles = options.targetClusterTitles ?? [];
-    const rotationOffset = options.rotationOffset ?? 0;
-    // Advance one title per corroborate TURN, not per raw offset: corroborate only
-    // fires on a subset of offsets, so keying off the turn (offset / laneCount)
-    // sweeps every title instead of stranding a residue class of the watchlist.
-    // laneCount defaults to 1 (turn === offset) so direct callers keep prior behavior.
-    const laneCount = Math.max(1, options.laneCount ?? 1);
-    const turn = Math.floor(rotationOffset / laneCount);
     // Negative-safe modulo, matching the rotation convention in search.ts.
     const titleIndex = titles.length > 0 ? ((turn % titles.length) + titles.length) % titles.length : 0;
     const target = titles.length > 0 ? titles[titleIndex]?.trim() : undefined;
@@ -104,5 +111,7 @@ export function buildMemorySearchQueries(
     return forumQueries.slice(0, count);
   }
 
-  return buildSearchQueries(count, patchVersion, { rotationOffset: options.rotationOffset });
+  // broad_discovery: rotate the query pack by TURN so successive broad-discovery turns
+  // cycle the whole pack instead of being pinned to a residue class of raw offsets.
+  return buildSearchQueries(count, patchVersion, { rotationOffset: turn });
 }
