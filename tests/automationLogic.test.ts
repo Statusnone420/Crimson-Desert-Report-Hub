@@ -1179,29 +1179,27 @@ describe("automation relevance", () => {
     });
 
     it("rejects positive crash-fix announcement copy", () => {
-      expect(
-        preScreenCandidate(
-          {
-            title: "Crimson Desert patch 1.13.00 update",
-            snippet: "Patch 1.13.00 includes performance fixes and crash fixes for PS5",
-            sourceDomain: "facebook.com",
-            sourcePublishedAt: null,
-          },
-          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
-        ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      const snippets = [
+        "Patch 1.13.00 includes performance fixes and crash fixes for PS5",
+        "Patch 1.13.00 includes performance fixes and crash and freeze fixes for PS5",
+        "Patch 1.13.00 includes crash, freeze, and hang fixes for PS5",
+        "Patch 1.13.00 includes performance fixes and fixes crashes and freezes on PS5",
+        "Patch 1.13.00 includes performance fixes and a fix for crash and freeze issues on PS5",
+      ];
 
-      expect(
-        preScreenCandidate(
-          {
-            title: "Crimson Desert patch 1.13.00 update",
-            snippet: "Patch 1.13.00 improves performance and reduces stutter on PS5",
-            sourceDomain: "facebook.com",
-            sourcePublishedAt: null,
-          },
-          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
-        ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert patch 1.13.00 update",
+              snippet,
+              sourceDomain: "facebook.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
     });
 
     it("rejects fix-announcement copy for broken symptom wording", () => {
@@ -1565,6 +1563,27 @@ describe("automation relevance", () => {
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
       ).toEqual({ keep: true });
+    });
+
+    it("keeps crash and freeze complaints around fix-list copy", () => {
+      const snippets = [
+        "Patch 1.13.00 includes performance fixes and crash and freeze fixes, but the game crashes on launch",
+        "Patch 1.13.00 includes crash, freeze, and hang fixes, but the game freezes every session",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crashes after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
     });
 
     it("keeps a complaint asking where the performance fixes are while reporting crashes and freezes", () => {

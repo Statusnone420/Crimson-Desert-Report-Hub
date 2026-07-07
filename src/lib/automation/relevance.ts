@@ -84,11 +84,19 @@ const FIX_PERSISTENCE_CUES = [
   /\bsupposed(?:ly)? fixed\b/i,
 ] as const;
 
+const CRASH_FREEZE_HANG_TERMS = String.raw`(?:crash(?:es|ed|ing)?|crash-to-desktop|ctd|freez(?:e|es|ing)?|hang(?:s|ing)?)`;
+const CRASH_FREEZE_HANG_SERIES = String.raw`${CRASH_FREEZE_HANG_TERMS}(?:\s*(?:[,/]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${CRASH_FREEZE_HANG_TERMS})*`;
+const CRASH_FREEZE_HANG_FIX_LIST = new RegExp(
+  String.raw`\b(?:(?:${CRASH_FREEZE_HANG_SERIES})\s+fix(?:es)?|fix(?:es|ed)?\s+(?:a\s+)?(?:bug\s+|issue\s+)?(?:with\s+|for\s+)?(?:${CRASH_FREEZE_HANG_SERIES})(?:\s+issues?)?)\b`,
+  "i",
+);
+
 // Positive marketing/announcement phrasing (a patch "includes/adds/brings a fix", ships
 // "performance fixes", "improves/optimizes FPS", targets a "stable N fps"). Positive
 // polarity: the snippet is promoting a patch's performance, not reporting a bug.
 const FIX_ANNOUNCEMENT_CUES = [
   /\b(?:includes?|adds?|brings?|shipped|rolling out)\b.{0,40}\b(?:performance\s+)?fix(?:es)?\b/i,
+  new RegExp(String.raw`\b(?:includes?|adds?|brings?|shipped|rolling out)\b.{0,80}${CRASH_FREEZE_HANG_FIX_LIST.source}`, "i"),
   /\bperformance\s+(?:improvements?|fixes?|optimi[sz]ations?)\b/i,
   /\b(?:improves?|improved|optimi[sz]es?|optimi[sz]ed)\b.{0,40}\b(?:performance|fps|frame\s?rate|framerate)\b/i,
   /\b(?:aims?|aimed)\s+(?:for|to)\b.{0,60}\b(?:performance|fps|frame\s?rate|framerate|smoother|stable|optimi[sz]e|improve)\b/i,
@@ -164,6 +172,11 @@ function isClaimedFixNotReport(text: string): boolean {
   );
 }
 
+function hasNegativePolarity(text: string): boolean {
+  const withoutFixLists = text.replace(new RegExp(CRASH_FREEZE_HANG_FIX_LIST.source, "gi"), " ");
+  return matchesAny(withoutFixLists, NEGATIVE_POLARITY_CUES);
+}
+
 // Fires ONLY on purely-positive text that MATCHES a FIX_ANNOUNCEMENT_CUE. Any persistence
 // cue ("still", "<symptom> is back", "didn't fix") or negative-polarity marker means it is
 // a real complaint quoting the marketing claim, so the gate must NOT reject it. This does
@@ -175,7 +188,7 @@ function isFixAnnouncement(text: string): boolean {
   return (
     matchesAny(text, FIX_ANNOUNCEMENT_CUES) &&
     !matchesAny(text, FIX_PERSISTENCE_CUES) &&
-    !matchesAny(text, NEGATIVE_POLARITY_CUES)
+    !hasNegativePolarity(text)
   );
 }
 
