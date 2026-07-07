@@ -27,8 +27,8 @@ const SYMPTOM_PATTERNS = [
   /\b(?:black ?screen|infinite (?:load|loading)|stuck (?:on|at) (?:load|loading|boot))\b/i,
   /\b(?:lockup|lockups|locks up|input lock|input locks|unresponsive|controls? (?:stop|stops|stopped|locked|freeze|freezes))\b/i,
   /\b(?:artifact|artifacts|ghosting|flicker|flickering|texture shimmer|screen tearing)\b/i,
-  /\b(?:rendering|lighting|shadow|visuals?|pop.?in)\b.{0,60}\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b/i,
-  /\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b.{0,60}\b(?:rendering|lighting|shadow|visuals?|pop.?in)\b/i,
+  /\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b.{0,60}\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b/i,
+  /\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b.{0,60}\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
   /\b(?:won't|will not|doesn't|does not|can't|cannot)\s+(?:launch|start|load|progress|complete)\b/i,
   /\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
   /\b(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b.{0,50}\b(?:missing|gone|muted|silent|broken|cut(?:s|ting)? out|doesn'?t play|not playing|desync(?:ed)?|out of sync)\b/i,
@@ -64,7 +64,7 @@ const CLAIMED_FIX_PATTERNS = [
 ] as const;
 
 const CLAIMED_FIXED_SYMPTOM_PATTERNS = [
-  /\bfix(?:es|ed)?\s+(?:a\s+)?(?:bug\s+|issue\s+)?(?:with\s+|for\s+)?(?:broken|missing|lost|muted|silent)\b.{0,40}\b(?:audio|sound|music|voice(?:s| lines?)?|sfx|rendering|lighting|shadow|visuals?|pop.?in)\b/i,
+  /\bfix(?:es|ed)?\s+(?:a\s+)?(?:bug\s+|issue\s+)?(?:with\s+|for\s+)?(?:broken|missing|lost|muted|silent)\b.{0,40}\b(?:audio|sound|music|voice(?:s| lines?)?|sfx|rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
 ] as const;
 
 const FIX_PERSISTENCE_CUES = [
@@ -117,6 +117,8 @@ const NEGATIVE_POLARITY_CUES = [
   /\b(?:fps|frame ?rate|framerate)\b.{0,60}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b.{0,80}\b(?:after|since|from)\b.{0,40}\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b/i,
   /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caus(?:ed|es?|ing)|introduced|triggered|left|made)\b.{0,40}\b(?:fps|frame ?rate|framerate|stutter|stutters|stuttering|hitch|hitching)\b/i,
   /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caus(?:ed|es?|ing)|introduced|triggered|left|made|broke)\b.{0,60}\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
+  /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caus(?:ed|es?|ing)|introduced|triggered|left|made|broke)\b.{0,60}\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b.{0,60}\b(?:missing|broken|bugged|glitch(?:y|es|ing)?|flicker|flickering|wrong|bad|worse|washed out)\b/i,
+  /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caus(?:ed|es?|ing)|introduced|triggered|left|made|broke)\b.{0,60}\b(?:missing|broken|bugged|glitch(?:y|es|ing)?|flicker|flickering|wrong|bad|worse|washed out)\b.{0,60}\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
   /\bdoesn'?t\s+(?:work|help)\b/i,
   /\bdidn'?t\s+(?:fix|help)\b/i,
   /\bno better\b/i,

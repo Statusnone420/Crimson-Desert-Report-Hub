@@ -1326,6 +1326,27 @@ describe("automation relevance", () => {
       }
     });
 
+    it("keeps visual complaints around performance-improvement wording", () => {
+      const snippets = [
+        "1.13 performance improvements caused shadow rendering to go missing",
+        "The performance fixes are causing missing shadows on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Graphics after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
     it("does not keep positive audio discussion as an issue report", () => {
       expect(
         preScreenCandidate(
