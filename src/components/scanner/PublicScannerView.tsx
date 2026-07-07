@@ -27,10 +27,10 @@ export function PublicScannerView({
   const webConnected = integrations.find((row) => row.key === "web_search")?.connected ?? false;
 
   const steps: Step[] = [
-    { key: "reviewed", value: data.reviewedThisWeek, name: "Reviewed", desc: "Gathered from public web, Steam & forums", color: "var(--green)" },
-    { key: "filtered", value: data.filteredThisWeek, name: "Filtered as noise", desc: "Off-topic, wrong patch, not a bug report", color: "var(--amber)" },
-    { key: "awaiting", value: data.awaiting, name: "Awaiting a 2nd source", desc: "Real, but needs corroboration", color: "var(--blue)" },
-    { key: "published", value: data.published, name: "Published as evidence", desc: "Backed by independent sources", color: "var(--crimson)" },
+    { key: "reviewed", value: data.reviewedThisWeek, name: "Reviewed", desc: "Public web, Steam & forums · last 7 days", color: "var(--green)" },
+    { key: "filtered", value: data.filteredThisWeek, name: "Filtered as noise", desc: "Off-topic, wrong patch, not a bug · last 7 days", color: "var(--amber)" },
+    { key: "awaiting", value: data.awaiting, name: "Awaiting a 2nd source", desc: "Real, but needs corroboration · now", color: "var(--blue)" },
+    { key: "published", value: data.published, name: "Published as evidence", desc: "Backed by independent sources · live now", color: "var(--crimson)" },
   ];
 
   const sources = [
@@ -57,7 +57,6 @@ export function PublicScannerView({
       <section className="panel space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="h-section">From scattered posts to verified evidence</h2>
-          <span className="badge badge-dim">Last 7 days</span>
         </div>
         <div className="grid gap-px overflow-hidden rounded-[var(--r-md)]" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", background: "var(--border)" }}>
           {steps.map((step) => (
