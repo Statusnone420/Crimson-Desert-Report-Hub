@@ -60,7 +60,9 @@ export type RunProgress = {
 function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
   return {
     stage,
-    searchesDone: result.searchQueriesUsed,
+    // Clamp: recon /extract calls share searchQueriesUsed, so raw done can exceed the
+    // per-run search total; the progress bar should never read >100%.
+    searchesDone: Math.min(result.searchQueriesUsed, searchTotal),
     searchTotal,
     candidatesSeen: result.candidatesSeen,
     prefilterRejected: result.prefilterRejected,
@@ -573,10 +575,12 @@ async function prepareSignals(
     if (!preScreen.keep) {
       if (preScreen.reason === "source_not_issue_report" && isBorderlineRescueCandidate(signal, currentPatch)) {
         // Recon lane: read the real page ONCE before rejecting a promising
-        // trusted current-patch candidate whose Tavily snippet is too thin. Capped
-        // and budget-gated so it never exceeds the Tavily credit budget. A recon
-        // miss (budget/cap/failure) falls straight through to today's snippet-only
-        // borderline behavior — strict enhancement, never a regression.
+        // trusted current-patch candidate whose Tavily snippet is too thin. Bounded
+        // by the MONTHLY Tavily credit budget (searchQueriesUsed < remainingTavilyCredits)
+        // and capped at MAX_RECON_FETCHES_PER_RUN per run — so a run adds at most that
+        // many /extract calls ON TOP OF its per-run search allowance (it is not bounded
+        // by the per-run search cap). A recon miss (budget/cap/failure) falls straight
+        // through to today's snippet-only borderline behavior — strict enhancement, never a regression.
         let reconText: string | null = null;
         if (
           webSearchEnabled &&
