@@ -1190,6 +1190,18 @@ describe("automation relevance", () => {
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
+
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update",
+            snippet: "Patch 1.13.00 improves performance and reduces stutter on PS5",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("rejects fix-announcement copy for broken symptom wording", () => {
@@ -1257,6 +1269,20 @@ describe("automation relevance", () => {
           {
             title: "Performance after 1.13.00",
             snippet: "Stable 60 fps? Stutters constantly after 1.13.00",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a stutter rebuttal that quotes performance-improvement copy", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "Patch improves performance but the game stutters constantly after 1.13.00",
             sourceDomain: "reddit.com",
             sourcePublishedAt: null,
           },
