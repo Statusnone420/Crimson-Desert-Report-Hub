@@ -25,8 +25,9 @@ describe("classifySignal", () => {
   });
 
   it("prefers audio over quest when both terms appear", () => {
-    // audio rule is ordered before quest, so 'audio' wins over 'cutscenes'
-    expect(classifySignal("Fixed missing audio during cutscenes").category).toBe("audio");
+    // Singular "cutscene" DOES match the quest rule, so this genuinely proves
+    // audio (ordered earlier) wins over quest when both match.
+    expect(classifySignal("Fixed missing audio during the cutscene").category).toBe("audio");
   });
 
   it("routes voice/dialogue language to audio", () => {
@@ -47,6 +48,24 @@ describe("classifySignal", () => {
 
   it("keeps non-issue patch-note lines as other", () => {
     expect(classifySignal("Added three new armor sets").category).toBe("other");
+  });
+
+  it("routes plural quest nouns to quest_progression", () => {
+    expect(classifySignal("NPCs are frozen after the update").category).toBe("quest_progression");
+  });
+
+  it("routes plural graphics nouns to graphics_visual", () => {
+    expect(classifySignal("The visuals are glitchy").category).toBe("graphics_visual");
+  });
+
+  it("does not misroute muted colors to audio", () => {
+    const result = classifySignal("the colors look muted and washed out");
+    expect(result.category).not.toBe("audio");
+    expect(result.category).toBe("other");
+  });
+
+  it("routes optimization verb forms to performance", () => {
+    expect(classifySignal("Optimized memory usage").category).toBe("performance");
   });
 });
 
