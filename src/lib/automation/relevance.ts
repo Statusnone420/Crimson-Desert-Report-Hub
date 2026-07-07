@@ -105,6 +105,7 @@ const NEGATIVE_POLARITY_CUES = [
   /\bhang(?:s|ing)?\b/i,
   /\b(?:not|isn'?t|wasn'?t|aren'?t|weren'?t|never)\s+stable\b/i,
   /\bunstable\b/i,
+  /\bstable\s+\d+\s?fps\b.{0,80}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b/i,
   /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:fps|frame ?rate|framerate)\b.{0,40}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b/i,
   /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b.{0,40}\b(?:fps|frame ?rate|framerate)\b/i,
   /\b(?:fps|frame ?rate|framerate)\b.{0,60}\b(?:drop|drops|dropped|low|lower|stutter|stutters|stuttering|hitch|hitching)\b.{0,80}\b(?:after|since|from)\b.{0,40}\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b/i,

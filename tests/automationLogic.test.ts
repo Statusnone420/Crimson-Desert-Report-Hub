@@ -1163,6 +1163,20 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("keeps a stutter rebuttal that quotes a stable-FPS claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "Stable 60 fps? Stutters constantly after 1.13.00",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
     it("keeps a contrastive FPS-drop complaint that quotes a stable-FPS claim", () => {
       expect(
         preScreenCandidate(
