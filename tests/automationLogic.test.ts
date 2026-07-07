@@ -6,7 +6,7 @@ import {
   parseOpenRouterExtraction,
 } from "@/lib/automation/extract";
 import { countIndependentDomains, domainTier, registrableDomain } from "@/lib/automation/domains";
-import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
+import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { buildMemorySearchQueries, chooseScanIntent } from "@/lib/automation/memory";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
@@ -596,6 +596,58 @@ describe("automation promotion", () => {
         hasAdminForceHidden: true,
       }),
     ).toEqual({ publicStatus: "hidden", reason: "admin_force_hidden" });
+  });
+});
+
+describe("resolveSignalPublicStatus", () => {
+  it("keeps a direct_report_match signal private when untrusted and not corroborated", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "public", reason: "direct_report_match" },
+        signalTrusted: false,
+        corroboratedByDomains: false,
+      }),
+    ).toEqual({ publicStatus: "private", reason: "below_threshold" });
+  });
+
+  it("promotes a direct_report_match signal from a trusted domain", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "public", reason: "direct_report_match" },
+        signalTrusted: true,
+        corroboratedByDomains: false,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "direct_report_match" });
+  });
+
+  it("promotes an untrusted direct_report_match signal when the cluster is domain-corroborated", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "public", reason: "direct_report_match" },
+        signalTrusted: false,
+        corroboratedByDomains: true,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "direct_report_match" });
+  });
+
+  it("does not touch a two_independent_domains_trusted decision (untrusted, uncorroborated signal stays public)", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "public", reason: "two_independent_domains_trusted" },
+        signalTrusted: false,
+        corroboratedByDomains: false,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "two_independent_domains_trusted" });
+  });
+
+  it("passes through a non-public decision, preserving its reason", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "private", reason: "below_threshold" },
+        signalTrusted: true,
+        corroboratedByDomains: true,
+      }),
+    ).toEqual({ publicStatus: "private", reason: "below_threshold" });
   });
 });
 

@@ -740,6 +740,122 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("keeps an untrusted single-domain signal private under a direct-report cluster while the cluster stays public", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    // No reddit posts: the only signal is a lone, untrusted (facebook.com),
+    // single-domain web result. It is fresh (published after the current patch)
+    // so it is publishable, and it clusters onto the approved-report cluster.
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Map crash on PS5",
+        url: "https://facebook.com/groups/crimsondesert/posts/map-crash",
+        snippet: "The map crash still happens on PS5 after loading.",
+        sourceDomain: "facebook.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-04T10:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    // The untrusted, uncorroborated signal must NOT ride the cluster's direct
+    // report onto the public board — it stays private / below_threshold.
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      source_domain: "facebook.com",
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    // The cluster itself is still public thanks to the approved report, but no
+    // scanner signal counts as standalone public evidence.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      direct_report_count: 1,
+      signal_count: 1,
+      public_signal_count: 0,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("promotes a trusted (reddit.com) direct-report signal to public even without domain corroboration", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-map",
+        title: "Map crash on PS5",
+        selftext: "Map crash still happens on PS5.",
+        permalink: "/r/CrimsonDesert/comments/reddit-map/map/",
+        created_utc: 1783260000,
+      },
+    ]);
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      source_domain: "reddit.com",
+      public_status: "public",
+      promotion_reason: "direct_report_match",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({ public_signal_count: 1, is_public: true });
+  });
+
   it("counts duplicate approved excerpts as one verified report per report", async () => {
     delete process.env.TAVILY_API_KEY;
     resetDb({

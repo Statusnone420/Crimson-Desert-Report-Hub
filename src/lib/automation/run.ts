@@ -10,7 +10,7 @@ import {
 } from "@/lib/automation/eligibility";
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
-import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
+import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { tavilyExtract, tavilySearch, type SearchResult } from "@/lib/automation/search";
@@ -964,25 +964,46 @@ async function refreshClusterStats(
     hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",
   });
 
+  // A cluster's approved report makes the CLUSTER public (direct_report_match), but
+  // an individual scanner signal only counts as standalone public evidence if the
+  // cluster is independently corroborated by domains. This mirrors the domain-count
+  // thresholds in shouldPromoteSignalCluster so an untrusted single-domain signal
+  // riding a direct report is not published on its own.
+  const corroboratedByDomains =
+    (independentDomainCount >= 2 && trustedDomainCount >= 1) || independentDomainCount >= 3;
+  let publicSignalCount = 0;
   for (const signal of signals) {
     if (!signal.id) continue;
     const eligibility = sourceSignalEligibility(signal, currentPatch);
     const shouldHideStale =
       !eligibility.canPublish &&
       (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source");
-    const publicStatus = eligibility.canPublish ? decision.publicStatus : shouldHideStale ? "hidden" : "private";
+    let publicStatus: "public" | "private" | "hidden";
+    let promotionReason: string;
+    if (eligibility.canPublish) {
+      const resolved = resolveSignalPublicStatus({
+        decision,
+        signalTrusted: domainTier(signalDomain(signal)) === "trusted",
+        corroboratedByDomains,
+      });
+      publicStatus = resolved.publicStatus;
+      promotionReason = resolved.reason;
+    } else {
+      publicStatus = shouldHideStale ? "hidden" : "private";
+      promotionReason = shouldHideStale ? stalePromotionReason(eligibility.reason) : "below_threshold";
+    }
+    if (publicStatus === "public") publicSignalCount += 1;
     const { error: signalUpdateError } = await supabase
       .from("source_signals")
       .update({
         public_status: publicStatus,
         promoted_at: publicStatus === "public" ? now.toISOString() : null,
-        promotion_reason: eligibility.canPublish ? decision.reason : shouldHideStale ? stalePromotionReason(eligibility.reason) : "below_threshold",
+        promotion_reason: promotionReason,
       })
       .eq("id", signal.id);
     if (signalUpdateError) throw new Error(`source signal promotion update failed: ${signalUpdateError.message}`);
   }
 
-  const publicSignalCount = decision.publicStatus === "public" ? publishableSignals.length : 0;
   // Promotion can turn a cluster public or (via admin force-hidden) hide it, but a
   // below-threshold decision must NOT hide a cluster that is already public — that
   // would make a seeded watchlist item vanish the moment a private scanner signal
