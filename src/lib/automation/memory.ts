@@ -96,7 +96,7 @@ export function buildMemorySearchQueries(
     const titleIndex = titles.length > 0 ? ((turn % titles.length) + titles.length) % titles.length : 0;
     const target = titles.length > 0 ? titles[titleIndex]?.trim() : undefined;
     const targetText = target ? `${target} ` : "";
-    return [`Crimson Desert patch ${patchVersion} ${targetText}player reports corroborate crash stutter FPS issues`].slice(0, count);
+    return [`site:reddit.com OR site:steamcommunity.com Crimson Desert patch ${patchVersion} ${targetText}crash stutter freeze FPS`.replace(/\s+/g, " ").trim()].slice(0, count);
   }
 
   if (intent === "rescue_candidate") {

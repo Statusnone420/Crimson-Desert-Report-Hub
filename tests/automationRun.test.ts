@@ -1291,7 +1291,7 @@ describe("runAutomationMonitor", () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
     delete process.env.REDDIT_USER_AGENT;
-    // Four borderline trusted current-patch candidates, each thin. MAX_RECON_FETCHES_PER_RUN is 3.
+    // Four borderline trusted current-patch candidates, each thin. MAX_RECON_FETCHES_PER_RUN is 2.
     mocks.tavilySearch.mockImplementationOnce(async () =>
       Array.from({ length: 4 }, (_, index) => ({
         title: "Crimson Desert patch 1.13 player discussion",
@@ -1310,17 +1310,17 @@ describe("runAutomationMonitor", () => {
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
-    // At most three recon fetches; the fourth candidate falls back to snippet-only borderline.
-    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(3);
-    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(3);
+    // At most two recon fetches; the remaining two candidates fall back to snippet-only borderline.
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(2);
+    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(2);
     expect(result.status).not.toBe("failed");
-    // Ledger: exactly three recon credits booked (the overflow candidate books none).
+    // Ledger: exactly two recon credits booked (the overflow candidates book none).
     const reconFetches = mocks.tavilyExtract.mock.calls.length;
-    expect(reconFetches).toBe(3);
+    expect(reconFetches).toBe(2);
     const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
     expect(result.searchQueriesUsed).toBe(searchQueriesIssued + reconFetches);
     expect(result.estimatedCostUsd).toBeCloseTo(result.searchQueriesUsed * 0.008 + result.llmCostUsd, 10);
-    // The three recon-rescued candidates are kept; the overflow one still runs the
+    // The two recon-rescued candidates are kept; the overflow ones still run the
     // old snippet-only borderline extract (which also keeps under the default mock).
     expect(result.candidatesRescued).toBe(4);
     expect(sourceSignalRows()).toHaveLength(4);
@@ -1700,7 +1700,8 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("player reports corroborate");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
     expect(tables.automation_runs[1]).toMatchObject({
       intent: "corroborate_cluster",
     });
@@ -1757,7 +1758,8 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("player reports corroborate");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Shader compilation stutter");
     expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
   });

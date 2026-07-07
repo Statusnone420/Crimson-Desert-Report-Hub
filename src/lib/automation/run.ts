@@ -204,7 +204,7 @@ const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
 // Hard cap on full-page recon fetches per run. Each fetch is one Tavily extract
 // credit, so this bounds the extra cost of the "read the real thread before
 // rejecting" lane regardless of how many borderline candidates a run surfaces.
-const MAX_RECON_FETCHES_PER_RUN = 3;
+const MAX_RECON_FETCHES_PER_RUN = 2;
 
 function searchResultToInput(result: SearchResult): SourceInput {
   return {
