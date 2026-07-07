@@ -14,15 +14,35 @@ export type CandidatePreScreenInput = {
 };
 
 const SYMPTOM_PATTERNS = [
-  /\b(?:fps|frame ?rate|framerate|performance mode)\b.{0,60}\b(?:drop|drops|dropped|low|lower|regress|regression|stutter|stutters|stuttering|hitch|hitching)\b/i,
-  /\b(?:drop|drops|dropped|low|lower|regress|regression|stutter|stutters|stuttering|hitch|hitching)\b.{0,60}\b(?:fps|frame ?rate|framerate)\b/i,
+  /\b(?:fps|frame ?rate|framerate|performance mode)\b.{0,60}\b(?:drop|drops|dropped|low|lower|lowered|lowers|reduced|reduces|reducing|tanked|tanks|regress|regression|stutter|stutters|stuttering|hitch|hitching)\b/i,
+  /\b(?:drop|drops|dropped|low|lower|lowered|lowers|reduced|reduces|reducing|tanked|tanks|regress|regression|stutter|stutters|stuttering|hitch|hitching)\b.{0,60}\b(?:fps|frame ?rate|framerate)\b/i,
+  /\b(?:fps|frame ?rate|framerate)\b.{0,60}\b(?:after|since|caused by|from)\b.{0,40}\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b/i,
+  /\b(?:performance\s+)?(?:fixes?|improvements?|optimi[sz]ations?)\b.{0,60}\b(?:caus(?:ed|es?|ing)|introduced|triggered|left|made)\b.{0,40}\b(?:fps|frame ?rate|framerate|stutter|stutters|stuttering|hitch|hitching)\b/i,
+  /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:stutters|stuttering|hitches|hitching)\b(?!\s+(?:is|was|got|gets|reduced|fixed|gone|improved|better|less))\b/i,
+  /\bloading times?\b.{0,50}\b(?:slow|slower|long|longer|worse|awful|bad|broken|regress|regression|increased|doubl(?:e[sd]?|ing))\b/i,
+  /\b(?:slow|slower|long|longer|worse|awful|bad|broken|increased|doubl(?:e[sd]?|ing))\b.{0,50}\bloading times?\b/i,
+  /\bframe ?time\b.{0,50}\b(?:spike|spikes|spiking|stutter|stutters|stuttering|bad|worse|regress|regression)\b/i,
   /\b(?:awful|bad|poor|terrible|horrible|worse|broken)\b.{0,50}\bperformance\b/i,
   /\bperformance\b.{0,50}\b(?:awful|bad|poor|terrible|horrible|worse|broken)\b/i,
+  // Bare stutter/hitch/lag — the most common performance complaints, carrying no fps/frame
+  // qualifier ("the game stutters in towns", "constant hitching", "lags horribly"). Mirrors
+  // classifySignal's /stutter/ and /lag/ rules so the pre-screen never drops what the
+  // classifier would keep. The stutter lookahead skips "stutter is gone/reduced/fixed" (a
+  // fixed-symptom claim); marketing "fixes lag" / "reduces stutters" is removed by
+  // FIX_CLAIM_SYMPTOM before this pattern is consulted.
+  /\b(?:stutters|stuttering|hitches|hitching|micro-?stutters?|micro-?stuttering)\b(?!\s+(?:is|was|got|gets|reduced|fixed|gone|improved|better|less))/i,
+  /\blag(?:s|gy|ging)?\b/i,
   /\b(?:crash|crashes|crashed|crashing|crash-to-desktop|ctd|freeze|freezes|freezing|hang|hangs|hanging)\b/i,
-  /\b(?:lockup|lockups|locks up|input lock|input locks|unresponsive|controls? (?:stop|stops|stopped|locked|freeze|freezes))\b/i,
+  /\b(?:black ?screen|infinite (?:load|loading)|stuck (?:on|at) (?:load|loading|boot))\b/i,
+  /\b(?:lockup|lockups|locks up|input lock|input locks|unresponsive|controls? (?:stop|stops|stopped|lock|locks|locked|freeze|freezes))\b/i,
   /\b(?:artifact|artifacts|ghosting|flicker|flickering|texture shimmer|screen tearing)\b/i,
-  /\b(?:won't|will not|doesn't|does not|can't|cannot)\s+(?:launch|start|load|progress|complete)\b/i,
-  /\bquest\b.{0,50}\b(?:stuck|blocked|cannot progress|won't complete|will not complete)\b/i,
+  /\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b.{0,60}\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b/i,
+  /\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b.{0,60}\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
+  /\b(?:won't|will not|doesn't|does not|can't|cannot|not)\s+(?:launch|start|load|progress|complete)\b/i,
+  /\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
+  /\b(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b.{0,50}\b(?:missing|gone|muted|silent|broken|cut(?:s|ting)? out|doesn'?t play|not playing|desync(?:ed)?|out of sync)\b/i,
+  /\b(?:quests?|missions?|objectives?|npcs?|cutscenes?|dialogue)\b.{0,60}\b(?:stuck|blocked|frozen|missing|broken|bugged|softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete|not progressing|not spawning)\b/i,
+  /\b(?:softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete)\b/i,
 ] as const;
 
 const BROAD_CONTENT_PATTERNS = [
@@ -52,6 +72,10 @@ const CLAIMED_FIX_PATTERNS = [
   /\ban issue where\b.{0,80}\b(?:has been|was)\s+fixed\b/i,
 ] as const;
 
+const CLAIMED_FIXED_SYMPTOM_PATTERNS = [
+  /\bfix(?:es|ed)?\s+(?:a\s+)?(?:bug\s+|issue\s+)?(?:with\s+|for\s+)?(?:broken|missing|lost|muted|silent)\b.{0,40}\b(?:audio|sound|music|voice(?:s| lines?)?|sfx|rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
+] as const;
+
 const FIX_PERSISTENCE_CUES = [
   /\bstill\b/i,
   /\bpersists?\b/i,
@@ -60,8 +84,52 @@ const FIX_PERSISTENCE_CUES = [
   /\beven after\b/i,
   /\bagain\b/i,
   /\b(?:is|are|was|were|came|comes|has come|have come)\s+back\b(?!\s+(?:to|from)\b)/i,
+  /\bdoesn'?t (?:fix|work|help)\b/i,
   /\bdidn'?t (?:fix|work|help)\b/i,
+  /\bno better\b/i,
+  /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:audio|sound|music|voice(?:s| lines?)?|sfx|rendering|lighting|shadows?|visuals?|pop.?in)\b.{0,40}\b(?:broken|missing|lost|muted|silent|bugged|glitch(?:y|es|ing)?|wrong|bad|worse)\b/i,
+  /\b(?:but|however|though|although|yet|despite)\b.{0,80}\b(?:broken|missing|lost|muted|silent|bugged|glitch(?:y|es|ing)?|wrong|bad|worse)\b.{0,40}\b(?:audio|sound|music|voice(?:s| lines?)?|sfx|rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
   /\bsupposed(?:ly)? fixed\b/i,
+] as const;
+
+const CRASH_FREEZE_HANG_TERMS = String.raw`(?:crash(?:es|ed|ing)?|crash-to-desktop|ctd|freez(?:e|es|ing)?|hang(?:s|ing)?)`;
+const CRASH_FREEZE_HANG_SERIES = String.raw`${CRASH_FREEZE_HANG_TERMS}(?:\s*(?:[,/]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${CRASH_FREEZE_HANG_TERMS})*`;
+const CRASH_FREEZE_HANG_FIX_LIST = new RegExp(
+  String.raw`\b(?:(?:${CRASH_FREEZE_HANG_SERIES})\s+fix(?:es)?|fix(?:es|ed)?\s+(?:a\s+)?(?:bug\s+|issue\s+)?(?:with\s+|for\s+)?(?:${CRASH_FREEZE_HANG_SERIES})(?:\s+issues?)?)\b`,
+  "i",
+);
+const CONTRAST_CUE = /\b(?:but|however|though|although|yet|despite)\b/i;
+const STUTTER_HITCH_COMPLAINT = /\b(?:stutters|stuttering|hitches|hitching)\b(?!\s+(?:is|was|got|gets|reduced|fixed|gone|improved|better|less))\b/i;
+// ONE comprehensive "advertised as fixed" stripper, covering every symptom family the
+// keep-path (SYMPTOM_PATTERNS) recognizes. It removes a fix VERB bound to a SYMPTOM noun
+// through GLUE ONLY — determiners, "bug/issue", with/for, an adjective — never a causal
+// word ("caused"/"where"/"made") and never across a clause. That tightness is the safety:
+//   - a COMPLAINT keeps its symptom ("the fixes CAUSE fps drops", "but audio is broken",
+//     "improvements LEFT npcs missing"): a non-glue word sits between any fix verb and the
+//     symptom, so nothing is stripped;
+//   - a PATCH NOTE loses its advertised symptom ("fixes a black screen", "fix for missing
+//     NPCs", "reduces the fps drops") and is then correctly seen as an announcement.
+// Noun-list completeness only affects false-KEEPS (harmless — the promotion guard is the
+// real precision boundary), never false-drops, so erring broad here is safe. Crash/freeze/
+// hang fix-LISTS (coordination, "fix for crash issues") stay with CRASH_FREEZE_HANG_FIX_LIST.
+const FIX_CLAIM_VERB = String.raw`(?:fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|address(?:es|ed|ing)?|reduc(?:e|es|ed|ing)|eliminat(?:e|es|ed|ing)|correct(?:s|ed|ing)?)`;
+const FIX_CLAIM_GLUE = String.raw`(?:\s+(?:a|an|the|some|any|all|various|multiple|several|reported|known))?(?:\s+(?:bug|bugs|issue|issues|problem|problems|glitch|glitches))?(?:\s+(?:with|for))?(?:\s+(?:a|an|the))?(?:\s+(?:broken|missing|lost|muted|silent|slow|stuck|frozen|glitchy|bugged|black|infinite|input|unresponsive|awful|bad|poor|terrible|horrible|worse))?`;
+const FIX_CLAIM_NOUN = String.raw`(?:black ?screens?|infinite (?:load|loading)|stuck (?:on|at) (?:load|loading|boot)|loading times?|frame ?times?(?:\s+spikes?)?|(?:fps|frame ?rates?|framerate)(?:\s+drops?)?|drops?|stutters?|stuttering|hitch(?:es|ing)?|lag(?:s|gy|ging)?|lock ?ups?|locks? up|input locks?|unresponsive(?:ness)?|controls?|artifacts?|ghosting|flicker(?:ing)?|texture ?shimmer|screen tearing|rendering|lighting|shadows?|visuals?|pop.?ins?|audio|sounds?|music|voice(?:s|\s?lines?)?|sfx|quests?|missions?|objectives?|npcs?|cutscenes?|dialogue|softlocks?|performance)`;
+const FIX_CLAIM_SYMPTOM = new RegExp(String.raw`\b${FIX_CLAIM_VERB}\b${FIX_CLAIM_GLUE}\s+${FIX_CLAIM_NOUN}\b`, "i");
+
+// Positive marketing/announcement phrasing (a patch "includes/adds/brings a fix", ships
+// "performance fixes", "improves/optimizes FPS", targets a "stable N fps"). Positive
+// polarity: the snippet is promoting a patch's performance, not reporting a bug.
+const FIX_ANNOUNCEMENT_CUES = [
+  /\b(?:includes?|adds?|brings?|shipped|rolling out)\b.{0,40}\b(?:performance\s+)?fix(?:es)?\b/i,
+  new RegExp(String.raw`\b(?:includes?|adds?|brings?|shipped|rolling out)\b.{0,80}${CRASH_FREEZE_HANG_FIX_LIST.source}`, "i"),
+  /\bperformance\s+(?:improvements?|fixes?|optimi[sz]ations?)\b/i,
+  /\b(?:improves?|improved|optimi[sz]es?|optimi[sz]ed)\b.{0,40}\b(?:performance|fps|frame\s?rate|framerate)\b/i,
+  /\b(?:aims?|aimed)\s+(?:for|to)\b.{0,60}\b(?:performance|fps|frame\s?rate|framerate|smoother|stable|optimi[sz]e|improve)\b/i,
+  /\bachiev(?:e|es|ing|ed)\b.{0,40}\b(?:stable\s+)?\d+\s?fps\b/i,
+  /\bstable\s+\d+\s?fps\b/i,
+  /\bsmoother\s+performance\b/i,
+  /\b(?:boosts?|boosted)\s+performance\b/i,
 ] as const;
 
 function compact(value: string): string {
@@ -85,7 +153,57 @@ function isBroadContentTitle(title: string): boolean {
 }
 
 function isClaimedFixNotReport(text: string): boolean {
-  return matchesAny(text, CLAIMED_FIX_PATTERNS) && !matchesAny(text, FIX_PERSISTENCE_CUES);
+  const isClaimedFixedSymptomAnnouncement =
+    matchesAny(text, FIX_ANNOUNCEMENT_CUES) && matchesAny(text, CLAIMED_FIXED_SYMPTOM_PATTERNS);
+
+  return (
+    (matchesAny(text, CLAIMED_FIX_PATTERNS) || isClaimedFixedSymptomAnnouncement) &&
+    !matchesAny(text, FIX_PERSISTENCE_CUES) &&
+    !hasPostContrastSymptomComplaint(text)
+  );
+}
+
+// Remove the announcement's OWN fix-claim copy (a patch "fixes crashes", "fix for
+// broken audio", "reduces the fps drops") so those advertised symptom words are not
+// mistaken for a complaint. Whatever symptom survives the strip is being reported, not
+// advertised as fixed.
+function stripFixClaimCopy(text: string): string {
+  return text
+    .replace(new RegExp(CRASH_FREEZE_HANG_FIX_LIST.source, "gi"), " ")
+    .replace(new RegExp(FIX_CLAIM_SYMPTOM.source, "gi"), " ");
+}
+
+// A real complaint is present iff, after stripping fix-claim copy, the text still
+// matches the SINGLE shared SYMPTOM_PATTERNS list (the same list the keep-path uses).
+// This is the whole polarity check — there is no second, hand-maintained cue list to
+// keep in sync, which is what caused this gate to leak real complaints one symptom at
+// a time.
+function hasComplaintSymptom(text: string): boolean {
+  const withoutFixClaims = stripFixClaimCopy(text);
+  return hasSymptomLanguage(withoutFixClaims) || STUTTER_HITCH_COMPLAINT.test(withoutFixClaims);
+}
+
+function hasPostContrastSymptomComplaint(text: string): boolean {
+  const [, ...tails] = text.split(CONTRAST_CUE);
+  return tails.some((tail) => hasComplaintSymptom(tail));
+}
+
+// Fires ONLY on text that matches a FIX_ANNOUNCEMENT_CUE and carries no complaint.
+// "Complaint" has ONE definition here — the shared SYMPTOM_PATTERNS list, via
+// hasComplaintSymptom — so any symptom the keep-path recognizes anywhere in the text
+// also rescues it here; there is no separate polarity list to fall out of sync (that
+// mismatch was the root cause of this gate repeatedly dropping real reports).
+// FIX_PERSISTENCE_CUES additionally rescues "still / again / no better / doesn't work"
+// failures that carry no fresh symptom noun. A bare "Patch X fixes the fps drops"
+// matches no announcement cue and is intentionally left to the per-signal promotion
+// guard (resolveSignalPublicStatus / direct_report_match credibility), the backstop for
+// announcement-style phrasings that slip past this cheap, recall-biased pre-screen.
+function isFixAnnouncement(text: string): boolean {
+  return (
+    matchesAny(text, FIX_ANNOUNCEMENT_CUES) &&
+    !matchesAny(text, FIX_PERSISTENCE_CUES) &&
+    !hasComplaintSymptom(text)
+  );
 }
 
 /**
@@ -115,6 +233,9 @@ export function preScreenCandidate(
     return { keep: false, reason: "source_not_issue_report" };
   }
   if (isClaimedFixNotReport(sourceText)) {
+    return { keep: false, reason: "source_not_issue_report" };
+  }
+  if (isFixAnnouncement(sourceText)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {

@@ -74,7 +74,7 @@ describe("previewAutomationSearch", () => {
       estimatedCostUsd: 0.008,
       previews: [
         {
-          query: "Crimson Desert patch 1.13.00 FPS drops stutter issue",
+          query: "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
           title: "Crimson Desert patch 1.13 FPS regression",
           url: "https://example.com/fps",
           sourceDomain: "example.com",

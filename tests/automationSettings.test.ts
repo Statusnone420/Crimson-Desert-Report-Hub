@@ -65,7 +65,7 @@ describe("automation scanner settings", () => {
       paused: false,
       minIntervalMinutes: 60,
       scheduledSearchCreditsPerRun: 1,
-      monthlyTavilyCreditCap: 900,
+      monthlyTavilyCreditCap: 1000,
       monthlyLlmUsdCap: 2,
       modelPreset: "deepseek_qwen_pro",
       updatedAt: null,
@@ -83,7 +83,7 @@ describe("automation scanner settings", () => {
       paused: true,
       minIntervalMinutes: 60,
       scheduledSearchCreditsPerRun: 1,
-      monthlyTavilyCreditCap: 900,
+      monthlyTavilyCreditCap: 1000,
       monthlyLlmUsdCap: 2,
       modelPreset: "deepseek_qwen_pro",
       updatedAt: "2026-07-06T12:00:00.000Z",
@@ -113,7 +113,7 @@ describe("automation scanner settings", () => {
       paused: false,
       minIntervalMinutes: 60,
       scheduledSearchCreditsPerRun: 1,
-      monthlyTavilyCreditCap: 900,
+      monthlyTavilyCreditCap: 1000,
       monthlyLlmUsdCap: 5,
       modelPreset: "deepseek_qwen_pro",
     });
@@ -127,7 +127,7 @@ describe("automation scanner settings", () => {
         fakeSupabase([{ key: "scanner", value: { monthlyTavilyCreditCap: 4000 } }]),
       ),
     ).resolves.toMatchObject({
-      monthlyTavilyCreditCap: 900,
+      monthlyTavilyCreditCap: 1000,
     });
   });
 

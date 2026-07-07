@@ -5,7 +5,7 @@ import { createServiceClient } from "@/lib/supabase";
 const MIN_INTERVAL_MINUTES = [60, 120, 360, 1440] as const;
 const SCHEDULED_SEARCH_CREDITS_PER_RUN = [1, 2, 3] as const;
 const MODEL_PRESET = "deepseek_qwen_pro";
-const MAX_MONTHLY_TAVILY_CREDIT_CAP = 900;
+const MAX_MONTHLY_TAVILY_CREDIT_CAP = 1000;
 
 type ScannerMinIntervalMinutes = (typeof MIN_INTERVAL_MINUTES)[number];
 type ScannerSearchCreditsPerRun = (typeof SCHEDULED_SEARCH_CREDITS_PER_RUN)[number];
@@ -54,7 +54,7 @@ const DEFAULT_SCANNER_POLICY: ScannerPolicy = {
   paused: false,
   minIntervalMinutes: 60,
   scheduledSearchCreditsPerRun: 1,
-  monthlyTavilyCreditCap: 900,
+  monthlyTavilyCreditCap: 1000,
   monthlyLlmUsdCap: 2,
   modelPreset: MODEL_PRESET,
 };

@@ -96,7 +96,12 @@ export function buildMemorySearchQueries(
     const titleIndex = titles.length > 0 ? ((turn % titles.length) + titles.length) % titles.length : 0;
     const target = titles.length > 0 ? titles[titleIndex]?.trim() : undefined;
     const targetText = target ? `${target} ` : "";
-    return [`Crimson Desert patch ${patchVersion} ${targetText}player reports corroborate crash stutter FPS issues`].slice(0, count);
+    // One reliable single-site filter per query (Tavily's `site:A OR site:B` handling is
+    // unverified); alternate the forum per corroborate TURN so a reddit-heavy cluster still
+    // reaches a non-reddit source and clears the 2-independent-domain promotion bar.
+    const siteTurn = Math.floor(turn / Math.max(1, titles.length));
+    const corroborateSite = siteTurn % 2 === 0 ? "site:reddit.com" : "site:steamcommunity.com";
+    return [`${corroborateSite} Crimson Desert patch ${patchVersion} ${targetText}crash stutter freeze FPS`.replace(/\s+/g, " ").trim()].slice(0, count);
   }
 
   if (intent === "rescue_candidate") {
@@ -104,8 +109,10 @@ export function buildMemorySearchQueries(
   }
 
   if (intent === "forum_discovery") {
+    // Reddit-weighted (subreddit-targeted) but still domain-diverse: keep the Steam
+    // query so the forum lane can corroborate across >= 2 registrable domains.
     const forumQueries = [
-      `site:reddit.com Crimson Desert patch ${patchVersion} crash freeze stutter issue`,
+      `site:reddit.com r/CrimsonDesert Crimson Desert patch ${patchVersion} crash freeze stutter bug`,
       `site:steamcommunity.com Crimson Desert patch ${patchVersion} stutter low FPS issue`,
     ];
     return forumQueries.slice(0, count);

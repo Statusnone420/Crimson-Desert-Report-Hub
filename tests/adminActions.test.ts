@@ -197,7 +197,7 @@ describe("setScannerPolicy", () => {
           paused: true,
           minIntervalMinutes: 120,
           scheduledSearchCreditsPerRun: 3,
-          monthlyTavilyCreditCap: 900,
+          monthlyTavilyCreditCap: 1000,
           monthlyLlmUsdCap: 5,
           modelPreset: "deepseek_qwen_pro",
         },

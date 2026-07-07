@@ -6,7 +6,7 @@ import {
   parseOpenRouterExtraction,
 } from "@/lib/automation/extract";
 import { countIndependentDomains, domainTier, registrableDomain } from "@/lib/automation/domains";
-import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
+import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { buildMemorySearchQueries, chooseScanIntent } from "@/lib/automation/memory";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
@@ -599,6 +599,68 @@ describe("automation promotion", () => {
   });
 });
 
+describe("resolveSignalPublicStatus", () => {
+  it("keeps a direct_report_match signal private when untrusted and not corroborated", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "public", reason: "direct_report_match" },
+        signalTrusted: false,
+        corroboratedByDomains: false,
+      }),
+    ).toEqual({ publicStatus: "private", reason: "below_threshold" });
+  });
+
+  it("promotes a direct_report_match signal from a trusted domain", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "public", reason: "direct_report_match" },
+        signalTrusted: true,
+        corroboratedByDomains: false,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "direct_report_match" });
+  });
+
+  it("promotes an untrusted direct_report_match signal when the cluster is domain-corroborated", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "public", reason: "direct_report_match" },
+        signalTrusted: false,
+        corroboratedByDomains: true,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "direct_report_match" });
+  });
+
+  it("does not touch a two_independent_domains_trusted decision (untrusted, uncorroborated signal stays public)", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "public", reason: "two_independent_domains_trusted" },
+        signalTrusted: false,
+        corroboratedByDomains: false,
+      }),
+    ).toEqual({ publicStatus: "public", reason: "two_independent_domains_trusted" });
+  });
+
+  it("passes through a non-public decision, preserving its reason", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "private", reason: "below_threshold" },
+        signalTrusted: true,
+        corroboratedByDomains: true,
+      }),
+    ).toEqual({ publicStatus: "private", reason: "below_threshold" });
+  });
+
+  it("preserves an admin_force_hidden decision as hidden (does not downgrade to private)", () => {
+    expect(
+      resolveSignalPublicStatus({
+        decision: { publicStatus: "hidden", reason: "admin_force_hidden" },
+        signalTrusted: false,
+        corroboratedByDomains: false,
+      }),
+    ).toEqual({ publicStatus: "hidden", reason: "admin_force_hidden" });
+  });
+});
+
 describe("domainTier", () => {
   it("treats a subdomain of a trusted domain as trusted", () => {
     expect(domainTier("old.reddit.com")).toBe("trusted");
@@ -754,6 +816,70 @@ describe("scanner memory planning", () => {
     // The OLD `rotationOffset % titles.length` selection would have hit only
     // indices {1, 3} — two titles — across those offsets. Per-turn selection hits all four.
     expect(hunted.size).toBe(4);
+  });
+
+  it("uses exactly one site: filter per corroborate query and alternates forums across turns", () => {
+    const patchVersion = "1.13.00";
+    const target = "Shader stutter";
+    const sitesSeen = new Set<string>();
+    // laneCount defaults to 1, so turn === rotationOffset: offsets 0 and 1 are two
+    // consecutive corroborate turns.
+    for (const rotationOffset of [0, 1]) {
+      const [query] = buildMemorySearchQueries(1, patchVersion, "corroborate_cluster", {
+        rotationOffset,
+        targetClusterTitles: [target],
+      });
+      // Exactly one reliable site: filter — no unverified `site:A OR site:B` in one query.
+      const siteFilters = query.match(/site:\S+/g) ?? [];
+      expect(siteFilters).toHaveLength(1);
+      expect(query).not.toContain(" OR ");
+      // Patch version and the rotated target title stay present in every corroborate query.
+      expect(query).toContain(patchVersion);
+      expect(query).toContain(target);
+      for (const site of siteFilters) sitesSeen.add(site);
+    }
+    // Consecutive turns alternate across the two forums, preserving cross-domain diversity.
+    expect(sitesSeen).toEqual(new Set(["site:reddit.com", "site:steamcommunity.com"]));
+  });
+
+  it("tries each corroboration target on both forums across turns", () => {
+    const patchVersion = "1.13.00";
+    const titles = ["Alpha crash", "Beta stutter"];
+    const seen = new Map<string, Set<string>>();
+
+    for (const rotationOffset of [0, 1, 2, 3]) {
+      const [query] = buildMemorySearchQueries(1, patchVersion, "corroborate_cluster", {
+        rotationOffset,
+        targetClusterTitles: titles,
+      });
+      const title = titles.find((candidate) => query.includes(candidate));
+      const site = query.includes("site:reddit.com")
+        ? "reddit"
+        : query.includes("site:steamcommunity.com")
+          ? "steam"
+          : null;
+      expect(title).toBeTruthy();
+      expect(site).toBeTruthy();
+      if (title && site) {
+        const sites = seen.get(title) ?? new Set<string>();
+        sites.add(site);
+        seen.set(title, sites);
+      }
+    }
+
+    expect(seen.get("Alpha crash")).toEqual(new Set(["reddit", "steam"]));
+    expect(seen.get("Beta stutter")).toEqual(new Set(["reddit", "steam"]));
+  });
+
+  it("targets r/CrimsonDesert for forum_discovery while keeping a Steam query for domain diversity", () => {
+    const queries = buildMemorySearchQueries(2, "1.13.00", "forum_discovery");
+    expect(queries).toHaveLength(2);
+    // Reddit-weighted: the lead forum query is subreddit-targeted for the current patch.
+    expect(queries[0]).toContain("site:reddit.com");
+    expect(queries[0]).toContain("r/CrimsonDesert");
+    expect(queries[0]).toContain("1.13.00");
+    // Domain-diversity guardrail: the Steam query is retained so the lane isn't Reddit-only.
+    expect(queries.some((q) => q.includes("site:steamcommunity.com"))).toBe(true);
   });
 
   it("still returns no queries for the quarantine intent value when it is passed directly", () => {
@@ -1023,6 +1149,679 @@ describe("automation relevance", () => {
         ),
       ).toEqual({ keep: true });
     });
+
+    it("rejects a patch fix-announcement snippet framed as a performance fix", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update with new armor and content",
+            snippet: "Patch 1.13.00 includes PS5 performance fixes aimed at achieving stable 60fps on base PS5",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("rejects a fix-announcement even when it names a symptom keyword", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update",
+            snippet: "Patch 1.13.00 improves performance and fixes the fps drops on base PS5",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("rejects positive crash-fix announcement copy", () => {
+      const snippets = [
+        "Patch 1.13.00 includes performance fixes and crash fixes for PS5",
+        "Patch 1.13.00 includes performance fixes and crash and freeze fixes for PS5",
+        "Patch 1.13.00 includes crash, freeze, and hang fixes for PS5",
+        "Patch 1.13.00 includes performance fixes and fixes crashes and freezes on PS5",
+        "Patch 1.13.00 includes performance fixes and a fix for crash and freeze issues on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert patch 1.13.00 update",
+              snippet,
+              sourceDomain: "facebook.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
+
+    it("rejects fix-announcement copy for broken symptom wording", () => {
+      const snippets = [
+        "Patch 1.13.00 includes a fix for broken audio on PS5",
+        "Patch 1.13.00 includes a fix for broken rendering on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert patch 1.13.00 update",
+              snippet,
+              sourceDomain: "facebook.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
+
+    it("keeps broken-symptom complaints when a claimed fix still fails", () => {
+      const snippets = [
+        "Patch 1.13.00 includes a fix for broken audio, but audio is still broken on PS5",
+        "Patch 1.13.00 includes a fix for broken audio, but audio is broken on PS5",
+        "Patch 1.13.00 includes a fix for broken audio, but it doesn't work; no sound on PS5",
+        "Patch 1.13.00 includes a fix for broken rendering, but rendering is broken on PS5",
+        "Patch 1.13.00 includes a fix for broken rendering, but it's no better on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Audio after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps contrastive broken-symptom complaints even without a persistence cue", () => {
+      // These complaints contain no "still"/"persists"/"doesn't work"/"again"/"is back"/"no better",
+      // so they must be rescued purely by the post-contrast symptom clause (not by FIX_PERSISTENCE_CUES).
+      const snippets = [
+        "Patch 1.13.00 includes a fix for broken audio, but no sound on PS5",
+        "Patch 1.13.00 includes a fix for broken rendering, but shadows flicker on PS5",
+        "fixed an issue where the map would crash, but it crashes on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "After 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+
+    it("keeps a complaint that says the advertised FPS target is not stable", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "1.13.00 is not stable 60 fps on PS5, constant drops in combat",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a stutter rebuttal that quotes a stable-FPS claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "Stable 60 fps? Stutters constantly after 1.13.00",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a stutter rebuttal that quotes performance-improvement copy", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "Patch improves performance but the game stutters constantly after 1.13.00",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a contrastive FPS-drop complaint that quotes a stable-FPS claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "Patch claims stable 60 fps but fps drops to 20 in combat",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps FPS-drop and stutter complaints around performance-fix wording", () => {
+      const snippets = [
+        "1.13.00 performance improvements caused FPS drops",
+        "FPS drops after the performance fixes",
+        "patch 1.13 performance fixes are causing stutter",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Performance after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps audio-only current-patch complaints before extraction", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "No sound after patch 1.13.00",
+            snippet: "Audio is missing after the latest update.",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps non-FPS complaints around performance-improvement wording", () => {
+      const snippets = [
+        "The performance improvements caused no sound on PS5",
+        "The performance improvements are causing no sound on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "No sound after patch 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps visual complaints around performance-improvement wording", () => {
+      const snippets = [
+        "1.13 performance improvements caused shadow rendering to go missing",
+        "The performance fixes are causing missing shadows on PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Graphics after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps loading and progression complaints around performance-improvement wording", () => {
+      const snippets = [
+        "1.13 performance improvements caused loading times to double",
+        "The performance fixes are causing quests to get stuck",
+        "Performance optimizations left NPCs missing after 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Patch problems after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps launch and input complaints around performance-improvement wording", () => {
+      const snippets = [
+        "The performance fixes made controls lock during combat",
+        "Performance improvements are causing the game to not launch",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Controls after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("does not keep positive audio discussion as an issue report", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert soundtrack after 1.13.00",
+            snippet: "The music sounds incredible after the latest patch.",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("keeps quest and NPC progression complaints before extraction", () => {
+      const snippets = [
+        "Quests are stuck after 1.13.00",
+        "NPCs are frozen after the update",
+        "I aimed to finish the quest but the NPC is missing after 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Progression after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps startup and loading complaints before extraction", () => {
+      const snippets = [
+        "Black screen after patch 1.13.00",
+        "Infinite loading on startup after the update",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Startup after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps loading-time and frame-time performance complaints before extraction", () => {
+      const snippets = [
+        "Loading times are worse after 1.13.00",
+        "Frame time spikes after the update",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Performance after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps graphics and visual complaints before extraction", () => {
+      const snippets = [
+        "The visuals are glitchy after 1.13.00",
+        "Shadow rendering is broken after the update",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Graphics after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps a persistence-guarded complaint that mentions an improvement claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "they fixed an issue where the game stutters, but performance is still awful after 1.13.00",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a negative-polarity complaint that quotes a performance-improvement claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Performance after 1.13.00",
+            snippet: "they said 1.13.00 improves performance but it's worse now, constant fps drops",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a complaint that quotes an improvement claim then reports a crash symptom", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crashes after 1.13.00",
+            snippet: "They said this patch improves performance but my game crashes on the title screen",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a complaint that quotes an improvement claim then reports launch failure", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Launch failure after 1.13.00",
+            snippet: "Patch 1.13 improves performance but the game won't launch on PS5",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("rejects contrastive positive fix copy after an improvement claim", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update",
+            snippet: "Patch 1.13 improves performance but fixes crashes too",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("keeps crash and freeze complaints around fix-list copy", () => {
+      const snippets = [
+        "Patch 1.13.00 includes performance fixes and crash and freeze fixes, but the game crashes on launch",
+        "Patch 1.13.00 includes crash, freeze, and hang fixes, but the game freezes every session",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crashes after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps a complaint asking where the performance fixes are while reporting crashes and freezes", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "1.13.00 stability",
+            snippet: "where are the performance fixes? game crashes and freezes every session",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    // Root-cause regression guard. The announcement gate defines "is there a complaint?"
+    // with the SINGLE shared SYMPTOM_PATTERNS list, not a parallel polarity list. So a
+    // real symptom next to an announcement cue is kept for EVERY family — even with no
+    // contrast word, no persistence cue, and no explicit "(optimizations) caused (X)"
+    // structure (these quote the marketing verb, e.g. "Optimized"/"Boosted", which the
+    // old per-family causal patterns required as the noun and therefore dropped).
+    it("keeps complaints beside an announcement cue across every symptom family", () => {
+      const snippets = [
+        "Optimized performance, no audio in cutscenes on 1.13.00",
+        "Improved framerate, shadows flicker constantly on 1.13.00",
+        "Boosted performance, NPCs missing from the questline on 1.13.00",
+        "Smoother performance sure, loading times are awful now on 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Regressions after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("still rejects pure marketing copy that carries no symptom", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert patch 1.13.00 update",
+            snippet: "Optimized performance and smoother framerate on base PS5 after 1.13.00",
+            sourceDomain: "facebook.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    // Precision guard for the announcement gate, across EVERY symptom family. A patch note
+    // that advertises fixing a symptom ("...and fixes <symptom>") must be rejected even
+    // though the symptom noun appears — the fix-claim stripper removes the advertised
+    // phrase so no residual complaint remains. One case per family so no family is the
+    // "next crack" a reviewer can find.
+    it("rejects advertised-fixed patch copy for every symptom family", () => {
+      const snippets = [
+        "Patch 1.13 improves performance and fixes a black screen on startup", // startup
+        "Patch 1.13 improves performance and fixes the input lockups", // controls
+        "Patch 1.13 improves performance and fixes missing NPCs", // quest
+        "Patch 1.13 improves performance and fixes the slow loading times", // loading
+        "Patch 1.13 improves performance and fixes stuttering", // perf
+        "Patch 1.13 improves performance and fixes broken shadows", // visual
+        "Patch 1.13 improves performance and fixes the missing audio", // audio
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert patch 1.13.00 update",
+              snippet,
+              sourceDomain: "facebook.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
+
+    // The dual of the above: the SAME families, phrased as real complaints beside the same
+    // announcement cue, must be KEPT. The stripper only removes fix-VERB-led phrases, so a
+    // symptom reported as happening survives.
+    it("keeps real complaints for every symptom family beside an announcement cue", () => {
+      const snippets = [
+        "improves performance but the game hits a black screen on startup after 1.13.00", // startup
+        "improves performance but controls lock up randomly after 1.13.00", // controls
+        "improves performance but NPCs are missing from the questline after 1.13.00", // quest
+        "improves performance but loading times are awful now after 1.13.00", // loading
+        "improves performance but the game stutters constantly after 1.13.00", // perf
+        "improves performance but shadows are broken after 1.13.00", // visual
+        "improves performance but there is no audio after 1.13.00", // audio
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Regressions after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    // Bare stutter / hitch / lag are the most common performance complaints and must reach
+    // extraction even with no fps/frame qualifier — mirroring classifySignal so the
+    // pre-screen doesn't drop what the classifier keeps.
+    it("keeps bare stutter, hitch, and lag complaints", () => {
+      const snippets = [
+        "The game stutters constantly out in the desert now after 1.13.00",
+        "Constant hitching every few seconds since 1.13.00",
+        "The game lags horribly in every town after 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Bug after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps complaints that a patch reduced/tanked fps or frame rate", () => {
+      const snippets = [
+        "The performance optimizations reduced my fps to a slideshow after 1.13.00",
+        "The performance improvements tanked my frame rate after 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Bug after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("still rejects marketing that advertises fixing lag or stutter", () => {
+      const snippets = [
+        "Patch 1.13 improves performance and fixes lag",
+        "Patch 1.13 improves performance and reduces stutters on base PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert patch 1.13.00 update",
+              snippet,
+              sourceDomain: "facebook.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
   });
 
   describe("shouldKeepExtractedSignal", () => {
@@ -1068,10 +1867,10 @@ describe("search planning", () => {
     expect(buildSearchQueries(0)).toHaveLength(0);
   });
 
-  it("targets issue language instead of broad reviews or patch-note pages", () => {
+  it("leads with Reddit-targeted issue queries instead of broad reviews or patch-note pages", () => {
     expect(buildSearchQueries(2)).toEqual([
-      "Crimson Desert patch 1.13.00 FPS drops stutter issue",
-      "Crimson Desert patch 1.13.00 crash freeze issue",
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
+      "site:reddit.com Crimson Desert patch 1.13.00 crash freeze stutter issue",
     ]);
   });
 
@@ -1080,7 +1879,9 @@ describe("search planning", () => {
   });
 
   it("can target a server-derived patch version", () => {
-    expect(buildSearchQueries(1, "1.14.00")).toEqual(["Crimson Desert patch 1.14.00 FPS drops stutter issue"]);
+    expect(buildSearchQueries(1, "1.14.00")).toEqual([
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.14.00 crash stutter performance bug",
+    ]);
   });
 
   it("calls Tavily with injected fetch and maps results", async () => {

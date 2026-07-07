@@ -487,9 +487,11 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toBe("Crimson Desert patch 1.13.00 FPS drops stutter issue");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
+    );
     expect(mocks.tavilySearch.mock.calls[1][0]).toBe(
-      "site:reddit.com Crimson Desert patch 1.13.00 crash freeze stutter issue",
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash freeze stutter bug",
     );
   });
 
@@ -737,6 +739,182 @@ describe("runAutomationMonitor", () => {
       public_signal_count: 1,
       auto_public: true,
       is_public: true,
+    });
+  });
+
+  it("keeps an untrusted single-domain signal private under a direct-report cluster while the cluster stays public", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    // No reddit posts: the only signal is a lone, untrusted (facebook.com),
+    // single-domain web result. It is fresh (published after the current patch)
+    // so it is publishable, and it clusters onto the approved-report cluster.
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Map crash on PS5",
+        url: "https://facebook.com/groups/crimsondesert/posts/map-crash",
+        snippet: "The map crash still happens on PS5 after loading.",
+        sourceDomain: "facebook.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-04T10:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    // The untrusted, uncorroborated signal must NOT ride the cluster's direct
+    // report onto the public board — it stays private / below_threshold.
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      source_domain: "facebook.com",
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    // The cluster itself is still public thanks to the approved report, but no
+    // scanner signal counts as standalone public evidence.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      direct_report_count: 1,
+      signal_count: 1,
+      public_signal_count: 0,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("promotes a trusted (reddit.com) direct-report signal to public even without domain corroboration", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-map",
+        title: "Map crash on PS5",
+        selftext: "Map crash still happens on PS5.",
+        permalink: "/r/CrimsonDesert/comments/reddit-map/map/",
+        created_utc: 1783260000,
+      },
+    ]);
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      source_domain: "reddit.com",
+      public_status: "public",
+      promotion_reason: "direct_report_match",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({ public_signal_count: 1, is_public: true });
+  });
+
+  it("keeps a fresh publishable signal hidden under a force-hidden cluster", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Admin has force-hidden this cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: true,
+          admin_visibility_override: "force_hidden",
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    // A fresh (post-patch) current-patch signal that is publishable on its own,
+    // routed onto a cluster an admin has force-hidden. force_hidden must win at the
+    // per-signal level too: the signal stays hidden rather than being downgraded to
+    // private (which would leak it back into the private-signal targeting pool).
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Map crash on PS5",
+        url: "https://facebook.com/groups/crimsondesert/posts/map-crash",
+        snippet: "The map crash still happens on PS5 after loading.",
+        sourceDomain: "facebook.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-04T10:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      public_status: "hidden",
+      promotion_reason: "admin_force_hidden",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
     });
   });
 
@@ -1115,7 +1293,7 @@ describe("runAutomationMonitor", () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
     delete process.env.REDDIT_USER_AGENT;
-    // Four borderline trusted current-patch candidates, each thin. MAX_RECON_FETCHES_PER_RUN is 3.
+    // Four borderline trusted current-patch candidates, each thin. MAX_RECON_FETCHES_PER_RUN is 2.
     mocks.tavilySearch.mockImplementationOnce(async () =>
       Array.from({ length: 4 }, (_, index) => ({
         title: "Crimson Desert patch 1.13 player discussion",
@@ -1134,17 +1312,17 @@ describe("runAutomationMonitor", () => {
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
-    // At most three recon fetches; the fourth candidate falls back to snippet-only borderline.
-    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(3);
-    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(3);
+    // At most two recon fetches; the remaining two candidates fall back to snippet-only borderline.
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(2);
+    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(2);
     expect(result.status).not.toBe("failed");
-    // Ledger: exactly three recon credits booked (the overflow candidate books none).
+    // Ledger: exactly two recon credits booked (the overflow candidates book none).
     const reconFetches = mocks.tavilyExtract.mock.calls.length;
-    expect(reconFetches).toBe(3);
+    expect(reconFetches).toBe(2);
     const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
     expect(result.searchQueriesUsed).toBe(searchQueriesIssued + reconFetches);
     expect(result.estimatedCostUsd).toBeCloseTo(result.searchQueriesUsed * 0.008 + result.llmCostUsd, 10);
-    // The three recon-rescued candidates are kept; the overflow one still runs the
+    // The two recon-rescued candidates are kept; the overflow ones still run the
     // old snippet-only borderline extract (which also keeps under the default mock).
     expect(result.candidatesRescued).toBe(4);
     expect(sourceSignalRows()).toHaveLength(4);
@@ -1524,7 +1702,8 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("player reports corroborate");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
     expect(tables.automation_runs[1]).toMatchObject({
       intent: "corroborate_cluster",
     });
@@ -1581,7 +1760,8 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("player reports corroborate");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Shader compilation stutter");
     expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
   });

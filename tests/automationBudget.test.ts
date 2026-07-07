@@ -22,8 +22,8 @@ describe("automation budget", () => {
       now: new Date("2026-07-05T12:00:00Z"),
     });
     expect(budget.allowPaidSearch).toBe(true);
-    expect(budget.monthlyTavilyCreditCap).toBe(900);
-    expect(budget.remainingTavilyCredits).toBe(900);
+    expect(budget.monthlyTavilyCreditCap).toBe(1000);
+    expect(budget.remainingTavilyCredits).toBe(1000);
     expect(budget.maxSearchQueries).toBe(1);
     expect(budget.maxLlmCalls).toBe(4);
     expect(budget.estimatedRunAllowanceUsd).toBeGreaterThan(0);
@@ -50,7 +50,7 @@ describe("automation budget", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 5,
       spentMonthToDateUsd: 0,
-      tavilyCreditsMonthToDate: 900,
+      tavilyCreditsMonthToDate: 1000,
       mode: "scheduled",
       now: new Date("2026-07-20T12:00:00Z"),
     });
@@ -71,8 +71,8 @@ describe("automation budget", () => {
         monthlyLlmUsdCap: 1,
       },
     });
-    expect(budget.monthlyTavilyCreditCap).toBe(900);
-    expect(budget.remainingTavilyCredits).toBe(900);
+    expect(budget.monthlyTavilyCreditCap).toBe(1000);
+    expect(budget.remainingTavilyCredits).toBe(1000);
   });
 
   it("does not let estimated Tavily spend consume the scanner LLM cap", () => {

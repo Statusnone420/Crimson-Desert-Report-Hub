@@ -26,6 +26,33 @@ export function shouldPromoteSignalCluster(input: PromotionInput): PromotionDeci
   return { publicStatus: "private", reason: "below_threshold" };
 }
 
+/**
+ * Resolve the per-signal `public_status` from a cluster-level promotion decision.
+ * A cluster with an approved user report is public via `direct_report_match`, but
+ * that alone must NOT publish an individual scanner signal as standalone public
+ * evidence: a lone untrusted single-domain signal has no corroboration of its own.
+ * Such a signal stays `private`/`below_threshold` (it still counts toward the
+ * cluster). Only `direct_report_match` is gated here — every other reason
+ * (admin forces, domain-corroboration reasons, below_threshold) passes through
+ * unchanged.
+ */
+export function resolveSignalPublicStatus(input: {
+  decision: PromotionDecision;
+  signalTrusted: boolean;
+  corroboratedByDomains: boolean;
+}): { publicStatus: "public" | "private" | "hidden"; reason: string } {
+  if (input.decision.publicStatus !== "public") {
+    // Preserve the decision verbatim: a force-hidden cluster's publishable signal
+    // must stay `hidden` (not leak back into the private-signal targeting pool),
+    // and a below-threshold decision stays `private`.
+    return { publicStatus: input.decision.publicStatus, reason: input.decision.reason };
+  }
+  if (input.decision.reason === "direct_report_match" && !input.signalTrusted && !input.corroboratedByDomains) {
+    return { publicStatus: "private", reason: "below_threshold" };
+  }
+  return { publicStatus: "public", reason: input.decision.reason };
+}
+
 export function weightedClusterScore(input: {
   publicSignalCount: number;
   directReportCount: number;
