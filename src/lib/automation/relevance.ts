@@ -82,7 +82,7 @@ const FIX_ANNOUNCEMENT_CUES = [
   /\b(?:includes?|adds?|brings?|shipped|rolling out)\b.{0,40}\b(?:performance\s+)?fix(?:es)?\b/i,
   /\bperformance\s+(?:improvements?|fixes?|optimi[sz]ations?)\b/i,
   /\b(?:improves?|improved|optimi[sz]es?|optimi[sz]ed)\b.{0,40}\b(?:performance|fps|frame\s?rate|framerate)\b/i,
-  /\b(?:aims?|aimed)\s+(?:for|to)\b/i,
+  /\b(?:aims?|aimed)\s+(?:for|to)\b.{0,60}\b(?:performance|fps|frame\s?rate|framerate|smoother|stable|optimi[sz]e|improve)\b/i,
   /\bachiev(?:e|es|ing|ed)\b.{0,40}\b(?:stable\s+)?\d+\s?fps\b/i,
   /\bstable\s+\d+\s?fps\b/i,
   /\bsmoother\s+performance\b/i,

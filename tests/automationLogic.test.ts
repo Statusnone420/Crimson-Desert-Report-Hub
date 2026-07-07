@@ -1230,6 +1230,7 @@ describe("automation relevance", () => {
       const snippets = [
         "Quests are stuck after 1.13.00",
         "NPCs are frozen after the update",
+        "I aimed to finish the quest but the NPC is missing after 1.13.00",
       ];
 
       for (const snippet of snippets) {
