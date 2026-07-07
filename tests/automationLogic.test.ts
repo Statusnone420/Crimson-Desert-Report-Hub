@@ -1695,6 +1695,133 @@ describe("automation relevance", () => {
         ),
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
+
+    // Precision guard for the announcement gate, across EVERY symptom family. A patch note
+    // that advertises fixing a symptom ("...and fixes <symptom>") must be rejected even
+    // though the symptom noun appears — the fix-claim stripper removes the advertised
+    // phrase so no residual complaint remains. One case per family so no family is the
+    // "next crack" a reviewer can find.
+    it("rejects advertised-fixed patch copy for every symptom family", () => {
+      const snippets = [
+        "Patch 1.13 improves performance and fixes a black screen on startup", // startup
+        "Patch 1.13 improves performance and fixes the input lockups", // controls
+        "Patch 1.13 improves performance and fixes missing NPCs", // quest
+        "Patch 1.13 improves performance and fixes the slow loading times", // loading
+        "Patch 1.13 improves performance and fixes stuttering", // perf
+        "Patch 1.13 improves performance and fixes broken shadows", // visual
+        "Patch 1.13 improves performance and fixes the missing audio", // audio
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert patch 1.13.00 update",
+              snippet,
+              sourceDomain: "facebook.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
+
+    // The dual of the above: the SAME families, phrased as real complaints beside the same
+    // announcement cue, must be KEPT. The stripper only removes fix-VERB-led phrases, so a
+    // symptom reported as happening survives.
+    it("keeps real complaints for every symptom family beside an announcement cue", () => {
+      const snippets = [
+        "improves performance but the game hits a black screen on startup after 1.13.00", // startup
+        "improves performance but controls lock up randomly after 1.13.00", // controls
+        "improves performance but NPCs are missing from the questline after 1.13.00", // quest
+        "improves performance but loading times are awful now after 1.13.00", // loading
+        "improves performance but the game stutters constantly after 1.13.00", // perf
+        "improves performance but shadows are broken after 1.13.00", // visual
+        "improves performance but there is no audio after 1.13.00", // audio
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Regressions after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    // Bare stutter / hitch / lag are the most common performance complaints and must reach
+    // extraction even with no fps/frame qualifier — mirroring classifySignal so the
+    // pre-screen doesn't drop what the classifier keeps.
+    it("keeps bare stutter, hitch, and lag complaints", () => {
+      const snippets = [
+        "The game stutters constantly out in the desert now after 1.13.00",
+        "Constant hitching every few seconds since 1.13.00",
+        "The game lags horribly in every town after 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Bug after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("keeps complaints that a patch reduced/tanked fps or frame rate", () => {
+      const snippets = [
+        "The performance optimizations reduced my fps to a slideshow after 1.13.00",
+        "The performance improvements tanked my frame rate after 1.13.00",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Bug after 1.13.00",
+              snippet,
+              sourceDomain: "reddit.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("still rejects marketing that advertises fixing lag or stutter", () => {
+      const snippets = [
+        "Patch 1.13 improves performance and fixes lag",
+        "Patch 1.13 improves performance and reduces stutters on base PS5",
+      ];
+
+      for (const snippet of snippets) {
+        expect(
+          preScreenCandidate(
+            {
+              title: "Crimson Desert patch 1.13.00 update",
+              snippet,
+              sourceDomain: "facebook.com",
+              sourcePublishedAt: null,
+            },
+            { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+          ),
+        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
   });
 
   describe("shouldKeepExtractedSignal", () => {
