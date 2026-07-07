@@ -284,6 +284,10 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
     await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
     await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
+    // Overpromising dashboard copy must be gone.
+    await expect(page.getByText("none found yet — scanner active", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Watchlist awaiting evidence", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Watchlist · awaiting first reports", { exact: true })).toHaveCount(0);
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
   });
@@ -320,6 +324,17 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Confirmed")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
     await expect(page.getByText("Seeded watchlist items stay unverified until the data confirms them.")).toBeVisible();
+    // Overpromising watchlist copy must be gone: the scanner never claims per-row
+    // active discovery, and zero-evidence seeds are never framed as live hunts.
+    await expect(page.getByText("scanner is hunting", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("A cluster earns its full section", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Seeing one of these? Report it", { exact: true })).toHaveCount(0);
+    // The collapsed monitored line, when watchlist seeds exist, is a single muted
+    // line — never a per-seed card. It reads "Monitoring N more known problem …".
+    const monitoredLine = page.getByText(/Monitoring \d+ more known problem area/);
+    if ((await monitoredLine.count()) > 0) {
+      await expect(monitoredLine.first()).toBeVisible();
+    }
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("issues.png", { fullPage: true });
   });

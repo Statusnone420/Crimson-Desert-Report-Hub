@@ -9,11 +9,11 @@ import {
   type CurrentPatchEligibilityReason,
 } from "@/lib/automation/eligibility";
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
-import { buildMemorySearchQueries, chooseScanIntent, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
+import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
 import { shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
-import { tavilySearch, type SearchResult } from "@/lib/automation/search";
+import { tavilyExtract, tavilySearch, type SearchResult } from "@/lib/automation/search";
 import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
@@ -60,7 +60,9 @@ export type RunProgress = {
 function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
   return {
     stage,
-    searchesDone: result.searchQueriesUsed,
+    // Clamp: recon /extract calls share searchQueriesUsed, so raw done can exceed the
+    // per-run search total; the progress bar should never read >100%.
+    searchesDone: Math.min(result.searchQueriesUsed, searchTotal),
     searchTotal,
     candidatesSeen: result.candidatesSeen,
     prefilterRejected: result.prefilterRejected,
@@ -199,6 +201,10 @@ type ApprovedExcerptRow = {
 
 const SEARCH_QUERY_COST_USD = 0.008;
 const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
+// Hard cap on full-page recon fetches per run. Each fetch is one Tavily extract
+// credit, so this bounds the extra cost of the "read the real thread before
+// rejecting" lane regardless of how many borderline candidates a run surfaces.
+const MAX_RECON_FETCHES_PER_RUN = 3;
 
 function searchResultToInput(result: SearchResult): SourceInput {
   return {
@@ -369,6 +375,21 @@ async function loadPrivateSignalClusterTitles(supabase: ReturnType<typeof create
     .filter((title): title is string => Boolean(title));
 }
 
+async function loadHuntableSeedClusterTitles(supabase: ReturnType<typeof createServiceClient>): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("issue_clusters")
+    .select("title")
+    .eq("is_public", true)
+    .eq("confidence", "seed_unverified")
+    .eq("signal_count", 0)
+    .eq("direct_report_count", 0)
+    .limit(10);
+  if (error) throw new Error(`huntable seed cluster target read failed: ${error.message}`);
+  return ((data ?? []) as { title?: string | null }[])
+    .map((row) => row.title?.trim())
+    .filter((title): title is string => Boolean(title));
+}
+
 async function countRejectedCandidates(supabase: ReturnType<typeof createServiceClient>, now: Date): Promise<number> {
   const { data, error } = await supabase
     .from("automation_rejected_candidates")
@@ -386,13 +407,19 @@ async function loadScanMemory(
   currentPatch: CurrentPatchContext,
   now: Date,
 ): Promise<ScanMemory> {
-  const [publicSignals, privateSignals, rejectedCandidates, targetClusterTitles, recentRuns] = await Promise.all([
-    loadPublicSignalsForAudit(supabase),
-    countPrivateSignals(supabase),
-    countRejectedCandidates(supabase, now),
-    loadPrivateSignalClusterTitles(supabase),
-    loadRecentRunMemory(supabase),
-  ]);
+  const [publicSignals, privateSignals, rejectedCandidates, privateClusterTitles, seedClusterTitles, recentRuns] =
+    await Promise.all([
+      loadPublicSignalsForAudit(supabase),
+      countPrivateSignals(supabase),
+      countRejectedCandidates(supabase, now),
+      loadPrivateSignalClusterTitles(supabase),
+      loadHuntableSeedClusterTitles(supabase),
+      loadRecentRunMemory(supabase),
+    ]);
+  // Private-signal clusters first (they already have momentum), then zero-evidence
+  // public seed clusters so the scanner actually hunts them by name. De-duplicate
+  // and keep the same small cap as the individual title reads.
+  const targetClusterTitles = [...new Set([...privateClusterTitles, ...seedClusterTitles])].slice(0, 10);
   return {
     stalePublicSignals: publicSignals.filter((row) => !sourceSignalEligibility(row, currentPatch).canPublish).length,
     privateSignals,
@@ -434,6 +461,7 @@ async function collectInputs(
   now: Date,
   currentPatch: CurrentPatchContext,
   intent: ScanIntent,
+  laneCount: number,
   report?: () => Promise<void>,
 ): Promise<SourceInput[]> {
   const inputs: SourceInput[] = [];
@@ -472,6 +500,7 @@ async function collectInputs(
     for (const query of buildMemorySearchQueries(budget.maxSearchQueries, currentPatch.version, intent, {
       rotationOffset: searchRotationOffset(now),
       targetClusterTitles: result.intent === "corroborate_cluster" ? result.targetClusterTitles : undefined,
+      laneCount,
     })) {
       try {
         result.searchQueriesUsed += 1;
@@ -504,6 +533,12 @@ async function prepareSignals(
   const rejected: RejectedCandidate[] = [];
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
+  let reconFetchesUsed = 0;
+  // Recon uses Tavily's extract endpoint, so it must be gated on the SAME
+  // configured-web-search signal as paid search in collectInputs. Without this,
+  // an unset/rotated TAVILY_API_KEY makes tavilyExtract a no-op that still books
+  // phantom credits into the monthly ledger. Computed once per run.
+  const webSearchEnabled = features().webSearch;
   const limit = Math.max(25, budget.maxSearchResults + 25);
   const candidates = inputs.slice(0, limit);
   result.candidatesSeen += candidates.length;
@@ -541,8 +576,65 @@ async function prepareSignals(
     );
     if (!preScreen.keep) {
       if (preScreen.reason === "source_not_issue_report" && isBorderlineRescueCandidate(signal, currentPatch)) {
+        // Recon lane: read the real page ONCE before rejecting a promising
+        // trusted current-patch candidate whose Tavily snippet is too thin. Bounded
+        // by the MONTHLY Tavily credit budget (searchQueriesUsed < remainingTavilyCredits)
+        // and capped at MAX_RECON_FETCHES_PER_RUN per run — so a run adds at most that
+        // many /extract calls ON TOP OF its per-run search allowance (it is not bounded
+        // by the per-run search cap). A recon miss (budget/cap/failure) falls straight
+        // through to today's snippet-only borderline behavior — strict enhancement, never a regression.
+        let reconText: string | null = null;
+        if (
+          webSearchEnabled &&
+          budget.allowPaidSearch &&
+          reconFetchesUsed < MAX_RECON_FETCHES_PER_RUN &&
+          result.searchQueriesUsed < budget.remainingTavilyCredits
+        ) {
+          reconFetchesUsed += 1;
+          result.searchQueriesUsed += 1;
+          result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
+          result.skips.push("candidate_recon");
+          try {
+            reconText = await tavilyExtract(canonicalUrl, { now: new Date(signal.observedAt) });
+          } catch (error) {
+            result.status = "partial";
+            result.errors.push(toErrorMessage(error, "recon extract failed"));
+            reconText = null;
+          }
+        }
+
+        const effectiveBody = reconText ?? signal.body;
+
+        // Re-run the cheap gate on the FULL text. Recon may reveal the source is a
+        // wrong-patch/stale/non-issue page after all — hard-reject on the real text.
+        if (reconText !== null) {
+          const reScreen = preScreenCandidate(
+            {
+              title: signal.title,
+              snippet: effectiveBody,
+              sourceDomain: signal.sourceDomain,
+              sourcePublishedAt: signal.sourcePublishedAt ?? null,
+            },
+            { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
+          );
+          if (!reScreen.keep) {
+            result.skips.push(reScreen.reason);
+            result.prefilterRejected += 1;
+            rejected.push({
+              title: signal.title,
+              url: canonicalUrl,
+              sourceDomain: signal.sourceDomain,
+              sourcePublishedAt: signal.sourcePublishedAt ?? null,
+              snippet: effectiveBody.slice(0, 500),
+              reason: reScreen.reason,
+            });
+            await report?.();
+            continue;
+          }
+        }
+
         const extraction = await extractSignalWithOpenRouter(
-          { title: signal.title, snippet: signal.body, url: canonicalUrl },
+          { title: signal.title, snippet: effectiveBody, url: canonicalUrl },
           {
             llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed),
             llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
@@ -560,6 +652,7 @@ async function prepareSignals(
           result.candidatesRescued += 1;
           prepared.push({
             ...signal,
+            body: effectiveBody,
             canonicalUrl,
             externalHash,
             semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
@@ -576,7 +669,7 @@ async function prepareSignals(
           url: canonicalUrl,
           sourceDomain: signal.sourceDomain,
           sourcePublishedAt: signal.sourcePublishedAt ?? null,
-          snippet: signal.body.slice(0, 500),
+          snippet: effectiveBody.slice(0, 500),
           reason: relevance.reason,
         });
         await report?.();
@@ -895,14 +988,21 @@ async function refreshClusterStats(
   // would make a seeded watchlist item vanish the moment a private scanner signal
   // routes into it. Below threshold, keep the cluster's existing visibility.
   const hasPublicEvidence = publicSignalCount > 0 || clusterReports.length > 0;
+  // An already-visible cluster that drops below threshold but still holds a live
+  // current-patch candidate signal stays VISIBLE as an "Unconfirmed" watchlist row
+  // rather than being hidden. This does NOT publish anything — the candidate stays
+  // private; only the cluster's visibility flag is preserved.
+  const hasLiveCandidates = signals.some((signal) => sourceSignalEligibility(signal, currentPatch).canStore);
   const isPublic =
     decision.publicStatus === "public"
       ? true
       : decision.publicStatus === "hidden"
         ? false
-        : cluster.auto_public && !hasPublicEvidence
-          ? false
-          : (cluster.is_public ?? false);
+        : cluster.is_public && hasLiveCandidates
+          ? true
+          : cluster.auto_public && !hasPublicEvidence
+            ? false
+            : (cluster.is_public ?? false);
   const { error: clusterUpdateError } = await supabase
     .from("issue_clusters")
     .update({
@@ -1198,6 +1298,10 @@ async function executeAutomationRun(
     const scanMemory = await loadScanMemory(supabase, currentPatch, now);
     result.intent = chooseScanIntent(scanMemory, searchRotationOffset(now));
     result.targetClusterTitles = scanMemory.targetClusterTitles;
+    // Corroborate advances its title per TURN (offset / laneCount); computing the
+    // lane count here — where scanMemory is in scope — keeps that rotation from
+    // being aliased by the intent-lane offset (see buildMemorySearchQueries).
+    const laneCount = eligibleLaneCount(scanMemory);
     await updateRunIntent(supabase, runId, result.intent);
 
     if (mode !== "dry_run") {
@@ -1208,7 +1312,7 @@ async function executeAutomationRun(
     const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
 
     await report("searching");
-    const inputs = await collectInputs(result, budget, now, currentPatch, result.intent, () => report("searching"));
+    const inputs = await collectInputs(result, budget, now, currentPatch, result.intent, laneCount, () => report("searching"));
     const prepared = await prepareSignals(
       inputs,
       result,

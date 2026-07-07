@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   insertSkippedScheduledRun: vi.fn(),
   syncOfficialPatchNote: vi.fn(),
   tavilySearch: vi.fn(),
+  tavilyExtract: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -29,6 +30,7 @@ vi.mock("@/lib/automation/search", async (importOriginal) => {
   return {
     ...actual,
     tavilySearch: mocks.tavilySearch,
+    tavilyExtract: mocks.tavilyExtract,
   };
 });
 
@@ -365,6 +367,9 @@ function configureProviders() {
       observedAt: "2026-07-05T12:00:00.000Z",
     },
   ]);
+  // Recon is off by default: no full-page text unless a test opts in. Existing
+  // borderline behavior (extract on the thin snippet) must be unchanged.
+  mocks.tavilyExtract.mockResolvedValue(null);
   mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
     const text = `${candidate.title} ${candidate.snippet}`;
     const isCrash = /map crash/i.test(text);
@@ -1054,6 +1059,184 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("reads full trusted-source content before rejecting and rescues on the recon text", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // Thin snippet lacks symptom language (would be source_not_issue_report) but is a
+    // borderline trusted current-patch candidate. The real thread text has the symptom.
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://reddit.com/r/CrimsonDesert/comments/recon/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(1);
+    expect(mocks.tavilyExtract.mock.calls[0][0]).toBe(
+      "https://reddit.com/r/CrimsonDesert/comments/recon/current_patch",
+    );
+    expect(result.candidatesRescued).toBe(1);
+    expect(result.signalsInserted).toBe(1);
+    expect(result.prefilterRejected).toBe(0);
+    expect(result.skips).toContain("candidate_recon");
+    expect(result.skips).toContain("candidate_rescued");
+    // Ledger: each search query and each recon fetch books exactly one Tavily
+    // credit, so searchQueriesUsed = search queries issued + recon fetches, and
+    // estimatedCostUsd rises by SEARCH_QUERY_COST_USD (0.008) per recon fetch.
+    const reconFetches = mocks.tavilyExtract.mock.calls.length;
+    expect(reconFetches).toBe(1);
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + reconFetches);
+    expect(result.estimatedCostUsd).toBeCloseTo(result.searchQueriesUsed * 0.008 + result.llmCostUsd, 10);
+    // The LLM classified the FULL recon text, not the thin snippet.
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][0].snippet).toContain("constant stutter and fps drops");
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      source_domain: "reddit.com",
+      public_status: "private",
+    });
+    // Stored raw_text is the real thread, not the thin snippet.
+    expect(sourceSignalRows()[0].raw_text).toContain("constant stutter and fps drops on patch 1.13.00");
+  });
+
+  it("caps recon fetches per run and falls back to snippet-only for the overflow", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // Four borderline trusted current-patch candidates, each thin. MAX_RECON_FETCHES_PER_RUN is 3.
+    mocks.tavilySearch.mockImplementationOnce(async () =>
+      Array.from({ length: 4 }, (_, index) => ({
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: `https://reddit.com/r/CrimsonDesert/comments/recon-${index}/current_patch/`,
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      })),
+    );
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // At most three recon fetches; the fourth candidate falls back to snippet-only borderline.
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(3);
+    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(3);
+    expect(result.status).not.toBe("failed");
+    // Ledger: exactly three recon credits booked (the overflow candidate books none).
+    const reconFetches = mocks.tavilyExtract.mock.calls.length;
+    expect(reconFetches).toBe(3);
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + reconFetches);
+    expect(result.estimatedCostUsd).toBeCloseTo(result.searchQueriesUsed * 0.008 + result.llmCostUsd, 10);
+    // The three recon-rescued candidates are kept; the overflow one still runs the
+    // old snippet-only borderline extract (which also keeps under the default mock).
+    expect(result.candidatesRescued).toBe(4);
+    expect(sourceSignalRows()).toHaveLength(4);
+  });
+
+  it("does not recon-fetch a non-trusted borderline candidate", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://example.com/discussion/current_patch",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // example.com is not trusted, so it never enters the borderline lane and recon never fires.
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+  });
+
+  it("does not recon-fetch when paid search is not allowed", async () => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    // A trusted borderline Reddit candidate still flows through prepareSignals even with
+    // paid search off, but the recon fetch must be gated behind allowPaidSearch.
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-borderline",
+        title: "Crimson Desert patch 1.13 player discussion",
+        selftext: "Body retained for moderator review.",
+        permalink: "/r/CrimsonDesert/comments/reddit-borderline/current_patch/",
+        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
+      },
+    ]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("budget_zero");
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(result.skips).not.toContain("candidate_recon");
+  });
+
+  it("does not book a phantom recon credit when Tavily is unconfigured but paid search is allowed", async () => {
+    // The phantom-charge bug: allowPaidSearch stays true (budget-driven), but with
+    // TAVILY_API_KEY unset tavilyExtract makes ZERO network calls and returns null.
+    // Recon must be gated on features().webSearch so it never books a credit here.
+    const savedKey = process.env.TAVILY_API_KEY;
+    delete process.env.TAVILY_API_KEY;
+    // A trusted reddit.com borderline current-patch candidate arrives via Reddit
+    // (web search can't run without the key, but Reddit still can).
+    mocks.fetchNewPosts.mockResolvedValue([
+      {
+        id: "reddit-borderline-nokey",
+        title: "Crimson Desert patch 1.13 player discussion",
+        selftext: "Body retained for moderator review.",
+        permalink: "/r/CrimsonDesert/comments/reddit-borderline-nokey/current_patch/",
+        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
+      },
+    ]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    try {
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+      expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+      expect(result.skips).not.toContain("candidate_recon");
+      // No phantom Tavily credit booked and no phantom cost.
+      expect(result.searchQueriesUsed).toBe(0);
+      expect(result.estimatedCostUsd).toBeCloseTo(result.llmCostUsd, 10);
+    } finally {
+      if (savedKey === undefined) delete process.env.TAVILY_API_KEY;
+      else process.env.TAVILY_API_KEY = savedKey;
+    }
+  });
+
   it("hides existing public stale source links during a later scan even when no new mentions are kept", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -1326,9 +1509,11 @@ describe("runAutomationMonitor", () => {
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, corroborate]
+    // rotation on corroborate, so the zero-kept memory drives corroboration.
     await runAutomationMonitor({
       mode: "scheduled",
-      now: new Date("2026-07-05T12:00:00.000Z"),
+      now: new Date("2026-07-05T13:00:00.000Z"),
       scannerPolicy: {
         paused: false,
         minIntervalMinutes: 60,
@@ -1381,9 +1566,11 @@ describe("runAutomationMonitor", () => {
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, corroborate]
+    // rotation on corroborate (discovery still gets its turn on other offsets).
     await runAutomationMonitor({
       mode: "scheduled",
-      now: new Date("2026-07-05T12:00:00.000Z"),
+      now: new Date("2026-07-05T13:00:00.000Z"),
       scannerPolicy: {
         paused: false,
         minIntervalMinutes: 60,
@@ -1396,6 +1583,55 @@ describe("runAutomationMonitor", () => {
 
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("player reports corroborate");
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Shader compilation stutter");
+    expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
+  });
+
+  it("hunts zero-evidence public seed clusters by name", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-boss-crash",
+          slug: "boss-rematch-crash-persistent",
+          title: "Boss rematch crash persistent",
+          category: "crash_startup",
+          description: "Public seed cluster with no evidence yet.",
+          fix_status: "reported",
+          confidence: "seed_unverified",
+          is_public: true,
+          auto_public: false,
+          signal_count: 0,
+          direct_report_count: 0,
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 13:00Z -> rotation offset is odd, so the two-lane [discovery, corroborate]
+    // rotation lands on corroborate and the seed cluster title is hunted by name.
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_qwen_pro",
+      },
+    });
+
+    expect(result.targetClusterTitles).toContain("Boss rematch crash persistent");
+    expect(result.intent).toBe("corroborate_cluster");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Boss rematch crash persistent");
     expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
   });
 
@@ -1423,9 +1659,11 @@ describe("runAutomationMonitor", () => {
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, rescue]
+    // rotation on rescue (discovery still gets its turn on other offsets).
     await runAutomationMonitor({
       mode: "scheduled",
-      now: new Date("2026-07-05T12:00:00.000Z"),
+      now: new Date("2026-07-05T13:00:00.000Z"),
       scannerPolicy: {
         paused: false,
         minIntervalMinutes: 60,
@@ -1609,6 +1847,88 @@ describe("runAutomationMonitor", () => {
     // The lone routed signal is below the promotion threshold and stays private...
     expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-seeded-perf", public_status: "private" });
     // ...but the seeded watchlist item must remain publicly visible, not vanish.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: true,
+    });
+  });
+
+  it("keeps an auto-public cluster visible when its public signal goes stale but a live current-patch candidate remains", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-crash-hang",
+          slug: "crash_startup_hang",
+          title: "Crash / hang on startup",
+          category: "crash_startup",
+          description: "Auto-promoted crash cluster whose public evidence went stale.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-crash-stale",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://steamcommunity.com/app/crash-old",
+          canonical_url: "https://steamcommunity.com/app/crash-old",
+          title: "Game crashes on startup after 1.04",
+          summary: "Players report startup crashes on patch 1.04.",
+          source_domain: "steamcommunity.com",
+          source_published_at: "2026-05-01T12:00:00.000Z",
+          semantic_fingerprint: "crash-hang-stale",
+          cluster_id: "cluster-crash-hang",
+          category: "crash_startup",
+          confidence: "medium",
+          observed_at: "2026-05-01T12:00:00.000Z",
+          public_status: "public",
+        },
+        {
+          id: "signal-crash-live",
+          source: "reddit",
+          source_type: "reddit",
+          source_url: "https://reddit.com/r/CrimsonDesert/crash-live",
+          canonical_url: "https://reddit.com/r/CrimsonDesert/crash-live",
+          title: "PS5 crash on startup since latest patch",
+          summary: "PS5 and Steam players hit a startup crash on the current build.",
+          source_domain: "reddit.com",
+          source_published_at: "2026-07-04T12:00:00.000Z",
+          semantic_fingerprint: "crash-hang-live",
+          cluster_id: "cluster-crash-hang",
+          category: "crash_startup",
+          confidence: "medium",
+          observed_at: "2026-07-04T12:00:00.000Z",
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The stale public source is quarantined, dropping the cluster below threshold.
+    expect(result.staleSignalsHidden).toBe(1);
+    const staleRow = sourceSignalRows().find((row) => row.id === "signal-crash-stale");
+    expect(staleRow).toMatchObject({ public_status: "hidden", promotion_reason: "wrong_patch" });
+    // Promotion stays strict: the live current-patch candidate is NOT published.
+    const liveRow = sourceSignalRows().find((row) => row.id === "signal-crash-live");
+    expect(liveRow).toMatchObject({ public_status: "private" });
+    // But the cluster stays VISIBLE as a watchlist row because it still holds a live
+    // current-patch candidate — it must not be hidden.
     expect(tables.issue_clusters[0]).toMatchObject({
       public_signal_count: 0,
       auto_public: false,

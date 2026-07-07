@@ -7,6 +7,9 @@ import {
   countEvidenceBackedPersistentClusters,
   countUnverifiedClaimedFixWatchlistClusters,
   hasClusterEvidence,
+  monitoredAreasNote,
+  splitWatchlistByCandidates,
+  unconfirmedMentionsNote,
 } from "@/lib/evidence";
 import { clusterEvidenceState } from "@/lib/evidenceLadder";
 import { getDashboardData } from "@/lib/queries";
@@ -57,6 +60,7 @@ export default async function DashboardPage() {
   const claimedFixWatchlistCount = countUnverifiedClaimedFixWatchlistClusters(d.topClusters);
   const active = d.topClusters.filter(hasClusterEvidence);
   const watchlist = d.topClusters.filter((c) => !hasClusterEvidence(c));
+  const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
   const maxStrength = Math.max(...active.map((c) => c.strengthScore), 1);
   const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
   const gpuEntries = Object.entries(d.gpus).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -121,8 +125,8 @@ export default async function DashboardPage() {
             note={
               d.communitySignals === 0
                 ? totalCandidates > 0
-                  ? `${totalCandidates} unconfirmed mention(s)`
-                  : "none found yet — scanner active"
+                  ? `${totalCandidates} unconfirmed ${totalCandidates === 1 ? "mention" : "mentions"}`
+                  : "None yet — checked each run"
                 : "Public · sourced"
             }
             tone="blue"
@@ -263,11 +267,11 @@ export default async function DashboardPage() {
       <section className="grid gap-3 lg:grid-cols-[1.5fr_0.9fr]">
         <div className="panel space-y-5">
           <SectionHeader
-            title={active.length > 0 ? "Top issues this patch" : "Watchlist awaiting evidence"}
+            title={active.length > 0 ? "Top issues this patch" : "Nothing backed by evidence yet"}
             description={
               active.length > 0
                 ? "Ranked by approved reports and public signals."
-                : "These are seeded watchlist items. They do not become evidence until approved reports or public signals confirm them."
+                : "We're monitoring known problem areas and checking public sources each run. Items appear here once a player report or public source backs them."
             }
             action={
               <Link href="/issues" className="btn btn-ghost btn-sm">
@@ -295,32 +299,46 @@ export default async function DashboardPage() {
             </div>
           ) : null}
 
-          {watchlist.length > 0 ? (
+          {candidates.length > 0 || monitored.length > 0 ? (
             <div className="space-y-2.5">
-              {active.length > 0 ? <div className="stat-label pt-1">Watchlist · awaiting first reports</div> : null}
-              <div className="grid gap-2 sm:grid-cols-2">
-                {watchlist.map((cluster) => (
-                  <Link
-                    key={cluster.id}
-                    href="/issues"
-                    className="panel-inset interactive block space-y-1.5 border px-3 py-2.5"
-                  >
-                    <p className="truncate text-sm font-medium">{cluster.title}</p>
-                    <div className="flex items-center justify-between gap-2">
-                      <EvidenceLadderBadge
-                        state={clusterEvidenceState({
-                          directReportCount: cluster.directReportCount,
-                          publicSignalCount: cluster.signalCount,
-                          candidateSignalCount: cluster.candidateSignalCount,
-                        })}
-                      />
-                      <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-                        {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
+              {active.length > 0 ? <div className="stat-label pt-1">Also watching</div> : null}
+              {candidates.length > 0 ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {candidates.map((cluster) => (
+                    <Link
+                      key={cluster.id}
+                      href="/issues"
+                      className="panel-inset interactive block space-y-1.5 border px-3 py-2.5"
+                    >
+                      <p className="truncate text-sm font-medium">{cluster.title}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <EvidenceLadderBadge
+                          state={clusterEvidenceState({
+                            directReportCount: cluster.directReportCount,
+                            publicSignalCount: cluster.signalCount,
+                            candidateSignalCount: cluster.candidateSignalCount,
+                          })}
+                        />
+                        <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+                          {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
+                        </span>
+                      </div>
+                      <p className="text-xs" style={{ color: "var(--blue)" }}>
+                        {unconfirmedMentionsNote(cluster.candidateSignalCount)}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+              {monitored.length > 0 ? (
+                <p
+                  className="text-xs"
+                  style={{ color: "var(--text-faint)" }}
+                  title="The scanner checks public sources each run."
+                >
+                  {monitoredAreasNote(monitored.length)}
+                </p>
+              ) : null}
             </div>
           ) : null}
 

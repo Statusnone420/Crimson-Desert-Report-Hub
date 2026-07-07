@@ -46,6 +46,24 @@ const NO_ISSUE_PATTERNS = [
   /\bwithout (?:reported |known )?(?:issues?|bugs?|crashes?|problems?)\b/i,
 ] as const;
 
+const CLAIMED_FIX_PATTERNS = [
+  /\bfixed an issue where\b/i,
+  /\bfixed a bug where\b/i,
+  /\ban issue where\b.{0,80}\b(?:has been|was)\s+fixed\b/i,
+] as const;
+
+const FIX_PERSISTENCE_CUES = [
+  /\bstill\b/i,
+  /\bpersists?\b/i,
+  /\bnot fixed\b/i,
+  /\bunfixed\b/i,
+  /\beven after\b/i,
+  /\bagain\b/i,
+  /\bback\b/i,
+  /\bdidn'?t (?:fix|work|help)\b/i,
+  /\bsupposed(?:ly)? fixed\b/i,
+] as const;
+
 function compact(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -64,6 +82,10 @@ function saysNoIssue(text: string): boolean {
 
 function isBroadContentTitle(title: string): boolean {
   return matchesAny(title, BROAD_CONTENT_PATTERNS);
+}
+
+function isClaimedFixNotReport(text: string): boolean {
+  return matchesAny(text, CLAIMED_FIX_PATTERNS) && !matchesAny(text, FIX_PERSISTENCE_CUES);
 }
 
 /**
@@ -90,6 +112,9 @@ export function preScreenCandidate(
     return { keep: false, reason: patchEligibility.reason === "wrong_patch" ? "wrong_patch" : "stale_source" };
   }
   if (isBroadContentTitle(input.title)) {
+    return { keep: false, reason: "source_not_issue_report" };
+  }
+  if (isClaimedFixNotReport(sourceText)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {

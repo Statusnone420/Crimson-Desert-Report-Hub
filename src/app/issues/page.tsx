@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { EvidenceLadderBadge, FixStatusBadge, SectionHeader, SignalConfidenceBadge } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
-import { countEvidenceBackedPersistentClusters, hasClusterEvidence, isUnverifiedWatchlistCluster } from "@/lib/evidence";
+import {
+  countEvidenceBackedPersistentClusters,
+  hasClusterEvidence,
+  isUnverifiedWatchlistCluster,
+  monitoredAreasNote,
+  splitWatchlistByCandidates,
+  unconfirmedMentionsNote,
+} from "@/lib/evidence";
 import { clusterEvidenceState } from "@/lib/evidenceLadder";
 import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 
@@ -24,6 +31,7 @@ export default async function IssuesPage() {
   ]);
   const active = clusters.filter(hasClusterEvidence);
   const watchlist = clusters.filter((c) => !hasClusterEvidence(c));
+  const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
   const persistent = countEvidenceBackedPersistentClusters(clusters);
 
   function ClusterCard({ cluster }: { cluster: (typeof clusters)[number] }) {
@@ -60,7 +68,7 @@ export default async function IssuesPage() {
 
         {state === "candidates" ? (
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            {cluster.candidateSignalCount} unconfirmed mention(s) found — not enough separate sources yet.
+            {unconfirmedMentionsNote(cluster.candidateSignalCount)}
           </p>
         ) : null}
 
@@ -117,7 +125,7 @@ export default async function IssuesPage() {
           <div className="stat-value mt-1.5">{active.length}</div>
           {active.length === 0 ? (
             <div className="mt-1.5 text-xs font-medium" style={{ color: "var(--text-dim)" }}>
-              scanner active — nothing confirmed yet
+              nothing confirmed yet
             </div>
           ) : null}
         </div>
@@ -143,40 +151,53 @@ export default async function IssuesPage() {
             </section>
           ) : null}
 
-          {watchlist.length > 0 ? (
+          {candidates.length > 0 || monitored.length > 0 ? (
             <section className="panel space-y-3">
-              <h2 className="stat-label">Watchlist · scanner is hunting, no evidence yet</h2>
-              <div className={watchlist.length === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2"}>
-                {watchlist.map((cluster) => (
-                  <div key={cluster.id} className="panel-inset space-y-1.5 border px-3 py-2.5">
-                    <p className="truncate text-sm font-medium">{cluster.title}</p>
-                    <div className="flex items-center justify-between gap-2">
-                      <EvidenceLadderBadge
-                        state={clusterEvidenceState({
-                          directReportCount: cluster.directReportCount,
-                          publicSignalCount: cluster.signalCount,
-                          candidateSignalCount: cluster.candidateSignalCount,
-                        })}
-                      />
-                      <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-                        {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
-                      </span>
-                    </div>
-                    {cluster.candidateSignalCount > 0 ? (
-                      <p className="text-xs" style={{ color: "var(--blue)" }}>
-                        {cluster.candidateSignalCount} unconfirmed mention(s) — not enough separate sources yet
-                      </p>
-                    ) : null}
-                  </div>
-                ))}
+              <div className="space-y-1">
+                <h2 className="stat-label">Watchlist</h2>
+                <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+                  Nothing here is backed yet. A topic moves up the moment a player report or public source backs it.
+                </p>
               </div>
+              {candidates.length > 0 ? (
+                <div className={candidates.length === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2"}>
+                  {candidates.map((cluster) => (
+                    <div key={cluster.id} className="panel-inset space-y-1.5 border px-3 py-2.5">
+                      <p className="truncate text-sm font-medium">{cluster.title}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <EvidenceLadderBadge
+                          state={clusterEvidenceState({
+                            directReportCount: cluster.directReportCount,
+                            publicSignalCount: cluster.signalCount,
+                            candidateSignalCount: cluster.candidateSignalCount,
+                          })}
+                        />
+                        <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+                          {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
+                        </span>
+                      </div>
+                      <p className="text-xs" style={{ color: "var(--blue)" }}>
+                        {unconfirmedMentionsNote(cluster.candidateSignalCount)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {monitored.length > 0 ? (
+                <p
+                  className="text-xs"
+                  style={{ color: "var(--text-faint)" }}
+                  title="The scanner checks public sources each run."
+                >
+                  {monitoredAreasNote(monitored.length)}
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
                 <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-                  A cluster earns its full section — signals, sources, excerpts — the moment the first evidence lands.
-                  Scanner last finished {timeAgo(scanMeta?.finishedAt ?? null)}.
+                  The scanner checks public sources every run. Last run finished {timeAgo(scanMeta?.finishedAt ?? null)}.
                 </p>
                 <Link href="/report" className="btn btn-ghost btn-sm">
-                  Seeing one of these? Report it
+                  Seeing a bug? Report it
                 </Link>
               </div>
             </section>

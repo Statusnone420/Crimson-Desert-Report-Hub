@@ -30,6 +30,62 @@ export function computeFeatures(env: EnvLike): Features {
   };
 }
 
+export type IntegrationStatus = {
+  key: "reddit" | "web_search" | "ai_extraction";
+  label: string;
+  connected: boolean;
+  missingEnv: string[];
+  detail: string;
+};
+
+export function integrationStatuses(env: EnvLike = process.env): IntegrationStatus[] {
+  const redditVars: Array<[string, string | undefined]> = [
+    ["REDDIT_CLIENT_ID", env.REDDIT_CLIENT_ID],
+    ["REDDIT_CLIENT_SECRET", env.REDDIT_CLIENT_SECRET],
+    ["REDDIT_USER_AGENT", env.REDDIT_USER_AGENT],
+  ];
+  const redditMissing = redditVars.filter(([, value]) => !hasEnvValue(value)).map(([name]) => name);
+  const redditConnected = redditMissing.length === 0;
+
+  const webSearchConnected = hasEnvValue(env.TAVILY_API_KEY);
+
+  // The automation extractor (extractSignalWithOpenRouter) reads OPENROUTER_API_KEY
+  // ONLY and otherwise returns deterministic keyword extraction, so a Groq-only env
+  // is NOT connected for the scanner even though computeFeatures().ai may still be true.
+  const aiConnected = hasEnvValue(env.OPENROUTER_API_KEY);
+  const aiMissing = aiConnected ? [] : ["OPENROUTER_API_KEY"];
+
+  return [
+    {
+      key: "reddit",
+      label: "Reddit API",
+      connected: redditConnected,
+      missingEnv: redditMissing,
+      detail: redditConnected
+        ? "Reading r/CrimsonDesert posts each run."
+        : "Not connected — the scanner reads no Reddit posts and relies on web search only.",
+    },
+    {
+      key: "web_search",
+      label: "Web search (Tavily)",
+      connected: webSearchConnected,
+      missingEnv: webSearchConnected ? [] : ["TAVILY_API_KEY"],
+      detail: webSearchConnected
+        ? "Discovering public sources via Tavily."
+        : "Not connected — the scanner cannot discover new public sources.",
+    },
+    {
+      key: "ai_extraction",
+      label: "AI extraction (OpenRouter)",
+      connected: aiConnected,
+      missingEnv: aiMissing,
+      detail: aiConnected
+        ? "Extracting signals with a free model."
+        : "Not connected — falling back to deterministic keyword extraction.",
+    },
+  ];
+}
+
 export function automationBudgetUsd(env: EnvLike = process.env): number {
   const raw = env.AUTOMATION_BUDGET_USD_MONTHLY?.trim() ?? "5";
   const parsed = Number(raw);

@@ -657,17 +657,107 @@ describe("countIndependentDomains", () => {
 });
 
 describe("scanner memory planning", () => {
-  it("uses quarantine as a no-search cleanup intent", () => {
-    const intent = chooseScanIntent({
-      stalePublicSignals: 1,
-      privateSignals: 0,
-      rejectedCandidates: 0,
-      targetClusterTitles: [],
-      recentRuns: [],
-    });
+  it("never returns quarantine even when stale public signals exist, so the run can still search", () => {
+    // Staleness is handled by the always-on quarantine step in run.ts, not by the
+    // intent. Stale signals must no longer suppress searching.
+    for (const rotationOffset of [0, 1, 2, 3]) {
+      const intent = chooseScanIntent(
+        {
+          stalePublicSignals: 3,
+          privateSignals: 0,
+          rejectedCandidates: 0,
+          targetClusterTitles: [],
+          recentRuns: [],
+        },
+        rotationOffset,
+      );
 
-    expect(intent).toBe("quarantine");
-    expect(buildMemorySearchQueries(1, "1.13.00", intent)).toEqual([]);
+      expect(intent).not.toBe("quarantine");
+      expect(buildMemorySearchQueries(1, "1.13.00", intent, { rotationOffset })).not.toEqual([]);
+    }
+  });
+
+  it("keeps discovery in the rotation even when rescue and corroborate backlogs both exist", () => {
+    const intents = new Set(
+      [0, 1, 2, 3, 4, 5].map((rotationOffset) =>
+        chooseScanIntent(
+          {
+            stalePublicSignals: 0,
+            privateSignals: 4,
+            rejectedCandidates: 4,
+            targetClusterTitles: ["Shader compilation stutter"],
+            recentRuns: [],
+          },
+          rotationOffset,
+        ),
+      ),
+    );
+
+    // Discovery is not starved: at least one discovery lane appears across the rotation.
+    expect(intents.has("broad_discovery") || intents.has("forum_discovery")).toBe(true);
+    // The backlogs still get their turns.
+    expect(intents.has("corroborate_cluster")).toBe(true);
+    expect(intents.has("rescue_candidate")).toBe(true);
+  });
+
+  it("still emits forum_discovery when a single backlog gates the discovery slot to even offsets", () => {
+    // One backlog (rescue) → laneCount 2, so the discovery slot only lands on even
+    // offsets. Broad/forum must advance per discovery TURN, not raw offset parity, or
+    // forum_discovery (the site:reddit / site:steam lane) would never fire.
+    const intents = new Set(
+      [0, 1, 2, 3, 4, 5, 6, 7].map((rotationOffset) =>
+        chooseScanIntent(
+          {
+            stalePublicSignals: 0,
+            privateSignals: 0,
+            rejectedCandidates: 4,
+            targetClusterTitles: [],
+            recentRuns: [],
+          },
+          rotationOffset,
+        ),
+      ),
+    );
+
+    expect(intents.has("forum_discovery")).toBe(true);
+    expect(intents.has("broad_discovery")).toBe(true);
+    expect(intents.has("rescue_candidate")).toBe(true);
+  });
+
+  it("rotates corroborate_cluster through every target cluster title", () => {
+    const titles = ["First cluster", "Second cluster", "Third cluster"];
+    for (let rotationOffset = 0; rotationOffset < titles.length; rotationOffset += 1) {
+      const [query] = buildMemorySearchQueries(1, "1.13.00", "corroborate_cluster", {
+        rotationOffset,
+        targetClusterTitles: titles,
+      });
+      expect(query).toContain(titles[rotationOffset % titles.length]);
+    }
+  });
+
+  it("covers every target title once per corroborate turn when a lane offset gates selection", () => {
+    // With 2 eligible lanes, corroborate only fires on odd offsets (1, 3, 5, 7).
+    // Advancing the title per corroborate TURN (offset / laneCount) instead of per
+    // raw offset guarantees all four titles get hunted — not just an even/odd half.
+    const titles = ["Alpha crash", "Beta stutter", "Gamma freeze", "Delta hitch"];
+    const laneCount = 2;
+    const hunted = new Set<string>();
+    for (const rotationOffset of [1, 3, 5, 7]) {
+      const [query] = buildMemorySearchQueries(1, "1.13.00", "corroborate_cluster", {
+        rotationOffset,
+        targetClusterTitles: titles,
+        laneCount,
+      });
+      const matched = titles.find((title) => query.includes(title));
+      if (matched) hunted.add(matched);
+    }
+    // The OLD `rotationOffset % titles.length` selection would have hit only
+    // indices {1, 3} — two titles — across those offsets. Per-turn selection hits all four.
+    expect(hunted.size).toBe(4);
+  });
+
+  it("still returns no queries for the quarantine intent value when it is passed directly", () => {
+    expect(buildMemorySearchQueries(1, "1.13.00", "quarantine")).toEqual([]);
   });
 });
 
@@ -838,6 +928,35 @@ describe("automation relevance", () => {
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: "2026-07-03T03:00:00.000Z" },
         ),
       ).toEqual({ keep: false, reason: "stale_source" });
+    });
+
+    it("rejects an official patch-note claimed-fix line even when it mentions a symptom word", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert - Steam Community",
+            snippet:
+              "Fixed an issue where the game would crash when using Photo Mode after turning off HDR while it was on.",
+            sourceDomain: "steamcommunity.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("keeps a complaint that a claimed fix did not actually work", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "map crash after 1.13.00",
+            snippet: "they supposedly fixed an issue where the map crashes but it still crashes every time on 1.13.00",
+            sourceDomain: "example.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
     });
   });
 
