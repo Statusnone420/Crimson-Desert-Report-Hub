@@ -450,3 +450,80 @@ export async function getAutomationAdminData() {
     activeRun: ((activeRunRows ?? []) as { id: string; status: string; mode: string; started_at: string }[])[0] ?? null,
   };
 }
+
+export type PublicScannerData = {
+  reviewedThisWeek: number;
+  filteredThisWeek: number;
+  keptThisWeek: number;
+  awaiting: number;
+  published: number;
+  lastCheckedAt: string | null;
+  scannerActive: boolean;
+};
+
+/**
+ * Aggregate-only scanner counts for the public /scanner tab. Selects ONLY numeric
+ * columns, cluster_id, and public_status — never a title, url, summary, or reject
+ * reason. This is the public privacy boundary: raw content never leaves this query.
+ */
+async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
+  const empty: PublicScannerData = {
+    reviewedThisWeek: 0,
+    filteredThisWeek: 0,
+    keptThisWeek: 0,
+    awaiting: 0,
+    published: 0,
+    lastCheckedAt: null,
+    scannerActive: false,
+  };
+  if (!hasSupabaseServiceConfig()) return empty;
+
+  const supabase = createServiceClient();
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: runData } = await supabase
+    .from("automation_runs")
+    .select("search_results_seen, signals_inserted, finished_at, started_at")
+    .neq("mode", "dry_run")
+    .in("status", ["success", "partial", "failed"])
+    .gte("started_at", weekAgo)
+    .order("started_at", { ascending: false });
+  const runs = (runData ?? []) as {
+    search_results_seen: number;
+    signals_inserted: number;
+    finished_at: string | null;
+    started_at: string;
+  }[];
+  const reviewedThisWeek = runs.reduce((sum, run) => sum + (run.search_results_seen ?? 0), 0);
+  const keptThisWeek = runs.reduce((sum, run) => sum + (run.signals_inserted ?? 0), 0);
+  const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek);
+  const lastCheckedAt = runs.find((run) => run.finished_at)?.finished_at ?? runs[0]?.started_at ?? null;
+
+  const { data: signalData } = await supabase.from("source_signals").select("cluster_id, public_status");
+  const publicClusters = new Set<string>();
+  const privateClusters = new Set<string>();
+  for (const signal of (signalData ?? []) as { cluster_id: string | null; public_status: string }[]) {
+    if (!signal.cluster_id) continue;
+    if (signal.public_status === "public") publicClusters.add(signal.cluster_id);
+    else if (signal.public_status === "private") privateClusters.add(signal.cluster_id);
+  }
+  let awaiting = 0;
+  for (const id of privateClusters) if (!publicClusters.has(id)) awaiting += 1;
+
+  const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+
+  return {
+    reviewedThisWeek,
+    filteredThisWeek,
+    keptThisWeek,
+    awaiting,
+    published: publicClusters.size,
+    lastCheckedAt,
+    scannerActive: !control.paused,
+  };
+}
+
+export const getPublicScannerData = unstable_cache(getPublicScannerDataUncached, ["public-scanner-data"], {
+  revalidate: 300,
+  tags: [PUBLIC_DASHBOARD_TAG],
+});
