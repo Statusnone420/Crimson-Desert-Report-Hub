@@ -994,6 +994,20 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("keeps a complaint that says claimed-fix CTDs are back", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "CTD is back after 1.13.00",
+            snippet: "they fixed an issue where the game crashed in Photo Mode",
+            sourceDomain: "example.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
+        ),
+      ).toEqual({ keep: true });
+    });
+
     it("keeps a complaint that a claimed fix did not actually work", () => {
       expect(
         preScreenCandidate(
