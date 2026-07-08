@@ -84,6 +84,7 @@ export type PublicAutomationRunRow = {
   signals_inserted: number;
   clusters_promoted: number;
   search_results_seen: number;
+  reddit_posts_seen: number;
   signals_reobserved: number;
   stale_signals_hidden: number;
   candidates_rescued: number;
@@ -251,7 +252,7 @@ async function getDashboardDataUncached() {
     supabase
       .from("automation_runs")
       .select(
-        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, signals_reobserved, stale_signals_hidden, candidates_rescued, finished_at",
+        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, reddit_posts_seen, signals_reobserved, stale_signals_hidden, candidates_rescued, finished_at",
       )
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])

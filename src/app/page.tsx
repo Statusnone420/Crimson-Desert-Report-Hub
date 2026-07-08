@@ -38,18 +38,27 @@ function statusTone(fixStatus: string): Tone {
 function latestScanWorkSummary(run: {
   status: string;
   search_results_seen: number;
+  reddit_posts_seen: number;
   signals_inserted: number;
   search_queries_used: number;
   signals_reobserved?: number;
   stale_signals_hidden?: number;
 }): string {
+  const persisted = run.status === "success" || run.status === "partial";
+  const reviewed = run.search_results_seen + run.reddit_posts_seen;
+  const keptCopy =
+    persisted && run.signals_inserted > 0
+      ? `${run.signals_inserted} mentions kept`
+      : persisted
+        ? "no new public evidence"
+        : "no persisted evidence";
   const parts = [
     `${run.status}`,
-    `${run.search_results_seen} sources reviewed`,
-    run.signals_inserted > 0 ? `${run.signals_inserted} mentions kept` : "no new public evidence",
+    `${reviewed} sources reviewed`,
+    keptCopy,
   ];
-  if ((run.signals_reobserved ?? 0) > 0) parts.push(`${run.signals_reobserved} re-observed`);
-  if ((run.stale_signals_hidden ?? 0) > 0) parts.push(`${run.stale_signals_hidden} stale hidden`);
+  if (persisted && (run.signals_reobserved ?? 0) > 0) parts.push(`${run.signals_reobserved} re-observed`);
+  if (persisted && (run.stale_signals_hidden ?? 0) > 0) parts.push(`${run.stale_signals_hidden} stale hidden`);
   if (run.search_queries_used === 0) parts.push("search skipped this run");
   return parts.join(" · ");
 }
