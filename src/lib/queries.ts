@@ -138,7 +138,10 @@ function countClusterIds(rows: { cluster_id: string | null }[]): Record<string, 
   return countBy(rows, (row) => row.cluster_id);
 }
 
-function filterPatchFamilyReports<T extends { patch_version: string | null }>(rows: T[], currentPatch: PatchContext): T[] {
+export function filterPatchFamilyReports<T extends { patch_version: string | null }>(
+  rows: T[],
+  currentPatch: PatchContext,
+): T[] {
   return rows.filter((row) => Boolean(row.patch_version && belongsToPatchFamily(row.patch_version, currentPatch.version)));
 }
 
@@ -658,10 +661,13 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
 
     const { data: reportData } = await supabase
       .from("bug_reports")
-      .select("cluster_id")
+      .select("cluster_id, patch_version")
       .eq("moderation_status", "approved");
     const approvedReportClusters = new Set<string>();
-    for (const report of (reportData ?? []) as { cluster_id: string | null }[]) {
+    for (const report of filterPatchFamilyReports(
+      (reportData ?? []) as { cluster_id: string | null; patch_version: string | null }[],
+      currentPatch,
+    )) {
       if (report.cluster_id) approvedReportClusters.add(report.cluster_id);
     }
 

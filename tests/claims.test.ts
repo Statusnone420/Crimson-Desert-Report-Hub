@@ -10,6 +10,7 @@ const clusters = [
     strengthScore: 4,
     directReportCount: 1,
     signalCount: 1,
+    postCurrentPatchEvidenceCount: 1,
   },
   {
     id: "c2",
@@ -19,6 +20,7 @@ const clusters = [
     strengthScore: 0,
     directReportCount: 0,
     signalCount: 0,
+    postCurrentPatchEvidenceCount: 0,
   },
 ];
 
@@ -38,6 +40,23 @@ describe("assessClaims", () => {
       [{ fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" }],
       clusters,
     );
+    expect(result.disputed).toHaveLength(0);
+  });
+
+  it("does not dispute a claimed fix from carried-over family evidence alone", () => {
+    const result = assessClaims(
+      [{ fixText: "Fixed an issue where opening the map caused the game to crash.", category: "crash_startup" }],
+      [
+        {
+          ...clusters[0],
+          strengthScore: 4,
+          directReportCount: 1,
+          signalCount: 1,
+          postCurrentPatchEvidenceCount: 0,
+        },
+      ],
+    );
+    expect(result.all[0]?.cluster?.id).toBe("c1");
     expect(result.disputed).toHaveLength(0);
   });
 

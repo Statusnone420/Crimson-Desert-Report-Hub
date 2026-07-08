@@ -29,7 +29,7 @@ export type ClaimsAssessment = {
   all: AssessedClaim[];
 };
 
-/** Route each official claimed fix to a watchlist cluster; evidence there disputes the claim. */
+/** Route each official claimed fix to a watchlist cluster; post-hotfix evidence there disputes the claim. */
 export function assessClaims(claims: ClaimLike[], clusters: ClaimClusterLike[]): ClaimsAssessment {
   const all = claims.map((claim) => {
     if (!claim.category) return { fixText: claim.fixText, disputed: false, cluster: null };
@@ -43,7 +43,7 @@ export function assessClaims(claims: ClaimLike[], clusters: ClaimClusterLike[]):
       clusters,
     );
     const cluster = matched ? (clusters.find((candidate) => candidate.id === matched.id) ?? null) : null;
-    return { fixText: claim.fixText, disputed: (cluster?.strengthScore ?? 0) > 0, cluster };
+    return { fixText: claim.fixText, disputed: (cluster?.postCurrentPatchEvidenceCount ?? 0) > 0, cluster };
   });
   return { total: all.length, disputed: all.filter((claim) => claim.disputed), all };
 }

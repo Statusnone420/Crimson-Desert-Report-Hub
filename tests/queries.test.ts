@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { countDistinctVerifiedReportsByCluster, publicFindingsFromSignals } from "@/lib/queries";
+import {
+  countDistinctVerifiedReportsByCluster,
+  filterPatchFamilyReports,
+  publicFindingsFromSignals,
+} from "@/lib/queries";
 
 vi.mock("server-only", () => ({}));
 
@@ -17,6 +21,22 @@ describe("countDistinctVerifiedReportsByCluster", () => {
       "cluster-one": 2,
       "cluster-two": 1,
     });
+  });
+});
+
+describe("filterPatchFamilyReports", () => {
+  it("keeps approved reports in the current patch family only", () => {
+    const rows = filterPatchFamilyReports(
+      [
+        { cluster_id: "old-major", patch_version: "1.12.00" },
+        { cluster_id: "family-base", patch_version: "1.13.00" },
+        { cluster_id: "family-hotfix", patch_version: "1.13.01" },
+        { cluster_id: "missing", patch_version: null },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+    );
+
+    expect(rows.map((row) => row.cluster_id)).toEqual(["family-base", "family-hotfix"]);
   });
 });
 

@@ -87,7 +87,7 @@ export default async function DashboardPage() {
     scanner: radar,
     directReports: d.directReports,
     communitySignals: d.communitySignals,
-    publicFindingsCount: d.publicFindings.length,
+    publicFindingsCount: d.communitySignals,
     latestReportAt: d.latestReportAt,
     topClusters: d.topClusters,
     sourceUrl: SOURCE_URL,
