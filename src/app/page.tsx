@@ -93,6 +93,21 @@ export default async function DashboardPage() {
     sourceUrl: SOURCE_URL,
     supportUrl: PEARL_ABYSS_SUPPORT_URL,
   });
+  const scannerStatusText = radar.scannerConnected
+    ? radar.scannerActive
+      ? "Scanner scheduled"
+      : "Scanner paused"
+    : "Scanner unavailable";
+  const scannerStatusTone = radar.scannerConnected
+    ? radar.scannerActive
+      ? "var(--green-bright)"
+      : "var(--amber-bright)"
+    : "var(--text-faint)";
+  const scannerStatusDot = radar.scannerConnected
+    ? radar.scannerActive
+      ? "var(--green)"
+      : "var(--amber)"
+    : "var(--text-faint)";
 
   return (
     <div className="space-y-6">
@@ -165,17 +180,22 @@ export default async function DashboardPage() {
       </section>
 
       <section className="panel-inset flex flex-wrap items-center justify-between gap-3 border px-4 py-3 text-sm">
-        <div className="min-w-0 space-y-1" style={{ color: "var(--text-dim)" }}>
-          <div>
-            <span className="badge badge-blue">Right now</span> {readout.snapshotLine}
+        <div className="min-w-0 space-y-1.5" style={{ color: "var(--text-dim)" }}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="badge badge-blue">Right now</span>
+            <span>{readout.snapshotLine}</span>
           </div>
-          <div className="text-xs" style={{ color: "var(--text-faint)" }}>
-            <span className={d.scanner.paused ? "badge badge-amber badge-dot" : "badge badge-green badge-dot"}>
-              {d.scanner.paused ? "Scanner paused" : "Scanner scheduled"}
-            </span>{" "}
-            {d.latestAutomationRun
-              ? `Last scan ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
-              : "No non-test scan has run yet."}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" style={{ color: "var(--text-faint)" }}>
+            <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: scannerStatusTone }}>
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: scannerStatusDot }} />
+              {scannerStatusText}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {d.latestAutomationRun
+                ? `Last scan ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
+                : "No scheduled scan recorded yet."}
+            </span>
           </div>
         </div>
         <Link href="/scanner" className="btn btn-ghost btn-sm">

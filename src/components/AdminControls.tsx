@@ -77,9 +77,9 @@ export function AdminControls() {
           <div className="pointer-events-auto absolute bottom-16 right-4 w-72 max-w-[calc(100vw-2rem)]">
             <div className="panel max-h-[calc(100dvh-5rem)] space-y-3 overflow-y-auto shadow-xl">
               <div>
-                <div className="stat-label">{admin ? "Admin controls" : "Admin access"}</div>
+                <div className="stat-label">Private tools</div>
                 <p className="mt-1 text-sm" style={{ color: "var(--text-dim)" }}>
-                  Private moderation, scanner, and dossier controls.
+                  Moderation, scanner, and dossier controls.
                 </p>
               </div>
 
