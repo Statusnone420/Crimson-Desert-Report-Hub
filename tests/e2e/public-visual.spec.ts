@@ -276,15 +276,25 @@ test.describe("public surface visual regression", () => {
 
     await expect(page).toHaveTitle(/Crimson Desert Report Hub/i);
     await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
-    await expect(page.getByText("Evidence-backed issues", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What can be learned without waiting for reports" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Public web findings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Useful next clicks" })).toBeVisible();
+    await expect(page.getByText("Reviewed this week", { exact: true })).toBeVisible();
+    await expect(page.getByText("Private leads", { exact: true })).toBeVisible();
     await expect(page.locator(".stat-label", { hasText: "Public signals" }).first()).toBeVisible();
     await expect(page.getByText("Player reports", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Source Radar" })).toHaveAttribute("href", "/scanner");
+    await expect(page.getByRole("link", { name: "Official patch notes" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open-source code" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Official context, not proof" })).toBeVisible();
+    await expect(page.getByText("Official claims and watch status", { exact: true })).toBeVisible();
+    await expect(page.getByText("Official claimed fixes are not parsed", { exact: false })).toHaveCount(0);
     await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
     await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
     await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
     await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
+    await expect(page.getByText("FPS drops since patch 1.13").first()).toBeVisible();
     await expect(page.getByText("View all 30 claims", { exact: true })).toHaveCount(0);
     await expect(page.getByText("View all 2 claims", { exact: true })).toHaveCount(0);
     // Overpromising dashboard copy must be gone.
@@ -320,14 +330,14 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/issues");
 
-    await expect(page.getByRole("heading", { name: "Evidence board" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What players are reporting" })).toBeVisible();
     await expect(page.getByText("Community signals").first()).toBeVisible();
     await expect(page.getByText("Approved excerpts").first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     await expect(page.getByText("High confidence")).toBeVisible();
     await expect(page.getByText("Confirmed")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
-    await expect(page.getByText("Watchlist items stay lower and quieter until the data confirms them.")).toBeVisible();
+    await expect(page.getByText("Private scanner candidates stay private.")).toBeVisible();
     // Overpromising watchlist copy must be gone: the scanner never claims per-row
     // active discovery, and zero-evidence seeds are never framed as live hunts.
     await expect(page.getByText("scanner is hunting", { exact: false })).toHaveCount(0);

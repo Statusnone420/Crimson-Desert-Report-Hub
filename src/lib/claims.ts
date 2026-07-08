@@ -8,9 +8,13 @@ export type ClaimClusterLike = {
   slug: string;
   title: string;
   category: string;
+  description?: string;
+  fix_status?: string;
   strengthScore: number;
   directReportCount: number;
   signalCount: number;
+  candidateSignalCount?: number;
+  postCurrentPatchEvidenceCount?: number;
 };
 
 export type AssessedClaim = {

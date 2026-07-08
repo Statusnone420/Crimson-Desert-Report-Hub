@@ -6,6 +6,7 @@ import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { belongsToPatchFamily, isPostCurrentPatchEvidence, type PatchContext } from "@/lib/patchWatch";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export type ClusterRow = {
@@ -23,6 +24,7 @@ type DashboardReportRow = {
   category: string | null;
   platform: string | null;
   created_at: string;
+  patch_version: string;
   cluster_id: string | null;
   hardware_specs?: string | null;
 };
@@ -97,6 +99,18 @@ export type PublicScanMeta = {
   searchResultsSeen: number;
 } | null;
 
+export type PublicFinding = {
+  id: string;
+  title: string;
+  summary: string;
+  source: string;
+  sourceUrl: string;
+  sourceHost: string;
+  confidence: "low" | "medium" | "high";
+  observedAt: string;
+  clusterId: string | null;
+};
+
 export type AdminSignalRow = SignalRow & {
   title: string | null;
   source_type: string | null;
@@ -112,7 +126,7 @@ type RelatedReport<T> = T | T[] | null;
 type ExcerptRow = {
   excerpt_text: string;
   created_at: string;
-  bug_reports: RelatedReport<{ cluster_id: string | null; platform: string | null }>;
+  bug_reports: RelatedReport<{ cluster_id: string | null; platform: string | null; patch_version: string | null }>;
 };
 
 export type VerifiedReportClusterRow = {
@@ -122,6 +136,57 @@ export type VerifiedReportClusterRow = {
 
 function countClusterIds(rows: { cluster_id: string | null }[]): Record<string, number> {
   return countBy(rows, (row) => row.cluster_id);
+}
+
+function filterPatchFamilyReports<T extends { patch_version: string | null }>(rows: T[], currentPatch: PatchContext): T[] {
+  return rows.filter((row) => Boolean(row.patch_version && belongsToPatchFamily(row.patch_version, currentPatch.version)));
+}
+
+function countPostCurrentPatchReportsByCluster(
+  rows: DashboardReportRow[],
+  currentPatch: PatchContext,
+): Record<string, number> {
+  return countClusterIds(
+    rows.filter((row) =>
+      isPostCurrentPatchEvidence(
+        { title: `Patch ${row.patch_version}`, sourcePublishedAt: row.created_at },
+        currentPatch,
+      ),
+    ),
+  );
+}
+
+function countPostCurrentPatchSignalsByCluster(rows: SignalRow[], currentPatch: PatchContext): Record<string, number> {
+  return countClusterIds(
+    rows.filter((row) =>
+      isPostCurrentPatchEvidence(
+        { title: row.title ?? null, summary: row.summary, sourcePublishedAt: row.source_published_at ?? null },
+        currentPatch,
+      ),
+    ),
+  );
+}
+
+function sourceHost(url: string, fallback: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return fallback;
+  }
+}
+
+export function publicFindingsFromSignals(rows: SignalRow[]): PublicFinding[] {
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title?.trim() || row.summary,
+    summary: row.summary,
+    source: row.source,
+    sourceUrl: row.source_url,
+    sourceHost: sourceHost(row.source_url, row.source),
+    confidence: row.confidence,
+    observedAt: row.observed_at,
+    clusterId: row.cluster_id,
+  }));
 }
 
 function filterPublicCurrentPatchSignals<T extends SignalRow>(
@@ -207,6 +272,7 @@ async function getDashboardDataUncached() {
       latestAutomationRun: null,
       currentPatch: await getCurrentPatchMetadata(),
       claimedFixes: [],
+      publicFindings: [],
     };
   }
 
@@ -214,7 +280,7 @@ async function getDashboardDataUncached() {
 
   const { data: reports } = await supabase
     .from("bug_reports")
-    .select("category, platform, created_at, cluster_id, hardware_specs")
+    .select("category, platform, created_at, patch_version, cluster_id, hardware_specs")
     .eq("moderation_status", "approved");
   const rows = (reports ?? []) as DashboardReportRow[];
 
@@ -263,10 +329,13 @@ async function getDashboardDataUncached() {
     getCandidateSignalCountsByCluster(supabase),
   ]);
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
+  const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const directByCluster = countClusterIds(rows);
+  const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
+  const postCurrentPatchReportByCluster = countPostCurrentPatchReportsByCluster(currentReportRows, currentPatch);
+  const postCurrentPatchSignalByCluster = countPostCurrentPatchSignalsByCluster(signalRows, currentPatch);
   const verifiedByCluster = countDistinctVerifiedReportsByCluster(verifiedRows);
   const verifiedReportCount = new Set(verifiedRows.map((row) => row.report_id)).size;
   const topClusters = rankClusters((clusterData ?? []) as ClusterRow[], rows)
@@ -275,6 +344,8 @@ async function getDashboardDataUncached() {
       const directReportCount = directByCluster[cluster.id] ?? 0;
       const verifiedReportCount = verifiedByCluster[cluster.id] ?? 0;
       const candidateSignalCount = candidateSignalCounts[cluster.id] ?? 0;
+      const postCurrentPatchReportCount = postCurrentPatchReportByCluster[cluster.id] ?? 0;
+      const postCurrentPatchSignalCount = postCurrentPatchSignalByCluster[cluster.id] ?? 0;
       return {
         ...cluster,
         count: directReportCount,
@@ -282,22 +353,25 @@ async function getDashboardDataUncached() {
         directReportCount,
         verifiedReportCount,
         candidateSignalCount,
+        postCurrentPatchReportCount,
+        postCurrentPatchSignalCount,
+        postCurrentPatchEvidenceCount: postCurrentPatchReportCount + postCurrentPatchSignalCount,
         strengthScore: signalCount + directReportCount * 3,
       };
     })
     .sort((a, b) => b.strengthScore - a.strengthScore);
 
   return {
-    total: rows.length,
+    total: currentReportRows.length,
     communitySignals: signalRows.length,
-    directReports: rows.length,
+    directReports: currentReportRows.length,
     verifiedReports: verifiedReportCount,
-    weekDelta: rows.filter((row) => new Date(row.created_at).getTime() > weekAgo).length,
-    byCategory: countBy(rows, (row) => row.category),
+    weekDelta: currentReportRows.filter((row) => new Date(row.created_at).getTime() > weekAgo).length,
+    byCategory: countBy(currentReportRows, (row) => row.category),
     signalByCategory: countBy(signalRows, (row) => row.category),
-    platforms: countBy(rows, (row) => row.platform),
-    gpus: countGpus(rows),
-    series: buildDailySeries(rows, 30, new Date()),
+    platforms: countBy(currentReportRows, (row) => row.platform),
+    gpus: countGpus(currentReportRows),
+    series: buildDailySeries(currentReportRows, 30, new Date()),
     signalSeries: buildDailySeries(signalRows.map((row) => ({ created_at: row.observed_at })), 30, new Date()),
     topClusters,
     pendingCount: pendingCount ?? 0,
@@ -306,6 +380,7 @@ async function getDashboardDataUncached() {
     latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
     currentPatch,
     claimedFixes,
+    publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
   };
 }
 
@@ -328,9 +403,9 @@ async function getIssuesDataUncached() {
 
   const { data: reports } = await supabase
     .from("bug_reports")
-    .select("cluster_id, platform")
+    .select("cluster_id, platform, patch_version, created_at")
     .eq("moderation_status", "approved");
-  const reportRows = (reports ?? []) as { cluster_id: string | null; platform: string }[];
+  const reportRows = (reports ?? []) as DashboardReportRow[];
 
   const { data: signals } = await supabase
     .from("source_signals")
@@ -339,28 +414,36 @@ async function getIssuesDataUncached() {
     .order("observed_at", { ascending: false });
   const currentPatch = await getCurrentPatchMetadata(supabase);
   const signalRows = filterPublicCurrentPatchSignals((signals ?? []) as SignalRow[], currentPatch);
+  const currentReportRows = filterPatchFamilyReports(reportRows, currentPatch);
 
   const { data: excerpts } = await supabase
     .from("approved_excerpts")
-    .select("excerpt_text, created_at, bug_reports(cluster_id, platform)")
+    .select("excerpt_text, created_at, bug_reports(cluster_id, platform, patch_version)")
     .order("created_at", { ascending: false })
     .limit(100);
 
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase);
 
-  const directByCluster = countClusterIds(reportRows);
+  const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
-  const clusters = rankClusters((clusterData ?? []) as ClusterRow[], reportRows)
+  const postCurrentPatchReportByCluster = countPostCurrentPatchReportsByCluster(currentReportRows, currentPatch);
+  const postCurrentPatchSignalByCluster = countPostCurrentPatchSignalsByCluster(signalRows, currentPatch);
+  const clusters = rankClusters((clusterData ?? []) as ClusterRow[], currentReportRows)
     .map((cluster) => {
       const signalCount = signalByCluster[cluster.id] ?? 0;
       const directReportCount = directByCluster[cluster.id] ?? 0;
       const candidateSignalCount = candidateSignalCounts[cluster.id] ?? 0;
+      const postCurrentPatchReportCount = postCurrentPatchReportByCluster[cluster.id] ?? 0;
+      const postCurrentPatchSignalCount = postCurrentPatchSignalByCluster[cluster.id] ?? 0;
       return {
         ...cluster,
         count: directReportCount,
         signalCount,
         directReportCount,
         candidateSignalCount,
+        postCurrentPatchReportCount,
+        postCurrentPatchSignalCount,
+        postCurrentPatchEvidenceCount: postCurrentPatchReportCount + postCurrentPatchSignalCount,
         strengthScore: signalCount + directReportCount * 3,
       };
     })
@@ -375,6 +458,7 @@ async function getIssuesDataUncached() {
   const excerptsByCluster: Record<string, { text: string; platform: string }[]> = {};
   for (const excerpt of (excerpts ?? []) as ExcerptRow[]) {
     const report = relatedReport(excerpt.bug_reports);
+    if (!report?.patch_version || !belongsToPatchFamily(report.patch_version, currentPatch.version)) continue;
     const key = report?.cluster_id ?? "unclustered";
     (excerptsByCluster[key] ??= []).push({
       text: excerpt.excerpt_text,
@@ -489,6 +573,7 @@ export type PublicScannerData = {
   published: number;
   lastCheckedAt: string | null;
   scannerActive: boolean;
+  scannerConnected: boolean;
 };
 
 /**
@@ -505,113 +590,109 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     published: 0,
     lastCheckedAt: null,
     scannerActive: false,
+    scannerConnected: false,
   };
   if (!hasSupabaseServiceConfig()) return empty;
 
-  const supabase = createServiceClient();
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const supabase = createServiceClient();
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: runData } = await supabase
-    .from("automation_runs")
-    .select("search_results_seen, reddit_posts_seen, signals_inserted, status, finished_at, started_at")
-    .neq("mode", "dry_run")
-    .in("status", ["success", "partial", "failed"])
-    .gte("started_at", weekAgo)
-    .order("started_at", { ascending: false });
-  const runs = (runData ?? []) as {
-    search_results_seen: number;
-    reddit_posts_seen: number;
-    signals_inserted: number;
-    status: string;
-    finished_at: string | null;
-    started_at: string;
-  }[];
-  const reviewedThisWeek = runs.reduce(
-    (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
-    0,
-  );
-  // Only success/partial runs actually persisted signals — a failed run can carry a
-  // non-zero signals_inserted from screening that never landed in the DB.
-  const keptThisWeek = runs.reduce(
-    (sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)),
-    0,
-  );
-  const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek);
+    const { data: runData } = await supabase
+      .from("automation_runs")
+      .select("search_results_seen, reddit_posts_seen, signals_inserted, status, finished_at, started_at")
+      .neq("mode", "dry_run")
+      .in("status", ["success", "partial", "failed"])
+      .gte("started_at", weekAgo)
+      .order("started_at", { ascending: false });
+    const runs = (runData ?? []) as {
+      search_results_seen: number;
+      reddit_posts_seen: number;
+      signals_inserted: number;
+      status: string;
+      finished_at: string | null;
+      started_at: string;
+    }[];
+    const reviewedThisWeek = runs.reduce(
+      (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
+      0,
+    );
+    // Only success/partial runs actually persisted signals — a failed run can carry a
+    // non-zero signals_inserted from screening that never landed in the DB.
+    const keptThisWeek = runs.reduce(
+      (sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)),
+      0,
+    );
+    const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek);
 
-  // Heartbeat is independent of the weekly counters: a quiet or paused week must not
-  // erase the real "last checked" time when older runs exist. Unbounded latest lookup.
-  const { data: latestRows } = await supabase
-    .from("automation_runs")
-    .select("finished_at, started_at")
-    .neq("mode", "dry_run")
-    .in("status", ["success", "partial", "failed"])
-    .order("started_at", { ascending: false })
-    .limit(1);
-  const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
-  const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
+    // Heartbeat is independent of the weekly counters: a quiet or paused week must not
+    // erase the real "last checked" time when older runs exist. Unbounded latest lookup.
+    const { data: latestRows } = await supabase
+      .from("automation_runs")
+      .select("finished_at, started_at")
+      .neq("mode", "dry_run")
+      .in("status", ["success", "partial", "failed"])
+      .order("started_at", { ascending: false })
+      .limit(1);
+    const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
+    const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
 
-  // Match /issues' evidence rule exactly: a public cluster is "live" when it has a
-  // public signal OR an approved player report (hasClusterEvidence = strengthScore > 0).
-  // Report-only launch clusters must count as published, not just signal-backed ones.
-  // Aggregate-only — selects nothing but cluster_id / public_status / is_public.
-  // Public clusters must pass the same current-patch eligibility filter /issues uses,
-  // so a stale or wrong-patch public signal isn't counted as live evidence. The
-  // title/summary/published fields are selected server-side only to run that filter —
-  // they are never returned from this function.
-  const currentPatch = await getCurrentPatchMetadata(supabase);
-  const { data: publicSignalData } = await supabase
-    .from("source_signals")
-    .select("cluster_id, title, summary, source_published_at")
-    .eq("public_status", "public");
-  const publicSignalClusters = new Set<string>();
-  for (const signal of filterPublicCurrentPatchSignals((publicSignalData ?? []) as SignalRow[], currentPatch)) {
-    if (signal.cluster_id) publicSignalClusters.add(signal.cluster_id);
+    const currentPatch = await getCurrentPatchMetadata(supabase);
+    const { data: publicSignalData } = await supabase
+      .from("source_signals")
+      .select("cluster_id, title, summary, source_published_at")
+      .eq("public_status", "public");
+    const publicSignalClusters = new Set<string>();
+    for (const signal of filterPublicCurrentPatchSignals((publicSignalData ?? []) as SignalRow[], currentPatch)) {
+      if (signal.cluster_id) publicSignalClusters.add(signal.cluster_id);
+    }
+    // Private candidates: only cluster_id is selected — private content never leaves here.
+    const { data: privateSignalData } = await supabase
+      .from("source_signals")
+      .select("cluster_id")
+      .eq("public_status", "private");
+    const privateSignalClusters = new Set<string>();
+    for (const signal of (privateSignalData ?? []) as { cluster_id: string | null }[]) {
+      if (signal.cluster_id) privateSignalClusters.add(signal.cluster_id);
+    }
+
+    const { data: reportData } = await supabase
+      .from("bug_reports")
+      .select("cluster_id")
+      .eq("moderation_status", "approved");
+    const approvedReportClusters = new Set<string>();
+    for (const report of (reportData ?? []) as { cluster_id: string | null }[]) {
+      if (report.cluster_id) approvedReportClusters.add(report.cluster_id);
+    }
+
+    const { data: clusterData } = await supabase.from("issue_clusters").select("id").eq("is_public", true);
+    let published = 0;
+    for (const cluster of (clusterData ?? []) as { id: string }[]) {
+      if (publicSignalClusters.has(cluster.id) || approvedReportClusters.has(cluster.id)) published += 1;
+    }
+
+    // Awaiting = every cluster with a private candidate signal that is not yet live
+    // evidence, INCLUDING brand-new candidates whose cluster is still is_public=false.
+    let awaiting = 0;
+    for (const id of privateSignalClusters) {
+      if (!publicSignalClusters.has(id) && !approvedReportClusters.has(id)) awaiting += 1;
+    }
+
+    const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+
+    return {
+      reviewedThisWeek,
+      filteredThisWeek,
+      keptThisWeek,
+      awaiting,
+      published,
+      lastCheckedAt,
+      scannerActive: !control.paused,
+      scannerConnected: true,
+    };
+  } catch {
+    return empty;
   }
-  // Private candidates: only cluster_id is selected — private content never leaves here.
-  const { data: privateSignalData } = await supabase
-    .from("source_signals")
-    .select("cluster_id")
-    .eq("public_status", "private");
-  const privateSignalClusters = new Set<string>();
-  for (const signal of (privateSignalData ?? []) as { cluster_id: string | null }[]) {
-    if (signal.cluster_id) privateSignalClusters.add(signal.cluster_id);
-  }
-
-  const { data: reportData } = await supabase
-    .from("bug_reports")
-    .select("cluster_id")
-    .eq("moderation_status", "approved");
-  const approvedReportClusters = new Set<string>();
-  for (const report of (reportData ?? []) as { cluster_id: string | null }[]) {
-    if (report.cluster_id) approvedReportClusters.add(report.cluster_id);
-  }
-
-  const { data: clusterData } = await supabase.from("issue_clusters").select("id").eq("is_public", true);
-  let published = 0;
-  for (const cluster of (clusterData ?? []) as { id: string }[]) {
-    if (publicSignalClusters.has(cluster.id) || approvedReportClusters.has(cluster.id)) published += 1;
-  }
-
-  // Awaiting = every cluster with a private candidate signal that is not yet live
-  // evidence, INCLUDING brand-new candidates whose cluster is still is_public=false
-  // (createCluster starts private). That not-yet-public case is the common pending-
-  // corroboration state, so it must not be filtered out by an is_public check.
-  let awaiting = 0;
-  for (const id of privateSignalClusters) {
-    if (!publicSignalClusters.has(id) && !approvedReportClusters.has(id)) awaiting += 1;
-  }
-
-  const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
-
-  return {
-    reviewedThisWeek,
-    filteredThisWeek,
-    keptThisWeek,
-    awaiting,
-    published,
-    lastCheckedAt,
-    scannerActive: !control.paused,
-  };
 }
 
 export const getPublicScannerData = unstable_cache(getPublicScannerDataUncached, ["public-scanner-data"], {

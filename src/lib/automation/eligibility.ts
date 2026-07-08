@@ -1,4 +1,5 @@
 import { CURRENT_PATCH } from "@/lib/constants";
+import { belongsToPatchFamily } from "@/lib/patchWatch";
 
 export type CurrentPatchContext = {
   version: string;
@@ -52,11 +53,11 @@ export function explicitPatchVersions(text: string): string[] {
 export function mentionsOnlyOtherPatch(text: string, currentPatchVersion = CURRENT_PATCH): boolean {
   const versions = explicitPatchVersions(text);
   if (versions.length === 0) return false;
-  return !versions.includes(normalizePatchVersion(currentPatchVersion));
+  return versions.every((version) => !belongsToPatchFamily(version, currentPatchVersion));
 }
 
 function mentionsCurrentPatch(text: string, currentPatchVersion: string): boolean {
-  return explicitPatchVersions(text).includes(normalizePatchVersion(currentPatchVersion));
+  return explicitPatchVersions(text).some((version) => belongsToPatchFamily(version, currentPatchVersion));
 }
 
 function mentionsCurrentPatchWindow(text: string): boolean {
@@ -91,6 +92,10 @@ export function evaluateCurrentPatchEligibility(
     return { canStore: false, canPublish: false, reason: "wrong_patch" };
   }
 
+  if (mentionsCurrentPatch(sourceText, currentPatch.version)) {
+    return { canStore: true, canPublish: true, reason: "current_patch" };
+  }
+
   const sourcePublishedDateOnly = isDateOnly(input.sourcePublishedAt) ? input.sourcePublishedAt : null;
   const sourcePublishedAt = parseTime(input.sourcePublishedAt);
   const patchPublishedAt = parseTime(currentPatch.publishedAt);
@@ -102,10 +107,6 @@ export function evaluateCurrentPatchEligibility(
       : sourcePublishedAt < patchPublishedAt)
   ) {
     return { canStore: false, canPublish: false, reason: "stale_source" };
-  }
-
-  if (mentionsCurrentPatch(sourceText, currentPatch.version)) {
-    return { canStore: true, canPublish: true, reason: "current_patch" };
   }
 
   if (

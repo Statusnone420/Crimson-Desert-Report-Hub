@@ -199,5 +199,7 @@ describe("requiredEnv", () => {
     expect(() => requiredEnv("SESSION_SECRET")).toThrow("Missing required env var: SESSION_SECRET");
     process.env.SESSION_SECRET = " ";
     expect(() => requiredEnv("SESSION_SECRET")).toThrow("Missing required env var: SESSION_SECRET");
+    process.env.SESSION_SECRET = "\"\"";
+    expect(() => requiredEnv("SESSION_SECRET")).toThrow("Missing required env var: SESSION_SECRET");
   });
 });

@@ -10,7 +10,8 @@ export type Features = {
 };
 
 function hasEnvValue(value: string | undefined): boolean {
-  return Boolean(value?.trim());
+  const trimmed = value?.trim();
+  return Boolean(trimmed && trimmed !== "\"\"" && trimmed !== "''");
 }
 
 export function computeFeatures(env: EnvLike): Features {
@@ -109,6 +110,7 @@ export function requiredEnv(
   name: "SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY" | "ADMIN_PASSWORD" | "SESSION_SECRET",
 ): string {
   const value = process.env[name]?.trim();
+  if (value === "\"\"" || value === "''") throw new Error(`Missing required env var: ${name}`);
   if (!value) throw new Error(`Missing required env var: ${name}`);
   return value;
 }

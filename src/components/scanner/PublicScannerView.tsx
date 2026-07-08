@@ -22,6 +22,17 @@ export function PublicScannerView({
   integrations: IntegrationStatus[];
   patchVersion: string;
 }) {
+  const scannerLabel = data.scannerConnected
+    ? data.scannerActive
+      ? `Scanner active · last checked ${timeAgo(data.lastCheckedAt)}`
+      : "Scanner paused"
+    : "Scanner not connected";
+  const scannerBadgeClass = data.scannerConnected
+    ? data.scannerActive
+      ? "badge badge-green badge-dot"
+      : "badge badge-amber badge-dot"
+    : "badge badge-dim badge-dot";
+
   return (
     <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-3">
@@ -32,12 +43,18 @@ export function PublicScannerView({
             {`Crimson Desert ${patchVersion} reports start as scattered public chatter. The scanner filters that into a small evidence board: what looks real, what still needs another source, and what is already backed.`}
           </p>
         </div>
-        <span className={data.scannerActive ? "badge badge-green badge-dot" : "badge badge-amber badge-dot"}>
-          {data.scannerActive ? `Scanner active · last checked ${timeAgo(data.lastCheckedAt)}` : "Scanner paused"}
-        </span>
+        <span className={scannerBadgeClass}>{scannerLabel}</span>
       </section>
 
       <SourceRadar data={data} integrations={integrations} />
+
+      {!data.scannerConnected ? (
+        <p className="panel-inset border px-4 py-3 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          This local build is not connected to the scanner database, so the funnel is showing an empty offline view. On
+          the live site, this same page fills from scanner runs without exposing private candidate text or rejected
+          source URLs.
+        </p>
+      ) : null}
 
       <p className="panel-inset border px-4 py-3 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
         Evidence rule: nothing is published until a second independent source or a verified player report confirms it.

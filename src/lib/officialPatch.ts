@@ -100,6 +100,7 @@ function cleanSummary(value: string): string {
 }
 
 const FIX_LANGUAGE = /\b(fixed|resolved|addressed|corrected|no longer)\b/i;
+const IMPROVED_ISSUE_LANGUAGE = /\bimproved\s+an?\s+issue\b/i;
 
 export function parseClaimedFixes(html: string): string[] {
   const fixes: string[] = [];
@@ -107,7 +108,7 @@ export function parseClaimedFixes(html: string): string[] {
   for (const match of html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
     const text = decodeHtml(stripHtmlTags(match[1] ?? ""));
     if (!text || text.length < 12 || text.length > 300) continue;
-    if (!FIX_LANGUAGE.test(text)) continue;
+    if (!FIX_LANGUAGE.test(text) && !IMPROVED_ISSUE_LANGUAGE.test(text)) continue;
     const key = text.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

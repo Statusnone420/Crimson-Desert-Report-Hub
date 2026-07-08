@@ -1,5 +1,5 @@
-export const CURRENT_PATCH = "1.13.00";
-export const PATCH_VERSIONS = ["1.13.00", "1.12.00", "other"] as const;
+export const CURRENT_PATCH = "1.13.01";
+export const PATCH_VERSIONS = ["1.13.01", "1.13.00", "1.12.00", "other"] as const;
 export type PatchVersion = (typeof PATCH_VERSIONS)[number];
 
 export const PLATFORMS = [

@@ -58,6 +58,12 @@ export function SourceRadar({
     },
   ];
   const segmentTotal = steps.reduce((sum, step) => sum + Math.max(0, step.value), 0);
+  const scannerLabel = data.scannerConnected ? (data.scannerActive ? "scheduled on" : "paused") : "not connected";
+  const scannerBadgeClass = data.scannerConnected
+    ? data.scannerActive
+      ? "badge badge-green badge-dot"
+      : "badge badge-amber badge-dot"
+    : "badge badge-dim badge-dot";
 
   return (
     <section className="panel space-y-4">
@@ -66,9 +72,7 @@ export function SourceRadar({
           <div className="stat-label">Automated scanner</div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="h-section">{title}</h2>
-            <span className={data.scannerActive ? "badge badge-green badge-dot" : "badge badge-amber badge-dot"}>
-              {data.scannerActive ? "scheduled on" : "paused"}
-            </span>
+            <span className={scannerBadgeClass}>{scannerLabel}</span>
             <span className="badge badge-dim">Last checked {timeAgo(data.lastCheckedAt)}</span>
           </div>
           <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>

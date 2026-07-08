@@ -915,6 +915,19 @@ describe("automation relevance", () => {
       ).toEqual({ canStore: true, canPublish: true, reason: "current_patch" });
     });
 
+    it("keeps same-family 1.13.00 evidence eligible after the 1.13.01 hotfix switch", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "Awful performance after patch 1.13.00",
+            snippet: "Players report frame-rate drops since 1.13.00.",
+            sourcePublishedAt: "2026-07-07T12:00:00.000Z",
+          },
+          { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ canStore: true, canPublish: true, reason: "current_patch" });
+    });
+
     it("blocks sources published before the current patch from public evidence", () => {
       expect(
         evaluateCurrentPatchEligibility(
@@ -1869,8 +1882,8 @@ describe("search planning", () => {
 
   it("leads with Reddit-targeted issue queries instead of broad reviews or patch-note pages", () => {
     expect(buildSearchQueries(2)).toEqual([
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
-      "site:reddit.com Crimson Desert patch 1.13.00 crash freeze stutter issue",
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.01 crash stutter performance bug",
+      "site:reddit.com Crimson Desert patch 1.13.01 crash freeze stutter issue",
     ]);
   });
 
@@ -2029,11 +2042,13 @@ describe("official patch metadata", () => {
     const html = `
       <li>Fixed an issue where the map crashed the game.</li>
       <li>Improved lighting.</li>
+      <li>Improved an issue where frame rates would drop in certain environments.</li>
       <li>Fixed the map crash.</li>
     `;
 
     expect(parseClaimedFixes(html)).toEqual([
       "Fixed an issue where the map crashed the game.",
+      "Improved an issue where frame rates would drop in certain environments.",
       "Fixed the map crash.",
     ]);
   });
