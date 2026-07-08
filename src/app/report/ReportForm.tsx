@@ -206,10 +206,10 @@ export function ReportForm({
       <section className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0 space-y-2">
           <div className="stat-label">Anonymous structured report</div>
-          <h1 className="h-display">Submit a patch report</h1>
+          <h1 className="h-display">Add to the evidence board</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            No account, no email. Reports are checked and sorted automatically the moment they arrive. The more detail you
-            add, the stronger the evidence Pearl Abyss sees.
+            No account, no email. Reports are checked and sorted automatically so the board can show how widespread a
+            patch problem is. The more detail you add, the stronger the public signal becomes.
           </p>
         </div>
         <a
@@ -413,9 +413,9 @@ export function ReportForm({
           <div className="panel space-y-2">
             <div className="stat-label">What happens next</div>
             <ul className="space-y-2 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              <li>Checked and sorted into the right issue automatically &mdash; instantly, no queue.</li>
+              <li>Checked and sorted into the right issue automatically.</li>
               <li>Your raw words stay private. Only counts and a neutral summary go public.</li>
-              <li>Duplicates merge automatically, so one real bug reads as one strong signal.</li>
+              <li>Duplicates merge, so one real patch problem reads as one stronger evidence signal.</li>
             </ul>
           </div>
         </aside>

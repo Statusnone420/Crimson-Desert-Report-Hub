@@ -25,6 +25,7 @@ export default async function ScannerPage() {
   return (
     <AdminScannerView
       runs={adminData.runs}
+      signals={adminData.signals}
       rejectedCandidates={adminData.rejectedCandidates}
       control={adminData.control}
       activeRun={adminData.activeRun}

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function AboutPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -36,6 +38,9 @@ export default function AboutPage() {
           Evidence counts come only from approved direct reports, public signals backed by separate sources, and
           moderator-approved excerpts. Zero-count watchlist items are maintainer-seeded tracking prompts, not vetted
           proof that an issue is active.
+        </p>
+        <p>
+          The <Link href="/scanner" className="link">Scanner page</Link> shows how public chatter becomes evidence.
         </p>
       </section>
 

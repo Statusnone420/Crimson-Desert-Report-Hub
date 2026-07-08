@@ -276,14 +276,17 @@ test.describe("public surface visual regression", () => {
 
     await expect(page).toHaveTitle(/Crimson Desert Report Hub/i);
     await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
-    await expect(page.getByText("Community signals", { exact: true })).toBeVisible();
-    await expect(page.getByText("Total reports", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Automated scanner" })).toBeVisible();
-    await expect(page.getByText("scheduled on", { exact: true })).toBeVisible();
+    await expect(page.getByText("Evidence-backed issues", { exact: true })).toBeVisible();
+    await expect(page.locator(".stat-label", { hasText: "Public signals" }).first()).toBeVisible();
+    await expect(page.getByText("Player reports", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Source Radar" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
     await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
     await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
     await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
+    await expect(page.getByText("View all 30 claims", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("View all 2 claims", { exact: true })).toHaveCount(0);
     // Overpromising dashboard copy must be gone.
     await expect(page.getByText("none found yet — scanner active", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Watchlist awaiting evidence", { exact: true })).toHaveCount(0);
@@ -317,13 +320,14 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/issues");
 
-    await expect(page.getByRole("heading", { name: "Issue clusters" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Evidence board" })).toBeVisible();
     await expect(page.getByText("Community signals").first()).toBeVisible();
     await expect(page.getByText("Approved excerpts").first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     await expect(page.getByText("High confidence")).toBeVisible();
     await expect(page.getByText("Confirmed")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
-    await expect(page.getByText("Seeded watchlist items stay unverified until the data confirms them.")).toBeVisible();
+    await expect(page.getByText("Watchlist items stay lower and quieter until the data confirms them.")).toBeVisible();
     // Overpromising watchlist copy must be gone: the scanner never claims per-row
     // active discovery, and zero-evidence seeds are never framed as live hunts.
     await expect(page.getByText("scanner is hunting", { exact: false })).toHaveCount(0);
@@ -345,12 +349,61 @@ test.describe("public surface visual regression", () => {
 
     await expect(page.getByRole("heading", { name: "About this tracker" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Public source" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Scanner page" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByRole("link", { name: "View the source on GitHub" })).toHaveAttribute(
       "href",
       "https://github.com/Statusnone420/Crimson-Desert-Report-Hub",
     );
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("about.png", { fullPage: true });
+  });
+
+  test("public scanner shows Source Radar without admin data", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/scanner");
+
+    await expect(page.getByRole("heading", { name: "Scanner" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Source Radar" })).toBeVisible();
+    await expect(page.getByText("Reviewed", { exact: true })).toBeVisible();
+    await expect(page.getByText("Filtered", { exact: true })).toBeVisible();
+    await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
+    await expect(page.getByText("Published", { exact: true })).toBeVisible();
+    await expect(page.getByText("Web search (Tavily)")).toBeVisible();
+    await expect(page.getByText("Steam & forums")).toHaveCount(0);
+    await expect(page.getByText("Review queue")).toHaveCount(0);
+    await expect(page.getByText("Keep for review")).toHaveCount(0);
+    await expect(page.getByText("Open source")).toHaveCount(0);
+    await expect(page.getByText("Scan history")).toHaveCount(0);
+    await expect(page.getByText("Scanner settings & budget")).toHaveCount(0);
+    await expectHealthyPage(page, problems);
+    await expect(page).toHaveScreenshot("scanner-public.png", { fullPage: true });
+  });
+
+  test("admin scanner leads with Source Radar and useful kept-signal links", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/");
+    const ownerButton = page.getByRole("button", { name: "Owner" });
+    await ownerButton.scrollIntoViewIfNeeded();
+    await ownerButton.focus();
+    await page.keyboard.press("Enter");
+    await page.getByLabel("Admin password").fill("admin-password");
+    await page.getByRole("button", { name: "Unlock controls" }).click();
+    await expect(page.getByRole("link", { name: "Scanner monitor" })).toBeVisible();
+
+    await page.goto("/scanner");
+    await expect(page.getByRole("heading", { name: "Scanner monitor" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Source Radar" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recent kept signals" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Review queue" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Keep for review" }).first()).toBeVisible();
+    await expect(page.getByText("Usually noise. Keep anything that is actually a player problem.")).toBeVisible();
+    await expect(page.getByText("Scan history")).toBeVisible();
+    await expect(page.getByText("Show raw scanner codes")).toBeHidden();
+    await expect(page.getByText("Scanner settings & budget")).toBeVisible();
+    await expect(page.getByText("Steam & forums")).toHaveCount(0);
+    await expectHealthyPage(page, problems);
+    await expect(page).toHaveScreenshot("scanner-admin.png", { fullPage: true });
   });
 
   test("owner console unlocks admin shortcuts", async ({ page }) => {
@@ -371,7 +424,7 @@ test.describe("public surface visual regression", () => {
     await page.getByRole("button", { name: "Unlock controls" }).click();
 
     await expect(page.getByRole("link", { name: "Moderation queue" })).toHaveAttribute("href", "/admin");
-    await expect(page.getByRole("link", { name: "Source monitor" })).toHaveAttribute("href", "/admin/source-monitor");
+    await expect(page.getByRole("link", { name: "Scanner monitor" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByRole("link", { name: "Compile dossier" })).toHaveAttribute("href", "/admin/compile");
     await expectHealthyPage(page, problems);
   });

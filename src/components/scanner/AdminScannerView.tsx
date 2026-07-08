@@ -1,16 +1,13 @@
 import { rescueRejectedCandidate, setScannerPolicy } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
+import { SourceRadar } from "@/components/scanner/SourceRadar";
 import { SubmitButton } from "@/components/SubmitButton";
+import { SignalConfidenceBadge } from "@/components/ui";
 import type { Features, IntegrationStatus } from "@/lib/env";
-import {
-  describeScanPlain,
-  formatEasternDateTime,
-  plainSkipPhrase,
-  summarizeRunMessages,
-} from "@/lib/automation/runDisplay";
+import { formatEasternDateTime, plainSkipPhrase, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
-import type { AutomationRunRow, PublicScannerData, RejectedCandidateRow } from "@/lib/queries";
+import type { AdminSignalRow, AutomationRunRow, PublicScannerData, RejectedCandidateRow } from "@/lib/queries";
 
 function cadenceLabel(minutes: number): string {
   if (minutes === 60) return "hourly";
@@ -46,14 +43,27 @@ function formatUsd(value: number): string {
   return `$${Number(value).toFixed(2)}`;
 }
 
+function relativeTime(iso: string | null): string {
+  if (!iso) return "not scheduled";
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  const abs = Math.abs(mins);
+  const prefix = mins < 0 ? "in " : "";
+  const suffix = mins < 0 ? "" : " ago";
+  if (abs < 1) return mins < 0 ? "in less than a minute" : "just now";
+  if (abs < 60) return `${prefix}${abs}m${suffix}`;
+  const hours = Math.floor(abs / 60);
+  if (hours < 24) return `${prefix}${hours}h${suffix}`;
+  return `${prefix}${Math.floor(hours / 24)}d${suffix}`;
+}
+
 function funnelSummary(funnel: Record<string, number> | null): string | null {
   if (!funnel) return null;
   const { searchResultsSeen, candidatesSeen, deduped, prefilterRejected, llmEligible, llmCalls, kept, promoted } = funnel;
   if ([candidatesSeen, deduped, prefilterRejected, llmEligible, llmCalls, kept, promoted].some((v) => v === undefined)) {
     return null;
   }
-  const results = searchResultsSeen === undefined ? "" : `${searchResultsSeen} results → `;
-  return `${results}${candidatesSeen} screened → ${deduped} deduped → ${prefilterRejected} pre-filtered → ${llmEligible} LLM-eligible → ${llmCalls} LLM → ${kept} kept → ${promoted} promoted`;
+  const results = searchResultsSeen === undefined ? "" : `${searchResultsSeen} results -> `;
+  return `${results}${candidatesSeen} screened -> ${deduped} deduped -> ${prefilterRejected} pre-filtered -> ${llmEligible} LLM-eligible -> ${llmCalls} LLM -> ${kept} kept -> ${promoted} promoted`;
 }
 
 function plainRunLine(run: AutomationRunRow): string {
@@ -61,25 +71,96 @@ function plainRunLine(run: AutomationRunRow): string {
     return summarizeRunMessages(run.skips, run.errors).operatorSummary;
   }
   if (run.status === "failed") {
-    return `Scan failed — ${summarizeRunMessages(run.skips, run.errors).errorSummary}`;
+    return `Scan failed - ${summarizeRunMessages(run.skips, run.errors).errorSummary}`;
   }
   if (run.search_results_seen + run.reddit_posts_seen === 0) {
     return run.errors.length > 0
-      ? `No sources reviewed — ${summarizeRunMessages(run.skips, run.errors).errorSummary}`
+      ? `No sources reviewed - ${summarizeRunMessages(run.skips, run.errors).errorSummary}`
       : "Ran, nothing new";
   }
-  const scan = describeScanPlain(run);
-  const parts = [`Found ${scan.found}, kept ${scan.kept}`];
-  if (scan.reConfirmed > 0) parts.push(`re-confirmed ${scan.reConfirmed}`);
-  if (scan.held > 0) parts.push(`held ${scan.held}`);
-  if (scan.published > 0) parts.push(`published ${scan.published}`);
-  // A partial run that still persisted work is a success with errors, not a failure.
+  const found = run.search_results_seen + run.reddit_posts_seen;
+  const kept = run.signals_inserted;
+  const parts = [`Found ${found}, kept ${kept}`];
+  if (run.signals_reobserved > 0) parts.push(`re-confirmed ${run.signals_reobserved}`);
+  if (run.candidates_rescued > 0) parts.push(`kept for review ${run.candidates_rescued}`);
+  if (run.clusters_promoted > 0) parts.push(`published ${run.clusters_promoted}`);
   const line = parts.join(", ");
   return run.errors.length > 0 ? `${line} (with errors)` : line;
 }
 
+function sourceHost(signal: AdminSignalRow): string {
+  if (signal.source_domain) return signal.source_domain;
+  try {
+    return new URL(signal.source_url).hostname.replace(/^www\./, "");
+  } catch {
+    return signal.source;
+  }
+}
+
+function SignalRow({ signal }: { signal: AdminSignalRow }) {
+  return (
+    <article className="border-b py-3 last:border-0" style={{ borderColor: "var(--border)" }}>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className={signal.public_status === "public" ? "badge badge-green" : "badge badge-dim"}>
+          {signal.public_status}
+        </span>
+        <span className="badge badge-dim">{signal.source_type ?? signal.source}</span>
+        <SignalConfidenceBadge confidence={signal.confidence} />
+        <span className="num" style={{ color: "var(--text-faint)" }}>
+          seen {signal.seen_count ?? 1}x
+        </span>
+      </div>
+      <h3 className="mt-2 text-sm font-semibold">{signal.title ?? "Untitled source signal"}</h3>
+      <p className="mt-1 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+        {signal.summary}
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+        <span className="num" style={{ color: "var(--text-faint)" }}>
+          {sourceHost(signal)}
+        </span>
+        <span className="num" style={{ color: "var(--text-faint)" }}>
+          last seen {relativeTime(signal.observed_at)}
+        </span>
+        <a href={signal.source_url} target="_blank" rel="noreferrer noopener" className="link">
+          Open source
+        </a>
+      </div>
+    </article>
+  );
+}
+
+function ReviewCandidate({ candidate }: { candidate: RejectedCandidateRow }) {
+  return (
+    <div className="border-b py-3 last:border-0" style={{ borderColor: "var(--border)" }}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">{candidate.title}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+            {candidate.source_domain ? (
+              <span className="num" style={{ color: "var(--text-faint)" }}>
+                {candidate.source_domain}
+              </span>
+            ) : null}
+            <span style={{ color: "var(--text-dim)" }}>{plainSkipPhrase(candidate.reason)}</span>
+            <a href={candidate.url} target="_blank" rel="noreferrer noopener" className="link">
+              Open source
+            </a>
+          </div>
+        </div>
+        <form action={rescueRejectedCandidate}>
+          <input type="hidden" name="id" value={candidate.id} />
+          <SubmitButton className="btn btn-ghost btn-sm" pendingText="Keeping...">
+            Keep for review
+          </SubmitButton>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function AdminScannerView({
   runs,
+  signals,
   rejectedCandidates,
   control,
   activeRun,
@@ -90,6 +171,7 @@ export function AdminScannerView({
   integrations,
 }: {
   runs: AutomationRunRow[];
+  signals: AdminSignalRow[];
   rejectedCandidates: RejectedCandidateRow[];
   control: AutomationControlState;
   activeRun: { id: string } | null;
@@ -104,274 +186,141 @@ export function AdminScannerView({
   const nextEligible = nextEligibleScheduledScanAt(runs, now, control.minIntervalMinutes);
   const status = scannerStatus(control, activeRun, lastScheduled);
   const projectedCredits = projectedMonthlyCredits(control);
-  const redditOff = !features.reddit;
-
-  // The "last scan" panel and verdict describe the literal newest run (accuracy);
-  // lastFind is a separate pointer to the most recent run that actually found signal,
-  // so a good result is never presented as if it were the latest scan.
-  // Both come from unbounded queries, not the 10-row `runs` slice: skip ledger rows
-  // (paused / recent / already-running) can fill that slice and hide the real last
-  // scan / last find. latestRealRun is the newest completed non-dry run; latestFind
-  // is the newest run that actually kept, re-confirmed, or promoted a signal.
   const latestRun = latestRealRun;
-  const lastFind = latestFind;
-  // Treat the latest scan as a "find" only when it actually kept / re-confirmed /
-  // promoted signal — a run that merely reviewed noise gets neutral copy, not
-  // "found real signal" or a "kept 0" breakdown. Failed runs are excluded because
-  // signals_inserted is bumped pre-persistence.
-  const latestProduced = Boolean(
-    latestRun &&
-      latestRun.status !== "failed" &&
-      (latestRun.signals_inserted > 0 || latestRun.signals_reobserved > 0 || latestRun.clusters_promoted > 0),
-  );
-  const latestReviewed = latestRun ? latestRun.search_results_seen + latestRun.reddit_posts_seen : 0;
-  const latestFailed = Boolean(latestRun && latestRun.status === "failed");
-  const hero = latestProduced && latestRun ? describeScanPlain(latestRun) : null;
-  const heroPct = hero && hero.found > 0 ? Math.round((hero.kept / hero.found) * 100) : 0;
-
-  const heartbeats = runs.filter(
-    (run) =>
-      run.mode === "scheduled" && run.status === "success" && run.search_results_seen + run.reddit_posts_seen === 0,
-  ).length;
-
-  // Show every pending rescue — this is the only page where the admin can action
-  // them, so capping the list would strand candidates 7+ with no way to rescue them.
-  const pendingRescues = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
-  const triage = pendingRescues;
-
-  const verdict = lastFind
-    ? "The scanner is finding real player reports and re-confirming ones it already tracks."
-    : "The scanner is active and screening public sources; no new reports were kept recently.";
-  const verdictTail =
-    scoreboard.published === 0
-      ? redditOff
-        ? "Nothing has gone public yet — a report needs a second independent source first, and Reddit is still switched off."
-        : "Nothing has gone public yet — a report needs a second independent source first."
-      : `${scoreboard.published} issue${scoreboard.published === 1 ? "" : "s"} are live as evidence-backed.`;
+  const redditOff = !features.reddit;
+  const reviewQueue = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
+  const visibleQueue = reviewQueue.slice(0, 6);
+  const hiddenQueue = reviewQueue.slice(6);
+  const recentSignals = signals.slice(0, 6);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <section className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <p className="stat-label">Admin · scanner</p>
-          <h1 className="h-display">Source monitor</h1>
+          <h1 className="h-display">Scanner monitor</h1>
           <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-            What the scanner is finding, and where it could do better.
+            Source health, kept signal links, and the small queue that may need a human call.
           </p>
         </div>
-        <ScanControls activeRunId={activeRun?.id ?? null} />
       </section>
 
-      <section className="panel" style={{ position: "sticky", top: "0.75rem", zIndex: 20 }}>
-        <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr] lg:items-center">
-          <div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="flex items-center gap-2 text-base font-semibold">
-                <span className={status.className}>{status.label.toLowerCase()}</span>
-                {status.label === "Active" ? "Healthy" : status.label}
-              </span>
-              {latestRun ? (
-                <span className="badge badge-dim">
-                  Last scan {formatEasternDateTime(latestRun.started_at)}
-                  {latestProduced ? " · found real signal" : ""}
-                </span>
-              ) : null}
-              <span className="badge badge-dim">
-                Next check {control.paused ? "paused" : formatEasternDateTime(nextEligible.toISOString()).replace(/:\d\d [A-Z]+$/, "")}
-              </span>
-              {redditOff ? <span className="badge badge-amber badge-dot">Reddit source off</span> : null}
-            </div>
-            <p className="mt-2.5 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              {`${verdict} ${verdictTail}`}
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-2.5">
-            <div className="panel-inset border p-3">
-              <div className="stat-label">Live now</div>
-              <div className="stat-value" style={{ fontSize: "1.7rem", color: "var(--green-bright)" }}>
-                {scoreboard.published}
-              </div>
-            </div>
-            <div className="panel-inset border p-3">
-              <div className="stat-label">Watching</div>
-              <div className="stat-value" style={{ fontSize: "1.7rem", color: "var(--amber-bright)" }}>
-                {scoreboard.awaiting}
-              </div>
-            </div>
-            <div className="panel-inset border p-3">
-              <div className="stat-label">Kept this week</div>
-              <div className="stat-value" style={{ fontSize: "1.7rem" }}>
-                {scoreboard.keptThisWeek}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <SourceRadar
+        data={scoreboard}
+        integrations={integrations}
+        description="Same aggregate funnel anonymous visitors can see, plus owner controls for preview and capped scans."
+        actions={<ScanControls activeRunId={activeRun?.id ?? null} />}
+      />
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr] lg:items-start">
-        <section className="panel space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="h-section">Last scan, in plain English</h2>
-            {hero && hero.kept > 0 ? <span className="badge badge-green badge-dot">{hero.kept} kept</span> : null}
-          </div>
-          {latestRun && latestRun.errors.length > 0 ? (
-            <div
-              className="panel-inset text-sm leading-6"
-              style={{ border: "1px solid var(--crimson-edge)", background: "var(--crimson-tint)", color: "var(--crimson-bright)" }}
-            >
-              The latest scan reported errors: {summarizeRunMessages(latestRun.skips, latestRun.errors).errorSummary}
-            </div>
-          ) : null}
-          {hero && latestRun ? (
+      <section className="panel-inset grid gap-2 border px-4 py-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={status.className}>{status.label.toLowerCase()}</span>
+          {latestRun ? <span>Last scan {relativeTime(latestRun.started_at)}</span> : <span>No completed scan yet</span>}
+          <span style={{ color: "var(--text-faint)" }}>·</span>
+          <span>Next check {control.paused ? "paused" : relativeTime(nextEligible.toISOString())}</span>
+          {latestFind ? (
             <>
-              <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-                {formatEasternDateTime(latestRun.started_at)} · {(latestRun.intent ?? "discovery").replace(/_/g, " ")} · cost{" "}
-                <span className="num">{formatUsd(latestRun.estimated_cost_usd)}</span>
-              </p>
-              <p className="text-base">
-                Checked <span className="num font-semibold">{hero.found}</span> sources, kept{" "}
-                <span className="num font-semibold">{hero.kept}</span> real reports.
-              </p>
-              <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full p-0.5" style={{ background: "var(--surface-inset)", boxShadow: "inset 0 0 0 1px var(--border)" }}>
-                <span className="rounded-full" style={{ width: `${heroPct}%`, background: "var(--green)" }} />
-                <span className="rounded-full" style={{ width: `${100 - heroPct}%`, background: "var(--border-strong)" }} />
-              </div>
-              <div className="flex gap-4 text-sm" style={{ color: "var(--text-dim)" }}>
-                <span>
-                  <span aria-hidden="true" className="mr-1.5 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: "var(--green)" }} />
-                  {hero.kept} kept
-                </span>
-                <span>
-                  <span aria-hidden="true" className="mr-1.5 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: "var(--border-strong)" }} />
-                  {hero.dropped} dropped on purpose
-                </span>
-              </div>
-              <div className="grid gap-2.5 sm:grid-cols-3">
-                <div className="panel-inset border p-3 text-sm" style={{ color: "var(--text-dim)" }}>
-                  <span className="num font-semibold" style={{ color: "var(--text)" }}>{hero.reConfirmed}</span> re-confirmed issues we already track
-                </div>
-                <div className="panel-inset border p-3 text-sm" style={{ color: "var(--text-dim)" }}>
-                  <span className="num font-semibold" style={{ color: "var(--text)" }}>{hero.held}</span> held, waiting for a second source
-                </div>
-                <div className="panel-inset border p-3 text-sm" style={{ color: "var(--text-dim)" }}>
-                  <span className="num font-semibold" style={{ color: "var(--text)" }}>{hero.published}</span> published this run
-                </div>
-              </div>
-              {hero.dropped > 0 ? (
-                <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-                  {hero.droppedBreakdown.length > 0
-                    ? `Dropped correctly: ${hero.droppedBreakdown.map((entry) => `${entry.count} ${entry.label}`).join(", ")}. The scanner is not throwing away real complaints.`
-                    : "Everything dropped here failed the relevance screen — off-topic or a different patch. The scanner is not throwing away real complaints."}
-                </p>
-              ) : null}
-              {scoreboard.published === 0 ? (
-                <div className="panel-inset text-sm leading-6" style={{ border: "1px solid var(--amber-edge)", background: "var(--amber-tint)", color: "var(--amber-bright)" }}>
-                  {redditOff
-                    ? "A report goes public once a second independent source backs it up. Turning on Reddit is the fastest way to move things from watching to live."
-                    : "A report goes public once a second independent source backs it up. Corroboration is accruing each scan."}
-                </div>
-              ) : null}
+              <span style={{ color: "var(--text-faint)" }}>·</span>
+              <span>Most recent kept signal {relativeTime(latestFind.started_at)}</span>
             </>
+          ) : null}
+        </div>
+        {redditOff ? <span className="badge badge-amber badge-dot justify-self-start">Reddit source off</span> : null}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2 lg:items-start xl:grid-cols-[1.15fr_1.15fr_0.9fr]">
+        <section className="panel space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="h-section">Recent kept signals</h2>
+            <span className="badge badge-dim">{signals.length} recent</span>
+          </div>
+          {recentSignals.length > 0 ? (
+            recentSignals.map((signal) => <SignalRow key={signal.id} signal={signal} />)
           ) : (
-            <div className="space-y-2">
-              <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-                {latestRun
-                  ? `${formatEasternDateTime(latestRun.started_at)} · ${(latestRun.intent ?? "discovery").replace(/_/g, " ")}`
-                  : "No scans recorded yet"}
-              </p>
-              <p className="text-sm" style={{ color: latestFailed ? "var(--crimson-bright)" : "var(--text-dim)" }}>
-                {!latestRun
-                  ? "No completed scan yet."
-                  : latestFailed
-                    ? "The latest scan did not finish — see the error above."
-                    : latestReviewed > 0
-                      ? `The latest scan reviewed ${latestReviewed} source${latestReviewed === 1 ? "" : "s"} and kept nothing new.`
-                      : "The latest scan ran and found nothing new — a normal heartbeat."}
-              </p>
-              {lastFind ? (
-                <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                  Most recent find: <span className="num">{formatEasternDateTime(lastFind.started_at)}</span> —{" "}
-                  {plainRunLine(lastFind)}. See scan history below.
-                </p>
-              ) : null}
-            </div>
+            <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+              No kept source signals yet.
+            </p>
           )}
         </section>
 
-        <aside className="space-y-4">
-          <section className="panel space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="h-section">Needs your eyes</h2>
-              <span className="badge badge-dim">
-                <span className="num">{pendingRescues.length}</span>
-              </span>
-            </div>
-            <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-              {"Dropped items the scanner wasn't sure about. Rescue anything that is actually a player problem."}
-            </p>
-            {triage.length > 0 ? (
-              triage.map((candidate) => (
-                <div key={candidate.id} className="flex items-center justify-between gap-3 border-b py-2.5 last:border-0" style={{ borderColor: "var(--border)" }}>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{candidate.title}</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                      {candidate.source_domain ? <span className="num" style={{ color: "var(--text-faint)" }}>{candidate.source_domain}</span> : null}
-                      <span style={{ color: "var(--text-dim)" }}>· {plainSkipPhrase(candidate.reason)}</span>
-                    </div>
+        <section className="panel space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="h-section">Review queue</h2>
+            <span className="badge badge-dim">
+              <span className="num">{reviewQueue.length}</span>
+            </span>
+          </div>
+          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+            Usually noise. Keep anything that is actually a player problem.
+          </p>
+          {visibleQueue.length > 0 ? (
+            <>
+              {visibleQueue.map((candidate) => (
+                <ReviewCandidate key={candidate.id} candidate={candidate} />
+              ))}
+              {hiddenQueue.length > 0 ? (
+                <details className="pt-1">
+                  <summary className="cursor-pointer text-sm" style={{ color: "var(--text-dim)" }}>
+                    Show {hiddenQueue.length} more filtered candidates
+                  </summary>
+                  <div className="mt-2">
+                    {hiddenQueue.map((candidate) => (
+                      <ReviewCandidate key={candidate.id} candidate={candidate} />
+                    ))}
                   </div>
-                  <form action={rescueRejectedCandidate}>
-                    <input type="hidden" name="id" value={candidate.id} />
-                    <SubmitButton className="btn btn-ghost btn-sm" pendingText="Rescuing…">
-                      Rescue
-                    </SubmitButton>
-                  </form>
+                </details>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+              Nothing waiting. The queue is clear.
+            </p>
+          )}
+        </section>
+
+        <aside className="space-y-4 lg:col-span-2 xl:col-span-1">
+          <section className="panel space-y-3">
+            <h2 className="h-section">Latest run</h2>
+            {latestRun ? (
+              <>
+                <p className="text-sm" style={{ color: latestRun.status === "failed" ? "var(--crimson-bright)" : "var(--text-dim)" }}>
+                  {plainRunLine(latestRun)}
+                </p>
+                <div className="grid gap-2 text-sm">
+                  <div className="panel-inset border p-3">
+                    <div className="stat-label">Work</div>
+                    <p className="mt-1">
+                      {latestRun.search_queries_used} searches · {latestRun.search_results_seen + latestRun.reddit_posts_seen} candidates ·{" "}
+                      {latestRun.llm_calls_used} LLM
+                    </p>
+                  </div>
+                  <div className="panel-inset border p-3">
+                    <div className="stat-label">Operator readout</div>
+                    <p className="mt-1">{summarizeRunMessages(latestRun.skips, latestRun.errors).operatorSummary}</p>
+                  </div>
                 </div>
-              ))
+              </>
             ) : (
               <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                Nothing waiting — the queue is clear.
+                No completed scan yet.
               </p>
             )}
           </section>
 
-          <section className="panel space-y-1.5">
-            <h2 className="h-section">Where it gets its info</h2>
-            {integrations.map((integration) => (
-              <div key={integration.key} className="flex items-center justify-between gap-2 border-b py-2 text-sm last:border-0" style={{ borderColor: "var(--border)" }}>
-                <span className="flex items-center gap-2">
-                  <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ background: integration.connected ? "var(--green)" : "var(--amber)" }} />
-                  {integration.label}
-                </span>
-                <span className={integration.connected ? "badge badge-green" : "badge badge-amber"}>
-                  {integration.connected ? "on" : "off"}
-                </span>
-              </div>
-            ))}
-            <div className="flex items-center justify-between gap-2 py-2 text-sm">
-              <span style={{ color: "var(--text-dim)" }}>Budget</span>
-              <span className="num" style={{ color: "var(--text)" }}>
-                ~{projectedCredits} / {control.monthlyTavilyCreditCap} credits/mo
-              </span>
-            </div>
-          </section>
-        </aside>
-      </div>
-
-      {heartbeats > 0 ? (
-        <p className="text-sm" style={{ color: "var(--text-faint)" }}>
-          <span className="num" style={{ color: "var(--text-dim)" }}>{heartbeats}</span> scheduled checks found nothing new — that
-          is normal; the scanner stands down when it is too soon or there is no fresh signal.
-        </p>
-      ) : null}
-
-      <details className="panel-inset border" open>
-        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">Scan history</summary>
-        <div className="border-t px-4 py-3" style={{ borderColor: "var(--border)" }}>
+          <details className="panel-inset border">
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">Scan history</summary>
+            <div className="border-t px-4 py-3" style={{ borderColor: "var(--border)" }}>
           {runs.slice(0, 8).map((run) => (
-            <div key={run.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b py-2 text-sm last:border-0" style={{ borderColor: "var(--border)" }}>
-              <span className="num" style={{ color: "var(--text-dim)" }}>{formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}</span>
-              <span style={{ color: run.search_results_seen > 0 && run.status !== "skipped" ? "var(--text)" : "var(--text-faint)" }}>{plainRunLine(run)}</span>
-              <span className="num" style={{ color: "var(--text-faint)" }}>{formatUsd(run.estimated_cost_usd)}</span>
+            <div key={run.id} className="grid gap-2 border-b py-2 text-sm last:border-0 md:grid-cols-[auto_1fr_auto]" style={{ borderColor: "var(--border)" }}>
+              <span className="num" style={{ color: "var(--text-dim)" }}>
+                {formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}
+              </span>
+              <span style={{ color: run.search_results_seen > 0 && run.status !== "skipped" ? "var(--text)" : "var(--text-faint)" }}>
+                {plainRunLine(run)}
+              </span>
+              <span className="num" style={{ color: "var(--text-faint)" }}>
+                {formatUsd(run.estimated_cost_usd)}
+              </span>
             </div>
           ))}
           <details className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
@@ -387,12 +336,12 @@ export function AdminScannerView({
               ))}
             </div>
           </details>
-        </div>
-      </details>
+            </div>
+          </details>
 
-      <details className="panel-inset border">
-        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">Scanner settings &amp; budget</summary>
-        <div className="border-t px-4 py-4" style={{ borderColor: "var(--border)" }}>
+          <details className="panel-inset border">
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">Scanner settings &amp; budget</summary>
+            <div className="border-t px-4 py-4" style={{ borderColor: "var(--border)" }}>
           <form action={setScannerPolicy} className="space-y-3 text-sm">
             <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
             <input type="hidden" name="modelPreset" value={control.modelPreset} />
@@ -425,18 +374,16 @@ export function AdminScannerView({
               </label>
             </div>
             <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-              {`At this setting the scanner spends about ${projectedCredits} of your ${control.monthlyTavilyCreditCap} free monthly credits, then stands down. Cadence is ${cadenceLabel(control.minIntervalMinutes)}. Test scans never touch the public site.`}
+              {`At this setting the scanner spends about ${projectedCredits} of your ${control.monthlyTavilyCreditCap} free monthly credits, then stands down. Cadence is ${cadenceLabel(control.minIntervalMinutes)}. Test scans never touch the public site. Cost is an estimate for budget tracking; on free tiers your real spend is $0.`}
             </p>
-            <SubmitButton className="btn" pendingText="Saving…">
+            <SubmitButton className="btn" pendingText="Saving...">
               Save settings
             </SubmitButton>
           </form>
-        </div>
-      </details>
-
-      <p className="border-t pt-4 text-xs leading-5" style={{ color: "var(--text-faint)", borderColor: "var(--border)" }}>
-        {"Raw submissions and rejected results stay private. Cost is an estimate for budget tracking — on the free tiers your real spend is $0."}
-      </p>
+            </div>
+          </details>
+        </aside>
+      </section>
     </div>
   );
 }

@@ -92,8 +92,8 @@ export function OwnerConsole() {
                   <Link className="btn btn-ghost w-full text-center" href="/admin" onClick={() => setOpen(false)}>
                     Moderation queue
                   </Link>
-                  <Link className="btn btn-ghost w-full text-center" href="/admin/source-monitor" onClick={() => setOpen(false)}>
-                    Source monitor
+                  <Link className="btn btn-ghost w-full text-center" href="/scanner" onClick={() => setOpen(false)}>
+                    Scanner monitor
                   </Link>
                   <Link className="btn btn-ghost w-full text-center" href="/admin/compile" onClick={() => setOpen(false)}>
                     Compile dossier

@@ -132,7 +132,7 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          className="btn btn-ghost"
+          className="btn btn-ghost w-full sm:w-auto"
           disabled={scanning || starting !== null}
           onClick={() => start("dry_run")}
         >
@@ -140,7 +140,7 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
         </button>
         <button
           type="button"
-          className="btn"
+          className="btn w-full sm:w-auto"
           disabled={scanning || starting !== null}
           onClick={() => start("manual")}
         >
