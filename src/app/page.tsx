@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Sparkline } from "@/components/Sparkline";
+import { PatchActivityChart } from "@/components/PatchActivityChart";
 import { EvidenceLadderBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
 import { assessClaims } from "@/lib/claims";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
@@ -38,18 +38,27 @@ function statusTone(fixStatus: string): Tone {
 function latestScanWorkSummary(run: {
   status: string;
   search_results_seen: number;
+  reddit_posts_seen: number;
   signals_inserted: number;
   search_queries_used: number;
   signals_reobserved?: number;
   stale_signals_hidden?: number;
 }): string {
+  const persisted = run.status === "success" || run.status === "partial";
+  const reviewed = run.search_results_seen + run.reddit_posts_seen;
+  const keptCopy =
+    persisted && run.signals_inserted > 0
+      ? `${run.signals_inserted} mentions kept`
+      : persisted
+        ? "no new public evidence"
+        : "no persisted evidence";
   const parts = [
     `${run.status}`,
-    `${run.search_results_seen} sources reviewed`,
-    run.signals_inserted > 0 ? `${run.signals_inserted} mentions kept` : "no new public evidence",
+    `${reviewed} sources reviewed`,
+    keptCopy,
   ];
-  if ((run.signals_reobserved ?? 0) > 0) parts.push(`${run.signals_reobserved} re-observed`);
-  if ((run.stale_signals_hidden ?? 0) > 0) parts.push(`${run.stale_signals_hidden} stale hidden`);
+  if (persisted && (run.signals_reobserved ?? 0) > 0) parts.push(`${run.signals_reobserved} re-observed`);
+  if (persisted && (run.stale_signals_hidden ?? 0) > 0) parts.push(`${run.stale_signals_hidden} stale hidden`);
   if (run.search_queries_used === 0) parts.push("search skipped this run");
   return parts.join(" · ");
 }
@@ -59,31 +68,30 @@ export default async function DashboardPage() {
   const persistentCount = countEvidenceBackedPersistentClusters(d.topClusters);
   const claimedFixWatchlistCount = countUnverifiedClaimedFixWatchlistClusters(d.topClusters);
   const active = d.topClusters.filter(hasClusterEvidence);
-  const watchlist = d.topClusters.filter((c) => !hasClusterEvidence(c));
+  const watchlist = d.topClusters.filter((cluster) => !hasClusterEvidence(cluster));
   const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
-  const maxStrength = Math.max(...active.map((c) => c.strengthScore), 1);
+  const maxStrength = Math.max(...active.map((cluster) => cluster.strengthScore), 1);
   const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
   const gpuEntries = Object.entries(d.gpus).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
   const maxPlatform = Math.max(...platformEntries.map(([, n]) => n), 1);
   const patchLabel = `Patch ${d.currentPatch.version}`;
-  const totalCandidates = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
+  const pendingMentions = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
   const claims = assessClaims(d.claimedFixes, d.topClusters);
-  const watchClusters = d.topClusters.filter((cluster) => cluster.fix_status === "fix_claimed");
+  const disputedClaims = claims.disputed.filter((claim) => claim.cluster);
+  const hasActivity = d.series.some((point) => point.count > 0) || d.signalSeries.some((point) => point.count > 0);
 
   return (
     <div className="space-y-6">
-      {/* Hero */}
       <section className="rise grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <div className="min-w-0 space-y-2.5">
           <h1 className="h-display max-w-3xl">Crimson Desert Report Hub</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            An unofficial community evidence tracker: approved player reports and public signals backed by separate
-            sources become evidence; seeded watchlist items stay clearly unverified until the data confirms them. Raw
-            submissions stay private.
+            A community evidence board for patch damage: what is backed, how strong the signal is, where the source
+            links are, and what changed over time.
           </p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-            <span className="num" style={{ color: "var(--text-dim)" }}>{d.topClusters.length}</span> watchlist items
+            <span className="num" style={{ color: "var(--text-dim)" }}>{active.length}</span> backed issues
             <span aria-hidden="true">·</span>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.directReports}</span> reports
             <span aria-hidden="true">·</span>
@@ -108,162 +116,94 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Headline stats */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rise" style={{ animationDelay: "40ms" }}>
           <StatCard
-            label="Total reports"
-            value={d.directReports}
-            note={d.directReports === 0 ? "be the first — takes 60 seconds" : `+${d.weekDelta} this week`}
-            tone="crimson"
+            label="Evidence-backed issues"
+            value={active.length}
+            note={persistentCount > 0 ? `${persistentCount} persist after claimed fixes` : "Reports or public signals"}
+            tone={persistentCount > 0 ? "crimson" : "green"}
           />
         </div>
         <div className="rise" style={{ animationDelay: "80ms" }}>
           <StatCard
-            label="Community signals"
-            value={d.communitySignals}
-            note={
-              d.communitySignals === 0
-                ? totalCandidates > 0
-                  ? `${totalCandidates} unconfirmed ${totalCandidates === 1 ? "mention" : "mentions"}`
-                  : "None yet — checked each run"
-                : "Public · sourced"
-            }
-            tone="blue"
+            label="Player reports"
+            value={d.directReports}
+            note={d.directReports === 0 ? "be the first" : `+${d.weekDelta} this week`}
+            tone="crimson"
           />
         </div>
         <div className="rise" style={{ animationDelay: "120ms" }}>
           <StatCard
-            label="Watchlist items"
-            value={d.topClusters.length}
-            note={active.length === 0 ? "Awaiting evidence" : `${active.length} with evidence`}
-            tone="dim"
+            label="Public signals"
+            value={d.communitySignals}
+            note={d.communitySignals === 0 ? "None public yet" : "Links visible on issues"}
+            tone="blue"
           />
         </div>
         <div className="rise" style={{ animationDelay: "160ms" }}>
           <StatCard
-            label="Evidence-backed persistence"
-            value={persistentCount}
-            note={claimedFixWatchlistCount > 0 ? `${claimedFixWatchlistCount} claimed-fix watchlist` : "Only counts vetted evidence"}
+            label="Awaiting corroboration"
+            value={pendingMentions}
+            note={claimedFixWatchlistCount > 0 ? `${claimedFixWatchlistCount} claimed-fix watch items` : "Needs another source"}
             tone="amber"
           />
         </div>
       </section>
 
-      {/* Claimed fixes vs community evidence */}
-      {d.claimedFixes.length > 0 ? (
+      <section className="panel-inset flex flex-wrap items-center justify-between gap-3 border px-4 py-3 text-sm">
+        <div style={{ color: "var(--text-dim)" }}>
+          <span className={d.scanner.paused ? "badge badge-amber badge-dot" : "badge badge-green badge-dot"}>
+            {d.scanner.paused ? "scanner paused" : "scanner scheduled"}
+          </span>{" "}
+          {d.latestAutomationRun
+            ? `Last scan ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
+            : "No non-test scan has run yet."}
+        </div>
+        <Link href="/scanner" className="btn btn-ghost btn-sm">
+          Source Radar
+        </Link>
+      </section>
+
+      {disputedClaims.length > 0 ? (
         <section className="panel space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="stat-label">Patch {d.currentPatch.version} · claimed fixes vs community evidence</h2>
-            <a
-              href={d.currentPatch.officialUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="link text-xs"
-            >
-              Official notes ↗
-            </a>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="panel-inset px-4 py-3">
-              <div className="stat-value">{claims.total}</div>
-              <div className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-                official fix claims
-              </div>
-            </div>
-            <div
-              className="panel-inset px-4 py-3"
-              style={claims.disputed.length > 0 ? { border: "1px solid var(--crimson-edge)" } : undefined}
-            >
-              <div
-                className="stat-value"
-                style={{ color: claims.disputed.length > 0 ? "var(--crimson-bright)" : "var(--green-bright)" }}
+          <SectionHeader
+            label={`${patchLabel} context`}
+            title="Still reported after claimed fix"
+            description="Official notes are context. This section appears only when a claimed fix overlaps active community evidence."
+            action={
+              <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="link text-xs">
+                Official notes ↗
+              </a>
+            }
+          />
+          <div className="grid gap-3 md:grid-cols-2">
+            {disputedClaims.slice(0, 4).map((claim, index) => (
+              <article
+                key={index}
+                className="panel-inset space-y-2 border p-3"
+                style={{ borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" }}
               >
-                {claims.disputed.length}
-              </div>
-              <div className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-                challenged by evidence
-              </div>
-            </div>
-            <div className="panel-inset px-4 py-3">
-              <div className="stat-value" style={{ color: "var(--amber-bright)" }}>
-                {watchClusters.length}
-              </div>
-              <div className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-                under watch after claimed fix
-              </div>
-            </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="badge badge-crimson">community evidence still active</span>
+                  <Link href="/issues" className="link text-xs">
+                    View evidence
+                  </Link>
+                </div>
+                <p className="text-sm leading-6">{claim.cluster?.title}</p>
+                <p className="text-xs leading-5" style={{ color: "var(--text-dim)" }}>
+                  Claimed fix: {claim.fixText}
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+                  <span className="num">{claim.cluster?.directReportCount ?? 0}</span> approved reports ·{" "}
+                  <span className="num">{claim.cluster?.signalCount ?? 0}</span> public signals
+                </p>
+              </article>
+            ))}
           </div>
-
-          {claims.disputed.length === 0 ? (
-            <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              No claimed fix currently overlaps an active, evidence-backed issue. The scanner re-checks every scan.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {claims.disputed.map((claim, index) => (
-                <div
-                  key={index}
-                  className="space-y-1.5 border px-3.5 py-3"
-                  style={{ borderRadius: "var(--r-md)", borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" }}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
-                    <span className="min-w-0 flex-1">&ldquo;{claim.fixText}&rdquo;</span>
-                    <span className="badge badge-crimson shrink-0">
-                      {(claim.cluster?.directReportCount ?? 0) > 0 ? "players still reporting issues" : "sources still flag issues"}
-                    </span>
-                  </div>
-                  {claim.cluster ? (
-                    <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-                      <span className="num">{claim.cluster.directReportCount}</span> approved reports ·{" "}
-                      <span className="num">{claim.cluster.signalCount}</span> cited sources on this issue —{" "}
-                      <Link href="/issues" className="link">
-                        view the evidence →
-                      </Link>
-                    </p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {watchClusters.length > 0 ? (
-            <div className="space-y-1 border-t pt-3">
-              {watchClusters.map((cluster) => (
-                <Link key={cluster.id} href="/issues" className="flex items-center justify-between gap-3 py-2 text-sm">
-                  <span className="truncate">{cluster.title}</span>
-                  <span className="badge badge-amber shrink-0">watching</span>
-                </Link>
-              ))}
-            </div>
-          ) : null}
-
-          <details className="border-t pt-3 text-sm">
-            <summary className="cursor-pointer py-1 text-xs" style={{ color: "var(--text-faint)" }}>
-              View all {claims.total} claims
-            </summary>
-            <div className="mt-3 space-y-2">
-              {claims.all.map((claim, index) => (
-                <div key={index} className="flex items-start justify-between gap-3 text-sm">
-                  <span className="min-w-0 flex-1" style={{ color: "var(--text-dim)" }}>
-                    {claim.fixText}
-                  </span>
-                  {claim.disputed ? <span className="badge badge-crimson shrink-0">challenged</span> : null}
-                </div>
-              ))}
-            </div>
-          </details>
-
-          <p className="border-t pt-3 text-xs" style={{ color: "var(--text-faint)" }}>
-            Sourced from Pearl Abyss&apos;s official patch notes. A claim is challenged when the community evidence
-            board still shows an active issue in the area it covers — follow the evidence link and judge for
-            yourself.
-          </p>
         </section>
       ) : null}
 
-      {/* Top issues + platforms */}
       <section className="grid gap-3 lg:grid-cols-[1.5fr_0.9fr]">
         <div className="panel space-y-5">
           <SectionHeader
@@ -271,7 +211,7 @@ export default async function DashboardPage() {
             description={
               active.length > 0
                 ? "Ranked by approved reports and public signals."
-                : "We're monitoring known problem areas and checking public sources each run. Items appear here once a player report or public source backs them."
+                : "Known problem areas stay quiet until a player report or public source backs them."
             }
             action={
               <Link href="/issues" className="btn btn-ghost btn-sm">
@@ -331,11 +271,7 @@ export default async function DashboardPage() {
                 </div>
               ) : null}
               {monitored.length > 0 ? (
-                <p
-                  className="text-xs"
-                  style={{ color: "var(--text-faint)" }}
-                  title="The scanner checks public sources each run."
-                >
+                <p className="text-xs" style={{ color: "var(--text-faint)" }} title="The scanner checks public sources each run.">
                   {monitoredAreasNote(monitored.length)}
                 </p>
               ) : null}
@@ -409,24 +345,24 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Scanner + official source */}
-      <section className="grid gap-3 md:grid-cols-2">
-        <div className="panel space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="h-section">Automated scanner</h2>
-            <span className={d.scanner.paused ? "badge badge-amber badge-dot" : "badge badge-green badge-dot"}>
-              {d.scanner.paused ? "paused" : "scheduled on"}
-            </span>
+      <section className="grid gap-3 md:grid-cols-[1.35fr_0.9fr]">
+        <div className="panel">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="h-section">30-day patch activity</h2>
+              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                Approved reports and public signals over time.
+              </p>
+            </div>
+            <span className="badge badge-dim">current patch</span>
           </div>
-          <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            Scheduled scans check public web search and optional Reddit sources about {d.currentPatch.version}. Nothing
-            goes public until a find is backed up by separate sources or a player report.
-          </p>
-          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            {d.latestAutomationRun
-              ? `Last scan finished ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
-              : "No non-test scan has run yet."}
-          </p>
+          {hasActivity ? (
+            <PatchActivityChart reports={d.series} signals={d.signalSeries} />
+          ) : (
+            <div className="flex h-28 items-center justify-center text-xs" style={{ color: "var(--text-faint)" }}>
+              Activity appears once approved reports or public signals come in.
+            </div>
+          )}
         </div>
 
         <div className="panel space-y-2.5">
@@ -439,7 +375,7 @@ export default async function DashboardPage() {
           <p className="text-sm font-medium">{d.currentPatch.title}</p>
           <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             {d.currentPatch.summary ??
-              "The hub reads Pearl Abyss announcements so the patch label and scanner stay aligned with the official update stream."}
+              "Official notes provide the patch label and source context. The board itself is driven by player reports and public evidence."}
           </p>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
             {d.currentPatch.publishedAt
@@ -449,24 +385,6 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Activity */}
-      <section className="panel">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <h2 className="h-section">30-day activity</h2>
-          <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-            Approved reports only
-          </span>
-        </div>
-        {d.series.some((point) => point.count > 0) ? (
-          <Sparkline points={d.series.map((point) => point.count)} />
-        ) : (
-          <div className="flex h-16 items-center justify-center text-xs" style={{ color: "var(--text-faint)" }}>
-            The activity line starts drawing once approved reports come in.
-          </div>
-        )}
-      </section>
-
-      {/* Trust notes — quieter than the data panels above */}
       <section className="grid gap-4 border-t pt-5 md:grid-cols-3 md:gap-6">
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">Privacy</h3>

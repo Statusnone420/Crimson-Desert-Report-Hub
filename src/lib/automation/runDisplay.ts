@@ -188,3 +188,60 @@ export function summarizeRunMessages(skips: string[], errors: string[]) {
     errorSummary: errors.length > 0 ? errors.map((error) => SKIP_META[error]?.label ?? error).join("; ") : "No errors",
   };
 }
+
+const DROP_SKIP_PLAIN: Record<string, string> = {
+  wrong_patch: "about a different patch",
+  source_not_issue_report: "not a bug report",
+  category_other: "off-topic, not a bug",
+  duplicate: "a duplicate of something we already have",
+  reddit_disabled: "Reddit source is off",
+  openrouter_invalid_json: "an AI read failed (used a fallback)",
+  openrouter_provider_failure: "an AI provider failed (used a fallback)",
+};
+
+/** Player-facing phrasing for a scanner code — plain language, no jargon. */
+export function plainSkipPhrase(code: string): string {
+  return DROP_SKIP_PLAIN[code] ?? SKIP_META[code]?.summaryLabel ?? code.replace(/_/g, " ");
+}
+
+type PlainScanRun = {
+  search_results_seen: number;
+  reddit_posts_seen: number;
+  signals_inserted: number;
+  signals_reobserved: number;
+  clusters_promoted: number;
+  skips: string[];
+};
+
+export type PlainScan = {
+  found: number;
+  kept: number;
+  reConfirmed: number;
+  held: number;
+  published: number;
+  dropped: number;
+  droppedBreakdown: { label: string; count: number }[];
+};
+
+const DROP_CODES = ["wrong_patch", "source_not_issue_report", "category_other"] as const;
+
+/** Turn a run row into plain-language counts for the "last scan, in plain English" panel. */
+export function describeScanPlain(run: PlainScanRun): PlainScan {
+  // Reviewed = web results + Reddit posts, so a Reddit-only scan isn't counted as 0.
+  const found = (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0);
+  const kept = run.signals_inserted ?? 0;
+  // Dropped = everything reviewed that wasn't kept (dedup + prefilter + LLM reject),
+  // so it matches the kept/dropped bar. The prefilter reasons are only the breakdown.
+  const dropped = Math.max(0, found - kept);
+  const droppedBreakdown = DROP_CODES.map((code) => ({
+    label: plainSkipPhrase(code),
+    count: run.skips.filter((skip) => skip === code).length,
+  })).filter((entry) => entry.count > 0);
+  const reConfirmed = run.signals_reobserved ?? 0;
+  const published = run.clusters_promoted ?? 0;
+  // "Held" = kept signals still pending a second source: total kept minus the ones
+  // that merely re-confirmed a known issue and the ones promoted public this run.
+  // (candidates_rescued is only the recon-lane subset, so it undercounts held.)
+  const held = Math.max(0, kept - reConfirmed - published);
+  return { found, kept, reConfirmed, held, published, dropped, droppedBreakdown };
+}

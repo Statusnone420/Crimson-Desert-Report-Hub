@@ -55,6 +55,7 @@ export type AutomationRunRow = {
   clusters_promoted: number;
   intent: string | null;
   search_results_seen: number;
+  reddit_posts_seen: number;
   signals_reobserved: number;
   stale_signals_hidden: number;
   candidates_rescued: number;
@@ -83,6 +84,7 @@ export type PublicAutomationRunRow = {
   signals_inserted: number;
   clusters_promoted: number;
   search_results_seen: number;
+  reddit_posts_seen: number;
   signals_reobserved: number;
   stale_signals_hidden: number;
   candidates_rescued: number;
@@ -197,6 +199,7 @@ async function getDashboardDataUncached() {
       platforms: {},
       gpus: {},
       series: buildDailySeries([], 30, new Date()),
+      signalSeries: buildDailySeries([], 30, new Date()),
       topClusters: [],
       pendingCount: 0,
       latestReportAt: null,
@@ -249,7 +252,7 @@ async function getDashboardDataUncached() {
     supabase
       .from("automation_runs")
       .select(
-        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, signals_reobserved, stale_signals_hidden, candidates_rescued, finished_at",
+        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, reddit_posts_seen, signals_reobserved, stale_signals_hidden, candidates_rescued, finished_at",
       )
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])
@@ -295,6 +298,7 @@ async function getDashboardDataUncached() {
     platforms: countBy(rows, (row) => row.platform),
     gpus: countGpus(rows),
     series: buildDailySeries(rows, 30, new Date()),
+    signalSeries: buildDailySeries(signalRows.map((row) => ({ created_at: row.observed_at })), 30, new Date()),
     topClusters,
     pendingCount: pendingCount ?? 0,
     latestReportAt: latest?.[0]?.created_at ?? null,
@@ -407,6 +411,9 @@ export async function getLatestPublicScanMeta(): Promise<PublicScanMeta> {
   }
 }
 
+const RUN_COLUMNS =
+  "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, search_results_seen, reddit_posts_seen, llm_calls_used, signals_inserted, signals_deduped, signals_reobserved, stale_signals_hidden, candidates_rescued, clusters_promoted, intent, skips, errors, funnel";
+
 export async function getAutomationAdminData() {
   const supabase = createServiceClient();
 
@@ -421,7 +428,7 @@ export async function getAutomationAdminData() {
   const { data: runs } = await supabase
     .from("automation_runs")
     .select(
-      "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, search_results_seen, llm_calls_used, signals_inserted, signals_deduped, signals_reobserved, stale_signals_hidden, candidates_rescued, clusters_promoted, intent, skips, errors, funnel",
+      RUN_COLUMNS,
     )
     .order("started_at", { ascending: false })
     .limit(10);
@@ -442,11 +449,172 @@ export async function getAutomationAdminData() {
     .order("started_at", { ascending: false })
     .limit(1);
 
+  // Fetched unbounded (not from the 10-row `runs` slice): during a paused/capped
+  // stretch, hourly skip rows can fill that slice and hide the real last scan.
+  const { data: latestRealRows } = await supabase
+    .from("automation_runs")
+    .select(RUN_COLUMNS)
+    .neq("mode", "dry_run")
+    .in("status", ["success", "partial", "failed"])
+    .order("started_at", { ascending: false })
+    .limit(1);
+  // success/partial only: signalsInserted is bumped during screening (before
+  // persistSignals writes to the DB), so a failed run can report inserts that never
+  // landed — it must not pose as the most recent find.
+  const { data: latestFindRows } = await supabase
+    .from("automation_runs")
+    .select(RUN_COLUMNS)
+    .neq("mode", "dry_run")
+    .in("status", ["success", "partial"])
+    .or("signals_inserted.gt.0,signals_reobserved.gt.0,clusters_promoted.gt.0")
+    .order("started_at", { ascending: false })
+    .limit(1);
+
   return {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
     rejectedCandidates: (rejectedCandidates ?? []) as RejectedCandidateRow[],
     control,
     activeRun: ((activeRunRows ?? []) as { id: string; status: string; mode: string; started_at: string }[])[0] ?? null,
+    latestRealRun: ((latestRealRows ?? []) as AutomationRunRow[])[0] ?? null,
+    latestFind: ((latestFindRows ?? []) as AutomationRunRow[])[0] ?? null,
   };
 }
+
+export type PublicScannerData = {
+  reviewedThisWeek: number;
+  filteredThisWeek: number;
+  keptThisWeek: number;
+  awaiting: number;
+  published: number;
+  lastCheckedAt: string | null;
+  scannerActive: boolean;
+};
+
+/**
+ * Aggregate-only scanner counts for the public /scanner tab. Selects ONLY numeric
+ * columns, cluster_id, and public_status — never a title, url, summary, or reject
+ * reason. This is the public privacy boundary: raw content never leaves this query.
+ */
+async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
+  const empty: PublicScannerData = {
+    reviewedThisWeek: 0,
+    filteredThisWeek: 0,
+    keptThisWeek: 0,
+    awaiting: 0,
+    published: 0,
+    lastCheckedAt: null,
+    scannerActive: false,
+  };
+  if (!hasSupabaseServiceConfig()) return empty;
+
+  const supabase = createServiceClient();
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: runData } = await supabase
+    .from("automation_runs")
+    .select("search_results_seen, reddit_posts_seen, signals_inserted, status, finished_at, started_at")
+    .neq("mode", "dry_run")
+    .in("status", ["success", "partial", "failed"])
+    .gte("started_at", weekAgo)
+    .order("started_at", { ascending: false });
+  const runs = (runData ?? []) as {
+    search_results_seen: number;
+    reddit_posts_seen: number;
+    signals_inserted: number;
+    status: string;
+    finished_at: string | null;
+    started_at: string;
+  }[];
+  const reviewedThisWeek = runs.reduce(
+    (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
+    0,
+  );
+  // Only success/partial runs actually persisted signals — a failed run can carry a
+  // non-zero signals_inserted from screening that never landed in the DB.
+  const keptThisWeek = runs.reduce(
+    (sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)),
+    0,
+  );
+  const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek);
+
+  // Heartbeat is independent of the weekly counters: a quiet or paused week must not
+  // erase the real "last checked" time when older runs exist. Unbounded latest lookup.
+  const { data: latestRows } = await supabase
+    .from("automation_runs")
+    .select("finished_at, started_at")
+    .neq("mode", "dry_run")
+    .in("status", ["success", "partial", "failed"])
+    .order("started_at", { ascending: false })
+    .limit(1);
+  const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
+  const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
+
+  // Match /issues' evidence rule exactly: a public cluster is "live" when it has a
+  // public signal OR an approved player report (hasClusterEvidence = strengthScore > 0).
+  // Report-only launch clusters must count as published, not just signal-backed ones.
+  // Aggregate-only — selects nothing but cluster_id / public_status / is_public.
+  // Public clusters must pass the same current-patch eligibility filter /issues uses,
+  // so a stale or wrong-patch public signal isn't counted as live evidence. The
+  // title/summary/published fields are selected server-side only to run that filter —
+  // they are never returned from this function.
+  const currentPatch = await getCurrentPatchMetadata(supabase);
+  const { data: publicSignalData } = await supabase
+    .from("source_signals")
+    .select("cluster_id, title, summary, source_published_at")
+    .eq("public_status", "public");
+  const publicSignalClusters = new Set<string>();
+  for (const signal of filterPublicCurrentPatchSignals((publicSignalData ?? []) as SignalRow[], currentPatch)) {
+    if (signal.cluster_id) publicSignalClusters.add(signal.cluster_id);
+  }
+  // Private candidates: only cluster_id is selected — private content never leaves here.
+  const { data: privateSignalData } = await supabase
+    .from("source_signals")
+    .select("cluster_id")
+    .eq("public_status", "private");
+  const privateSignalClusters = new Set<string>();
+  for (const signal of (privateSignalData ?? []) as { cluster_id: string | null }[]) {
+    if (signal.cluster_id) privateSignalClusters.add(signal.cluster_id);
+  }
+
+  const { data: reportData } = await supabase
+    .from("bug_reports")
+    .select("cluster_id")
+    .eq("moderation_status", "approved");
+  const approvedReportClusters = new Set<string>();
+  for (const report of (reportData ?? []) as { cluster_id: string | null }[]) {
+    if (report.cluster_id) approvedReportClusters.add(report.cluster_id);
+  }
+
+  const { data: clusterData } = await supabase.from("issue_clusters").select("id").eq("is_public", true);
+  let published = 0;
+  for (const cluster of (clusterData ?? []) as { id: string }[]) {
+    if (publicSignalClusters.has(cluster.id) || approvedReportClusters.has(cluster.id)) published += 1;
+  }
+
+  // Awaiting = every cluster with a private candidate signal that is not yet live
+  // evidence, INCLUDING brand-new candidates whose cluster is still is_public=false
+  // (createCluster starts private). That not-yet-public case is the common pending-
+  // corroboration state, so it must not be filtered out by an is_public check.
+  let awaiting = 0;
+  for (const id of privateSignalClusters) {
+    if (!publicSignalClusters.has(id) && !approvedReportClusters.has(id)) awaiting += 1;
+  }
+
+  const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+
+  return {
+    reviewedThisWeek,
+    filteredThisWeek,
+    keptThisWeek,
+    awaiting,
+    published,
+    lastCheckedAt,
+    scannerActive: !control.paused,
+  };
+}
+
+export const getPublicScannerData = unstable_cache(getPublicScannerDataUncached, ["public-scanner-data"], {
+  revalidate: 300,
+  tags: [PUBLIC_DASHBOARD_TAG],
+});

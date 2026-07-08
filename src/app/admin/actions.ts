@@ -293,6 +293,7 @@ export async function runRedditMonitor(formData: FormData): Promise<void> {
     }
   }
 
+  revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
 }
@@ -303,6 +304,7 @@ export async function setAutomationPaused(formData: FormData): Promise<void> {
   const paused = formData.get("paused") === "true";
   await setAutomationPausedState(createServiceClient() as unknown as AutomationSettingsClient, paused);
   revalidatePath("/admin");
+  revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
 }
@@ -315,6 +317,7 @@ export async function setScannerPolicy(formData: FormData): Promise<void> {
     scannerPolicyFromFormData(formData),
   );
   revalidatePath("/admin");
+  revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
 }
@@ -348,6 +351,7 @@ export async function rescueRejectedCandidate(formData: FormData): Promise<void>
     .eq("id", id);
   if (markError) throw new Error(`rescue mark failed: ${markError.message}`);
 
+  revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
 }

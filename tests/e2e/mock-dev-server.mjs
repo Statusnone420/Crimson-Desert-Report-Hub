@@ -143,6 +143,10 @@ const signals = [
     category: "performance",
     confidence: "medium",
     observed_at: isoMinutesAgo(12),
+    source_published_at: isoMinutesAgo(18),
+    first_seen_at: isoMinutesAgo(12),
+    last_seen_at: isoMinutesAgo(12),
+    seen_count: 4,
   },
   {
     id: "signal-2",
@@ -159,6 +163,10 @@ const signals = [
     category: "performance",
     confidence: "high",
     observed_at: isoMinutesAgo(45),
+    source_published_at: isoMinutesAgo(50),
+    first_seen_at: isoMinutesAgo(45),
+    last_seen_at: isoMinutesAgo(45),
+    seen_count: 3,
   },
   {
     id: "signal-private-1",
@@ -175,6 +183,10 @@ const signals = [
     category: "other",
     confidence: "low",
     observed_at: isoMinutesAgo(20),
+    source_published_at: isoMinutesAgo(22),
+    first_seen_at: isoMinutesAgo(20),
+    last_seen_at: isoMinutesAgo(20),
+    seen_count: 1,
   },
 ];
 
@@ -194,9 +206,23 @@ const automationRuns = [
     llm_calls_used: 0,
     signals_inserted: 2,
     signals_deduped: 1,
+    signals_reobserved: 1,
+    stale_signals_hidden: 0,
+    candidates_rescued: 0,
     clusters_promoted: 1,
+    intent: "broad_discovery",
     skips: ["openrouter_missing"],
     errors: [],
+    funnel: {
+      searchResultsSeen: 8,
+      candidatesSeen: 8,
+      deduped: 1,
+      prefilterRejected: 4,
+      llmEligible: 2,
+      llmCalls: 0,
+      kept: 2,
+      promoted: 1,
+    },
   },
   {
     id: "run-2",
@@ -213,9 +239,114 @@ const automationRuns = [
     llm_calls_used: 0,
     signals_inserted: 0,
     signals_deduped: 0,
+    signals_reobserved: 0,
+    stale_signals_hidden: 0,
+    candidates_rescued: 0,
     clusters_promoted: 0,
+    intent: "preview",
     skips: ["budget_zero"],
     errors: ["search disabled for dry run fixture"],
+    funnel: {
+      searchResultsSeen: 0,
+      candidatesSeen: 0,
+      deduped: 0,
+      prefilterRejected: 0,
+      llmEligible: 0,
+      llmCalls: 0,
+      kept: 0,
+      promoted: 0,
+    },
+  },
+];
+
+const rejectedCandidates = [
+  {
+    id: "reject-1",
+    title: "Crimson Desert patch 1.13 patch notes repost",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/mock/patch_notes/",
+    source_domain: "reddit.com",
+    source_published_at: isoMinutesAgo(35),
+    reason: "wrong_patch",
+    created_at: isoMinutesAgo(10),
+    expires_at: isoDaysAgo(-1),
+    rescued_at: null,
+  },
+  {
+    id: "reject-2",
+    title: "Base PS5 performance mode drops after update",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/mock/base_ps5_performance/",
+    source_domain: "reddit.com",
+    source_published_at: isoMinutesAgo(52),
+    reason: "source_not_issue_report",
+    created_at: isoMinutesAgo(20),
+    expires_at: isoDaysAgo(-1),
+    rescued_at: null,
+  },
+  {
+    id: "reject-3",
+    title: "Instagram reel about update 1.13 outfits",
+    url: "https://www.instagram.com/reel/mock/",
+    source_domain: "instagram.com",
+    source_published_at: isoMinutesAgo(75),
+    reason: "category_other",
+    created_at: isoMinutesAgo(30),
+    expires_at: isoDaysAgo(-1),
+    rescued_at: null,
+  },
+  {
+    id: "reject-4",
+    title: "Crimson Desert boss crash after claimed fix",
+    url: "https://community.example.com/crimson-desert-boss-crash",
+    source_domain: "community.example.com",
+    source_published_at: isoMinutesAgo(95),
+    reason: "candidate_recon",
+    created_at: isoMinutesAgo(40),
+    expires_at: isoDaysAgo(-1),
+    rescued_at: null,
+  },
+  {
+    id: "reject-5",
+    title: "YouTube review mentions patch performance",
+    url: "https://www.youtube.com/watch?v=mock",
+    source_domain: "youtube.com",
+    source_published_at: isoMinutesAgo(120),
+    reason: "source_not_issue_report",
+    created_at: isoMinutesAgo(50),
+    expires_at: isoDaysAgo(-1),
+    rescued_at: null,
+  },
+  {
+    id: "reject-6",
+    title: "Horse riding controls broke after patch",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/mock/horse_controls/",
+    source_domain: "reddit.com",
+    source_published_at: isoMinutesAgo(150),
+    reason: "candidate_rescued",
+    created_at: isoMinutesAgo(60),
+    expires_at: isoDaysAgo(-1),
+    rescued_at: null,
+  },
+  {
+    id: "reject-7",
+    title: "Patch 1.13 full notes mirror",
+    url: "https://mirror.example.com/crimson-desert-113-notes",
+    source_domain: "mirror.example.com",
+    source_published_at: isoMinutesAgo(170),
+    reason: "source_not_issue_report",
+    created_at: isoMinutesAgo(70),
+    expires_at: isoDaysAgo(-1),
+    rescued_at: null,
+  },
+  {
+    id: "reject-8",
+    title: "New armor set locations guide",
+    url: "https://guide.example.com/new-armor-set-locations",
+    source_domain: "guide.example.com",
+    source_published_at: isoMinutesAgo(190),
+    reason: "category_other",
+    created_at: isoMinutesAgo(80),
+    expires_at: isoDaysAgo(-1),
+    rescued_at: null,
   },
 ];
 
@@ -238,6 +369,21 @@ const officialPatchNotes = [
     summary: "Official patch metadata used by Playwright visual tests.",
     observed_at: isoMinutesAgo(40),
     is_current: true,
+  },
+];
+
+const officialPatchClaimedFixes = [
+  {
+    board_no: "105",
+    position: 0,
+    fix_text: "Fixed an issue where opening the world map could crash or freeze the client.",
+    category: "crash_startup",
+  },
+  {
+    board_no: "105",
+    position: 1,
+    fix_text: "Fixed an issue where performance could drop in crowded areas.",
+    category: "performance",
   },
 ];
 
@@ -273,6 +419,24 @@ function filterRows(table, url) {
     rows = rows.filter((row) => allowed.includes(row.moderation_status));
   }
 
+  const rowStatus = url.searchParams.get("status");
+  if (rowStatus?.startsWith("eq.")) rows = rows.filter((row) => row.status === rowStatus.slice(3));
+  if (rowStatus?.startsWith("in.")) {
+    const allowed = rowStatus
+      .slice(3)
+      .replace(/^\(|\)$/g, "")
+      .split(",")
+      .map((value) => value.replace(/^"|"$/g, ""));
+    rows = rows.filter((row) => allowed.includes(row.status));
+  }
+
+  const mode = url.searchParams.get("mode");
+  if (mode?.startsWith("eq.")) rows = rows.filter((row) => row.mode === mode.slice(3));
+  if (mode?.startsWith("neq.")) rows = rows.filter((row) => row.mode !== mode.slice(4));
+
+  const boardNo = url.searchParams.get("board_no");
+  if (boardNo?.startsWith("eq.")) rows = rows.filter((row) => row.board_no === boardNo.slice(3));
+
   const submitterIpHash = url.searchParams.get("submitter_ip_hash");
   if (submitterIpHash?.startsWith("eq.")) {
     rows = rows.filter((row) => row.submitter_ip_hash === submitterIpHash.slice(3));
@@ -282,6 +446,18 @@ function filterRows(table, url) {
   if (createdAt?.startsWith("gte.")) {
     const floor = new Date(createdAt.slice(4)).getTime();
     rows = rows.filter((row) => new Date(row.created_at).getTime() >= floor);
+  }
+
+  const startedAt = url.searchParams.get("started_at");
+  if (startedAt?.startsWith("gte.")) {
+    const floor = new Date(startedAt.slice(4)).getTime();
+    rows = rows.filter((row) => new Date(row.started_at).getTime() >= floor);
+  }
+
+  const expiresAt = url.searchParams.get("expires_at");
+  if (expiresAt?.startsWith("gt.")) {
+    const floor = new Date(expiresAt.slice(3)).getTime();
+    rows = rows.filter((row) => new Date(row.expires_at).getTime() > floor);
   }
 
   const isPublic = url.searchParams.get("is_public");
@@ -309,6 +485,7 @@ function filterRows(table, url) {
   if (order?.startsWith("published_at.desc")) {
     rows.sort((a, b) => new Date(b.published_at ?? 0).getTime() - new Date(a.published_at ?? 0).getTime());
   }
+  if (order?.startsWith("position.asc")) rows.sort((a, b) => a.position - b.position);
   if (order?.startsWith("title.asc")) rows.sort((a, b) => a.title.localeCompare(b.title));
 
   const limit = Number(url.searchParams.get("limit"));
@@ -383,6 +560,11 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/rest/v1/automation_rejected_candidates" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(rejectedCandidates, url));
+    return;
+  }
+
   if (url.pathname === "/rest/v1/automation_settings" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(automationSettings, url));
     return;
@@ -390,6 +572,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/official_patch_notes" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(officialPatchNotes, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/official_patch_claimed_fixes" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(officialPatchClaimedFixes, url));
     return;
   }
 

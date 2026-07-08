@@ -85,7 +85,7 @@ export default async function IssuesPage() {
                   {signal.summary}
                 </p>
                 <a href={signal.source_url} target="_blank" rel="noreferrer noopener" className="link text-xs">
-                  View source ↗
+                  Open source
                 </a>
               </div>
             ))}
@@ -111,8 +111,8 @@ export default async function IssuesPage() {
     <div className="space-y-6">
       <SectionHeader
         label="Moderated public evidence"
-        title="Issue clusters"
-        description="Evidence counts come from approved player reports, public signals backed by separate sources, and admin-approved excerpts. Seeded watchlist items stay unverified until the data confirms them."
+        title="Evidence board"
+        description="Backed clusters come first, with public source links and approved player excerpts visible for verification. Watchlist items stay lower and quieter until the data confirms them."
       />
 
       <section className="grid grid-cols-3 gap-3">

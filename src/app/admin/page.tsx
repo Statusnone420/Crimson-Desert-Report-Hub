@@ -1,85 +1,18 @@
 import Link from "next/link";
-import { moderateReport, setAutomationPaused, setClusterFixStatus } from "@/app/admin/actions";
-import { ScanControls } from "@/components/ScanControls";
+import { moderateReport, setClusterFixStatus } from "@/app/admin/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { FixStatusBadge, SectionHeader, StatCard } from "@/components/ui";
-import {
-  getAutomationControlState,
-  type AutomationControlState,
-  type AutomationSettingsClient,
-} from "@/lib/automation/settings";
-import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { CATEGORY_LABELS, FIX_STATUSES, PLATFORM_LABELS } from "@/lib/constants";
-import { features } from "@/lib/env";
 import { requireAdmin } from "@/lib/adminGuard";
 import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-type AutomationDashboardRun = {
-  started_at: string;
-  status: string;
-  mode: string;
-  estimated_cost_usd: number;
-  search_queries_used: number;
-  llm_calls_used: number;
-  signals_inserted: number;
-  signals_deduped: number;
-  clusters_promoted: number;
-  skips: string[];
-  errors: string[];
-};
-
-function runSummary(run: AutomationDashboardRun): string {
-  const base = `${run.search_queries_used} searches, ${run.llm_calls_used} LLM calls`;
-  if (run.mode === "dry_run") return `${base}, ${run.signals_inserted} would insert, nothing public saved`;
-  return `${base}, ${run.signals_inserted} inserted, ${run.signals_deduped} deduped, ${run.clusters_promoted} promoted`;
-}
-
-function cadenceLabel(minutes: number): string {
-  if (minutes === 60) return "hourly";
-  if (minutes === 120) return "every 2 hours";
-  if (minutes === 360) return "every 6 hours";
-  return "daily";
-}
-
-function projectedMonthlyCredits(control: AutomationControlState): number {
-  if (control.paused) return 0;
-  return Math.ceil((30 * 24 * 60 * control.scheduledSearchCreditsPerRun) / control.minIntervalMinutes);
-}
-
-function runHasCapSkip(run: AutomationDashboardRun | null): boolean {
-  return Boolean(
-    run?.status === "skipped" &&
-      run.skips.some((skip) => skip.includes("tavily_credit_cap") || skip.includes("llm_budget_capped")),
-  );
-}
-
-function scannerBadge(
-  control: AutomationControlState,
-  activeRunId: string | null,
-  latestRun: AutomationDashboardRun | null,
-) {
-  if (activeRunId) return { className: "badge badge-amber", label: "running" };
-  if (control.paused) return { className: "badge badge-amber", label: "paused" };
-  if (runHasCapSkip(latestRun)) return { className: "badge badge-crimson", label: "capped" };
-  return { className: "badge badge-green", label: "active" };
-}
-
 export default async function AdminPage() {
   await requireAdmin();
   const supabase = createServiceClient();
 
-  const [
-    { data: flagged },
-    { data: clusters },
-    approved,
-    pending,
-    spam,
-    latestAutomation,
-    automationControl,
-    activeAutomationRun,
-  ] = await Promise.all([
+  const [{ data: flagged }, { data: clusters }, approved, pending, spam] = await Promise.all([
     supabase
       .from("bug_reports")
       .select("*")
@@ -90,41 +23,9 @@ export default async function AdminPage() {
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
-    supabase
-      .from("automation_runs")
-      .select(
-        "started_at, status, mode, estimated_cost_usd, search_queries_used, llm_calls_used, signals_inserted, signals_deduped, clusters_promoted, skips, errors",
-      )
-      .order("started_at", { ascending: false })
-      .limit(1),
-    getAutomationControlState(supabase as unknown as AutomationSettingsClient),
-    supabase
-      .from("automation_runs")
-      .select("id, status, mode, started_at")
-      .eq("status", "running")
-      .order("started_at", { ascending: false })
-      .limit(1),
   ]);
 
   const flaggedReports = flagged ?? [];
-  const latestRun = ((latestAutomation.data ?? []) as AutomationDashboardRun[])[0] ?? null;
-  const latestMessages = latestRun ? summarizeRunMessages(latestRun.skips, latestRun.errors) : null;
-  const activeRunId =
-    (
-      (activeAutomationRun.data ?? []) as {
-        id: string;
-        status: string;
-        mode: string;
-        started_at: string;
-      }[]
-    )[0]?.id ?? null;
-  const f = features();
-  const badge = scannerBadge(automationControl, activeRunId, latestRun);
-  const policySummary = `${
-    automationControl.paused ? "paused" : cadenceLabel(automationControl.minIntervalMinutes)
-  } · ${automationControl.scheduledSearchCreditsPerRun} Tavily credit/run · ${projectedMonthlyCredits(
-    automationControl,
-  )} est. credits/month`;
 
   return (
     <div className="space-y-6">
@@ -134,8 +35,8 @@ export default async function AdminPage() {
         description="Reports are checked and sorted automatically the moment they arrive — spam-gated, clustered, and approved by deterministic rules, with an optional AI screen when configured. This queue only holds the few flagged for a human look."
         action={
           <div className="flex flex-wrap gap-2">
-            <Link className="btn btn-ghost btn-sm" href="/admin/source-monitor">
-              Source monitor
+            <Link className="btn btn-ghost btn-sm" href="/scanner">
+              Scanner monitor
             </Link>
             <Link className="btn btn-ghost btn-sm" href="/admin/compile">
               Compile dossier
@@ -152,75 +53,6 @@ export default async function AdminPage() {
         <StatCard label="Flagged" value={pending.count ?? 0} note="Waiting for your call" tone="amber" />
         <StatCard label="Filtered as spam" value={spam.count ?? 0} note="Blocked automatically" tone="dim" />
         <StatCard label="Issues tracked" value={(clusters ?? []).length} note="Clusters" tone="dim" />
-      </section>
-
-      <section className="panel space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="stat-label">Automation controls</div>
-            <h2 className="h-section">Scheduled source scanner</h2>
-            <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              A Cloudflare Worker wakes the protected scanner endpoint hourly. The dashboard policy below decides whether
-              that attempt runs, skips by cadence, or stops at the Tavily and LLM caps.
-            </p>
-          </div>
-          <span className={badge.className}>{badge.label}</span>
-        </div>
-
-        <div className="grid gap-3 text-sm md:grid-cols-3">
-          <div>
-            <div className="stat-label mb-1">Policy</div>
-            <p className="text-lg font-semibold">
-              {automationControl.paused ? "Paused" : cadenceLabel(automationControl.minIntervalMinutes)}
-            </p>
-            <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-              {policySummary}
-            </p>
-          </div>
-          <div>
-            <div className="stat-label mb-1">Providers</div>
-            <p>Reddit: {f.reddit ? "enabled" : "disabled"}</p>
-            <p>Web search: {f.webSearch ? "enabled" : "disabled"}</p>
-            <p>Tavily cap: {automationControl.monthlyTavilyCreditCap} credits/month</p>
-            <p>LLM cap: ${automationControl.monthlyLlmUsdCap}/month</p>
-            <p style={f.turnstile ? undefined : { color: "var(--crimson-bright)" }}>
-              Spam shield (Turnstile): {f.turnstile ? "enabled" : "OFF — report form has no captcha"}
-            </p>
-          </div>
-          <div>
-            <div className="stat-label mb-1">Latest run</div>
-            {latestRun ? (
-              <>
-                <p>
-                  {formatEasternDateTime(latestRun.started_at)} · {latestRun.status} · {latestRun.mode.replace("_", " ")}
-                </p>
-                <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-                  {runSummary(latestRun)}
-                </p>
-                <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-                  {latestMessages?.operatorSummary}
-                </p>
-              </>
-            ) : (
-              <p style={{ color: "var(--text-dim)" }}>No scanner run recorded yet.</p>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-3 border-t pt-4">
-          <ScanControls activeRunId={activeRunId} />
-          <div className="flex flex-wrap gap-2">
-            <form action={setAutomationPaused}>
-              <input type="hidden" name="paused" value={automationControl.paused ? "false" : "true"} />
-              <SubmitButton className="btn btn-ghost btn-sm" pendingText="Saving...">
-                {automationControl.paused ? "Resume scheduled scans" : "Stop scheduled scans"}
-              </SubmitButton>
-            </form>
-            <Link className="btn btn-ghost btn-sm" href="/admin/source-monitor">
-              Full run ledger
-            </Link>
-          </div>
-        </div>
       </section>
 
       <section className="space-y-3">

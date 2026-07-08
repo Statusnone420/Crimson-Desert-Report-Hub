@@ -8,6 +8,7 @@ const NAV = [
   { href: "/issues", label: "Issues" },
   { href: "/report", label: "Submit report" },
   { href: "/about", label: "About" },
+  { href: "/scanner", label: "Scanner" },
 ];
 
 export function NavLinks() {
