@@ -35,6 +35,10 @@ function attrValue(xml: string, name: string, attr: "_value" | "_select"): strin
   return tag?.[1] ?? null;
 }
 
+function settingValue(xml: string, name: string): string | null {
+  return attrValue(xml, name, "_value") ?? attrValue(xml, name, "_select");
+}
+
 function boolWord(value: string | null): "on" | "off" | null {
   if (!value) return null;
   if (/^(true|on|1)$/i.test(value)) return "on";
@@ -54,21 +58,33 @@ function formatDate(ms: number): string {
 }
 
 function graphicsModeFromSettings(xml: string): string | null {
-  const upscaleMode = attrValue(xml, "_upscaleModeSelect", "_value");
-  const upscaleResolution = attrValue(xml, "_upscaleResolution", "_select");
-  const frameGeneration = boolWord(attrValue(xml, "_enableFrameGeneration", "_value"));
-  const vsync = boolWord(attrValue(xml, "_enableVsync", "_value"));
-  const hdr = boolWord(attrValue(xml, "_enableHDR", "_value"));
+  const displayType = settingValue(xml, "_displayType");
+  const upscaleMode = settingValue(xml, "_upscaleModeSelect");
+  const upscaleResolution = settingValue(xml, "_upscaleResolution");
+  const frameGeneration = boolWord(settingValue(xml, "_enableFrameGeneration"));
+  const frameCount = settingValue(xml, "_numFramesToGenerate");
+  const vsync = boolWord(settingValue(xml, "_enableVsync"));
+  const hdr = boolWord(settingValue(xml, "_enableHDR"));
+  const lightingQuality = settingValue(xml, "_lightingQualityLevelSelect");
+  const waterQuality = settingValue(xml, "_waterQualityLevelSelect");
+  const upscaleSummary = upscaleMode
+    ? `Upscaling: ${upscaleMode}${upscaleResolution ? ` (${upscaleResolution})` : ""}`
+    : null;
+  const frameGenerationSummary = frameGeneration
+    ? `Frame generation: ${frameGeneration}${frameGeneration === "on" && frameCount ? ` (${frameCount} frames)` : ""}`
+    : null;
 
   const parts = [
-    upscaleMode,
-    upscaleResolution,
-    frameGeneration ? `Frame Generation ${frameGeneration}` : null,
-    vsync ? `VSync ${vsync}` : null,
-    hdr ? `HDR ${hdr}` : null,
+    displayType ? `Display: ${displayType}` : null,
+    upscaleSummary,
+    frameGenerationSummary,
+    vsync ? `VSync: ${vsync}` : null,
+    hdr ? `HDR: ${hdr}` : null,
+    lightingQuality ? `Lighting: ${lightingQuality}` : null,
+    waterQuality ? `Water: ${waterQuality}` : null,
   ].filter(Boolean);
 
-  return parts.length > 0 ? parts.join(" / ") : null;
+  return parts.length > 0 ? parts.join("; ") : null;
 }
 
 export function analyzeSaveImport(files: SaveImportFile[]): SaveImportAnalysis {
@@ -84,7 +100,7 @@ export function analyzeSaveImport(files: SaveImportFile[]): SaveImportAnalysis {
     });
 
   const evidenceParts = [
-    settingsFile ? "settings XML parsed" : null,
+    graphicsMode ? `settings summary: ${graphicsMode}` : settingsFile ? "settings file selected" : null,
     saveFiles.length > 0 ? `selected files: ${saveFiles.join("; ")}` : null,
   ].filter(Boolean);
 

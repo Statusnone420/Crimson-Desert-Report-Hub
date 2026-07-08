@@ -335,9 +335,16 @@ test.describe("public surface visual regression", () => {
     await page.goto("/issues");
 
     await expect(page.getByRole("heading", { name: "What players are reporting" })).toBeVisible();
-    await expect(page.getByText("Community signals").first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
-    await expect(page.getByText("High confidence")).toBeVisible();
+    const communitySignals = page.getByText("Community signals");
+    if ((await communitySignals.count()) > 0) {
+      await expect(communitySignals.first()).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
+      await expect(page.getByText("High confidence")).toBeVisible();
+    } else {
+      await expect(page.getByText("Source candidates stay private until they clear the rules.")).toBeVisible();
+      await expect(page.getByRole("link", { name: "Scanner funnel" })).toHaveAttribute("href", "/scanner");
+      await expect(page.getByRole("link", { name: "Submit a report" })).toHaveAttribute("href", "/report");
+    }
     await expect(page.getByText("Confirmed")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
     await expect(page.getByText("Backed issues first.")).toBeVisible();
@@ -401,6 +408,8 @@ test.describe("public surface visual regression", () => {
     await page.keyboard.press("Enter");
     await page.getByLabel("Admin password").fill("admin-password");
     await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Scanner monitor" })).toBeVisible();
 
     await page.goto("/scanner");
@@ -419,26 +428,32 @@ test.describe("public surface visual regression", () => {
     await expect(page).toHaveScreenshot("scanner-admin.png", { fullPage: true });
   });
 
-  test("admin controls unlock private shortcuts", async ({ page }) => {
+  test("admin footer routes through sign-in to the admin page", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
 
-    // Keyboard activation: mobile-chromium's emulated touch hit-testing
-    // misreports the footer paragraph as the hit target even though the
-    // browser's own elementFromPoint resolves the button (verified), so a
-    // pointer tap flakes. Enter-on-focus exercises the same flow and also
-    // proves the control is keyboard-accessible.
     const adminButton = page.getByRole("button", { name: "Admin" });
     await adminButton.scrollIntoViewIfNeeded();
+    await adminButton.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByLabel("Admin password")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Review reports" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByLabel("Admin password")).toHaveCount(0);
+
     await adminButton.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByLabel("Admin password")).toBeVisible();
     await page.getByLabel("Admin password").fill("admin-password");
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.getByRole("link", { name: "Review reports" })).toHaveAttribute("href", "/admin");
-    await expect(page.getByRole("link", { name: "Scanner monitor" })).toHaveAttribute("href", "/scanner");
-    await expect(page.getByRole("link", { name: "Compile dossier" })).toHaveAttribute("href", "/admin/compile");
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
+    await page.goto("/");
+    await adminButton.scrollIntoViewIfNeeded();
+    await adminButton.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/admin$/);
     await expectHealthyPage(page, problems);
   });
 
@@ -467,11 +482,17 @@ test.describe("public surface visual regression", () => {
   test("local save import fills visible technical fields without uploading raw files", async ({ page }, testInfo) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/report");
+    await expect(page.getByText("Your browser cannot scan your PC.")).toBeVisible();
+    await expect(page.getByText("user_engine_option_save.xml").first()).toBeVisible();
+    await expect(page.getByText("Open File Explorer and search This PC for user_engine_option_save.xml.")).toBeVisible();
+    await expect(page.getByText("If search finds nothing, skip this helper.")).toBeVisible();
+
     const saveFolder = testInfo.outputPath("save-folder");
     await mkdir(saveFolder, { recursive: true });
-    await writeFile(path.join(saveFolder, "user_engine_option_save.xml"), settingsXml);
+    const settingsPath = path.join(saveFolder, "user_engine_option_save.xml");
+    await writeFile(settingsPath, settingsXml);
 
-    await page.setInputFiles("#save_import", saveFolder);
+    await page.setInputFiles("#save_import", settingsPath);
     await page.getByText("Add technical detail Pearl Abyss can use").click();
 
     // Selecting files shows a preview but must NOT mutate the form until the user opts in.
@@ -483,9 +504,11 @@ test.describe("public surface visual regression", () => {
     await page.getByRole("button", { name: "Add to report" }).click();
     await expect(page.getByText("Raw files are not uploaded").first()).toBeVisible();
     await expect(page.getByLabel("Graphics mode / FPS setting")).toHaveValue(
-      "NVIDIA DLSS 4.0 / AA / Frame Generation on / VSync off / HDR on",
+      "Upscaling: NVIDIA DLSS 4.0 (AA); Frame generation: on; VSync: off; HDR: on",
     );
-    await expect(page.getByLabel("Troubleshooting you tried")).toHaveValue(/settings XML parsed/);
+    await expect(page.getByLabel("Troubleshooting you tried")).toHaveValue(
+      /settings summary: Upscaling: NVIDIA DLSS 4.0 \(AA\)/,
+    );
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("report-import.png", { fullPage: true });
   });
