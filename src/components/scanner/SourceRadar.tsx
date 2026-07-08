@@ -2,14 +2,17 @@ import type { ReactNode } from "react";
 import type { IntegrationStatus } from "@/lib/env";
 import type { PublicScannerData } from "@/lib/queries";
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return "not yet";
+function timeAgo(iso: string): string {
   const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function lastCheckedLabel(iso: string | null): string {
+  return iso ? `Last checked ${timeAgo(iso)}` : "Not checked yet";
 }
 
 type Step = { key: string; value: number; name: string; desc: string; color: string };
@@ -58,7 +61,11 @@ export function SourceRadar({
     },
   ];
   const segmentTotal = steps.reduce((sum, step) => sum + Math.max(0, step.value), 0);
-  const scannerLabel = data.scannerConnected ? (data.scannerActive ? "scheduled on" : "paused") : "not connected";
+  const scannerLabel = data.scannerConnected
+    ? data.scannerActive
+      ? "Scanner scheduled"
+      : "Scanner paused"
+    : "Scanner unavailable";
   const scannerBadgeClass = data.scannerConnected
     ? data.scannerActive
       ? "badge badge-green badge-dot"
@@ -73,7 +80,7 @@ export function SourceRadar({
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="h-section">{title}</h2>
             <span className={scannerBadgeClass}>{scannerLabel}</span>
-            <span className="badge badge-dim">Last checked {timeAgo(data.lastCheckedAt)}</span>
+            <span className="badge badge-dim">{lastCheckedLabel(data.lastCheckedAt)}</span>
           </div>
           <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             {description}
@@ -139,7 +146,7 @@ export function SourceRadar({
             <div className="flex items-center justify-between gap-2">
               <span className="font-semibold">{integration.label}</span>
               <span className={integration.connected ? "badge badge-green" : "badge badge-amber"}>
-                {integration.connected ? "connected" : "off"}
+                {integration.connected ? "Connected" : "Off"}
               </span>
             </div>
             <p className="mt-2 text-xs leading-5" style={{ color: "var(--text-faint)" }}>

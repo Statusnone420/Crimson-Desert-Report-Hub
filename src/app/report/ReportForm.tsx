@@ -405,7 +405,7 @@ export function ReportForm({
               <div className="space-y-2 border-t pt-3 text-xs leading-5">
                 <p style={{ color: "var(--text-dim)" }}>{saveImport.privacyNote}</p>
                 <p style={{ color: "var(--text-faint)" }}>{saveImport.evidenceNote}</p>
-                <span className="badge badge-green">added to Troubleshooting field</span>
+                <span className="badge badge-green">Added to Troubleshooting field</span>
               </div>
             ) : null}
           </div>

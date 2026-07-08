@@ -30,9 +30,9 @@ export default async function AdminPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        label="Owner console"
-        title="Auto-moderation"
-        description="Reports are checked and sorted automatically the moment they arrive — spam-gated, clustered, and approved by deterministic rules, with an optional AI screen when configured. This queue only holds the few flagged for a human look."
+        label="Admin controls"
+        title="Report review"
+        description="Auto-sorted reports, flagged submissions, and issue fix-status controls."
         action={
           <div className="flex flex-wrap gap-2">
             <Link className="btn btn-ghost btn-sm" href="/scanner">
@@ -49,7 +49,7 @@ export default async function AdminPage() {
       />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Auto-sorted" value={approved.count ?? 0} note="Approved without a human" tone="green" />
+        <StatCard label="Auto-sorted" value={approved.count ?? 0} note="Approved automatically" tone="green" />
         <StatCard label="Flagged" value={pending.count ?? 0} note="Waiting for your call" tone="amber" />
         <StatCard label="Filtered as spam" value={spam.count ?? 0} note="Blocked automatically" tone="dim" />
         <StatCard label="Issues tracked" value={(clusters ?? []).length} note="Clusters" tone="dim" />
@@ -70,8 +70,7 @@ export default async function AdminPage() {
             </div>
             <h3 className="text-base font-semibold">All clear</h3>
             <p className="max-w-md text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              Auto-moderation is handling everything. Nothing is waiting on you. Flagged reports show up here only when
-              something looks ambiguous or sensitive.
+              No flagged reports need review.
             </p>
           </div>
         ) : (

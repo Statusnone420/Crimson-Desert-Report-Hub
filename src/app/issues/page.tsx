@@ -136,7 +136,7 @@ export default async function IssuesPage() {
       <SectionHeader
         label="Current patch watch"
         title="What players are reporting"
-        description="Useful first: what is backed, what is only suspected, and what still needs another player or public source. Private scanner candidates stay private."
+        description="Backed issues first. Suspected patterns stay lower until another player or public source confirms them."
       />
 
       <section className="grid grid-cols-3 gap-3">
@@ -149,7 +149,7 @@ export default async function IssuesPage() {
           <div className="stat-value mt-1.5">{active.length}</div>
           {active.length === 0 ? (
             <div className="mt-1.5 text-xs font-medium" style={{ color: "var(--text-dim)" }}>
-              nothing confirmed yet
+              Nothing confirmed yet
             </div>
           ) : null}
         </div>
@@ -167,8 +167,8 @@ export default async function IssuesPage() {
             No public issue clusters yet.
           </p>
           <p className="leading-6">
-            That means nothing has enough player/public evidence to promote here. Use the scanner funnel to see how
-            source candidates are handled, or submit a report if you are seeing a current-patch problem.
+            Nothing has enough player or public evidence to promote here yet. Source candidates stay private until
+            they clear the rules.
           </p>
           <div className="flex flex-wrap gap-2">
             <Link href="/scanner" className="btn btn-ghost btn-sm">
@@ -178,7 +178,7 @@ export default async function IssuesPage() {
               Submit a report
             </Link>
             <Link href="/" className="btn btn-ghost btn-sm">
-              Patch radar
+              Dashboard
             </Link>
           </div>
         </div>

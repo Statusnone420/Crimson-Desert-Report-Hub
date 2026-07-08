@@ -65,6 +65,10 @@ describe("buildRightNowReadout", () => {
     expect(observationText).toContain("7");
     expect(observationText).toContain("1 player report");
     expect(observationText).toContain("No public source links");
+    expect(readout.snapshotLine).toContain("Patch 1.13.01 hotfix");
+    expect(readout.snapshotLine).toContain("1 player report");
+    expect(readout.snapshotLine).toContain("no public source links cleared");
+    expect(readout.snapshotLine).toContain("7 private leads awaiting corroboration");
     expect(readout.worthChecking.map((issue) => issue.title)).toEqual([
       "FPS / performance regression since 1.13.00",
       "Mount, input, and title-screen lockups",
@@ -114,8 +118,9 @@ describe("buildRightNowReadout", () => {
     });
 
     const observationText = readout.observations.join(" ");
-    expect(observationText).toContain("Scanner data is not connected");
+    expect(observationText).toContain("Scanner data is unavailable");
     expect(observationText).toContain("No player reports");
+    expect(readout.snapshotLine).toContain("scanner unavailable");
     expect(readout.worthChecking).toEqual([]);
     expect(readout.emptyWorthCheckingCopy).toBe(
       "No watched issue has enough signal yet. Use the official links, source radar, or add your own case.",

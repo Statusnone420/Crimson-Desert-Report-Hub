@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NavLinks } from "@/components/NavLinks";
-import { OwnerConsole } from "@/components/OwnerConsole";
+import { AdminControls } from "@/components/AdminControls";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL, SOURCE_URL } from "@/lib/site";
 import "./globals.css";
 
@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   applicationName: SITE_NAME,
   title: {
-    default: `${SITE_NAME} - unofficial community tracker`,
+    default: `${SITE_NAME} - current situation hub`,
     template: `%s | ${SITE_NAME}`,
   },
   description: SITE_DESCRIPTION,
@@ -20,12 +20,12 @@ export const metadata: Metadata = {
     type: "website",
     url: "/",
     siteName: SITE_NAME,
-    title: `${SITE_NAME} - unofficial community tracker`,
+    title: `${SITE_NAME} - current situation hub`,
     description: SITE_DESCRIPTION,
   },
   twitter: {
     card: "summary_large_image",
-    title: `${SITE_NAME} - unofficial community tracker`,
+    title: `${SITE_NAME} - current situation hub`,
     description: SITE_DESCRIPTION,
   },
   robots: { index: true, follow: true, googleBot: { index: true, follow: true } },
@@ -74,7 +74,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               tracking. For crash logs, use Pearl Abyss&apos;s official support channels.
             </p>
             <div className="ml-auto flex items-center gap-4">
-              <OwnerConsole />
+              <AdminControls />
               <a
                 href={SOURCE_URL}
                 target="_blank"

@@ -97,12 +97,18 @@ function sourceHost(signal: AdminSignalRow): string {
   }
 }
 
+function publicStatusLabel(status: AdminSignalRow["public_status"]): string {
+  if (status === "public") return "Public";
+  if (status === "hidden") return "Hidden";
+  return "Private";
+}
+
 function SignalRow({ signal }: { signal: AdminSignalRow }) {
   return (
     <article className="border-b py-3 last:border-0" style={{ borderColor: "var(--border)" }}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className={signal.public_status === "public" ? "badge badge-green" : "badge badge-dim"}>
-          {signal.public_status}
+          {publicStatusLabel(signal.public_status)}
         </span>
         <span className="badge badge-dim">{signal.source_type ?? signal.source}</span>
         <SignalConfidenceBadge confidence={signal.confidence} />
@@ -208,13 +214,13 @@ export function AdminScannerView({
       <SourceRadar
         data={scoreboard}
         integrations={integrations}
-        description="Same aggregate funnel anonymous visitors can see, plus owner controls for preview and capped scans."
+        description="Same aggregate funnel visitors can see, plus admin controls for preview and capped scans."
         actions={<ScanControls activeRunId={activeRun?.id ?? null} />}
       />
 
       <section className="panel-inset grid gap-2 border px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={status.className}>{status.label.toLowerCase()}</span>
+          <span className={status.className}>{status.label}</span>
           {latestRun ? <span>Last scan {relativeTime(latestRun.started_at)}</span> : <span>No completed scan yet</span>}
           <span style={{ color: "var(--text-faint)" }}>·</span>
           <span>Next check {control.paused ? "paused" : relativeTime(nextEligible.toISOString())}</span>

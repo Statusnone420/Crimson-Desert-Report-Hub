@@ -152,9 +152,9 @@ The app already validates Turnstile tokens server-side when `TURNSTILE_SECRET_KE
 Use this order so bad sources do not publish automatically.
 
 1. Visit `/`, `/issues`, `/report`, and `/about`.
-2. Open the footer `Owner` control or `/admin/login`.
+2. Open the footer `Admin` control or `/admin/login`.
 3. Enter `ADMIN_PASSWORD`.
-4. Open `/admin/source-monitor`.
+4. Open `/scanner`.
 5. Click `Test scan without publishing`.
 6. Run the protected no-write preview:
 

@@ -27,7 +27,7 @@ export default function AdminLoginPage() {
     <form onSubmit={onSubmit} className="panel mx-auto mt-16 max-w-sm space-y-4">
       <div>
         <p className="stat-label">Admin</p>
-        <h1 className="text-xl font-semibold">Moderator access</h1>
+        <h1 className="text-xl font-semibold">Admin access</h1>
       </div>
       <div>
         <label htmlFor="password">Password</label>

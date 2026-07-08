@@ -60,6 +60,7 @@ export type RightNowIssue = {
 
 export type RightNowReadout = {
   patchLabel: string;
+  snapshotLine: string;
   observations: string[];
   worthChecking: RightNowIssue[];
   emptyWorthCheckingCopy: string;
@@ -106,6 +107,22 @@ function evidenceNote(issue: RightNowClusterInput) {
   return "Watching";
 }
 
+function snapshotLine(input: RightNowInput) {
+  const reports =
+    input.directReports > 0 ? `${plural(input.directReports, "player report")} in this patch family` : "no player reports yet";
+  const publicLinks =
+    input.publicFindingsCount > 0
+      ? `${plural(input.publicFindingsCount, "public source link")} cleared`
+      : "no public source links cleared yet";
+  const privateLeads = input.scanner.scannerConnected
+    ? input.scanner.awaiting > 0
+      ? `${plural(input.scanner.awaiting, "private lead")} awaiting corroboration`
+      : "no private leads waiting"
+    : "scanner unavailable";
+
+  return [`Patch ${displayPatchVersion(input.currentPatch.version)}`, reports, publicLinks, privateLeads].join(" · ");
+}
+
 export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
   const observations = [
     `Current patch: ${displayPatchVersion(input.currentPatch.version)}. Official notes are linked.`,
@@ -114,16 +131,16 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
   if (input.scanner.scannerConnected) {
     observations.push(
       input.scanner.awaiting > 0
-        ? `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; ${input.scanner.awaiting} still need another source before publishing.`
+        ? `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; ${plural(input.scanner.awaiting, "lead")} still ${input.scanner.awaiting === 1 ? "needs" : "need"} another source before publishing.`
         : `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; nothing is waiting for corroboration.`,
     );
   } else {
-    observations.push("Scanner data is not connected in this environment.");
+    observations.push("Scanner data is unavailable in this environment.");
   }
 
   observations.push(
     input.directReports > 0
-      ? `${plural(input.directReports, "player report")} is attached to the current patch family.`
+      ? `${plural(input.directReports, "player report")} ${input.directReports === 1 ? "is" : "are"} attached to the current patch family.`
       : "No player reports are attached to the current patch family yet.",
   );
 
@@ -133,7 +150,7 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
       : "No public source links are strong enough yet for this patch.",
   );
 
-  const worthChecking = input.topClusters
+  const worthChecking: RightNowIssue[] = input.topClusters
     .filter((cluster) => cluster.directReportCount > 0 || cluster.signalCount > 0 || cluster.candidateSignalCount > 0)
     .sort((a, b) => issueWeight(b) - issueWeight(a))
     .slice(0, 5)
@@ -164,6 +181,7 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
 
   return {
     patchLabel: `Patch ${displayPatchVersion(input.currentPatch.version)}`,
+    snapshotLine: snapshotLine(input),
     observations,
     worthChecking,
     emptyWorthCheckingCopy: "No watched issue has enough signal yet. Use the official links, source radar, or add your own case.",
@@ -178,12 +196,12 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
       "No accounts, ads, or trackers.",
       "Raw reports stay private; public pages use neutral summaries and counts.",
       "Scanner candidates stay private until corroborated.",
-      "Official notes provide context, not player evidence.",
+      "Official notes are context, not proof.",
     ],
     scannerHeartbeat: input.scanner.scannerConnected
       ? input.scanner.scannerActive
         ? "Source radar is active."
         : "Source radar is paused."
-      : "Source radar is not connected here.",
+      : "Source radar is unavailable here.",
   };
 }

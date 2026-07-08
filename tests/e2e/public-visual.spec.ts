@@ -273,34 +273,38 @@ test.describe("public surface visual regression", () => {
   test("dashboard renders moderated patch intelligence", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
+    const nav = page.getByRole("navigation", { name: "Primary" });
 
     await expect(page).toHaveTitle(/Crimson Desert Report Hub/i);
+    await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/");
+    await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("href", "/issues");
+    await expect(nav.getByRole("link", { name: "Submit report" })).toHaveAttribute("href", "/report");
+    await expect(nav.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
+    await expect(nav.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "What can be learned without waiting for reports" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Public web findings" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Useful next clicks" })).toBeVisible();
-    await expect(page.getByText("Reviewed this week", { exact: true })).toBeVisible();
-    await expect(page.getByText("Private leads", { exact: true })).toBeVisible();
-    await expect(page.locator(".stat-label", { hasText: "Public signals" }).first()).toBeVisible();
-    await expect(page.getByText("Player reports", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
+    await expect(page.getByText("Right now", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Patch 1\.13\.\d{2}/).first()).toBeVisible();
+    await expect(page.getByText("Evidence-backed issues", { exact: true })).toBeVisible();
+    await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
+    await expect(page.getByText(/latest player report \d+[mh] ago/)).toBeVisible();
     await expect(page.getByRole("link", { name: "Source Radar" })).toHaveAttribute("href", "/scanner");
-    await expect(page.getByRole("link", { name: "Official patch notes" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open-source code" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Official context, not proof" })).toBeVisible();
-    await expect(page.getByText("Official claims and watch status", { exact: true })).toBeVisible();
-    await expect(page.getByText("Official claimed fixes are not parsed", { exact: false })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Top issues this patch" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Official patch source" })).toBeVisible();
     await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
     await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
     await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
     await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
-    await expect(page.getByText("FPS drops since patch 1.13").first()).toBeVisible();
     await expect(page.getByText("View all 30 claims", { exact: true })).toHaveCount(0);
     await expect(page.getByText("View all 2 claims", { exact: true })).toHaveCount(0);
     // Overpromising dashboard copy must be gone.
     await expect(page.getByText("none found yet — scanner active", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Watchlist awaiting evidence", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Watchlist · awaiting first reports", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("What can be learned without waiting for reports")).toHaveCount(0);
+    await expect(page.getByText("Useful next clicks")).toHaveCount(0);
+    await expect(page.getByText("Patch web radar", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Patch brief", { exact: false })).toHaveCount(0);
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
   });
@@ -332,12 +336,11 @@ test.describe("public surface visual regression", () => {
 
     await expect(page.getByRole("heading", { name: "What players are reporting" })).toBeVisible();
     await expect(page.getByText("Community signals").first()).toBeVisible();
-    await expect(page.getByText("Approved excerpts").first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     await expect(page.getByText("High confidence")).toBeVisible();
     await expect(page.getByText("Confirmed")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
-    await expect(page.getByText("Private scanner candidates stay private.")).toBeVisible();
+    await expect(page.getByText("Backed issues first.")).toBeVisible();
     // Overpromising watchlist copy must be gone: the scanner never claims per-row
     // active discovery, and zero-evidence seeds are never framed as live hunts.
     await expect(page.getByText("scanner is hunting", { exact: false })).toHaveCount(0);
@@ -392,12 +395,12 @@ test.describe("public surface visual regression", () => {
   test("admin scanner leads with Source Radar and useful kept-signal links", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
-    const ownerButton = page.getByRole("button", { name: "Owner" });
-    await ownerButton.scrollIntoViewIfNeeded();
-    await ownerButton.focus();
+    const adminButton = page.getByRole("button", { name: "Admin" });
+    await adminButton.scrollIntoViewIfNeeded();
+    await adminButton.focus();
     await page.keyboard.press("Enter");
     await page.getByLabel("Admin password").fill("admin-password");
-    await page.getByRole("button", { name: "Unlock controls" }).click();
+    await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByRole("link", { name: "Scanner monitor" })).toBeVisible();
 
     await page.goto("/scanner");
@@ -416,7 +419,7 @@ test.describe("public surface visual regression", () => {
     await expect(page).toHaveScreenshot("scanner-admin.png", { fullPage: true });
   });
 
-  test("owner console unlocks admin shortcuts", async ({ page }) => {
+  test("admin controls unlock private shortcuts", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
 
@@ -425,15 +428,15 @@ test.describe("public surface visual regression", () => {
     // browser's own elementFromPoint resolves the button (verified), so a
     // pointer tap flakes. Enter-on-focus exercises the same flow and also
     // proves the control is keyboard-accessible.
-    const ownerButton = page.getByRole("button", { name: "Owner" });
-    await ownerButton.scrollIntoViewIfNeeded();
-    await ownerButton.focus();
+    const adminButton = page.getByRole("button", { name: "Admin" });
+    await adminButton.scrollIntoViewIfNeeded();
+    await adminButton.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByLabel("Admin password")).toBeVisible();
     await page.getByLabel("Admin password").fill("admin-password");
-    await page.getByRole("button", { name: "Unlock controls" }).click();
+    await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.getByRole("link", { name: "Moderation queue" })).toHaveAttribute("href", "/admin");
+    await expect(page.getByRole("link", { name: "Review reports" })).toHaveAttribute("href", "/admin");
     await expect(page.getByRole("link", { name: "Scanner monitor" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByRole("link", { name: "Compile dossier" })).toHaveAttribute("href", "/admin/compile");
     await expectHealthyPage(page, problems);
