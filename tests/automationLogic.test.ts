@@ -966,6 +966,21 @@ describe("automation relevance", () => {
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
 
+    it("rejects third-party patch-note reposts even when they quote claimed fixes", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert Patch 1.13.01 Released & Detailed",
+            snippet:
+              "Patch 1.13.01 fixes an issue where the game would occasionally crash when riding a bear. Improved an issue where frame rates would drop in certain environments.",
+            sourceDomain: "dsogaming.com",
+            sourcePublishedAt: "2026-07-08",
+          },
+          { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
     it("rejects issue language from a different patch than the current one", () => {
       expect(
         preScreenCandidate(
@@ -1065,6 +1080,20 @@ describe("automation relevance", () => {
             sourcePublishedAt: "2026-06-30T12:00:00.000Z",
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: "2026-07-03T03:00:00.000Z" },
+        ),
+      ).toEqual({ keep: false, reason: "stale_source" });
+    });
+
+    it("rejects dated old Steam discussions that only say today's update", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crash after todays update :: Crimson Desert General Discussions",
+            snippet: "Apr 4 @ 1:45am I keep crashing when closing the map after the update.",
+            sourceDomain: "steamcommunity.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
         ),
       ).toEqual({ keep: false, reason: "stale_source" });
     });

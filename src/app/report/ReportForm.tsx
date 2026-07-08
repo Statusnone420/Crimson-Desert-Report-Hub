@@ -210,10 +210,10 @@ export function ReportForm({
       <section className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0 space-y-2">
           <div className="stat-label">Anonymous structured report</div>
-          <h1 className="h-display">Add to the evidence board</h1>
+          <h1 className="h-display">Submit a report</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            No account, no email. Reports are checked and sorted automatically so the board can show how widespread a
-            patch problem is. The more detail you add, the stronger the public signal becomes.
+            No account, no email. Your report helps separate isolated bugs from patch-wide patterns. Add only what you
+            know; the site sorts it into the public issue counts after checks.
           </p>
         </div>
         <a

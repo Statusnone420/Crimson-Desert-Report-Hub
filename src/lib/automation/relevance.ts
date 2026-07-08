@@ -47,6 +47,7 @@ const SYMPTOM_PATTERNS = [
 
 const BROAD_CONTENT_PATTERNS = [
   /\bpatch notes?\b/i,
+  /\b(?:patch|hotfix|update)\b.{0,80}\b(?:released|detailed|full notes?|update notes?|release notes?)\b/i,
   /\breview\b/i,
   /\bbenchmark\b/i,
   /\bperformance test\b/i,
@@ -67,8 +68,9 @@ const NO_ISSUE_PATTERNS = [
 ] as const;
 
 const CLAIMED_FIX_PATTERNS = [
-  /\bfixed an issue where\b/i,
-  /\bfixed a bug where\b/i,
+  /\bfix(?:es|ed) an issue where\b/i,
+  /\bfix(?:es|ed) a bug where\b/i,
+  /\bimproved an issue where\b/i,
   /\ban issue where\b.{0,80}\b(?:has been|was)\s+fixed\b/i,
 ] as const;
 

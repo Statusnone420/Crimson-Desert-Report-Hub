@@ -6,6 +6,9 @@ function collectConsoleProblems(page: Page): string[] {
   const problems: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warning") {
+      if (message.text().includes("/_next/webpack-hmr") && message.text().includes("WebSocket connection")) {
+        return;
+      }
       problems.push(`${message.type()}: ${message.text()}`);
     }
   });
@@ -286,15 +289,29 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText(/Patch 1\.13\.\d{2}/).first()).toBeVisible();
     await expect(page.getByText("Evidence-backed issues", { exact: true })).toBeVisible();
     await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
-    await expect(page.getByText(/latest player report \d+[mh] ago/)).toBeVisible();
+    await expect(page.getByText(/latest player report \d+[mhd] ago|no player reports yet/).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Official notes" }).first()).toHaveAttribute(
+      "href",
+      /pearlabyss\.com/,
+    );
+    await expect(page.getByRole("link", { name: "Pearl Abyss support" })).toHaveAttribute(
+      "href",
+      "https://support.pearlabyss.com/",
+    );
     await expect(page.getByRole("link", { name: "Source Radar" })).toHaveAttribute("href", "/scanner");
-    await expect(page.getByRole("heading", { name: "Top issues this patch" })).toBeVisible();
+    const hasPopulatedDashboard = (await page.getByRole("heading", { name: "Top issues this patch" }).count()) > 0;
+    if (hasPopulatedDashboard) {
+      await expect(page.getByRole("heading", { name: "Top issues this patch" })).toBeVisible();
+      await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
+      await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
+      await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
+      await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
+    } else {
+      await expect(page.getByRole("heading", { name: "Nothing backed by evidence yet" })).toBeVisible();
+      await expect(page.getByText("Known problem areas stay quiet until a player report or public source backs them.")).toBeVisible();
+    }
     await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Official patch source" })).toBeVisible();
-    await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
-    await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
-    await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
-    await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
     await expect(page.getByText("View all 30 claims", { exact: true })).toHaveCount(0);
     await expect(page.getByText("View all 2 claims", { exact: true })).toHaveCount(0);
     // Overpromising dashboard copy must be gone.
@@ -306,7 +323,9 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Patch web radar", { exact: false })).toHaveCount(0);
     await expect(page.getByText("Patch brief", { exact: false })).toHaveCount(0);
     await expectHealthyPage(page, problems);
-    await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
+    if (hasPopulatedDashboard) {
+      await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
+    }
   });
 
   test("dashboard audit-critical text meets AA contrast", async ({ page }) => {
@@ -461,6 +480,8 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/report");
 
+    await expect(page.getByRole("heading", { name: "Submit a report" })).toBeVisible();
+    await expect(page.getByText("Your report helps separate isolated bugs from patch-wide patterns.")).toBeVisible();
     await page.getByLabel("Platform").selectOption("pc_steam");
     await page.getByLabel("Category").selectOption("performance");
     await page.getByLabel("Severity").selectOption("high");

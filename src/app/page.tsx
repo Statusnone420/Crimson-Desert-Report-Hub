@@ -198,9 +198,17 @@ export default async function DashboardPage() {
             </span>
           </div>
         </div>
-        <Link href="/scanner" className="btn btn-ghost btn-sm">
-          Source Radar
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="btn btn-ghost btn-sm">
+            Official notes
+          </a>
+          <a href={PEARL_ABYSS_SUPPORT_URL} target="_blank" rel="noreferrer noopener" className="btn btn-ghost btn-sm">
+            Pearl Abyss support
+          </a>
+          <Link href="/scanner" className="btn btn-ghost btn-sm">
+            Source Radar
+          </Link>
+        </div>
       </section>
 
       {disputedClaims.length > 0 ? (
