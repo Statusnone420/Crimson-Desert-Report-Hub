@@ -14,11 +14,14 @@ The product name remains **Crimson Desert Report Hub**.
 
 The homepage concept is **Right Now**, not a renamed product. "Right Now" is the first-screen job: show the current situation quickly enough that the maintainer or a visitor from X can understand what is worth opening next.
 
+This pass should not build a blog or creator archive. It should, however, avoid boxing the site into "bug tracker forever." Crimson Desert Report Hub can grow into a broader personal/community hub over time: patch situation tracking, issue evidence, useful resources, creator/editorial notes, curated links, essays, and long-term observations about how the game evolves.
+
 Public pages should avoid internal-first labels as primary concepts:
 
 - Avoid leading with "dashboard," "patch brief," "scanner funnel," "private leads," or "evidence board" as the main product promise.
 - Use those concepts only where they clarify how the hub works.
 - Prefer player-readable phrases: "Right now," "Worth checking," "Backed by reports," "Needs another source," "Official links," "Source radar," "How this hub works."
+- Do not over-specialize top-level naming around bugs only. Use "Known issues" where strict evidence is meant, but keep the site identity broad enough that future sections like "Notes," "Guides," "Resources," or "Dispatches" would feel natural.
 
 ## HCI Goal
 
@@ -139,6 +142,19 @@ Reframe around:
 - Keeps raw reports/private candidates private
 - Does not replace Pearl Abyss support
 - Helps the maintainer and visitors understand the current game situation
+
+### Future content lanes
+
+Role: optional growth paths, not part of this implementation pass.
+
+The site may eventually add creator-owned content without changing the current product foundation:
+
+- **Notes / Dispatches:** short posts about the current state of the game, what changed, what feels important, or what the maintainer is watching.
+- **Resources:** official support links, useful community references, troubleshooting notes, hardware/log collection guides, and source/code transparency links.
+- **Guides:** player-facing explainers that help people produce better bug reports or understand common technical terms.
+- **Archive:** long-term history of patches, issues, fixes, and community signal over time.
+
+These lanes should not replace the current "Right now" homepage task. They should sit behind the hub as supporting context once there is content worth publishing.
 
 ## Data Presentation Rules
 
