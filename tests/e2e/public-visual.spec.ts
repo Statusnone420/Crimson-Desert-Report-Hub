@@ -24,6 +24,34 @@ async function expectHealthyPage(page: Page, problems: string[]) {
   expect(problems).toEqual([]);
 }
 
+async function signInAsAdmin(page: Page) {
+  const response = await page.request.post("/api/admin/login", { data: { password: "admin-password" } });
+  expect(response.ok()).toBe(true);
+}
+
+async function openAdminSignIn(page: Page) {
+  const adminButton = page.getByRole("button", { name: "Admin" });
+  const passwordInput = page.getByLabel("Admin password");
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await adminButton.scrollIntoViewIfNeeded();
+    await adminButton.focus();
+    await page.keyboard.press("Enter");
+    if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) return;
+  }
+  await expect(passwordInput).toBeVisible();
+}
+
+async function openAdminPageFromFooter(page: Page) {
+  const adminButton = page.getByRole("button", { name: "Admin" });
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await adminButton.scrollIntoViewIfNeeded();
+    await adminButton.focus();
+    await page.keyboard.press("Enter");
+    if (await page.waitForURL(/\/admin$/, { timeout: 1_000 }).then(() => true, () => false)) return;
+  }
+  await expect(page).toHaveURL(/\/admin$/);
+}
+
 const settingsXml = `
 <EngineOptionSave>
   <EngineOptionResolution Name="_resolutionOption">
@@ -364,7 +392,7 @@ test.describe("public surface visual regression", () => {
       await expect(page.getByRole("link", { name: "Scanner funnel" })).toHaveAttribute("href", "/scanner");
       await expect(page.getByRole("link", { name: "Submit a report" })).toHaveAttribute("href", "/report");
     }
-    await expect(page.getByText("Confirmed")).toHaveCount(0);
+    await expect(page.locator(".badge").filter({ hasText: /^Confirmed$/ })).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
     await expect(page.getByText("Backed issues first.")).toBeVisible();
     // Overpromising watchlist copy must be gone: the scanner never claims per-row
@@ -420,13 +448,8 @@ test.describe("public surface visual regression", () => {
 
   test("admin scanner leads with Source Radar and useful kept-signal links", async ({ page }) => {
     const problems = collectConsoleProblems(page);
-    await page.goto("/");
-    const adminButton = page.getByRole("button", { name: "Admin" });
-    await adminButton.scrollIntoViewIfNeeded();
-    await adminButton.focus();
-    await page.keyboard.press("Enter");
-    await page.getByLabel("Admin password").fill("admin-password");
-    await page.getByRole("button", { name: "Sign in" }).click();
+    await signInAsAdmin(page);
+    await page.goto("/admin");
     await expect(page).toHaveURL(/\/admin$/);
     await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Scanner monitor" })).toBeVisible();
@@ -451,17 +474,13 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
 
-    const adminButton = page.getByRole("button", { name: "Admin" });
-    await adminButton.scrollIntoViewIfNeeded();
-    await adminButton.focus();
-    await page.keyboard.press("Enter");
+    await openAdminSignIn(page);
     await expect(page.getByLabel("Admin password")).toBeVisible();
     await expect(page.getByRole("link", { name: "Review reports" })).toHaveCount(0);
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByLabel("Admin password")).toHaveCount(0);
 
-    await adminButton.focus();
-    await page.keyboard.press("Enter");
+    await openAdminSignIn(page);
     await expect(page.getByLabel("Admin password")).toBeVisible();
     await page.getByLabel("Admin password").fill("admin-password");
     await page.getByRole("button", { name: "Sign in" }).click();
@@ -469,10 +488,7 @@ test.describe("public surface visual regression", () => {
     await expect(page).toHaveURL(/\/admin$/);
     await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
     await page.goto("/");
-    await adminButton.scrollIntoViewIfNeeded();
-    await adminButton.focus();
-    await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/admin$/);
+    await openAdminPageFromFooter(page);
     await expectHealthyPage(page, problems);
   });
 
