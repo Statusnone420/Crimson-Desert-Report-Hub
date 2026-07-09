@@ -6,8 +6,16 @@ import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
+import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
 import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { belongsToPatchFamily, isPostCurrentPatchEvidence, matchesPatchVersion, type PatchContext } from "@/lib/patchWatch";
+import {
+  belongsToPatchFamily,
+  isPostCurrentPatchEvidence,
+  matchesPatchVersion,
+  patchFamilyKey,
+  type PatchContext,
+} from "@/lib/patchWatch";
+import { composeIssueReadout, DISPLAY_THRESHOLD_NETWORKS, type IssueReadout } from "@/lib/readout";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export type ClusterRow = {
@@ -140,6 +148,43 @@ export type VerifiedReportClusterRow = {
 
 function countClusterIds(rows: { cluster_id: string | null }[]): Record<string, number> {
   return countBy(rows, (row) => row.cluster_id);
+}
+
+export function groupConfirmationRowsByCluster(rows: ConfirmationRow[]): Record<string, ConfirmationRow[]> {
+  const grouped: Record<string, ConfirmationRow[]> = {};
+  for (const row of rows) {
+    (grouped[row.cluster_id] ??= []).push(row);
+  }
+  return grouped;
+}
+
+export function reportPlatformCountsByCluster(
+  rows: { cluster_id: string | null; platform: string | null }[],
+): Record<string, Record<string, number>> {
+  const counts: Record<string, Record<string, number>> = {};
+  for (const row of rows) {
+    if (!row.cluster_id || !row.platform) continue;
+    const platformCounts = (counts[row.cluster_id] ??= {});
+    platformCounts[row.platform] = (platformCounts[row.platform] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Raw confirmation rows for the current patch family, grouped per cluster.
+ * voter_ip_hash is consumed server-side for distinct-network tallies and never
+ * reaches a page — only aggregated ClusterConfirmations leave this module.
+ */
+async function getConfirmationRowsByCluster(
+  supabase: ReturnType<typeof createServiceClient>,
+  currentPatchVersion: string,
+): Promise<Record<string, ConfirmationRow[]>> {
+  const family = patchFamilyKey(currentPatchVersion) ?? currentPatchVersion;
+  const { data } = await supabase
+    .from("issue_confirmations")
+    .select("cluster_id, platform, kind, voter_ip_hash, created_at")
+    .eq("patch_family", family);
+  return groupConfirmationRowsByCluster((data ?? []) as ConfirmationRow[]);
 }
 
 export function filterPatchFamilyReports<T extends { patch_version: string | null }>(
@@ -292,6 +337,67 @@ export function countDistinctVerifiedReportsByCluster(rows: VerifiedReportCluste
   return countClusterIds(clusterRows);
 }
 
+type ClusterCounts = {
+  signalCount: number;
+  directReportCount: number;
+  verifiedReportCount?: number;
+  candidateSignalCount: number;
+  postCurrentPatchReportCount: number;
+  postCurrentPatchSignalCount: number;
+  confirmationRows: ConfirmationRow[];
+  reportPlatformCounts: Record<string, number>;
+  patchVersion: string;
+};
+
+export type DecoratedCluster = ClusterRow & {
+  count: number;
+  signalCount: number;
+  directReportCount: number;
+  verifiedReportCount: number;
+  candidateSignalCount: number;
+  postCurrentPatchReportCount: number;
+  postCurrentPatchSignalCount: number;
+  postCurrentPatchEvidenceCount: number;
+  confirmations: ClusterConfirmations;
+  reportPlatformCounts: Record<string, number>;
+  readout: IssueReadout;
+  strengthScore: number;
+};
+
+/** One decoration path for dashboard + issues: counts in, readout out. */
+function decorateCluster(cluster: ClusterRow & { count: number }, counts: ClusterCounts): DecoratedCluster {
+  const confirmations = computeClusterConfirmations(counts.confirmationRows, cluster.fix_claimed_at ?? null);
+  const postCurrentPatchEvidenceCount = counts.postCurrentPatchReportCount + counts.postCurrentPatchSignalCount;
+  const readout = composeIssueReadout({
+    directReportCount: counts.directReportCount,
+    publicSignalCount: counts.signalCount,
+    candidateSignalCount: counts.candidateSignalCount,
+    postClaimEvidenceCount: postCurrentPatchEvidenceCount,
+    confirmations,
+    fixClaimedAt: cluster.fix_claimed_at ?? null,
+    adminOverride: Boolean(cluster.admin_override),
+    storedFixStatus: cluster.fix_status,
+    patchVersion: counts.patchVersion,
+  });
+  // Confirmations join the ranking only once their tally is escalated (>= threshold networks).
+  const escalatedConfirms = confirmations.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS ? confirmations.affectedCount : 0;
+  return {
+    ...cluster,
+    count: counts.directReportCount,
+    signalCount: counts.signalCount,
+    directReportCount: counts.directReportCount,
+    verifiedReportCount: counts.verifiedReportCount ?? 0,
+    candidateSignalCount: counts.candidateSignalCount,
+    postCurrentPatchReportCount: counts.postCurrentPatchReportCount,
+    postCurrentPatchSignalCount: counts.postCurrentPatchSignalCount,
+    postCurrentPatchEvidenceCount,
+    confirmations,
+    reportPlatformCounts: counts.reportPlatformCounts,
+    readout,
+    strengthScore: counts.signalCount + counts.directReportCount * 3 + escalatedConfirms,
+  };
+}
+
 const GPU_PATTERN = /\b(rtx|gtx|rx|arc)\s*-?\s*(\d{3,4})\s*(ti|super|xt|xtx|gre)?\b/gi;
 
 function countGpus(rows: DashboardReportRow[]): Record<string, number> {
@@ -382,35 +488,30 @@ async function getDashboardDataUncached() {
   ]);
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
+  const confirmationsByCluster = await getConfirmationRowsByCluster(supabase, currentPatch.version);
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
+  const platformCountsByCluster = reportPlatformCountsByCluster(currentReportRows);
   const postCurrentPatchReportByCluster = countPostCurrentPatchReportsByCluster(currentReportRows, currentPatch);
   const postCurrentPatchSignalByCluster = countPostCurrentPatchSignalsByCluster(signalRows, currentPatch);
   const verifiedByCluster = countDistinctVerifiedReportsByCluster(verifiedRows);
   const verifiedReportCount = new Set(verifiedRows.map((row) => row.report_id)).size;
   const topClusters = rankClusters((clusterData ?? []) as ClusterRow[], rows)
-    .map((cluster) => {
-      const signalCount = signalByCluster[cluster.id] ?? 0;
-      const directReportCount = directByCluster[cluster.id] ?? 0;
-      const verifiedReportCount = verifiedByCluster[cluster.id] ?? 0;
-      const candidateSignalCount = candidateSignalCounts[cluster.id] ?? 0;
-      const postCurrentPatchReportCount = postCurrentPatchReportByCluster[cluster.id] ?? 0;
-      const postCurrentPatchSignalCount = postCurrentPatchSignalByCluster[cluster.id] ?? 0;
-      return {
-        ...cluster,
-        count: directReportCount,
-        signalCount,
-        directReportCount,
-        verifiedReportCount,
-        candidateSignalCount,
-        postCurrentPatchReportCount,
-        postCurrentPatchSignalCount,
-        postCurrentPatchEvidenceCount: postCurrentPatchReportCount + postCurrentPatchSignalCount,
-        strengthScore: signalCount + directReportCount * 3,
-      };
-    })
+    .map((cluster) =>
+      decorateCluster(cluster, {
+        signalCount: signalByCluster[cluster.id] ?? 0,
+        directReportCount: directByCluster[cluster.id] ?? 0,
+        verifiedReportCount: verifiedByCluster[cluster.id] ?? 0,
+        candidateSignalCount: candidateSignalCounts[cluster.id] ?? 0,
+        postCurrentPatchReportCount: postCurrentPatchReportByCluster[cluster.id] ?? 0,
+        postCurrentPatchSignalCount: postCurrentPatchSignalByCluster[cluster.id] ?? 0,
+        confirmationRows: confirmationsByCluster[cluster.id] ?? [],
+        reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
+        patchVersion: currentPatch.version,
+      }),
+    )
     .sort((a, b) => b.strengthScore - a.strengthScore);
 
   return {
@@ -469,30 +570,26 @@ async function getIssuesDataUncached() {
   const currentReportRows = filterPatchFamilyReports(reportRows, currentPatch);
 
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase);
+  const confirmationsByCluster = await getConfirmationRowsByCluster(supabase, currentPatch.version);
 
   const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
+  const platformCountsByCluster = reportPlatformCountsByCluster(currentReportRows);
   const postCurrentPatchReportByCluster = countPostCurrentPatchReportsByCluster(currentReportRows, currentPatch);
   const postCurrentPatchSignalByCluster = countPostCurrentPatchSignalsByCluster(signalRows, currentPatch);
   const clusters = rankClusters((clusterData ?? []) as ClusterRow[], currentReportRows)
-    .map((cluster) => {
-      const signalCount = signalByCluster[cluster.id] ?? 0;
-      const directReportCount = directByCluster[cluster.id] ?? 0;
-      const candidateSignalCount = candidateSignalCounts[cluster.id] ?? 0;
-      const postCurrentPatchReportCount = postCurrentPatchReportByCluster[cluster.id] ?? 0;
-      const postCurrentPatchSignalCount = postCurrentPatchSignalByCluster[cluster.id] ?? 0;
-      return {
-        ...cluster,
-        count: directReportCount,
-        signalCount,
-        directReportCount,
-        candidateSignalCount,
-        postCurrentPatchReportCount,
-        postCurrentPatchSignalCount,
-        postCurrentPatchEvidenceCount: postCurrentPatchReportCount + postCurrentPatchSignalCount,
-        strengthScore: signalCount + directReportCount * 3,
-      };
-    })
+    .map((cluster) =>
+      decorateCluster(cluster, {
+        signalCount: signalByCluster[cluster.id] ?? 0,
+        directReportCount: directByCluster[cluster.id] ?? 0,
+        candidateSignalCount: candidateSignalCounts[cluster.id] ?? 0,
+        postCurrentPatchReportCount: postCurrentPatchReportByCluster[cluster.id] ?? 0,
+        postCurrentPatchSignalCount: postCurrentPatchSignalByCluster[cluster.id] ?? 0,
+        confirmationRows: confirmationsByCluster[cluster.id] ?? [],
+        reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
+        patchVersion: currentPatch.version,
+      }),
+    )
     .sort((a, b) => b.strengthScore - a.strengthScore);
 
   const signalsByCluster: Record<string, SignalRow[]> = {};

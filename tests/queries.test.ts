@@ -4,9 +4,11 @@ import {
   countDistinctVerifiedReportsByCluster,
   excerptsByClusterForCurrentPatch,
   filterPatchFamilyReports,
+  groupConfirmationRowsByCluster,
   latestReportAtFromRows,
   publicFindingsFromSignals,
   readExcerptsByClusterForCurrentPatch,
+  reportPlatformCountsByCluster,
 } from "@/lib/queries";
 
 vi.mock("server-only", () => ({}));
@@ -197,5 +199,34 @@ describe("publicFindingsFromSignals", () => {
     expect(JSON.stringify(findings)).not.toContain("raw_text");
     expect(JSON.stringify(findings)).not.toContain("reject");
     expect(JSON.stringify(findings)).not.toContain("private");
+  });
+});
+
+describe("groupConfirmationRowsByCluster", () => {
+  it("groups raw confirmation rows per cluster without losing any", () => {
+    const grouped = groupConfirmationRowsByCluster([
+      { cluster_id: "cluster-one", platform: "pc_steam", kind: "have_it", voter_ip_hash: "h1", created_at: "2026-07-09T10:00:00Z" },
+      { cluster_id: "cluster-one", platform: "ps5", kind: "still_happening", voter_ip_hash: "h2", created_at: "2026-07-09T11:00:00Z" },
+      { cluster_id: "cluster-two", platform: "ps5", kind: "fixed_for_me", voter_ip_hash: "h3", created_at: "2026-07-09T12:00:00Z" },
+    ]);
+
+    expect(Object.keys(grouped).sort()).toEqual(["cluster-one", "cluster-two"]);
+    expect(grouped["cluster-one"]).toHaveLength(2);
+    expect(grouped["cluster-two"][0].kind).toBe("fixed_for_me");
+  });
+});
+
+describe("reportPlatformCountsByCluster", () => {
+  it("counts approved reports per cluster per platform", () => {
+    const counts = reportPlatformCountsByCluster([
+      { cluster_id: "cluster-one", platform: "pc_steam" },
+      { cluster_id: "cluster-one", platform: "pc_steam" },
+      { cluster_id: "cluster-one", platform: "ps5" },
+      { cluster_id: "cluster-two", platform: null },
+      { cluster_id: null, platform: "ps5" },
+    ]);
+
+    expect(counts["cluster-one"]).toEqual({ pc_steam: 2, ps5: 1 });
+    expect(counts["cluster-two"]).toBeUndefined();
   });
 });
