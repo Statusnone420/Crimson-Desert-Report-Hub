@@ -62,6 +62,10 @@ Required Vercel environment variables:
 
 Generate `SESSION_SECRET` and `CRON_SECRET` as long random strings. A 64-character hex string is fine.
 
+Security follow-up TODO:
+
+- Replace the raw `ADMIN_PASSWORD` comparison with a slow password verifier such as Node `crypto.scrypt`, store the verifier in Vercel as something like `ADMIN_PASSWORD_SCRYPT`, and rotate the current admin password. This addresses GitHub CodeQL `js/insufficient-password-hash` alerts #3 and #4.
+
 The public site URL should be:
 
 ```text
