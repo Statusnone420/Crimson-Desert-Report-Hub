@@ -58,6 +58,26 @@ function fakeSupabase(rows: Row[]): AutomationSettingsClient {
 }
 
 describe("automation scanner settings", () => {
+  it("caps defaults, stored policy, and form input at two dollars", async () => {
+    const { getAutomationControlState, scannerPolicyFromFormData } = await import("@/lib/automation/settings");
+    const formData = new FormData();
+    formData.set("monthlyLlmUsdCap", "5");
+
+    await expect(getAutomationControlState(fakeSupabase([]))).resolves.toMatchObject({ monthlyLlmUsdCap: 2 });
+    await expect(
+      getAutomationControlState(fakeSupabase([{ key: "scanner", value: { monthlyLlmUsdCap: 5 } }])),
+    ).resolves.toMatchObject({ monthlyLlmUsdCap: 2 });
+    expect(scannerPolicyFromFormData(formData)).toMatchObject({ monthlyLlmUsdCap: 2 });
+  });
+
+  it("normalizes the legacy route to the single approved DeepSeek preset", async () => {
+    const { getAutomationControlState } = await import("@/lib/automation/settings");
+
+    await expect(
+      getAutomationControlState(fakeSupabase([{ key: "scanner", value: { modelPreset: "deepseek_qwen_pro" } }])),
+    ).resolves.toMatchObject({ modelPreset: "deepseek_v4_flash" });
+  });
+
   it("defaults to the safe scanner policy when no scanner setting exists", async () => {
     const { getAutomationControlState } = await import("@/lib/automation/settings");
 
@@ -67,7 +87,7 @@ describe("automation scanner settings", () => {
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
       monthlyLlmUsdCap: 2,
-      modelPreset: "deepseek_qwen_pro",
+      modelPreset: "deepseek_v4_flash",
       updatedAt: null,
     });
   });
@@ -85,7 +105,7 @@ describe("automation scanner settings", () => {
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
       monthlyLlmUsdCap: 2,
-      modelPreset: "deepseek_qwen_pro",
+      modelPreset: "deepseek_v4_flash",
       updatedAt: "2026-07-06T12:00:00.000Z",
     });
   });
@@ -114,8 +134,8 @@ describe("automation scanner settings", () => {
       minIntervalMinutes: 60,
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
-      monthlyLlmUsdCap: 5,
-      modelPreset: "deepseek_qwen_pro",
+      monthlyLlmUsdCap: 2,
+      modelPreset: "deepseek_v4_flash",
     });
   });
 
@@ -142,7 +162,7 @@ describe("automation scanner settings", () => {
           scheduledSearchCreditsPerRun: 3,
           monthlyTavilyCreditCap: 100,
           monthlyLlmUsdCap: 4,
-          modelPreset: "deepseek_qwen_pro",
+          modelPreset: "deepseek_v4_flash",
         },
       },
     ];
@@ -157,8 +177,8 @@ describe("automation scanner settings", () => {
         minIntervalMinutes: 120,
         scheduledSearchCreditsPerRun: 3,
         monthlyTavilyCreditCap: 100,
-        monthlyLlmUsdCap: 4,
-        modelPreset: "deepseek_qwen_pro",
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_v4_flash",
       },
     });
     await expect(getAutomationControlState(supabase)).resolves.toMatchObject({ paused: true });
@@ -172,15 +192,15 @@ describe("automation scanner settings", () => {
     formData.set("scheduledSearchCreditsPerRun", "2");
     formData.set("monthlyTavilyCreditCap", "900");
     formData.set("monthlyLlmUsdCap", "3");
-    formData.set("modelPreset", "deepseek_qwen_pro");
+    formData.set("modelPreset", "deepseek_v4_flash");
 
     expect(scannerPolicyFromFormData(formData)).toEqual({
       paused: true,
       minIntervalMinutes: 360,
       scheduledSearchCreditsPerRun: 2,
       monthlyTavilyCreditCap: 900,
-      monthlyLlmUsdCap: 3,
-      modelPreset: "deepseek_qwen_pro",
+      monthlyLlmUsdCap: 2,
+      modelPreset: "deepseek_v4_flash",
     });
 
     formData.set("cadence", "120");

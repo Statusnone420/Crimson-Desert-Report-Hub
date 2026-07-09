@@ -237,7 +237,7 @@ export default async function AdminPage() {
           <span className="min-w-0 space-y-1">
             <span className="stat-label block">Visibility overrides</span>
             <span className="block text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              Force a cluster onto or off the public board when the promotion rules get it wrong.
+              Force public/hidden takes effect immediately. Auto returns control to the engine on its next scan.
             </span>
           </span>
           <span className="badge badge-dim">

@@ -5,39 +5,15 @@ const cacheMocks = vi.hoisted(() => ({
 }));
 
 const state = {
-  rateCount: 0,
-  clusterFound: true,
-  upsertError: null as { message: string } | null,
+  rpcOutcome: "recorded",
+  rpcError: null as { message: string } | null,
 };
 
-const confirmationUpsert = vi.fn(async (row: Record<string, unknown>, options: Record<string, unknown>) => {
-  void row;
-  void options;
-  return { error: state.upsertError };
-});
+const confirmationRpc = vi.fn(async () => ({ data: state.rpcOutcome, error: state.rpcError }));
 
 vi.mock("@/lib/supabase", () => ({
   createServiceClient: () => ({
-    from: (table: string) => {
-      if (table === "issue_confirmations") {
-        return {
-          upsert: confirmationUpsert,
-          select: () => ({ eq: () => ({ gte: async () => ({ count: state.rateCount, error: null }) }) }),
-        };
-      }
-      if (table === "issue_clusters") {
-        return {
-          select: () => ({
-            eq: () => ({
-              eq: () => ({
-                limit: async () => ({ data: state.clusterFound ? [{ id: "cluster-1" }] : [], error: null }),
-              }),
-            }),
-          }),
-        };
-      }
-      throw new Error(`unexpected table ${table}`);
-    },
+    rpc: confirmationRpc,
   }),
 }));
 
@@ -65,12 +41,14 @@ const valid = {
 
 function makeRequest(
   body: unknown,
-  options: { ip?: string | null; origin?: string; fetchSite?: string } = {},
+  options: { ip?: string | null; origin?: string; fetchSite?: string | null; contentType?: string | null } = {},
 ): Request {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {};
+  if (options.contentType !== null) headers["content-type"] = options.contentType ?? "application/json";
   if (options.ip !== null) headers["x-forwarded-for"] = options.ip ?? "203.0.113.7";
   if (options.origin) headers.origin = options.origin;
-  if (options.fetchSite) headers["sec-fetch-site"] = options.fetchSite;
+  const fetchSite = options.fetchSite === undefined && !options.origin ? "same-origin" : options.fetchSite;
+  if (fetchSite) headers["sec-fetch-site"] = fetchSite;
   return new Request("http://localhost/api/confirmations", {
     method: "POST",
     headers,
@@ -81,10 +59,9 @@ function makeRequest(
 beforeEach(() => {
   delete process.env.VERCEL_ENV;
   cacheMocks.revalidateTag.mockClear();
-  confirmationUpsert.mockClear();
-  state.rateCount = 0;
-  state.clusterFound = true;
-  state.upsertError = null;
+  confirmationRpc.mockClear();
+  state.rpcOutcome = "recorded";
+  state.rpcError = null;
 });
 
 describe("POST /api/confirmations", () => {
@@ -92,7 +69,7 @@ describe("POST /api/confirmations", () => {
     process.env.VERCEL_ENV = "preview";
     const res = await POST(makeRequest(valid));
     expect(res.status).toBe(403);
-    expect(confirmationUpsert).not.toHaveBeenCalled();
+    expect(confirmationRpc).not.toHaveBeenCalled();
   });
 
   it("403 on cross-site requests", async () => {
@@ -100,58 +77,73 @@ describe("POST /api/confirmations", () => {
     expect(byOrigin.status).toBe(403);
     const byFetchSite = await POST(makeRequest(valid, { fetchSite: "cross-site" }));
     expect(byFetchSite.status).toBe(403);
-    expect(confirmationUpsert).not.toHaveBeenCalled();
+    expect(confirmationRpc).not.toHaveBeenCalled();
+  });
+
+  it("403 when neither browser fetch metadata nor a matching origin is present", async () => {
+    const res = await POST(makeRequest(valid, { fetchSite: null }));
+    expect(res.status).toBe(403);
+    expect(confirmationRpc).not.toHaveBeenCalled();
+  });
+
+  it("415 unless the request content type is JSON", async () => {
+    expect((await POST(makeRequest(valid, { contentType: "text/plain" }))).status).toBe(415);
+    expect((await POST(makeRequest(valid, { contentType: null }))).status).toBe(415);
+    expect(confirmationRpc).not.toHaveBeenCalled();
   });
 
   it("400 on invalid json, bad kind, bad platform, or non-uuid cluster", async () => {
-    const badJson = new Request("http://localhost/api/confirmations", { method: "POST", body: "{nope" });
+    const badJson = new Request("http://localhost/api/confirmations", {
+      method: "POST",
+      headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
+      body: "{nope",
+    });
     expect((await POST(badJson)).status).toBe(400);
     expect((await POST(makeRequest({ ...valid, kind: "love_it" }))).status).toBe(400);
     expect((await POST(makeRequest({ ...valid, platform: "n64" }))).status).toBe(400);
     expect((await POST(makeRequest({ ...valid, cluster_id: "not-a-uuid" }))).status).toBe(400);
-    expect(confirmationUpsert).not.toHaveBeenCalled();
+    expect(confirmationRpc).not.toHaveBeenCalled();
   });
 
   it("400 when no client ip — one voice needs a hash", async () => {
     const res = await POST(makeRequest(valid, { ip: null }));
     expect(res.status).toBe(400);
-    expect(confirmationUpsert).not.toHaveBeenCalled();
+    expect(confirmationRpc).not.toHaveBeenCalled();
   });
 
   it("404 when the cluster is missing or not public", async () => {
-    state.clusterFound = false;
+    state.rpcOutcome = "unknown_issue";
     const res = await POST(makeRequest(valid));
     expect(res.status).toBe(404);
-    expect(confirmationUpsert).not.toHaveBeenCalled();
+    expect(confirmationRpc).toHaveBeenCalledOnce();
   });
 
-  it("429 when the network already tapped 20 times this hour", async () => {
-    state.rateCount = 20;
+  it("429 when the atomic writer rejects the network's 21st write this hour", async () => {
+    state.rpcOutcome = "rate_limited";
     const res = await POST(makeRequest(valid));
     expect(res.status).toBe(429);
-    expect(confirmationUpsert).not.toHaveBeenCalled();
+    expect(confirmationRpc).toHaveBeenCalledOnce();
   });
 
-  it("201 happy path: one-voice upsert, server-derived patch, hashed voter, no raw ip", async () => {
+  it("201 happy path: atomic one-voice write, server-derived patch, hashed voter, no raw ip", async () => {
     const res = await POST(makeRequest(valid));
     expect(res.status).toBe(201);
-    expect(confirmationUpsert).toHaveBeenCalledOnce();
-    const [row, options] = confirmationUpsert.mock.calls[0] as [Record<string, unknown>, Record<string, unknown>];
-    expect(row.cluster_id).toBe(valid.cluster_id);
-    expect(row.kind).toBe("still_happening");
-    expect(row.platform).toBe("ps5");
-    expect(row.patch_family).toBe("1.13");
-    expect(row.patch_version).toBe("1.13.01");
-    expect(row.voter_ip_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(JSON.stringify(row)).not.toContain("203.0.113.7");
-    expect(row.created_at).toBeDefined(); // stance changes must refresh the poll-window timestamp
-    expect(options.onConflict).toBe("cluster_id,patch_family,voter_ip_hash");
+    expect(confirmationRpc).toHaveBeenCalledOnce();
+    const [name, args] = confirmationRpc.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    expect(name).toBe("record_issue_confirmation");
+    expect(args.p_cluster_id).toBe(valid.cluster_id);
+    expect(args.p_kind).toBe("still_happening");
+    expect(args.p_platform).toBe("ps5");
+    expect(args.p_patch_family).toBe("1.13");
+    expect(args.p_patch_version).toBe("1.13.01");
+    expect(args.p_voter_ip_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(args)).not.toContain("203.0.113.7");
     expect(cacheMocks.revalidateTag).toHaveBeenCalledWith("public-dashboard", "max");
     expect(cacheMocks.revalidateTag).toHaveBeenCalledWith("public-issues", "max");
   });
 
-  it("500 when the upsert fails", async () => {
-    state.upsertError = { message: "boom" };
+  it("500 when the atomic writer fails", async () => {
+    state.rpcError = { message: "boom" };
     const res = await POST(makeRequest(valid));
     expect(res.status).toBe(500);
   });

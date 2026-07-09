@@ -34,6 +34,69 @@ describe("automation dedupe", () => {
 });
 
 describe("automation extraction", () => {
+  it("blocks an unapproved automation model before making an OpenRouter request", async () => {
+    const fetcher = vi.fn();
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: {
+        OPENROUTER_API_KEY: "key",
+        OPENROUTER_AUTOMATION_MODEL: "deepseek/deepseek-v4-pro",
+      },
+      fetcher,
+      llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
+    });
+
+    expect(result).toMatchObject({
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      fallbackReason: "openrouter_paid_model",
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("uses DeepSeek V4 Flash within the paid monthly allowance", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                issueTitle: "Map crash after patch",
+                category: "crash_startup",
+                platform: "ps5",
+                confidence: "medium",
+                summary: "Players report map-open crashes after the patch.",
+                clusterSlug: null,
+              }),
+            },
+          },
+        ],
+        usage: { cost: 0.00002 },
+      }),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: { OPENROUTER_API_KEY: "key" },
+      fetcher,
+      llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
+    });
+
+    const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body).model).toBe("deepseek/deepseek-v4-flash");
+    expect(result).toMatchObject({
+      extractionProvider: "openrouter",
+      extractionModel: "deepseek/deepseek-v4-flash",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.00002,
+    });
+  });
+
   it("deterministically classifies common issue language", () => {
     const result = deterministicExtract(crashCandidate);
     expect(result.category).toBe("crash_startup");
@@ -104,7 +167,7 @@ describe("automation extraction", () => {
     ).toBeNull();
   });
 
-  it("uses DeepSeek Flash first even when a legacy free-model env var exists", async () => {
+  it("opens the circuit when a response exceeds the per-request price ceiling", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -123,24 +186,25 @@ describe("automation extraction", () => {
             },
           },
         ],
-        usage: { cost: 0.0002 },
+        usage: { cost: 0.01 },
       }),
     }));
 
     const result = await extractSignalWithOpenRouter(crashCandidate, {
       env: {
         OPENROUTER_API_KEY: "key",
-        OPENROUTER_FREE_MODEL: "openai/gpt-4.1",
       },
       fetcher,
       llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
     });
 
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
     expect(JSON.parse(init.body).model).toBe("deepseek/deepseek-v4-flash");
-    expect(result.extractionProvider).toBe("openrouter");
-    expect(result.extractionModel).toBe("deepseek/deepseek-v4-flash");
-    expect(result.llmCostUsd).toBe(0.0002);
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.extractionModel).toBeNull();
+    expect(result.fallbackReason).toBe("openrouter_budget_exceeded");
+    expect(result.llmCostUsd).toBe(0.01);
   });
 
   it("falls back without calling OpenRouter when config is missing", async () => {
@@ -177,25 +241,7 @@ describe("automation extraction", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("falls back without calling OpenRouter when the LLM dollar cap is exhausted", async () => {
-    const fetcher = vi.fn();
-
-    const result = await extractSignalWithOpenRouter(crashCandidate, {
-      env: {
-        OPENROUTER_API_KEY: "key",
-      },
-      fetcher,
-      llmCallsRemaining: 1,
-      llmBudgetRemainingUsd: 0,
-    });
-
-    expect(result.extractionProvider).toBe("deterministic");
-    expect(result.llmCallsUsed).toBe(0);
-    expect(result.fallbackReason).toBe("llm_budget_capped");
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("uses strict JSON Schema with the DeepSeek primary model", async () => {
+  it("uses strict JSON Schema and bounded provider pricing for DeepSeek", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -214,7 +260,7 @@ describe("automation extraction", () => {
             },
           },
         ],
-        usage: { prompt_tokens: 1000, completion_tokens: 500 },
+        usage: { cost: 0.00002 },
       }),
     }));
 
@@ -237,7 +283,7 @@ describe("automation extraction", () => {
     expect(result.extractionProvider).toBe("openrouter");
     expect(result.extractionModel).toBe("deepseek/deepseek-v4-flash");
     expect(result.llmCallsUsed).toBe(1);
-    expect(result.llmCostUsd).toBeCloseTo(0.00018, 8);
+    expect(result.llmCostUsd).toBe(0.00002);
     expect(result.category).toBe("performance");
     expect(fetcher).toHaveBeenCalledWith(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -249,7 +295,14 @@ describe("automation extraction", () => {
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
     expect(JSON.parse(init.body)).toMatchObject({
       model: "deepseek/deepseek-v4-flash",
-      provider: { require_parameters: true },
+      reasoning: { effort: "none" },
+      max_tokens: 400,
+      provider: {
+        require_parameters: true,
+        data_collection: "deny",
+        sort: "price",
+        max_price: { prompt: 0.1, completion: 0.2, request: 0, image: 0 },
+      },
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -260,10 +313,13 @@ describe("automation extraction", () => {
         },
       },
     });
-    expect(JSON.parse(init.body).messages[1].content).toContain("clusterSlug");
+    const request = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
+    expect(request.messages[0].content).toMatch(/untrusted data/i);
+    expect(request.messages[0].content).toMatch(/ignore .*instructions/i);
+    expect(request.messages[1].content).toContain("clusterSlug");
   });
 
-  it("records an estimated LLM cost when OpenRouter omits usage metadata", async () => {
+  it("fails closed when a paid response omits usage cost metadata", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -294,10 +350,10 @@ describe("automation extraction", () => {
       llmBudgetRemainingUsd: 1,
     });
 
-    expect(result.extractionProvider).toBe("openrouter");
-    expect(result.extractionModel).toBe("deepseek/deepseek-v4-flash");
-    expect(result.llmCostUsd).toBeGreaterThan(0);
-    expect(result.llmCostUsd).toBeCloseTo(0.000207, 8);
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.extractionModel).toBeNull();
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.fallbackReason).toBe("openrouter_cost_unverified");
   });
 
   it("falls back to deterministic extraction when OpenRouter returns invalid JSON", async () => {
@@ -306,7 +362,7 @@ describe("automation extraction", () => {
       status: 200,
       json: async () => ({
         choices: [{ message: { content: "{not json" } }],
-        usage: { cost: 0.0002 },
+        usage: { cost: 0 },
       }),
     }));
 
@@ -316,15 +372,16 @@ describe("automation extraction", () => {
       },
       fetcher,
       llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
     });
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(1);
-    expect(result.llmCostUsd).toBe(0.0002);
+    expect(result.llmCostUsd).toBe(0);
     expect(result.fallbackReason).toBe("openrouter_invalid_json");
   });
 
-  it("falls back to deterministic extraction when OpenRouter provider request fails", async () => {
+  it("opens the circuit when a failed request has unverifiable cost", async () => {
     const fetcher = vi.fn(async () => {
       throw new Error("network down");
     });
@@ -335,11 +392,12 @@ describe("automation extraction", () => {
       },
       fetcher,
       llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
     });
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(1);
-    expect(result.fallbackReason).toBe("openrouter_provider_failure");
+    expect(result.fallbackReason).toBe("openrouter_cost_unverified");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
@@ -349,7 +407,7 @@ describe("automation extraction", () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0 } }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -369,7 +427,7 @@ describe("automation extraction", () => {
               },
             },
           ],
-          usage: { cost: 0.0003 },
+          usage: { cost: 0 },
         }),
       });
 
@@ -379,16 +437,17 @@ describe("automation extraction", () => {
       },
       fetcher,
       llmCallsRemaining: 2,
+      llmBudgetRemainingUsd: 1,
     });
 
     expect(result.extractionProvider).toBe("openrouter");
-    expect(result.extractionModel).toBe("qwen/qwen3-235b-a22b-2507");
+    expect(result.extractionModel).toBe("deepseek/deepseek-v4-flash");
     expect(result.llmCallsUsed).toBe(2);
-    expect(result.llmCostUsd).toBe(0.0005);
+    expect(result.llmCostUsd).toBe(0);
     expect(result.fallbackReason).toBeUndefined();
     expect(fetcher).toHaveBeenCalledTimes(2);
     const models = fetcher.mock.calls.map(([, init]) => JSON.parse((init as { body: string }).body).model);
-    expect(models).toEqual(["deepseek/deepseek-v4-flash", "qwen/qwen3-235b-a22b-2507"]);
+    expect(models).toEqual(["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash"]);
   });
 
   it("falls back to deterministic extraction with the last failure reason after two failed attempts", async () => {
@@ -397,7 +456,7 @@ describe("automation extraction", () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0 } }),
       })
       .mockRejectedValueOnce(new Error("network down"));
 
@@ -407,24 +466,29 @@ describe("automation extraction", () => {
       },
       fetcher,
       llmCallsRemaining: 2,
+      llmBudgetRemainingUsd: 1,
     });
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(2);
-    expect(result.llmCostUsd).toBe(0.0002);
-    expect(result.fallbackReason).toBe("openrouter_provider_failure");
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.fallbackReason).toBe("openrouter_cost_unverified");
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it("uses DeepSeek Pro as a third rescue model when budget allows", async () => {
+  it("retries DeepSeek a third time when every failed response has verified cost", async () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
+        json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0 } }),
       })
-      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "{still not json" } }], usage: { cost: 0 } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -443,7 +507,7 @@ describe("automation extraction", () => {
               },
             },
           ],
-          usage: { cost: 0.001 },
+          usage: { cost: 0 },
         }),
       });
 
@@ -457,14 +521,14 @@ describe("automation extraction", () => {
     });
 
     expect(result.extractionProvider).toBe("openrouter");
-    expect(result.extractionModel).toBe("deepseek/deepseek-v4-pro");
+    expect(result.extractionModel).toBe("deepseek/deepseek-v4-flash");
     expect(result.llmCallsUsed).toBe(3);
-    expect(result.llmCostUsd).toBeCloseTo(0.0012, 8);
+    expect(result.llmCostUsd).toBe(0);
     const models = fetcher.mock.calls.map(([, init]) => JSON.parse((init as { body: string }).body).model);
     expect(models).toEqual([
       "deepseek/deepseek-v4-flash",
-      "qwen/qwen3-235b-a22b-2507",
-      "deepseek/deepseek-v4-pro",
+      "deepseek/deepseek-v4-flash",
+      "deepseek/deepseek-v4-flash",
     ]);
   });
 
@@ -504,11 +568,12 @@ describe("automation extraction", () => {
       },
       fetcher,
       llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
     });
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(1);
-    expect(result.fallbackReason).toBe("openrouter_provider_failure");
+    expect(result.fallbackReason).toBe("openrouter_cost_unverified");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

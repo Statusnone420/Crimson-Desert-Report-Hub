@@ -27,6 +27,7 @@ describe("parseOpenRouterClaimMapping", () => {
         reason: "The claim names frame-rate drops.",
       }),
       clusters,
+      "performance",
     );
 
     expect(result).toMatchObject({
@@ -44,6 +45,7 @@ describe("parseOpenRouterClaimMapping", () => {
         reason: "Bad slug.",
       }),
       clusters,
+      "performance",
     );
 
     expect(result).toMatchObject({
@@ -52,13 +54,46 @@ describe("parseOpenRouterClaimMapping", () => {
       clusterSlug: null,
     });
   });
+
+  it("downgrades a sure mapping when the claim and cluster categories differ", () => {
+    const result = parseOpenRouterClaimMapping(
+      JSON.stringify({
+        matchKind: "sure",
+        clusterSlug: "map_open_crash_persistent",
+        reason: "The model selected the map crash cluster.",
+      }),
+      clusters,
+      "performance",
+    );
+
+    expect(result).toMatchObject({
+      matchKind: "llm_unsure",
+      clusterId: "cluster-map",
+      clusterSlug: "map_open_crash_persistent",
+    });
+  });
 });
 
 describe("mapClaimToClusterWithOpenRouter", () => {
-  it("defaults to the documented free OpenRouter route", async () => {
+  it("defaults to budget-capped DeepSeek V4 Flash", async () => {
     let requestedModel: string | null = null;
+    let requestedProvider: unknown = null;
+    let requestedReasoning: unknown = null;
+    let requestedMaxTokens: number | null = null;
+    let requestedSystemPrompt: string | null = null;
     const fetcher = async (_url: string, init: { body: string }) => {
-      requestedModel = (JSON.parse(init.body) as { model?: string }).model ?? null;
+      const body = JSON.parse(init.body) as {
+        model?: string;
+        provider?: unknown;
+        reasoning?: unknown;
+        max_tokens?: number;
+        messages?: { role?: string; content?: string }[];
+      };
+      requestedModel = body.model ?? null;
+      requestedProvider = body.provider;
+      requestedReasoning = body.reasoning;
+      requestedMaxTokens = body.max_tokens ?? null;
+      requestedSystemPrompt = body.messages?.find((message) => message.role === "system")?.content ?? null;
       return {
         ok: true,
         status: 200,
@@ -74,6 +109,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
               },
             },
           ],
+          usage: { cost: 0.00002 },
         }),
       };
     };
@@ -85,14 +121,25 @@ describe("mapClaimToClusterWithOpenRouter", () => {
         env: { OPENROUTER_API_KEY: "key" },
         fetcher,
         llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 1,
       },
     );
 
-    expect(requestedModel).toBe("openrouter/free");
+    expect(requestedModel).toBe("deepseek/deepseek-v4-flash");
+    expect(requestedProvider).toEqual({
+      require_parameters: true,
+      data_collection: "deny",
+      sort: "price",
+      max_price: { prompt: 0.1, completion: 0.2, request: 0, image: 0 },
+    });
+    expect(requestedReasoning).toEqual({ effort: "none" });
+    expect(requestedMaxTokens).toBe(200);
+    expect(requestedSystemPrompt).toMatch(/untrusted data/i);
+    expect(requestedSystemPrompt).toMatch(/ignore .*instructions/i);
     expect(result).toMatchObject({
       matchKind: "llm_sure",
-      extractionModel: "openrouter/free",
-      llmCostUsd: 0,
+      extractionModel: "deepseek/deepseek-v4-flash",
+      llmCostUsd: 0.00002,
     });
   });
 
@@ -112,6 +159,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
             },
           },
         ],
+        usage: { cost: 0.00002 },
       }),
     });
 
@@ -119,9 +167,10 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       { fixText: "Fixed an issue where opening the map caused a crash.", category: "crash_startup" },
       clusters,
       {
-        env: { OPENROUTER_API_KEY: "key", OPENROUTER_FREE_MODEL: "openrouter/free" },
+        env: { OPENROUTER_API_KEY: "key" },
         fetcher,
         llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 1,
       },
     );
 
@@ -129,12 +178,12 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       matchKind: "llm_sure",
       clusterId: "cluster-map",
       llmCallsUsed: 1,
-      extractionModel: "openrouter/free",
-      llmCostUsd: 0,
+      extractionModel: "deepseek/deepseek-v4-flash",
+      llmCostUsd: 0.00002,
     });
   });
 
-  it("does not call OpenRouter when the configured claim model is not free", async () => {
+  it("does not call OpenRouter when the configured automation model is not approved", async () => {
     let called = false;
     const fetcher = async () => {
       called = true;
@@ -149,9 +198,10 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
       clusters,
       {
-        env: { OPENROUTER_API_KEY: "key", OPENROUTER_FREE_MODEL: "deepseek/deepseek-v4-flash" },
+        env: { OPENROUTER_API_KEY: "key", OPENROUTER_AUTOMATION_MODEL: "deepseek/deepseek-v4-pro" },
         fetcher,
         llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 1,
       },
     );
 
@@ -161,6 +211,72 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       clusterId: "cluster-fps",
       extractionModel: null,
       llmCallsUsed: 0,
+    });
+  });
+
+  it("accepts and accounts an authorized DeepSeek charge within budget", async () => {
+    const fetcher = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        usage: { cost: 0.00002 },
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                matchKind: "sure",
+                clusterSlug: "performance_regression",
+                reason: "The claim names frame-rate drops.",
+              }),
+            },
+          },
+        ],
+      }),
+    });
+
+    const result = await mapClaimToClusterWithOpenRouter(
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+      clusters,
+      {
+        env: { OPENROUTER_API_KEY: "key" },
+        fetcher,
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 1,
+      },
+    );
+
+    expect(result).toMatchObject({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.00002,
+      extractionModel: "deepseek/deepseek-v4-flash",
+    });
+  });
+
+  it("opens the circuit when a paid response omits cost metadata", async () => {
+    const fetcher = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [] }),
+    });
+
+    const result = await mapClaimToClusterWithOpenRouter(
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+      clusters,
+      {
+        env: { OPENROUTER_API_KEY: "key" },
+        fetcher,
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 1,
+      },
+    );
+
+    expect(result).toMatchObject({
+      matchKind: "keyword_proposal",
+      llmCallsUsed: 1,
+      llmCostUsd: 0,
+      circuitReason: "openrouter_cost_unverified",
     });
   });
 

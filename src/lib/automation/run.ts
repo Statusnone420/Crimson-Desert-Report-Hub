@@ -63,6 +63,28 @@ export type RunProgress = {
   promoted: number;
 };
 
+function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): number {
+  if (
+    ["openrouter_unexpected_charge", "openrouter_cost_unverified", "openrouter_budget_exceeded"].some((reason) =>
+      result.skips.includes(reason),
+    )
+  ) {
+    return 0;
+  }
+  return result.llmCostUsd >= budget.remainingLlmUsd
+    ? 0
+    : Math.max(0, budget.maxLlmCalls - result.llmCallsUsed);
+}
+
+function recordOpenRouterCircuitReason(result: AutomationResult, reason: string | undefined): void {
+  if (
+    (reason === "openrouter_cost_unverified" || reason === "openrouter_budget_exceeded") &&
+    !result.skips.includes(reason)
+  ) {
+    result.skips.push(reason);
+  }
+}
+
 function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
   return {
     stage,
@@ -208,6 +230,7 @@ type ApprovedExcerptRow = {
 
 const SEARCH_QUERY_COST_USD = 0.008;
 const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
+const MAX_RESERVED_EXTRACTION_LLM_CALLS = 2;
 // Hard cap on full-page recon fetches per run. Each fetch is one Tavily extract
 // credit, so this bounds the extra cost of the "read the real thread before
 // rejecting" lane regardless of how many borderline candidates a run surfaces.
@@ -450,13 +473,18 @@ async function loadScanMemory(
 async function loadMonthSpend(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
-): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number }> {
+): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number; openRouterCircuitOpen: boolean }> {
   const { data, error } = await supabase
     .from("automation_runs")
-    .select("estimated_cost_usd, search_queries_used")
+    .select("estimated_cost_usd, search_queries_used, skips")
     .gte("started_at", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString());
   if (error) throw new Error(`automation spend read failed: ${error.message}`);
-  const usage = ((data ?? []) as { estimated_cost_usd?: number | string | null; search_queries_used?: number | string | null }[]).reduce(
+  const rows = (data ?? []) as {
+    estimated_cost_usd?: number | string | null;
+    search_queries_used?: number | string | null;
+    skips?: unknown;
+  }[];
+  const usage = rows.reduce(
     (sum, row) => ({
       estimatedCostUsd: sum.estimatedCostUsd + Number(row.estimated_cost_usd ?? 0),
       tavilyCredits: sum.tavilyCredits + Number(row.search_queries_used ?? 0),
@@ -466,6 +494,13 @@ async function loadMonthSpend(
   return {
     ...usage,
     llmCostUsd: Math.max(0, usage.estimatedCostUsd - usage.tavilyCredits * SEARCH_QUERY_COST_USD),
+    openRouterCircuitOpen: rows.some((row) => {
+      if (!Array.isArray(row.skips)) return false;
+      const skips = row.skips;
+      return ["openrouter_unexpected_charge", "openrouter_cost_unverified", "openrouter_budget_exceeded"].some(
+        (reason) => skips.includes(reason),
+      );
+    }),
   };
 }
 
@@ -656,7 +691,7 @@ async function prepareSignals(
         const extraction = await extractSignalWithOpenRouter(
           { title: signal.title, snippet: effectiveBody, url: canonicalUrl },
           {
-            llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed),
+            llmCallsRemaining: remainingLlmCalls(result, budget),
             llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
             clusterOptions,
           },
@@ -665,6 +700,7 @@ async function prepareSignals(
         result.llmCostUsd += extraction.llmCostUsd ?? 0;
         result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
         if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
+        recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
         const relevance = shouldKeepExtractedSignal(extraction);
         if (relevance.keep) {
@@ -713,7 +749,7 @@ async function prepareSignals(
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
       {
-        llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed),
+        llmCallsRemaining: remainingLlmCalls(result, budget),
         llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
         clusterOptions,
       },
@@ -722,6 +758,7 @@ async function prepareSignals(
     result.llmCostUsd += extraction.llmCostUsd ?? 0;
     result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
+    recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
     const relevance = shouldKeepExtractedSignal(extraction);
     if (!relevance.keep) {
@@ -791,6 +828,7 @@ async function loadRoutableClusters(supabase: ReturnType<typeof createServiceCli
 type LifecycleClusterRow = ClaimMappingCluster & {
   fix_status: string;
   fix_claimed_at?: string | null;
+  fix_claimed_patch_version?: string | null;
   admin_override?: boolean | null;
   lifecycle_reason?: string | null;
 };
@@ -798,7 +836,7 @@ type LifecycleClusterRow = ClaimMappingCluster & {
 async function loadLifecycleClusters(supabase: ReturnType<typeof createServiceClient>): Promise<LifecycleClusterRow[]> {
   const { data, error } = await supabase
     .from("issue_clusters")
-    .select("id, slug, title, category, description, fix_status, fix_claimed_at, admin_override, lifecycle_reason")
+    .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason")
     .eq("is_public", true);
   if (error) throw new Error(`lifecycle clusters read failed: ${error.message}`);
   return (data ?? []) as LifecycleClusterRow[];
@@ -810,14 +848,25 @@ function decisionRank(decision: ClaimMappingDecision): number {
   return 1;
 }
 
+function needsReviewReason(reason: string, fallback: string): string {
+  const normalized = reason.trim() || fallback;
+  return normalized.startsWith("Needs review:") ? normalized : `Needs review: ${normalized}`;
+}
+
 function toLifecycleClaimDecision(decision: ClaimMappingDecision | undefined): LifecycleClaimDecision | null {
   if (!decision) return null;
   if (decision.matchKind === "llm_sure") return { matchKind: "llm_sure", reason: decision.reason };
   if (decision.matchKind === "llm_unsure") {
-    return { matchKind: "llm_unsure", reason: decision.reason || "Needs review: PA claim was not confidently matched." };
+    return {
+      matchKind: "llm_unsure",
+      reason: needsReviewReason(decision.reason, "PA claim was not confidently matched."),
+    };
   }
   if (decision.matchKind === "keyword_proposal") {
-    return { matchKind: "keyword_proposal", reason: decision.reason || "Needs review: keyword match is only a proposal." };
+    return {
+      matchKind: "keyword_proposal",
+      reason: needsReviewReason(decision.reason, "Keyword match is only a proposal."),
+    };
   }
   return { matchKind: "none", reason: decision.reason };
 }
@@ -840,7 +889,10 @@ async function writeLifecycleResult(
 
   const patch: Record<string, unknown> = {};
   if (computed.status !== cluster.fix_status) patch.fix_status = computed.status;
-  if (!cluster.fix_claimed_at && computed.fixClaimedAt) patch.fix_claimed_at = computed.fixClaimedAt;
+  if (computed.fixClaimedAt !== (cluster.fix_claimed_at ?? null)) patch.fix_claimed_at = computed.fixClaimedAt;
+  if (computed.fixClaimedPatchVersion !== (cluster.fix_claimed_patch_version ?? null)) {
+    patch.fix_claimed_patch_version = computed.fixClaimedPatchVersion;
+  }
   // Only human exceptions carry stored prose; normal states are composed at read time.
   const shouldWriteReason = computed.needsHuman;
   if (shouldWriteReason && cluster.lifecycle_reason !== computed.detail) {
@@ -856,9 +908,12 @@ async function writeLifecycleResult(
     .eq("id", cluster.id)
     .eq("admin_override", false)
     .eq("fix_status", cluster.fix_status);
-  if (!cluster.fix_claimed_at && computed.fixClaimedAt) {
-    query = query.is("fix_claimed_at", null);
-  }
+  query = cluster.fix_claimed_at
+    ? query.eq("fix_claimed_at", cluster.fix_claimed_at)
+    : query.is("fix_claimed_at", null);
+  query = cluster.fix_claimed_patch_version
+    ? query.eq("fix_claimed_patch_version", cluster.fix_claimed_patch_version)
+    : query.is("fix_claimed_patch_version", null);
   const { error } = await query;
   if (error) throw new Error(`lifecycle cluster update failed: ${error.message}`);
 }
@@ -875,9 +930,16 @@ async function runLifecyclePass(
     getClaimedFixesForCurrentPatch(supabase),
   ]);
   const claimDecisionByCluster = new Map<string, ClaimMappingDecision>();
-  let llmCallsRemaining = Math.max(0, budget.maxLlmCalls - result.llmCallsUsed);
+  const initialLlmCallsRemaining = remainingLlmCalls(result, budget);
+  const extractionReserve = budget.allowPaidSearch
+    ? Math.min(MAX_RESERVED_EXTRACTION_LLM_CALLS, Math.floor(initialLlmCallsRemaining / 2))
+    : 0;
+  let claimLlmCallsRemaining = initialLlmCallsRemaining - extractionReserve;
+  const claimOffset = claims.length > 0 ? Math.floor(now.getTime() / SEARCH_ROTATION_WINDOW_MS) % claims.length : 0;
+  const orderedClaims = [...claims.slice(claimOffset), ...claims.slice(0, claimOffset)];
 
-  for (const claim of claims) {
+  for (const claim of orderedClaims) {
+    const llmCallsRemaining = Math.min(claimLlmCallsRemaining, remainingLlmCalls(result, budget));
     const decision = await mapClaimToClusterWithOpenRouter(claim, clusters, {
       llmCallsRemaining,
       llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
@@ -885,7 +947,8 @@ async function runLifecyclePass(
     result.llmCallsUsed += decision.llmCallsUsed;
     result.llmCostUsd += decision.llmCostUsd;
     result.estimatedCostUsd += decision.llmCostUsd;
-    llmCallsRemaining = Math.max(0, llmCallsRemaining - decision.llmCallsUsed);
+    recordOpenRouterCircuitReason(result, decision.circuitReason);
+    claimLlmCallsRemaining = Math.max(0, claimLlmCallsRemaining - decision.llmCallsUsed);
     if (!decision.clusterId) continue;
     const existing = claimDecisionByCluster.get(decision.clusterId);
     if (!existing || decisionRank(decision) > decisionRank(existing)) {
@@ -897,6 +960,8 @@ async function runLifecyclePass(
     const computed = computeClusterLifecycle({
       currentStatus: cluster.fix_status,
       fixClaimedAt: cluster.fix_claimed_at ?? null,
+      fixClaimedPatchVersion: cluster.fix_claimed_patch_version ?? null,
+      currentPatchVersion: currentPatch.version,
       adminOverride: Boolean(cluster.admin_override),
       now,
       claimDecision: toLifecycleClaimDecision(claimDecisionByCluster.get(cluster.id)),
@@ -1411,6 +1476,7 @@ async function executeAutomationRun(
   mode: AutomationMode,
   budget: AutomationBudget,
   budgetReadError: string | null,
+  openRouterCircuitOpen: boolean,
   now: Date,
 ): Promise<AutomationResult> {
   const result: AutomationResult = {
@@ -1431,7 +1497,7 @@ async function executeAutomationRun(
     candidatesRescued: 0,
     estimatedCostUsd: 0,
     llmCostUsd: 0,
-    skips: [...budget.skipReasons],
+    skips: [...budget.skipReasons, ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : [])],
     errors: [],
   };
 
@@ -1442,12 +1508,6 @@ async function executeAutomationRun(
     await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }
-  if (mode === "scheduled" && budget.skipReasons.length > 0) {
-    result.status = "skipped";
-    await finalizeRunLedgerSafely(supabase, runId, result);
-    return result;
-  }
-
   const report = (stage: RunProgress["stage"]) =>
     writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
 
@@ -1462,6 +1522,12 @@ async function executeAutomationRun(
       } catch (error) {
         result.status = "partial";
         result.errors.push(toErrorMessage(error, "official patch sync failed"));
+      }
+      try {
+        await runLifecyclePass(supabase, result, budget, currentPatch, now);
+      } catch (error) {
+        result.status = result.status === "success" ? "partial" : result.status;
+        result.errors.push(toErrorMessage(error, "lifecycle pass failed"));
       }
     }
 
@@ -1512,14 +1578,6 @@ async function executeAutomationRun(
   if (mode !== "dry_run") {
     await persistRejectedCandidates(supabase, runId, rejected, result);
     await deleteExpiredRejectedCandidates(supabase, now, result);
-    if (currentPatch) {
-      try {
-        await runLifecyclePass(supabase, result, budget, currentPatch, now);
-      } catch (error) {
-        result.status = result.status === "success" ? "partial" : result.status;
-        result.errors.push(toErrorMessage(error, "lifecycle pass failed"));
-      }
-    }
   }
 
   await finalizeRunLedgerSafely(supabase, runId, result);
@@ -1541,17 +1599,20 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
   let spentMonthToDateUsd = 0;
   let tavilyCreditsMonthToDate = 0;
   let llmSpentMonthToDateUsd = 0;
+  let openRouterCircuitOpen = false;
   try {
     const monthSpend = await loadMonthSpend(supabase, now);
     spentMonthToDateUsd = monthSpend.estimatedCostUsd;
     tavilyCreditsMonthToDate = monthSpend.tavilyCredits;
     llmSpentMonthToDateUsd = monthSpend.llmCostUsd;
+    openRouterCircuitOpen = monthSpend.openRouterCircuitOpen;
   } catch (error) {
     budgetReadError = toErrorMessage(error, "automation spend read failed");
+    openRouterCircuitOpen = true;
     spentMonthToDateUsd = monthlyBudgetUsd;
     llmSpentMonthToDateUsd = monthlyBudgetUsd;
   }
-  const budget = computeAutomationBudget({
+  const computedBudget = computeAutomationBudget({
     monthlyBudgetUsd,
     spentMonthToDateUsd,
     tavilyCreditsMonthToDate,
@@ -1560,9 +1621,18 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     now,
     scannerPolicy: input.scannerPolicy,
   });
+  const budget = openRouterCircuitOpen ? { ...computedBudget, maxLlmCalls: 0 } : computedBudget;
 
   const runId = await createRunLedger(supabase, input.mode, budget, now);
-  const completion = executeAutomationRun(supabase, runId, input.mode, budget, budgetReadError, now);
+  const completion = executeAutomationRun(
+    supabase,
+    runId,
+    input.mode,
+    budget,
+    budgetReadError,
+    openRouterCircuitOpen,
+    now,
+  );
   return { status: "started", runId, completion };
 }
 
@@ -1661,7 +1731,7 @@ export async function rescueCandidateSignal(
   // the automated relevance gates here would defeat the point of a rescue.
   const extraction = await extractSignalWithOpenRouter(
     { title: source.title, snippet: source.body, url: canonicalUrl },
-    { llmCallsRemaining: 1, clusterOptions },
+    { llmCallsRemaining: 0, clusterOptions },
   );
 
   const externalHash = externalIdHash(source.source, source.id);

@@ -136,10 +136,14 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
 
   const supabase = createServiceClient();
   const label = LIFECYCLE_LABELS[fixStatus as keyof typeof LIFECYCLE_LABELS] ?? fixStatus.replace(/_/g, " ");
+  const claimBearing = fixStatus === "fix_claimed" || fixStatus === "verified_fixed" || fixStatus === "persists";
+  const patch = claimBearing ? await getCurrentPatchMetadata(supabase) : null;
   const { error } = await supabase
     .from("issue_clusters")
     .update({
       fix_status: fixStatus,
+      fix_claimed_at: claimBearing ? new Date().toISOString() : null,
+      fix_claimed_patch_version: patch?.version ?? null,
       admin_override: true,
       lifecycle_reason: `Locked by you. Manual status set to ${label}.`,
     })
@@ -161,10 +165,10 @@ export async function setClusterVisibilityOverride(formData: FormData): Promise<
   if (!clusterId || !(VISIBILITY_OVERRIDES as readonly string[]).includes(visibility)) throw new Error("bad input");
 
   const supabase = createServiceClient();
-  const { error } = await supabase
-    .from("issue_clusters")
-    .update({ admin_visibility_override: visibility === "auto" ? null : visibility })
-    .eq("id", clusterId);
+  const { error } = await supabase.rpc("set_cluster_visibility_override", {
+    p_cluster_id: clusterId,
+    p_visibility: visibility,
+  });
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
@@ -308,7 +312,7 @@ export async function compileDossier(formData: FormData): Promise<void> {
 export async function runRedditMonitor(formData: FormData): Promise<void> {
   await requireAdmin();
   assertProductionWriteAllowed();
-  if (!features().reddit) throw new Error("reddit monitor disabled: keys missing");
+  if (!features().reddit) throw new Error("reddit monitor permanently disabled");
 
   const raw = String(formData.get("subreddits") ?? "");
   const subreddits = raw

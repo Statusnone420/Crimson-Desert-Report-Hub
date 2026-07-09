@@ -5,9 +5,10 @@ Use GitHub Discussions for questions, ideas, setup help, and community coordinat
 ## Good Discussion Topics
 
 - Setup help for local development or deployment.
-- Questions about Supabase, Vercel, Cloudflare Turnstile, Tavily, OpenRouter, or Reddit access.
+- Questions about Supabase, Vercel, Cloudflare Turnstile, capped Tavily discovery, the $2-capped DeepSeek automation lane, free/deterministic routine AI, or the source radar.
 - Ideas for improving report quality or moderation flow.
 - Public Crimson Desert source suggestions.
+- Confirmation-board wording, privacy, or patch-family behavior.
 - Community triage notes that need conversation before becoming issues.
 
 ## Use Issues Instead For

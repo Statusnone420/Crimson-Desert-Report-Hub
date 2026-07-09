@@ -1,10 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { hasClusterEvidence, monitoredAreasNote, splitWatchlistByCandidates } from "@/lib/evidence";
+import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
 
 describe("hasClusterEvidence", () => {
-  it("treats zero-strength clusters as watchlist items, not evidence", () => {
-    expect(hasClusterEvidence({ strengthScore: 0 })).toBe(false);
-    expect(hasClusterEvidence({ strengthScore: 2 })).toBe(true);
+  it("treats approved player reports as evidence and other signals separately", () => {
+    expect(hasClusterEvidence({ directReportCount: 0 })).toBe(false);
+    expect(hasClusterEvidence({ directReportCount: 2 })).toBe(true);
+  });
+});
+
+describe("needsFullIssueCard", () => {
+  it("keeps claim polls and every raw confirmation reachable without calling them evidence", () => {
+    const base = { strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0 }, readout: { poll: null } };
+    expect(needsFullIssueCard(base)).toBe(false);
+    expect(needsFullIssueCard({ ...base, confirmations: { totalCount: 1 } })).toBe(true);
+    expect(needsFullIssueCard({ ...base, readout: { poll: { fixedCount: 0, stillCount: 0 } } })).toBe(true);
+    expect(needsFullIssueCard({ ...base, strengthScore: 1 })).toBe(true);
   });
 });
 

@@ -1,5 +1,7 @@
 # Scanner tab: one role-aware `/scanner` route — design
 
+> **HISTORICAL / SUPERSEDED (2026-07-09).** The role-aware `/scanner` route remains, but the owner-approved [Confirmation Board design](2026-07-09-confirmation-board-design.md) replaces the verdict strip, Reddit “coming soon” posture, and any wording that promotes scanner links into evidence. Public scanner items are lead questions; Reddit API is permanently off.
+
 Date: 2026-07-07
 Status: approved by owner (Option A admin view + public/admin dynamic tab approved via mockups in session)
 Branch: `feat/scanner-tab`
@@ -211,4 +213,3 @@ Modify:
 - New scanner pipeline behavior, promotion rules, moderation flow, or report-form changes.
 - Reddit activation (owner pastes creds into Vercel — not a code change).
 - A dedicated per-patch receipts page.
-```

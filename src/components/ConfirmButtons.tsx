@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ConfirmationKind } from "@/lib/confirmations";
 import { PLATFORMS, PLATFORM_LABELS } from "@/lib/constants";
 
@@ -47,18 +47,18 @@ type Phase = "idle" | "picking" | "sending" | "done";
 
 export function ConfirmButtons({
   clusterId,
-  patchFamily,
+  storageScope,
   question,
   kinds,
   counts,
 }: {
   clusterId: string;
-  patchFamily: string;
+  storageScope: string;
   question: string;
   kinds: ConfirmationKind[];
   counts: Partial<Record<ConfirmationKind, number>>;
 }) {
-  const storageKey = `cd-confirm-${clusterId}-${patchFamily}`;
+  const storageKey = `cd-confirm-${clusterId}-${storageScope}`;
   const answered = useSyncExternalStore(
     subscribeToStances,
     () => readStance(storageKey),
@@ -66,8 +66,12 @@ export function ConfirmButtons({
   );
   const [phase, setPhase] = useState<Phase>("idle");
   const [pendingKind, setPendingKind] = useState<ConfirmationKind | null>(null);
-  const [bumped, setBumped] = useState<ConfirmationKind | null>(null);
   const [message, setMessage] = useState("");
+  const kindButtons = useRef<Partial<Record<ConfirmationKind, HTMLButtonElement | null>>>({});
+
+  useEffect(() => {
+    if (phase === "done" && answered) kindButtons.current[answered]?.focus();
+  }, [answered, phase]);
 
   async function submit(platform: string) {
     if (!pendingKind) return;
@@ -80,13 +84,25 @@ export function ConfirmButtons({
         body: JSON.stringify({ cluster_id: clusterId, platform, kind: pendingKind }),
       });
       if (res.status === 201) {
-        setBumped(pendingKind);
+        const nextKind = pendingKind;
         setPhase("done");
-        writeStance(storageKey, pendingKind);
+        setPendingKind(null);
+        writeStance(storageKey, nextKind);
         return;
       }
+      let errorCode: string | null = null;
+      try {
+        const payload: unknown = await res.json();
+        if (payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string") {
+          errorCode = payload.error;
+        }
+      } catch {
+        // The status code still provides a safe generic fallback.
+      }
       setMessage(
-        res.status === 429
+        errorCode === "preview_writes_disabled"
+          ? "This preview is read-only. Confirmations work on the production site."
+          : res.status === 429
           ? "Too many taps from this network — try again later."
           : "Didn't count. Try again.",
       );
@@ -98,21 +114,10 @@ export function ConfirmButtons({
   }
 
   function countFor(kind: ConfirmationKind): number {
-    return (counts[kind] ?? 0) + (bumped === kind ? 1 : 0);
+    return counts[kind] ?? 0;
   }
 
-  if (answered) {
-    const tone = KIND_TONES[answered];
-    return (
-      <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-faint)" }}>
-        <span className="chip" style={tone} aria-pressed="true">
-          {KIND_LABELS[answered]}
-          {countFor(answered) > 0 ? <span className="num">{countFor(answered)}</span> : null}
-        </span>
-        <span>Counted once per network per patch.</span>
-      </div>
-    );
-  }
+  const selectedKind = pendingKind ?? answered;
 
   return (
     <div className="space-y-2">
@@ -125,9 +130,12 @@ export function ConfirmButtons({
             key={kind}
             type="button"
             className="chip"
+            ref={(button) => {
+              kindButtons.current[kind] = button;
+            }}
             disabled={phase === "sending"}
-            aria-pressed={pendingKind === kind}
-            style={pendingKind === kind ? KIND_TONES[kind] : undefined}
+            aria-pressed={selectedKind === kind}
+            style={selectedKind === kind ? KIND_TONES[kind] : undefined}
             onClick={() => {
               setPendingKind(kind);
               setPhase("picking");
@@ -167,6 +175,11 @@ export function ConfirmButtons({
       {message ? (
         <p className="text-xs" style={{ color: "var(--crimson-bright)" }} role="alert">
           {message}
+        </p>
+      ) : null}
+      {phase === "done" ? (
+        <p className="text-xs" style={{ color: "var(--text-faint)" }} role="status" aria-live="polite">
+          Recorded once per network per patch. Counts refresh from the server; you can change your answer.
         </p>
       ) : null}
     </div>

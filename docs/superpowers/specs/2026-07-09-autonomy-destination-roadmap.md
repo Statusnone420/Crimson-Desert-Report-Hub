@@ -1,7 +1,9 @@
 # Crimson Desert Report Hub — Autonomy & Destination Roadmap
 
+> **HISTORICAL / PARTIALLY SUPERSEDED (2026-07-09).** Use the [Confirmation Board design](2026-07-09-confirmation-board-design.md) for current product behavior. Only compatible cost/privacy and AI claim-mapping analysis remains useful; unchecked or phase-oriented material below is not a current execution queue.
+
 **Date:** 2026-07-09  
-**Status:** ⚠️ Partially superseded (2026-07-09, owner-approved) by [`2026-07-09-confirmation-board-design.md`](2026-07-09-confirmation-board-design.md) — see its §8 for exactly which rules here no longer bind (silence→"No fresh reports" as settled/green, UI-frozen constraint, follow-ups deferred to Phase 4, the locked label table). Cost/privacy posture here remains in force. Kept as history.
+**Status:** ⚠️ Partially superseded (2026-07-09, owner-approved) by [`2026-07-09-confirmation-board-design.md`](2026-07-09-confirmation-board-design.md) — see its §8 for exactly which rules here no longer bind (silence→"No fresh reports" as settled/green, UI-frozen constraint, follow-ups deferred to Phase 4, the locked label table). Cost/privacy posture here remains in force. Any “Reddit shelved” wording below is historical; current policy is **Reddit API permanently off**. Kept as history, not an executable checklist.
 Phase 1 approved by owner and implemented on `dev` for review. GLM-5.2 review amendments, owner AI-first realignment, and GSD codebase map findings incorporated (2026-07-09).
 **Audience:** Implementing agents and future reviewers.  
 **Branch:** `dev`  

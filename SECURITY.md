@@ -18,7 +18,7 @@ Useful reports include:
 Never commit:
 
 - Supabase service role keys.
-- OpenRouter, Tavily, Reddit, Cloudflare, or Vercel tokens.
+- OpenRouter, Tavily, Cloudflare, or Vercel tokens.
 - `.env.local` or other real environment files.
 - Screenshots that show credentials.
 - Private dashboard URLs that reveal sensitive project details.
@@ -35,3 +35,7 @@ Only the current `main` branch is supported.
 - Cron and preview routes require `CRON_SECRET`.
 - Admin routes require a signed session cookie.
 - Public report text is moderation-gated before appearing publicly.
+- The application database stores salted one-way network hashes, not raw IP addresses.
+- Confirmation writes use a service-role-only database function that first takes the shared visibility transaction lock, then cluster/network locks, rechecks public issue visibility in-transaction, and enforces the 20-writes-per-hour hashed attempt ledger.
+- Confirmation hashes, attempt rows, and individual confirmation records never reach public pages; only aggregates do.
+- Reddit API is permanently off; public Reddit pages may enter only as Tavily-discovered web leads.

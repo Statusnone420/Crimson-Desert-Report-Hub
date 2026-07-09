@@ -1,5 +1,7 @@
 # Dashboard Rescue Implementation Plan
 
+> **HISTORICAL / SUPERSEDED (2026-07-09). DO NOT EXECUTE.** The owner-approved [Confirmation Board design](../specs/2026-07-09-confirmation-board-design.md) and its [implementation record](2026-07-09-confirmation-board.md) replace this plan wherever they differ. In particular, Reddit API activation, a `$5/month` posture, claims-as-verdict UI, and unconditional production-migration follow-ups are obsolete. The unchecked boxes below preserve the original plan; they are not an active backlog.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the patch-claims wall with a claims-vs-evidence scoreboard, compact the Issues-page watchlist, run scans in the background with live funnel progress, make the daily cron trustworthy (dry runs never suppress it; skipped attempts leave a ledger trace), and retry flaky free-LLM extractions.

@@ -112,15 +112,26 @@ async function expectContrastAtLeast(page: Page, targets: ContrastTarget[], mini
       }
 
       function solidBackground(element: Element): [number, number, number] {
+        const layers: [number, number, number, number][] = [];
         let current: Element | null = element;
         while (current) {
           const background = parseRgb(getComputedStyle(current).backgroundColor);
           if (background && background[3] > 0) {
-            return [background[0], background[1], background[2]];
+            layers.push(background);
+            if (background[3] >= 1) break;
           }
           current = current.parentElement;
         }
-        return [16, 17, 15];
+        let color: [number, number, number] = [16, 17, 15];
+        for (let index = layers.length - 1; index >= 0; index -= 1) {
+          const [r, g, b, alpha] = layers[index];
+          color = [
+            r * alpha + color[0] * (1 - alpha),
+            g * alpha + color[1] * (1 - alpha),
+            b * alpha + color[2] * (1 - alpha),
+          ];
+        }
+        return color;
       }
 
       return targets.flatMap((target) => {
@@ -131,10 +142,12 @@ async function expectContrastAtLeast(page: Page, targets: ContrastTarget[], mini
         return elements.flatMap((element, index) => {
           const color = parseRgb(getComputedStyle(element).color);
           if (!color) return [`${target.label}: foreground color could not be parsed`];
-          const ratio = contrastRatio([color[0], color[1], color[2]], solidBackground(element));
+          const background = solidBackground(element);
+          const ratio = contrastRatio([color[0], color[1], color[2]], background);
+          const text = element.textContent?.trim().replace(/\s+/g, " ").slice(0, 48) || element.tagName.toLowerCase();
           return ratio >= minimum
             ? []
-            : [`${target.label}${elements.length > 1 ? ` #${index + 1}` : ""}: ${ratio.toFixed(2)} < ${minimum}`];
+            : [`${target.label}${elements.length > 1 ? ` #${index + 1}` : ""} (${text}; fg ${color.slice(0, 3).join(",")}; bg ${background.join(",")}): ${ratio.toFixed(2)} < ${minimum}`];
         });
       });
     },
@@ -317,10 +330,13 @@ test.describe("public surface visual regression", () => {
     await expect(nav.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
     await expect(page.getByText("Right now", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Current issue readout —/)).toBeVisible();
     await expect(page.getByText(/Patch 1\.13\.\d{2}/).first()).toBeVisible();
-    await expect(page.getByText("Evidence-backed issues", { exact: true })).toBeVisible();
+    await expect(page.getByText("Player-reported issues", { exact: true })).toBeVisible();
     await expect(page.getByText("Radar leads", { exact: true })).toBeVisible();
     await expect(page.getByText("Rumors with links — not evidence", { exact: true })).toBeVisible();
+    await expect(page.getByText("Source leads", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Public signals", { exact: true })).toHaveCount(0);
     await expect(page.getByText(/latest player report (?:just now|\d+[mhd] ago)|no player reports yet/).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Official notes" }).first()).toHaveAttribute(
       "href",
@@ -338,8 +354,8 @@ test.describe("public surface visual regression", () => {
       await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
       await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
     } else {
-      await expect(page.getByRole("heading", { name: "Nothing backed by evidence yet" })).toBeVisible();
-      await expect(page.getByText("Known problem areas stay quiet until a player report or public source backs them.")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Nothing reported or signaled yet" })).toBeVisible();
+      await expect(page.getByText(/The patch context and source radar are still available/)).toBeVisible();
     }
     await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Official patch source" })).toBeVisible();
@@ -392,13 +408,13 @@ test.describe("public surface visual regression", () => {
       // Public cards never wear confidence chrome — that authority theater is gone.
       await expect(page.getByText("High confidence")).toHaveCount(0);
     } else {
-      await expect(page.getByText("Source candidates stay private until they clear the rules.")).toBeVisible();
+      await expect(page.getByText(/Source candidates stay private until they are corroborated/)).toBeVisible();
       await expect(page.getByRole("link", { name: "Scanner funnel" })).toHaveAttribute("href", "/scanner");
       await expect(page.getByRole("link", { name: "Submit a report" })).toHaveAttribute("href", "/report");
     }
     await expect(page.locator(".badge").filter({ hasText: /^Confirmed$/ })).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
-    await expect(page.getByText("Backed issues first.")).toBeVisible();
+    await expect(page.getByText("Player-reported issues first.")).toBeVisible();
     // Overpromising watchlist copy must be gone: the scanner never claims per-row
     // active discovery, and zero-evidence seeds are never framed as live hunts.
     await expect(page.getByText("scanner is hunting", { exact: false })).toHaveCount(0);
@@ -414,11 +430,55 @@ test.describe("public surface visual regression", () => {
     await expect(page).toHaveScreenshot("issues.png", { fullPage: true });
   });
 
+  test("a player can revise a fix-poll stance while raw totals stay server-authored", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.addInitScript(() => {
+      window.localStorage.setItem("cd-confirm-00000000-0000-4000-8000-000000000002-1.13", "fixed_for_me");
+    });
+    await page.goto("/issues");
+
+    const card = page.getByRole("article").filter({ hasText: "Map-open crash persists after fix" });
+    await expect(card.getByRole("button", { name: /Fixed for me/ })).toHaveAttribute("aria-pressed", "false");
+    await expect(card.getByRole("button", { name: /Still happening/ })).toHaveAttribute("aria-pressed", "false");
+    await card.getByRole("button", { name: /Fixed for me/ }).click();
+    await card.getByRole("button", { name: "PC (Steam)" }).click();
+    await expect(card.getByText(/Recorded once per network per patch/)).toBeVisible();
+
+    await expect(card.getByRole("button", { name: /Still happening/ })).toBeVisible();
+    await card.getByRole("button", { name: /Still happening/ }).click();
+    await expect(card.getByRole("button", { name: /Fixed for me/ })).toHaveAttribute("aria-pressed", "false");
+    await expect(card.getByRole("button", { name: /Still happening/ })).toHaveAttribute("aria-pressed", "true");
+    await card.getByRole("button", { name: "Base PS5", exact: true }).click();
+    await expect(card.getByRole("button", { name: /Still happening/ })).toHaveAttribute("aria-pressed", "true");
+    await expectHealthyPage(page, problems);
+  });
+
+  test("a read-only preview explains why a confirmation was not recorded", async ({ page }) => {
+    await page.route("**/api/confirmations", async (route) => {
+      await route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "preview_writes_disabled" }),
+      });
+    });
+    await page.goto("/issues");
+
+    const card = page.getByRole("article").filter({ hasText: "Map-open crash persists after fix" });
+    await card.getByRole("button", { name: /Fixed for me/ }).click();
+    await card.getByRole("button", { name: "PC (Steam)" }).click();
+
+    await expect(card.getByText("This preview is read-only. Confirmations work on the production site.")).toBeVisible();
+  });
+
   test("about page explains privacy and public source posture", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/about");
 
     await expect(page.getByRole("heading", { name: "About this tracker" })).toBeVisible();
+    await expect(page.getByText(/Reports are evidence/)).toBeVisible();
+    await expect(page.getByText(/Confirmations are signals/)).toBeVisible();
+    await expect(page.getByText(/Source links are leads/)).toBeVisible();
+    await expect(page.getByText(/public signals backed by separate sources|public chatter becomes evidence/i)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Public source" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Scanner page" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByRole("link", { name: "View the source on GitHub" })).toHaveAttribute(
@@ -438,8 +498,16 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Reviewed", { exact: true })).toBeVisible();
     await expect(page.getByText("Filtered", { exact: true })).toBeVisible();
     await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
-    await expect(page.getByText("Published", { exact: true })).toBeVisible();
+    await expect(page.getByText("Published issues", { exact: true })).toBeVisible();
     await expect(page.getByText("Web search (Tavily)")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Questions from the radar" })).toBeVisible();
+    await expect(page.getByText("Mount and input lockups")).toBeVisible();
+    await expect(page.getByRole("button", { name: /I have this too/ })).toBeVisible();
+    const scannerHtml = await page.content();
+    expect(scannerHtml).not.toContain("Possible mount input lockup");
+    expect(scannerHtml).not.toContain("Private mapped candidate used to prove public question rendering");
+    expect(scannerHtml).not.toContain("forum.example.com");
+    expect(scannerHtml).not.toContain("mount-input-rumor");
     await expect(page.getByText("Steam & forums")).toHaveCount(0);
     await expect(page.getByText("Review queue")).toHaveCount(0);
     await expect(page.getByText("Keep for review")).toHaveCount(0);
@@ -464,6 +532,12 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Recent radar leads" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Rejected archive" })).toBeVisible();
+    await expect(page.getByLabel("Search recent archive")).toBeVisible();
+    await page.getByLabel("Search recent archive").fill("off-topic, not a bug");
+    await expect(page.getByText("New armor set locations guide")).toBeVisible();
+    await expect(page.getByText("Patch 1.13 full notes mirror")).toHaveCount(0);
+    await expect(page.getByRole("status")).toContainText("matching candidates");
+    await page.getByLabel("Search recent archive").fill("");
     await expect(page.getByRole("button", { name: "Rescue" }).first()).toBeVisible();
     await expect(page.getByText("rescuing is optional, not homework", { exact: false })).toBeVisible();
     await expect(page.getByText("Scan history")).toBeVisible();

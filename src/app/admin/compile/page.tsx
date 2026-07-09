@@ -37,7 +37,7 @@ export default async function CompilePage({ searchParams }: { searchParams: Prom
           style={{ color: aiAvailable ? "var(--text)" : "var(--text-dim)" }}
         >
           <input type="checkbox" name="use_ai" className="w-auto" disabled={!aiAvailable} />
-          Draft with AI {aiAvailable ? "(Groq/OpenRouter free tier)" : ": disabled, no AI key configured"}
+          Draft with AI {aiAvailable ? "(free OpenRouter prose model)" : ": disabled, no AI key configured"}
         </label>
         <button className="btn">Compile now</button>
         <span className="text-xs" style={{ color: "var(--text-dim)" }}>

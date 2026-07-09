@@ -6,6 +6,7 @@ import path from "node:path";
 // A previous `next dev` session against different (or blank) Supabase env can
 // leave stale unstable_cache entries in .next; the mock run must start clean.
 rmSync(path.join(process.cwd(), ".next", "cache"), { recursive: true, force: true });
+rmSync(path.join(process.cwd(), ".next", "dev", "cache"), { recursive: true, force: true });
 
 const appPort = Number(process.env.PLAYWRIGHT_PORT ?? 3100);
 const supabasePort = Number(process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765);
@@ -14,9 +15,16 @@ const now = () => Date.now();
 const isoMinutesAgo = (minutes) => new Date(now() - minutes * 60 * 1000).toISOString();
 const isoDaysAgo = (days) => new Date(now() - days * 24 * 60 * 60 * 1000).toISOString();
 
+const clusterIds = {
+  fps: "00000000-0000-4000-8000-000000000001",
+  map: "00000000-0000-4000-8000-000000000002",
+  mount: "00000000-0000-4000-8000-000000000003",
+  ghosting: "00000000-0000-4000-8000-000000000004",
+};
+
 const clusters = [
   {
-    id: "cluster-fps",
+    id: clusterIds.fps,
     slug: "fps-regression-113",
     title: "FPS regression since 1.13",
     category: "performance",
@@ -26,18 +34,19 @@ const clusters = [
     is_public: true,
   },
   {
-    id: "cluster-map",
+    id: clusterIds.map,
     slug: "map-open-crash-persists",
     title: "Map-open crash persists after fix",
     category: "crash_startup",
     description: "Opening the world map can still crash or freeze the client after the claimed fix.",
     fix_status: "fix_claimed",
     fix_claimed_at: "2026-07-08T06:00:00.000Z",
+    fix_claimed_patch_version: "1.13.01",
     confidence: "medium",
     is_public: true,
   },
   {
-    id: "cluster-mount",
+    id: clusterIds.mount,
     slug: "mount-input-lockups",
     title: "Mount and input lockups",
     category: "controls_gameplay",
@@ -47,7 +56,7 @@ const clusters = [
     is_public: true,
   },
   {
-    id: "cluster-ghosting",
+    id: clusterIds.ghosting,
     slug: "fsr-ghosting",
     title: "FSR ghosting on performance mode",
     category: "graphics_visual",
@@ -59,18 +68,18 @@ const clusters = [
 ];
 
 const reportSeed = [
-  ["cluster-fps", "performance", "pc_steam", 18],
-  ["cluster-fps", "performance", "pc_steam", 54],
-  ["cluster-fps", "performance", "pc_steam", 90],
-  ["cluster-fps", "performance", "ps5", 160],
-  ["cluster-fps", "performance", "ps5_pro", 260],
-  ["cluster-fps", "performance", "xbox_series_x", 430],
-  ["cluster-map", "crash_startup", "pc_steam", 72],
-  ["cluster-map", "crash_startup", "ps5", 188],
-  ["cluster-map", "crash_startup", "ps5_pro", 610],
-  ["cluster-mount", "controls_gameplay", "ps5", 1440],
-  ["cluster-mount", "controls_gameplay", "xbox_series_x", 2200],
-  ["cluster-ghosting", "graphics_visual", "pc_steam", 3200],
+  [clusterIds.fps, "performance", "pc_steam", 18],
+  [clusterIds.fps, "performance", "pc_steam", 54],
+  [clusterIds.fps, "performance", "pc_steam", 90],
+  [clusterIds.fps, "performance", "ps5", 160],
+  [clusterIds.fps, "performance", "ps5_pro", 260],
+  [clusterIds.fps, "performance", "xbox_series_x", 430],
+  [clusterIds.map, "crash_startup", "pc_steam", 72],
+  [clusterIds.map, "crash_startup", "ps5", 188],
+  [clusterIds.map, "crash_startup", "ps5_pro", 610],
+  [clusterIds.mount, "controls_gameplay", "ps5", 1440],
+  [clusterIds.mount, "controls_gameplay", "xbox_series_x", 2200],
+  [clusterIds.ghosting, "graphics_visual", "pc_steam", 3200],
 ];
 
 const bugReports = reportSeed.map(([clusterId, category, platform, minutes], index) => ({
@@ -112,19 +121,19 @@ const excerpts = [
     id: "excerpt-1",
     created_at: isoMinutesAgo(15),
     excerpt_text: "Performance mode drops into the low 20s during open-field combat after 1.13.",
-    bug_reports: { cluster_id: "cluster-fps", platform: "pc_steam" },
+    bug_reports: { cluster_id: clusterIds.fps, platform: "pc_steam" },
   },
   {
     id: "excerpt-2",
     created_at: isoMinutesAgo(38),
     excerpt_text: "The map crash still happens after the patch note said it was fixed.",
-    bug_reports: { cluster_id: "cluster-map", platform: "ps5" },
+    bug_reports: { cluster_id: clusterIds.map, platform: "ps5" },
   },
   {
     id: "excerpt-3",
     created_at: isoDaysAgo(1),
     excerpt_text: "Horse controls locked until returning to title, then recovered.",
-    bug_reports: { cluster_id: "cluster-mount", platform: "xbox_series_x" },
+    bug_reports: { cluster_id: clusterIds.mount, platform: "xbox_series_x" },
   },
 ];
 
@@ -138,7 +147,7 @@ const signals = [
     title: "FPS drops since patch 1.13",
     source_domain: "reddit.com",
     semantic_fingerprint: "mock-fps",
-    cluster_id: "cluster-fps",
+    cluster_id: clusterIds.fps,
     public_status: "public",
     summary: "FPS drops since patch 1.13 (body retained for 48h moderator review)",
     category: "performance",
@@ -158,7 +167,7 @@ const signals = [
     title: "Crimson Desert patch 1.13 FPS regression",
     source_domain: "community.example.com",
     semantic_fingerprint: "mock-fps",
-    cluster_id: "cluster-fps",
+    cluster_id: clusterIds.fps,
     public_status: "public",
     summary: "Multiple PC players mention stutter and FPS drops after patch 1.13.",
     category: "performance",
@@ -185,6 +194,26 @@ const signals = [
     confidence: "low",
     observed_at: isoMinutesAgo(20),
     source_published_at: isoMinutesAgo(22),
+    first_seen_at: isoMinutesAgo(20),
+    last_seen_at: isoMinutesAgo(20),
+    seen_count: 1,
+  },
+  {
+    id: "signal-private-mapped",
+    source: "web_search",
+    source_type: "web_search",
+    source_url: "https://forum.example.com/mount-input-rumor",
+    canonical_url: "https://forum.example.com/mount-input-rumor",
+    title: "Possible mount input lockup",
+    source_domain: "forum.example.com",
+    semantic_fingerprint: "mock-mount-private",
+    cluster_id: clusterIds.mount,
+    public_status: "private",
+    summary: "Private mapped candidate used to prove public question rendering without exposing the URL.",
+    category: "controls_gameplay",
+    confidence: "low",
+    observed_at: isoMinutesAgo(20),
+    source_published_at: isoMinutesAgo(25),
     first_seen_at: isoMinutesAgo(20),
     last_seen_at: isoMinutesAgo(20),
     seen_count: 1,
@@ -362,12 +391,12 @@ const automationSettings = [
 // One-tap confirmations: FPS cluster gets escalated "have it" taps; the map cluster's
 // claim poll gets a 2-still vs 1-fixed split so the poll strip renders in snapshots.
 const issueConfirmations = [
-  ["confirm-1", 30, "cluster-fps", "pc_steam", "have_it", "mock-voter-1"],
-  ["confirm-2", 90, "cluster-fps", "pc_steam", "have_it", "mock-voter-2"],
-  ["confirm-3", 200, "cluster-fps", "ps5", "have_it", "mock-voter-3"],
-  ["confirm-4", 45, "cluster-map", "ps5", "still_happening", "mock-voter-4"],
-  ["confirm-5", 50, "cluster-map", "pc_steam", "still_happening", "mock-voter-5"],
-  ["confirm-6", 55, "cluster-map", "pc_steam", "fixed_for_me", "mock-voter-6"],
+  ["confirm-1", 30, clusterIds.fps, "pc_steam", "have_it", "mock-voter-1"],
+  ["confirm-2", 90, clusterIds.fps, "pc_steam", "have_it", "mock-voter-2"],
+  ["confirm-3", 200, clusterIds.fps, "ps5", "have_it", "mock-voter-3"],
+  ["confirm-4", 45, clusterIds.map, "ps5", "still_happening", "mock-voter-4"],
+  ["confirm-5", 50, clusterIds.map, "pc_steam", "still_happening", "mock-voter-5"],
+  ["confirm-6", 55, clusterIds.map, "pc_steam", "fixed_for_me", "mock-voter-6"],
 ].map(([id, minutes, clusterId, platform, kind, hash]) => ({
   id,
   created_at: isoMinutesAgo(minutes),
@@ -588,6 +617,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/issue_confirmations" && req.method === "GET") {
     sendJson(res, req.method ?? "GET", 200, issueConfirmations);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/rpc/record_issue_confirmation" && req.method === "POST") {
+    sendJson(res, req.method, 200, "recorded");
     return;
   }
 

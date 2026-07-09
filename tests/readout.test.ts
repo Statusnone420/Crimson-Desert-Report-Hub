@@ -35,7 +35,7 @@ describe("composeIssueReadout", () => {
 
     const fixed = composeIssueReadout(base({ adminOverride: true, storedFixStatus: "verified_fixed" }));
     expect(fixed.label).toBe("Marked fixed by maintainer");
-    expect(fixed.tone).toBe("green");
+    expect(fixed.tone).toBe("amber");
   });
 
   it("post-claim evidence forces Still happening", () => {
@@ -44,6 +44,7 @@ describe("composeIssueReadout", () => {
     );
     expect(readout.state).toBe("still_happening");
     expect(readout.tone).toBe("crimson");
+    expect(readout.sentence).toContain("1 exact-patch player report appeared after the claim");
     expect(readout.poll).not.toBeNull();
   });
 
@@ -98,10 +99,10 @@ describe("composeIssueReadout", () => {
     expect(readout.ask?.kinds).toEqual(["fixed_for_me", "still_happening"]);
   });
 
-  it("legacy verified_fixed without poll data is treated as unverified claim, not green", () => {
+  it("does not open a dead poll for a legacy claim status without a claim clock", () => {
     const readout = composeIssueReadout(base({ storedFixStatus: "verified_fixed" }));
-    expect(readout.state).toBe("fix_claimed_unverified");
-    expect(readout.tone).toBe("amber");
+    expect(readout.state).toBe("watching");
+    expect(readout.poll).toBeNull();
   });
 
   it("reports make Confirmed by players", () => {
@@ -125,14 +126,54 @@ describe("composeIssueReadout", () => {
     );
     expect(readout.state).toBe("public_sources");
     expect(readout.tone).toBe("amber");
+    expect(readout.sentence).toContain("1 player");
+    expect(readout.sentence).not.toContain("no player here has confirmed");
   });
 
-  it("candidates only reads as a radar lead that counts for nothing yet", () => {
+  it("public-source leads stay useful at N=0 without waiting-for-players copy", () => {
+    const readout = composeIssueReadout(base({ publicSignalCount: 2 }));
+    expect(readout.state).toBe("public_sources");
+    expect(readout.sentence).toContain("2 public sources");
+    expect(readout.sentence).toContain("leads, not player evidence");
+    expect(readout.sentence).not.toMatch(/no player|waiting|until players/i);
+  });
+
+  it("keeps a lone confirmation visible without escalating it into a verdict", () => {
+    const readout = composeIssueReadout(
+      base({
+        confirmations: confirmations({
+          totalCount: 1,
+          affectedCount: 1,
+          affectedNetworks: 1,
+          byKind: {
+            have_it: { count: 1, networks: 1 },
+            still_happening: { count: 0, networks: 0 },
+            fixed_for_me: { count: 0, networks: 0 },
+          },
+        }),
+      }),
+    );
+
+    expect(readout.state).toBe("watching");
+    expect(readout.sentence).toContain("1 player so far");
+    expect(readout.ask?.kinds).toEqual(["have_it"]);
+  });
+
+  it("candidates only reads as a radar lead, not evidence", () => {
     const readout = composeIssueReadout(base({ candidateSignalCount: 2 }));
     expect(readout.state).toBe("radar_lead");
     expect(readout.tone).toBe("blue");
-    expect(readout.sentence).toContain("counts for nothing until players confirm");
+    expect(readout.sentence).toContain("not evidence");
     expect(readout.ask?.kinds).toEqual(["have_it"]);
+  });
+
+  it("keeps a sub-threshold player count visible on a radar lead", () => {
+    const readout = composeIssueReadout(
+      base({ candidateSignalCount: 1, confirmations: confirmations({ affectedCount: 1, affectedNetworks: 1 }) }),
+    );
+    expect(readout.state).toBe("radar_lead");
+    expect(readout.sentence).toContain("1 player");
+    expect(readout.sentence).not.toContain("until players confirm");
   });
 
   it("nothing at all is Watching with no ask", () => {

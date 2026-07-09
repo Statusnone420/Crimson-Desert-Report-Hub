@@ -11,8 +11,6 @@ import { patchFamilyKey } from "@/lib/patchWatch";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { createServiceClient } from "@/lib/supabase";
 
-const MAX_PER_HOUR = 20;
-
 const confirmationSchema = z.object({
   cluster_id: z.uuid(),
   platform: z.enum(PLATFORMS),
@@ -25,7 +23,7 @@ function isSameOrigin(req: Request): boolean {
   const fetchSite = req.headers.get("sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
   const origin = req.headers.get("origin");
-  if (!origin) return true;
+  if (!origin) return false;
   try {
     return new URL(origin).host === new URL(req.url).host;
   } catch {
@@ -39,6 +37,9 @@ export async function POST(req: Request) {
   }
   if (!isSameOrigin(req)) {
     return NextResponse.json({ error: "cross_site_rejected" }, { status: 403 });
+  }
+  if (req.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
+    return NextResponse.json({ error: "json_required" }, { status: 415 });
   }
 
   let body: unknown;
@@ -62,46 +63,21 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient();
 
-  const { data: clusterRows, error: clusterError } = await supabase
-    .from("issue_clusters")
-    .select("id")
-    .eq("id", parsed.data.cluster_id)
-    .eq("is_public", true)
-    .limit(1);
-  if (clusterError) return NextResponse.json({ error: "cluster_check_failed" }, { status: 500 });
-  if (!clusterRows || clusterRows.length === 0) {
-    return NextResponse.json({ error: "unknown_issue" }, { status: 404 });
-  }
-
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count, error: countError } = await supabase
-    .from("issue_confirmations")
-    .select("id", { count: "exact", head: true })
-    .eq("voter_ip_hash", voterIpHash)
-    .gte("created_at", oneHourAgo);
-  if (countError) return NextResponse.json({ error: "rate_check_failed" }, { status: 500 });
-  if ((count ?? 0) >= MAX_PER_HOUR) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
-
   const currentPatch = await getCurrentPatchMetadata(supabase);
   const patchFamily = patchFamilyKey(currentPatch.version) ?? currentPatch.version;
 
-  // created_at is set explicitly so a stance change refreshes the poll-window clock —
-  // the DB default only applies on first insert, not on conflict-update.
-  const { error: upsertError } = await supabase.from("issue_confirmations").upsert(
-    {
-      cluster_id: parsed.data.cluster_id,
-      patch_family: patchFamily,
-      patch_version: currentPatch.version,
-      platform: parsed.data.platform,
-      kind: parsed.data.kind,
-      voter_ip_hash: voterIpHash,
-      created_at: new Date().toISOString(),
-    },
-    { onConflict: "cluster_id,patch_family,voter_ip_hash" },
-  );
-  if (upsertError) return NextResponse.json({ error: "confirm_failed" }, { status: 500 });
+  const { data: outcome, error: recordError } = await supabase.rpc("record_issue_confirmation", {
+    p_cluster_id: parsed.data.cluster_id,
+    p_patch_family: patchFamily,
+    p_patch_version: currentPatch.version,
+    p_platform: parsed.data.platform,
+    p_kind: parsed.data.kind,
+    p_voter_ip_hash: voterIpHash,
+  });
+  if (recordError) return NextResponse.json({ error: "confirm_failed" }, { status: 500 });
+  if (outcome === "unknown_issue") return NextResponse.json({ error: "unknown_issue" }, { status: 404 });
+  if (outcome === "rate_limited") return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  if (outcome !== "recorded") return NextResponse.json({ error: "confirm_failed" }, { status: 500 });
 
   revalidateTag(PUBLIC_DASHBOARD_TAG, "max");
   revalidateTag(PUBLIC_ISSUES_TAG, "max");

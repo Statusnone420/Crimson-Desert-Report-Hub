@@ -22,6 +22,8 @@ export type LifecycleClaimDecision =
 export type ClusterLifecycleInput = {
   currentStatus: string;
   fixClaimedAt: string | null;
+  fixClaimedPatchVersion: string | null;
+  currentPatchVersion: string;
   adminOverride: boolean;
   now: Date;
   claimDecision?: LifecycleClaimDecision | null;
@@ -34,20 +36,21 @@ export type ClusterLifecycleResult = {
   reasons: string[];
   needsHuman: boolean;
   fixClaimedAt: string | null;
+  fixClaimedPatchVersion: string | null;
 };
 
 function normalizeStatus(status: string): FixStatus {
   return (FIX_STATUSES as readonly string[]).includes(status) ? (status as FixStatus) : "reported";
 }
 
-function hasClaimContext(status: FixStatus, fixClaimedAt: string | null): boolean {
-  return fixClaimedAt !== null || status === "fix_claimed" || status === "verified_fixed" || status === "persists";
+function hasCurrentClaimContext(input: ClusterLifecycleInput): boolean {
+  return input.fixClaimedAt !== null && input.fixClaimedPatchVersion === input.currentPatchVersion;
 }
 
 function result(
   status: FixStatus,
   detail: string,
-  options: { needsHuman?: boolean; fixClaimedAt?: string | null } = {},
+  options: { needsHuman?: boolean; fixClaimedAt?: string | null; fixClaimedPatchVersion?: string | null } = {},
 ): ClusterLifecycleResult {
   return {
     status,
@@ -56,21 +59,23 @@ function result(
     reasons: [detail],
     needsHuman: options.needsHuman ?? false,
     fixClaimedAt: options.fixClaimedAt ?? null,
+    fixClaimedPatchVersion: options.fixClaimedPatchVersion ?? null,
   };
 }
 
 function computeUnlockedLifecycle(input: ClusterLifecycleInput): ClusterLifecycleResult {
-  const currentStatus = normalizeStatus(input.currentStatus);
   const decision = input.claimDecision ?? { matchKind: "none" as const };
   const hasSureClaim = decision.matchKind === "llm_sure";
-  const nextClaimClock = input.fixClaimedAt ?? (hasSureClaim ? input.now.toISOString() : null);
+  const currentPatchClaim = hasCurrentClaimContext(input);
+  const nextClaimClock = currentPatchClaim ? input.fixClaimedAt : hasSureClaim ? input.now.toISOString() : null;
 
-  // A sure claim, or any legacy claim-context row (fix_claimed / verified_fixed /
-  // persists), converges on fix_claimed: the claim clock is a fact about PA's notes.
+  // A sure current-patch claim starts a clock; an existing exact current-patch
+  // clock is preserved. Legacy, null-version, and older-patch clocks do not carry.
   // There is no time-based way out — only player answers move the displayed state.
-  if (hasSureClaim || hasClaimContext(currentStatus, input.fixClaimedAt)) {
+  if (hasSureClaim || currentPatchClaim) {
     return result("fix_claimed", "Pearl Abyss claims a fix; players verify from here.", {
       fixClaimedAt: nextClaimClock,
+      fixClaimedPatchVersion: input.currentPatchVersion,
     });
   }
 
@@ -103,5 +108,6 @@ export function computeClusterLifecycle(input: ClusterLifecycleInput): ClusterLi
     reasons: [detail, ...system.reasons],
     needsHuman: false,
     fixClaimedAt: input.fixClaimedAt,
+    fixClaimedPatchVersion: input.fixClaimedPatchVersion,
   };
 }

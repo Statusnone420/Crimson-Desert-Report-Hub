@@ -3,7 +3,7 @@ import { PatchActivityChart } from "@/components/PatchActivityChart";
 import { MeterBar, ReadoutBadge, SectionHeader, StatCard } from "@/components/ui";
 import { assessClaims } from "@/lib/claims";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
-import { hasClusterEvidence, monitoredAreasNote, splitWatchlistByCandidates } from "@/lib/evidence";
+import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
 import { getDashboardData, getPublicScannerData } from "@/lib/queries";
 import { buildRightNowReadout } from "@/lib/rightNow";
 import { PEARL_ABYSS_SUPPORT_URL, SOURCE_URL } from "@/lib/site";
@@ -35,8 +35,8 @@ function latestScanWorkSummary(run: {
     persisted && run.signals_inserted > 0
       ? `${run.signals_inserted} mentions kept`
       : persisted
-        ? "no new public evidence"
-        : "no persisted evidence";
+        ? "no new published links"
+        : "no persisted links";
   const parts = [
     `${run.status}`,
     `${reviewed} sources reviewed`,
@@ -50,11 +50,12 @@ function latestScanWorkSummary(run: {
 
 export default async function DashboardPage() {
   const [d, radar] = await Promise.all([getDashboardData(), getPublicScannerData()]);
-  const stillHappeningCount = d.topClusters.filter((cluster) => cluster.readout.label === "Still happening").length;
   const claimPollCount = d.topClusters.filter((cluster) => cluster.readout.poll !== null).length;
-  const playerTaps = d.topClusters.reduce((sum, cluster) => sum + cluster.confirmations.affectedCount, 0);
-  const active = d.topClusters.filter(hasClusterEvidence);
-  const watchlist = d.topClusters.filter((cluster) => !hasClusterEvidence(cluster));
+  const playerTaps = d.topClusters.reduce((sum, cluster) => sum + cluster.confirmations.totalCount, 0);
+  const evidenceBacked = d.topClusters.filter(hasClusterEvidence);
+  const radarLeadCount = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
+  const active = d.topClusters.filter(needsFullIssueCard);
+  const watchlist = d.topClusters.filter((cluster) => !needsFullIssueCard(cluster));
   const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
   const maxStrength = Math.max(...active.map((cluster) => cluster.strengthScore), 1);
   const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
@@ -64,9 +65,16 @@ export default async function DashboardPage() {
   const patchLabel = `Patch ${d.currentPatch.version}`;
   const claims = assessClaims(d.claimedFixes, d.topClusters);
   const stillHappeningClusterIds = new Set(
-    d.topClusters.filter((cluster) => cluster.readout.label === "Still happening").map((cluster) => cluster.id),
+    d.topClusters.filter((cluster) => cluster.readout.state === "still_happening").map((cluster) => cluster.id),
   );
-  const disputedClaims = claims.all.filter((claim) => claim.cluster && stillHappeningClusterIds.has(claim.cluster.id));
+  const disputedClaims = d.topClusters
+    .filter((cluster) => stillHappeningClusterIds.has(cluster.id))
+    .map((cluster) => ({
+      cluster,
+      fixText:
+        claims.all.find((claim) => claim.cluster?.id === cluster.id)?.fixText ??
+        "Claim recorded from the current official patch notes.",
+    }));
   const hasActivity = d.series.some((point) => point.count > 0) || d.signalSeries.some((point) => point.count > 0);
   const readout = buildRightNowReadout({
     currentPatch: d.currentPatch,
@@ -75,10 +83,14 @@ export default async function DashboardPage() {
     communitySignals: d.communitySignals,
     publicFindingsCount: d.communitySignals,
     latestReportAt: d.latestReportAt,
-    topClusters: d.topClusters,
+    topClusters: d.topClusters.map((cluster) => ({
+      ...cluster,
+      confirmationCount: cluster.confirmations.totalCount,
+    })),
     sourceUrl: SOURCE_URL,
     supportUrl: PEARL_ABYSS_SUPPORT_URL,
   });
+  const currentIssueReadout = readout.worthChecking[0] ?? null;
   const scannerStatusText = radar.scannerConnected
     ? radar.scannerActive
       ? "Scanner scheduled"
@@ -101,17 +113,17 @@ export default async function DashboardPage() {
         <div className="min-w-0 space-y-2.5">
           <h1 className="h-display max-w-3xl">Crimson Desert Report Hub</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            Current situation for Crimson Desert: backed issues, scanner signals, source links, and what looks worth
-            checking.
+            Current situation for Crimson Desert: player reports, confirmation signals, source leads, and what looks
+            worth checking.
           </p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-            <span className="num" style={{ color: "var(--text-dim)" }}>{active.length}</span> backed issues
+            <span className="num" style={{ color: "var(--text-dim)" }}>{evidenceBacked.length}</span> reported issues
             <span aria-hidden="true">·</span>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.directReports}</span> reports
             <span aria-hidden="true">·</span>
             <span className="num" style={{ color: "var(--text-dim)" }}>{playerTaps}</span> player taps
             <span aria-hidden="true">·</span>
-            <span className="num" style={{ color: "var(--text-dim)" }}>{d.communitySignals}</span> public signals
+            <span className="num" style={{ color: "var(--text-dim)" }}>{d.communitySignals}</span> source leads
             <span aria-hidden="true">·</span>
             {d.latestReportAt ? `latest player report ${timeAgo(d.latestReportAt)}` : "no player reports yet"}
           </div>
@@ -135,17 +147,17 @@ export default async function DashboardPage() {
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rise" style={{ animationDelay: "40ms" }}>
           <StatCard
-            label="Evidence-backed issues"
-            value={active.length}
-            note={stillHappeningCount > 0 ? `${stillHappeningCount} still happening` : "Reports, taps, or public links"}
-            tone={stillHappeningCount > 0 ? "crimson" : "green"}
+            label="Player-reported issues"
+            value={evidenceBacked.length}
+            note={d.directReports === 0 ? "No structured reports this patch" : `${d.directReports} structured reports`}
+            tone={evidenceBacked.length > 0 ? "crimson" : undefined}
           />
         </div>
         <div className="rise" style={{ animationDelay: "80ms" }}>
           <StatCard
             label="Player reports"
             value={d.directReports}
-            note={d.directReports === 0 ? "be the first" : `+${d.weekDelta} this week`}
+            note={d.directReports === 0 ? "No reports this patch" : `+${d.weekDelta} this week`}
             tone="crimson"
           />
         </div>
@@ -160,7 +172,7 @@ export default async function DashboardPage() {
         <div className="rise" style={{ animationDelay: "160ms" }}>
           <StatCard
             label="Radar leads"
-            value={candidates.length}
+            value={radarLeadCount}
             note="Rumors with links — not evidence"
             tone="blue"
           />
@@ -173,6 +185,11 @@ export default async function DashboardPage() {
             <span className="badge badge-blue">Right now</span>
             <span>{readout.snapshotLine}</span>
           </div>
+          <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+            {currentIssueReadout
+              ? `Current issue readout — ${currentIssueReadout.title}: ${currentIssueReadout.detail}`
+              : readout.emptyWorthCheckingCopy}
+          </p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" style={{ color: "var(--text-faint)" }}>
             <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: scannerStatusTone }}>
               <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: scannerStatusDot }} />
@@ -204,7 +221,7 @@ export default async function DashboardPage() {
           <SectionHeader
             label={`${patchLabel} context`}
             title="Still reported after claimed fix"
-            description="Official notes are context. This section appears only when players or public sources say a claimed fix didn't take."
+            description="Official notes are context. This section appears only when a current-version player report or enough distinct networks say a claimed fix did not take."
             action={
               <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="link text-xs">
                 Official notes ↗
@@ -219,7 +236,7 @@ export default async function DashboardPage() {
                 style={{ borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" }}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="badge badge-crimson">Evidence still active</span>
+                  <span className="badge badge-crimson">Still-happening readout</span>
                   <Link href="/issues" className="link text-xs">
                     View evidence
                   </Link>
@@ -230,7 +247,7 @@ export default async function DashboardPage() {
                 </p>
                 <p className="text-xs" style={{ color: "var(--text-faint)" }}>
                   <span className="num">{claim.cluster?.directReportCount ?? 0}</span> approved reports ·{" "}
-                  <span className="num">{claim.cluster?.signalCount ?? 0}</span> public signals
+                  <span className="num">{claim.cluster?.signalCount ?? 0}</span> source links
                 </p>
               </article>
             ))}
@@ -241,11 +258,11 @@ export default async function DashboardPage() {
       <section className="grid gap-3 lg:grid-cols-[1.5fr_0.9fr]">
         <div className="panel space-y-5">
           <SectionHeader
-            title={active.length > 0 ? "Top issues this patch" : "Nothing backed by evidence yet"}
+            title={active.length > 0 ? "Top issues this patch" : "Nothing reported, tapped, or linked yet"}
             description={
               active.length > 0
-                ? "Ranked by approved reports and public signals."
-                : "Known problem areas stay quiet until a player report or public source backs them."
+                ? "Current readouts, ordered by approved reports, source leads, and player taps."
+                : "Known problem areas remain listed. The patch context and source radar are still available."
             }
             action={
               <Link href="/issues" className="btn btn-ghost btn-sm">
@@ -264,7 +281,7 @@ export default async function DashboardPage() {
                       <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
                     </span>
                     <span className="num ml-auto shrink-0 text-xs" style={{ color: "var(--text-dim)" }}>
-                      {cluster.directReportCount} reports · {cluster.confirmations.affectedCount} taps · {cluster.signalCount} links
+                      {cluster.directReportCount} reports · {cluster.confirmations.totalCount} taps · {cluster.signalCount} links
                     </span>
                   </div>
                   <MeterBar value={cluster.strengthScore} max={maxStrength} tone={cluster.readout.tone} />
@@ -307,8 +324,8 @@ export default async function DashboardPage() {
           ) : null}
 
           <p className="border-t pt-3 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-            Watchlist clusters start at zero. They become evidence only after player reports, one-tap confirmations,
-            or public sources back them; the tracker never invents counts — and quiet never means fixed.
+            Watchlist clusters start at zero. Player reports are evidence; one-tap confirmations are signals; scanner
+            links remain leads. The tracker never invents counts — and quiet never means fixed.
           </p>
         </div>
 
@@ -379,7 +396,7 @@ export default async function DashboardPage() {
             <div>
               <h2 className="h-section">30-day patch activity</h2>
               <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                Approved reports and public signals over time.
+                Approved reports and source leads over time.
               </p>
             </div>
             <span className="badge badge-dim">Current patch</span>
@@ -388,7 +405,7 @@ export default async function DashboardPage() {
             <PatchActivityChart reports={d.series} signals={d.signalSeries} />
           ) : (
             <div className="flex h-28 items-center justify-center text-xs" style={{ color: "var(--text-faint)" }}>
-              Activity appears once approved reports or public signals come in.
+              Activity appears once approved reports or source leads come in.
             </div>
           )}
         </div>
@@ -403,7 +420,7 @@ export default async function DashboardPage() {
           <p className="text-sm font-medium">{d.currentPatch.title}</p>
           <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             {d.currentPatch.summary ??
-              "Official notes provide the patch label and source context. The board itself is driven by player reports and public evidence."}
+              "Official notes provide the patch label and source context. The board itself is driven by player reports, confirmation signals, and corroborated source leads."}
           </p>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
             {d.currentPatch.publishedAt
@@ -430,7 +447,8 @@ export default async function DashboardPage() {
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">Official channel</h3>
           <p className="text-sm leading-6" style={{ color: "var(--text-faint)" }}>
-            Crash logs and PERS IDs still belong in Pearl Abyss support. This hub organizes the community signal.
+            Crash logs and PERS IDs still belong in Pearl Abyss support. This hub organizes community evidence,
+            signals, and leads.
           </p>
         </div>
       </section>

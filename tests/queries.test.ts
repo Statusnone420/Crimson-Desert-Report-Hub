@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   countPostCurrentPatchReportsByCluster,
+  countCurrentPatchCandidateSignalsByCluster,
+  countRowsAtOrAfterClaimByCluster,
   countDistinctVerifiedReportsByCluster,
   excerptsByClusterForCurrentPatch,
+  filterExactPatchReports,
   filterPatchFamilyReports,
   groupConfirmationRowsByCluster,
   latestReportAtFromRows,
   publicFindingsFromSignals,
+  readConfirmationRowsByClusterForPatchFamily,
   readExcerptsByClusterForCurrentPatch,
   reportPlatformCountsByCluster,
 } from "@/lib/queries";
@@ -84,6 +88,68 @@ describe("countPostCurrentPatchReportsByCluster", () => {
     );
 
     expect(counts).toEqual({ "current-hotfix-report": 1 });
+  });
+});
+
+describe("filterExactPatchReports", () => {
+  it("does not use an older family report to dispute a newer hotfix claim", () => {
+    const rows = [
+      { id: "older", patch_version: "1.13.00" },
+      { id: "current", patch_version: "1.13.01" },
+      { id: "unknown", patch_version: null },
+    ];
+    expect(filterExactPatchReports(rows, "1.13.01").map((row) => row.id)).toEqual(["current"]);
+  });
+});
+
+describe("countRowsAtOrAfterClaimByCluster", () => {
+  it("counts only evidence timestamped at or after each cluster's fix claim", () => {
+    const counts = countRowsAtOrAfterClaimByCluster(
+      [
+        { cluster_id: "claimed", happened_at: "2026-07-08T09:59:59Z" },
+        { cluster_id: "claimed", happened_at: "2026-07-08T10:00:00Z" },
+        { cluster_id: "claimed", happened_at: "2026-07-08T11:00:00Z" },
+        { cluster_id: "unclaimed", happened_at: "2026-07-08T11:00:00Z" },
+        { cluster_id: "claimed", happened_at: null },
+      ],
+      { claimed: "2026-07-08T10:00:00Z", unclaimed: null },
+      (row) => row.happened_at,
+    );
+
+    expect(counts).toEqual({ claimed: 2 });
+  });
+});
+
+describe("countCurrentPatchCandidateSignalsByCluster", () => {
+  it("keeps private questions current-patch scoped without returning their text", () => {
+    const counts = countCurrentPatchCandidateSignalsByCluster(
+      [
+        {
+          cluster_id: "current",
+          title: "Possible input issue after 1.13.01",
+          summary: "A recent player mention.",
+          source_url: "https://forum.example.com/current",
+          source_published_at: "2026-07-09T00:00:00Z",
+        },
+        {
+          cluster_id: "old",
+          title: "Input issue in 1.12.00",
+          summary: "An older patch mention.",
+          source_url: "https://forum.example.com/old",
+          source_published_at: "2026-06-01T00:00:00Z",
+        },
+        {
+          cluster_id: "unsupported",
+          title: "Crackwatch repack thread",
+          summary: "Pirated files, not a player issue report.",
+          source_url: "https://example.com/repack-1-13-01",
+          source_published_at: "2026-07-09T00:00:00Z",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(counts).toEqual({ current: 1 });
   });
 });
 
@@ -213,6 +279,65 @@ describe("groupConfirmationRowsByCluster", () => {
     expect(Object.keys(grouped).sort()).toEqual(["cluster-one", "cluster-two"]);
     expect(grouped["cluster-one"]).toHaveLength(2);
     expect(grouped["cluster-two"][0].kind).toBe("fixed_for_me");
+  });
+});
+
+describe("readConfirmationRowsByClusterForPatchFamily", () => {
+  it("paginates past the Data API row cap before aggregating confirmations", async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, index) => ({
+      id: `confirm-${index}`,
+      cluster_id: "cluster-one",
+      platform: "pc_steam",
+      kind: "have_it" as const,
+      voter_ip_hash: `hash-${index}`,
+      created_at: "2026-07-09T10:00:00Z",
+    }));
+    const secondPage = [
+      {
+        id: "confirm-1000",
+        cluster_id: "cluster-two",
+        platform: "ps5",
+        kind: "fixed_for_me" as const,
+        voter_ip_hash: "hash-1000",
+        created_at: "2026-07-09T11:00:00Z",
+      },
+    ];
+    const rangeCalls: [number, number][] = [];
+    const pages = [firstPage, secondPage];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("issue_confirmations");
+        return {
+          select() {
+            return {
+              eq(column: string, value: string) {
+                expect([column, value]).toEqual(["patch_family", "1.13"]);
+                return {
+                  order(columnName: string) {
+                    expect(columnName).toBe("id");
+                    return {
+                      async range(from: number, to: number) {
+                        rangeCalls.push([from, to]);
+                        return { data: pages.shift() ?? [], error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const grouped = await readConfirmationRowsByClusterForPatchFamily(supabase as never, "1.13.01");
+
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    expect(grouped["cluster-one"]).toHaveLength(1000);
+    expect(grouped["cluster-two"]).toHaveLength(1);
   });
 });
 

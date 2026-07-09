@@ -1,5 +1,19 @@
-export function hasClusterEvidence(cluster: { strengthScore: number }): boolean {
-  return cluster.strengthScore > 0;
+export function hasClusterEvidence(cluster: { directReportCount: number }): boolean {
+  return cluster.directReportCount > 0;
+}
+
+export function needsFullIssueCard(cluster: {
+  strengthScore: number;
+  directReportCount: number;
+  confirmations: { totalCount: number };
+  readout: { poll: unknown };
+}): boolean {
+  return (
+    hasClusterEvidence(cluster) ||
+    cluster.strengthScore > 0 ||
+    cluster.confirmations.totalCount > 0 ||
+    cluster.readout.poll !== null
+  );
 }
 
 export function splitWatchlistByCandidates<T extends { candidateSignalCount: number }>(

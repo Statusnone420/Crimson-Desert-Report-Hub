@@ -2,22 +2,28 @@
 
 ## Direction
 
-The interface should feel like a restrained community evidence board: dark, dense, readable, and practical. It is not a fantasy fan site, a marketing landing page, or a complaint wall.
+The interface should feel like a restrained confirmation board and source radar: dark, dense, readable, and practical. It is not a fantasy fan site, a marketing landing page, a complaint wall, or a verdict machine.
+
+Every public surface must also feel complete at N=0. Empty states describe what the instruments know; they never beg for participation or imply that a crowd already exists.
 
 ## Visual Style
 
 - Dark neutral background.
 - Crimson as the primary action and issue-severity color.
 - Amber for caution or claimed-fix states.
-- Green for healthy or active states.
+- Green on public issue readouts is reserved for players saying a fix worked for them. Silence is never green.
 - Blue for links and informational states.
 - Modest 8px panel radius.
 - No glassmorphism, decorative gradients, official game assets, or oversized hero layout.
 
 ## UI Principles
 
-- Public pages should make counts, source strength, and confidence easy to scan.
+- Public pages should make reports, confirmations, and scanner leads easy to distinguish.
+- Each issue card gets one composed readout label and one count-backed sentence. Do not stack confidence, evidence-ladder, and lifecycle badges into competing stories.
+- Scanner links are framed as leads and questions, never evidence or authority.
+- Raw counts remain visible; confirmation-driven meters and stronger labels require at least two distinct network hashes in the driving tally. A structured report is evidence immediately.
 - Admin pages should prioritize queues, run history, and controls.
+- Admin pages should prioritize exceptions and explicit lifecycle/visibility overrides rather than a dropdown farm.
 - Status color must always be paired with text.
 - Forms should be compact but clear.
 - Text must stay readable on mobile and desktop.

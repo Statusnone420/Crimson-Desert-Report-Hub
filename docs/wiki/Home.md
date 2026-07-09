@@ -1,8 +1,10 @@
 # Crimson Desert Report Hub
 
-Crimson Desert Report Hub is an unofficial community evidence board for Crimson Desert bug reports.
+Crimson Desert Report Hub is an unofficial confirmation board and source radar for the current state of Crimson Desert.
 
-The goal is simple: turn scattered complaints, public source links, and anonymous player reports into structured evidence that can be reviewed, clustered, and exported without exposing raw private submissions.
+It keeps three things separate: structured reports are evidence, anonymous one-tap confirmations are player signals, and scanner-discovered public links are leads. Official Pearl Abyss notes provide patch context and fix claims. The hub counts what each register says; it does not issue game-wide verdicts.
+
+The dashboard, issue board, and source radar are designed to stay complete and useful with zero visitors. Patch sync, official notes, scanner health, mapped lead questions, and exact-patch fix-claim provenance carry the site at N=0.
 
 ## Quick Links
 
@@ -16,25 +18,27 @@ The goal is simple: turn scattered complaints, public source links, and anonymou
 
 ## What The Hub Does
 
-- Accepts anonymous structured player reports.
-- Tracks public community signals when configured.
-- Reads official Pearl Abyss patch-note metadata.
-- Clusters related issue evidence.
-- Keeps raw direct reports private by default.
-- Lets maintainers approve public excerpts.
+- Shows current official patch context and claim clocks.
+- Accepts anonymous structured player reports as evidence.
+- Accepts anonymous one-tap confirmations as patch- and platform-scoped signals.
+- Uses capped Tavily web discovery to find public links and map them into source-radar questions; promising thin Reddit results may receive a bounded basic context read through `old.reddit.com`.
+- Keeps raw direct reports, network hashes, and rejected lead details private.
+- Lets maintainers review reports, handle real exceptions, and change cluster visibility immediately.
 - Compiles a practical evidence dossier.
 
 ## What The Hub Does Not Do
 
 - It does not claim affiliation with Pearl Abyss.
-- It does not require player accounts.
+- It does not turn scanner links, quiet periods, or a timer into proof.
+- It does not require player accounts or email addresses.
 - It does not include ads or analytics trackers.
-- It does not publish raw unmoderated complaint text.
-- It does not need paid integrations to accept direct reports.
+- It does not store raw IP addresses in the application database.
+- It does not use Reddit API; Tavily may find public Reddit pages through ordinary web discovery.
+- It does not use paid Tavily capacity or unapproved LLM models. High-value scanner/claim work is pinned to DeepSeek V4 Flash under a $2 UTC-month software cap; routine AI stays free or deterministic.
 
 ## Wiki Map
 
 - [Getting Started](Getting-Started): where players, contributors, and maintainers should begin.
-- [Data Sources and Automation](Data-Sources-and-Automation): how public signals, optional APIs, and cost controls fit together.
-- [Privacy and Moderation](Privacy-and-Moderation): what is public, what stays private, and how excerpts are approved.
+- [Data Sources and Automation](Data-Sources-and-Automation): how reports, confirmations, scanner leads, official context, and capped provider controls fit together.
+- [Privacy and Moderation](Privacy-and-Moderation): what is public, what stays private, and how network-hash protections work.
 - [Maintainer Runbook](Maintainer-Runbook): routine checks and release-safe operating steps.

@@ -11,6 +11,7 @@ export type RightNowClusterInput = {
   signalCount: number;
   candidateSignalCount: number;
   postCurrentPatchEvidenceCount: number;
+  confirmationCount: number;
   readout: IssueReadout;
 };
 
@@ -79,7 +80,8 @@ function displayPatchVersion(version: string) {
 
 function countSummary(issue: RightNowClusterInput) {
   const base = `${issue.directReportCount} ${issue.directReportCount === 1 ? "report" : "reports"} · ${issue.signalCount} public sources`;
-  return issue.candidateSignalCount > 0 ? `${base} · ${issue.candidateSignalCount} leads` : base;
+  const withTaps = issue.confirmationCount > 0 ? `${base} · ${plural(issue.confirmationCount, "player tap")}` : base;
+  return issue.candidateSignalCount > 0 ? `${withTaps} · ${issue.candidateSignalCount} leads` : withTaps;
 }
 
 function issueWeight(issue: RightNowClusterInput) {
@@ -87,6 +89,7 @@ function issueWeight(issue: RightNowClusterInput) {
     issue.directReportCount * 5 +
     issue.signalCount * 4 +
     issue.candidateSignalCount * 2 +
+    issue.confirmationCount +
     issue.postCurrentPatchEvidenceCount * 6
   );
 }
@@ -98,6 +101,9 @@ function strengthLabel(issue: RightNowClusterInput): string {
   if (issue.candidateSignalCount > 0) {
     return `${plural(issue.candidateSignalCount, "radar lead")}, no public proof`;
   }
+  if (issue.confirmationCount > 0) {
+    return `${plural(issue.confirmationCount, "player tap")}, no public proof`;
+  }
   return "No player reports or public sources yet";
 }
 
@@ -106,8 +112,8 @@ function snapshotLine(input: RightNowInput) {
     input.directReports > 0 ? `${plural(input.directReports, "player report")} in this patch family` : "no player reports yet";
   const publicLinks =
     input.publicFindingsCount > 0
-      ? `${plural(input.publicFindingsCount, "public source link")} cleared`
-      : "no public source links cleared yet";
+      ? `${plural(input.publicFindingsCount, "public source link")} displayed`
+      : "no public source links displayed yet";
   const radarLeads = input.scanner.scannerConnected
     ? input.scanner.awaiting > 0
       ? `${plural(input.scanner.awaiting, "radar lead")} — rumors, not evidence`
@@ -125,7 +131,7 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
   if (input.scanner.scannerConnected) {
     observations.push(
       input.scanner.awaiting > 0
-        ? `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; ${plural(input.scanner.awaiting, "radar lead")} ${input.scanner.awaiting === 1 ? "is" : "are"} waiting for players to confirm.`
+        ? `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; ${plural(input.scanner.awaiting, "radar lead")} ${input.scanner.awaiting === 1 ? "is" : "are"} mapped to open questions.`
         : `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; no radar leads are waiting.`,
     );
   } else {
@@ -140,12 +146,19 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
 
   observations.push(
     input.publicFindingsCount > 0
-      ? `${plural(input.publicFindingsCount, "public source link")} cleared the evidence rules for this patch.`
-      : "No public source links are strong enough yet for this patch.",
+      ? `${plural(input.publicFindingsCount, "public source link")} ${input.publicFindingsCount === 1 ? "is" : "are"} visible as radar context for this patch.`
+      : "No public source links are displayed for this patch yet.",
   );
 
   const worthChecking: RightNowIssue[] = input.topClusters
-    .filter((cluster) => cluster.directReportCount > 0 || cluster.signalCount > 0 || cluster.candidateSignalCount > 0)
+    .filter(
+      (cluster) =>
+        cluster.directReportCount > 0 ||
+        cluster.signalCount > 0 ||
+        cluster.candidateSignalCount > 0 ||
+        cluster.confirmationCount > 0 ||
+        cluster.readout.poll !== null,
+    )
     .sort((a, b) => issueWeight(b) - issueWeight(a))
     .slice(0, 5)
     .map((cluster) => ({
@@ -168,7 +181,7 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
     snapshotLine: snapshotLine(input),
     observations,
     worthChecking,
-    emptyWorthCheckingCopy: "No watched issue has enough signal yet. Use the official links, source radar, or add your own case.",
+    emptyWorthCheckingCopy: "No watched issue has enough signal yet. Official notes and the source radar remain available.",
     usefulLinks: [
       { label: "Official patch notes", href: input.currentPatch.officialUrl, external: true },
       { label: "Pearl Abyss support", href: input.supportUrl, external: true },

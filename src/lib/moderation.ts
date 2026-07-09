@@ -1,6 +1,10 @@
 import "server-only";
 
-import { rejectPaidOpenRouterModel } from "@/lib/automation/budget";
+import {
+  OPENROUTER_FREE_PROVIDER_ROUTING,
+  readOpenRouterUsageCostUsd,
+  rejectPaidOpenRouterModel,
+} from "@/lib/automation/budget";
 import { normalizeText } from "@/lib/automation/dedupe";
 import { CATEGORY_LABELS, PLATFORM_LABELS, type Category, type Platform } from "@/lib/constants";
 
@@ -133,6 +137,8 @@ async function aiScreen(input: ModerationInput): Promise<{ relevant: boolean; se
       body: JSON.stringify({
         model,
         temperature: 0,
+        max_tokens: 80,
+        provider: OPENROUTER_FREE_PROVIDER_ROUTING,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "You screen video game bug reports. Return only JSON." },
@@ -151,6 +157,8 @@ async function aiScreen(input: ModerationInput): Promise<{ relevant: boolean; se
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
+    const costUsd = readOpenRouterUsageCostUsd(data);
+    if (costUsd === null || costUsd > 0) return null;
     const content = data.choices?.[0]?.message?.content;
     if (typeof content !== "string") return null;
     const parsed = JSON.parse(content) as { relevant?: unknown; sensitive?: unknown };
@@ -172,12 +180,13 @@ export async function moderateReport(input: ModerationInput, clusters: ClusterRe
 
   let status: "approved" | "pending" = "approved";
   let reason = "auto_approved";
-  if (hasPersonalData(input.issueTitle, input.description)) {
+  const personalData = hasPersonalData(input.issueTitle, input.description);
+  if (personalData) {
     status = "pending";
     reason = "flagged_personal_data";
   }
 
-  const ai = await aiScreen(input);
+  const ai = personalData ? null : await aiScreen(input);
   if (ai) {
     if (!ai.relevant) {
       status = "pending";

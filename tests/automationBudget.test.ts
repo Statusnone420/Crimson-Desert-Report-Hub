@@ -1,17 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { computeAutomationBudget, countRemainingRunsThisMonth } from "@/lib/automation/budget";
+import {
+  computeAutomationBudget,
+  countRemainingRunsThisMonth,
+  OPENROUTER_AUTOMATION_MODEL,
+  resolveAutomationOpenRouterModel,
+} from "@/lib/automation/budget";
 
 describe("automation budget", () => {
-  it("budget 0 disables paid search and llm calls", () => {
+  it("caps the persisted LLM policy at the owner-approved two dollars", () => {
+    const budget = computeAutomationBudget({
+      monthlyBudgetUsd: 0,
+      spentMonthToDateUsd: 0,
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00Z"),
+      scannerPolicy: {
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 5,
+      },
+    });
+
+    expect(budget.monthlyLlmUsdCap).toBe(2);
+    expect(budget.remainingLlmUsd).toBe(2);
+    expect(budget.maxLlmCalls).toBe(4);
+    expect(budget.skipReasons).not.toContain("llm_budget_capped");
+  });
+
+  it("budget 0 still allows Tavily search but disables paid model calls", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 0,
       spentMonthToDateUsd: 0,
       now: new Date("2026-07-05T12:00:00Z"),
     });
-    expect(budget.allowPaidSearch).toBe(false);
-    expect(budget.maxSearchQueries).toBe(0);
+    expect(budget.allowPaidSearch).toBe(true);
+    expect(budget.maxSearchQueries).toBe(5);
     expect(budget.maxLlmCalls).toBe(0);
-    expect(budget.skipReasons).toContain("budget_zero");
+    expect(budget.monthlyLlmUsdCap).toBe(0);
+    expect(budget.skipReasons).toContain("llm_budget_capped");
   });
 
   it("default scanner policy gives scheduled runs one Tavily credit with hourly month math", () => {
@@ -98,7 +123,7 @@ describe("automation budget", () => {
     expect(budget.skipReasons).not.toContain("budget_capped");
   });
 
-  it("caps LLM calls by the scanner policy monthly LLM spend", () => {
+  it("stops paid model calls after the two-dollar monthly cap", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 5,
       spentMonthToDateUsd: 0,
@@ -106,10 +131,16 @@ describe("automation budget", () => {
       mode: "scheduled",
       now: new Date("2026-07-20T12:00:00Z"),
     });
-    expect(budget.allowPaidSearch).toBe(false);
-    expect(budget.maxSearchQueries).toBe(0);
+    expect(budget.allowPaidSearch).toBe(true);
+    expect(budget.maxSearchQueries).toBe(1);
     expect(budget.maxLlmCalls).toBe(0);
     expect(budget.skipReasons).toContain("llm_budget_capped");
+  });
+
+  it("allows only DeepSeek V4 Flash on the paid automation path", () => {
+    expect(resolveAutomationOpenRouterModel(undefined)).toBe(OPENROUTER_AUTOMATION_MODEL);
+    expect(resolveAutomationOpenRouterModel("deepseek/deepseek-v4-flash")).toBe(OPENROUTER_AUTOMATION_MODEL);
+    expect(() => resolveAutomationOpenRouterModel("deepseek/deepseek-v4-pro")).toThrow(/Automation model/);
   });
 
   it("counts hourly runs remaining in the month by default", () => {

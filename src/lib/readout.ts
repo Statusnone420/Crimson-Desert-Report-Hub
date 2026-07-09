@@ -38,14 +38,14 @@ export type IssueReadout = {
   poll: { fixedCount: number; stillCount: number; escalated: boolean } | null;
 };
 
-/** Computed labels and meters escalate only at this many distinct networks; raw counts always render. */
+/** Confirmation-driven labels/meters escalate at this many networks; structured reports are evidence immediately. */
 export const DISPLAY_THRESHOLD_NETWORKS = 2;
 
 const LOCKED_META: Record<string, { label: string; tone: ReadoutTone }> = {
   reported: { label: "Open", tone: "dim" },
   acknowledged: { label: "Acknowledged", tone: "amber" },
   fix_claimed: { label: "Fix claimed — unverified", tone: "amber" },
-  verified_fixed: { label: "Marked fixed by maintainer", tone: "green" },
+  verified_fixed: { label: "Marked fixed by maintainer", tone: "amber" },
   persists: { label: "Still happening", tone: "crimson" },
 };
 
@@ -54,12 +54,7 @@ function plural(count: number, singular: string, pluralLabel = `${singular}s`): 
 }
 
 function hasClaimContext(input: IssueReadoutInput): boolean {
-  return (
-    input.fixClaimedAt !== null ||
-    input.storedFixStatus === "fix_claimed" ||
-    input.storedFixStatus === "verified_fixed" ||
-    input.storedFixStatus === "persists"
-  );
+  return input.fixClaimedAt !== null;
 }
 
 function pollAsk(patchVersion: string): IssueReadoutAsk {
@@ -97,7 +92,9 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   if (claim && (input.postClaimEvidenceCount > 0 || c.pollStillNetworks >= DISPLAY_THRESHOLD_NETWORKS)) {
     const voices: string[] = [];
     if (c.pollStillCount > 0) voices.push(`${plural(c.pollStillCount, "player")} say it's still happening`);
-    if (input.postClaimEvidenceCount > 0) voices.push("fresh public evidence appeared after the claim");
+    if (input.postClaimEvidenceCount > 0) {
+      voices.push(`${plural(input.postClaimEvidenceCount, "exact-patch player report")} appeared after the claim`);
+    }
     return {
       state: "still_happening",
       label: "Still happening",
@@ -148,22 +145,42 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   }
 
   if (input.publicSignalCount > 0) {
+    const playerRead =
+      c.affectedCount > 0
+        ? ` ${plural(c.affectedCount, "player")} also tapped this — not enough distinct networks to weigh yet.`
+        : "";
     return {
       state: "public_sources",
       label: "Public sources",
       tone: "amber",
-      sentence: `Seen in ${plural(input.publicSignalCount, "public source")}; no player here has confirmed it yet.`,
+      sentence: `Seen in ${plural(input.publicSignalCount, "public source")}. Source links stay leads, not player evidence.${playerRead}`,
       ask: haveItAsk(),
       poll: null,
     };
   }
 
   if (input.candidateSignalCount > 0) {
+    const playerRead =
+      c.affectedCount > 0
+        ? ` ${plural(c.affectedCount, "player")} also tapped this — not enough distinct networks to weigh yet.`
+        : "";
     return {
       state: "radar_lead",
       label: "Radar lead",
       tone: "blue",
-      sentence: `The scanner spotted this ${plural(input.candidateSignalCount, "time")}. A lead is a rumor with a link — it counts for nothing until players confirm.`,
+      sentence: `The scanner spotted this ${plural(input.candidateSignalCount, "time")}. A lead is a rumor with a link, not evidence.${playerRead}`,
+      ask: haveItAsk(),
+      poll: null,
+    };
+  }
+
+  if (c.affectedCount > 0) {
+    const players = plural(c.affectedCount, "player");
+    return {
+      state: "watching",
+      label: "Watching",
+      tone: "dim",
+      sentence: `${players} so far ${c.affectedCount === 1 ? "has" : "have"} this too — not enough distinct networks to weigh yet.`,
       ask: haveItAsk(),
       poll: null,
     };

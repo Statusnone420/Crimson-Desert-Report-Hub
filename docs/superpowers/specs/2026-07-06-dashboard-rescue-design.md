@@ -1,5 +1,7 @@
 # Dashboard rescue: claims scoreboard, watchlist grid, live scans, cron trust — design
 
+> **HISTORICAL / SUPERSEDED (2026-07-09).** Do not use this document as current product or operating policy. The owner-approved [Confirmation Board design](2026-07-09-confirmation-board-design.md) replaces its verdict-oriented claims model, Reddit credential activation, `$5/month` posture, and production follow-ups. Kept for design provenance only.
+
 Date: 2026-07-06
 Status: approved by owner (mockups reviewed inline in session)
 

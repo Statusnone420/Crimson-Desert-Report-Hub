@@ -3,7 +3,7 @@ import { ConfirmButtons } from "@/components/ConfirmButtons";
 import { MeterBar, ReadoutBadge, SectionHeader, StatCard } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS, PLATFORMS } from "@/lib/constants";
 import { DISPLAY_THRESHOLD_NETWORKS } from "@/lib/readout";
-import { hasClusterEvidence, monitoredAreasNote, splitWatchlistByCandidates } from "@/lib/evidence";
+import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 
@@ -33,8 +33,9 @@ export default async function IssuesPage() {
     getLatestPublicScanMeta(),
   ]);
   const patchFamily = patchFamilyKey(currentPatch.version) ?? currentPatch.version;
-  const active = clusters.filter(hasClusterEvidence);
-  const watchlist = clusters.filter((cluster) => !hasClusterEvidence(cluster));
+  const evidenceBacked = clusters.filter(hasClusterEvidence);
+  const active = clusters.filter(needsFullIssueCard);
+  const watchlist = clusters.filter((cluster) => !needsFullIssueCard(cluster));
   const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
   const stillHappening = clusters.filter((cluster) => cluster.readout.state === "still_happening").length;
 
@@ -92,18 +93,20 @@ export default async function IssuesPage() {
   function ConfirmStrip({ cluster }: { cluster: (typeof clusters)[number] }) {
     const ask = cluster.readout.ask;
     if (!ask) return null;
+    const counts = ask.kinds.includes("have_it")
+      ? { have_it: cluster.confirmations.byKind.have_it.count }
+      : {
+          fixed_for_me: cluster.confirmations.pollFixedCount,
+          still_happening: cluster.confirmations.pollStillCount,
+        };
     return (
       <div className="border-t pt-3">
         <ConfirmButtons
           clusterId={cluster.id}
-          patchFamily={patchFamily}
+          storageScope={ask.kinds.includes("have_it") ? patchFamily : currentPatch.version}
           question={ask.question}
           kinds={ask.kinds}
-          counts={{
-            have_it: cluster.confirmations.affectedCount,
-            fixed_for_me: cluster.confirmations.pollFixedCount,
-            still_happening: cluster.confirmations.pollStillCount,
-          }}
+          counts={counts}
         />
       </div>
     );
@@ -123,6 +126,8 @@ export default async function IssuesPage() {
               <span className="num">{cluster.directReportCount}</span> reports
               {" · "}
               <span className="num">{cluster.signalCount}</span> source links
+              {" · "}
+              <span className="num">{cluster.confirmations.totalCount}</span> taps
             </p>
           </div>
           <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
@@ -179,15 +184,15 @@ export default async function IssuesPage() {
       <SectionHeader
         label="Current patch watch"
         title="What players are reporting"
-        description="Backed issues first. Every number is a report or a tap someone actually sent — the site never fills in blanks."
+        description="Player-reported issues first. Every player count is a report or confirmation tap someone actually sent — the site never fills in blanks."
       />
 
       <section className="grid grid-cols-3 gap-2 sm:gap-3">
         <StatCard label="Watched" value={clusters.length} />
         <StatCard
-          label="With evidence"
-          value={active.length}
-          note={active.length === 0 ? "Nothing confirmed yet" : undefined}
+          label="With reports"
+          value={evidenceBacked.length}
+          note={evidenceBacked.length === 0 ? "No player reports this patch" : undefined}
         />
         <StatCard
           label="Still happening"
@@ -202,8 +207,8 @@ export default async function IssuesPage() {
             No public issue clusters yet.
           </p>
           <p className="leading-6">
-            Nothing has enough player or public evidence to promote here yet. Source candidates stay private until
-            they clear the rules.
+            Nothing has cleared the public-board rules yet. Source candidates stay private until they are
+            corroborated.
           </p>
           <div className="flex flex-wrap gap-2">
             <Link href="/scanner" className="btn btn-ghost btn-sm">
@@ -232,8 +237,8 @@ export default async function IssuesPage() {
               <div className="space-y-1">
                 <h2 className="stat-label">Watchlist</h2>
                 <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-                  Nothing here is backed yet. A topic moves up the moment a player report, public source, or enough
-                  one-tap confirmations back it.
+                  Nothing here has a player report or confirmation tap yet. Mapped source links remain leads, not
+                  evidence.
                 </p>
               </div>
               {candidates.length > 0 ? (

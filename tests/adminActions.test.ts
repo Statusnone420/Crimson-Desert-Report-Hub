@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
+  fetchNewPosts: vi.fn(),
+  getRedditToken: vi.fn(),
+  rpc: vi.fn(),
   redirect: vi.fn(),
   requireAdmin: vi.fn(),
   rescueCandidateSignal: vi.fn(),
@@ -21,7 +24,14 @@ vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/automation/run", () => ({
   rescueCandidateSignal: mocks.rescueCandidateSignal,
 }));
-vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from }) }));
+vi.mock("@/lib/officialPatch.server", () => ({
+  getCurrentPatchMetadata: vi.fn(async () => ({ version: "1.13.01", publishedAt: "2026-07-08T00:00:00Z" })),
+}));
+vi.mock("@/lib/reddit.server", () => ({
+  fetchNewPosts: mocks.fetchNewPosts,
+  getRedditToken: mocks.getRedditToken,
+}));
+vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 
 type TableName = "bug_reports" | "approved_excerpts" | "automation_rejected_candidates" | "issue_clusters";
 type AdminTableName = TableName | "automation_settings";
@@ -114,6 +124,28 @@ beforeEach(() => {
   seedRows = {};
   mutations.length = 0;
   mocks.from.mockImplementation((table: AdminTableName) => new FakeQuery(table));
+  mocks.rpc.mockResolvedValue({ data: null, error: null });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("runRedditMonitor", () => {
+  it("stays permanently disabled when legacy Reddit credentials remain", async () => {
+    vi.stubEnv("REDDIT_CLIENT_ID", "legacy-id");
+    vi.stubEnv("REDDIT_CLIENT_SECRET", "legacy-secret");
+    vi.stubEnv("REDDIT_USER_AGENT", "legacy-agent");
+    mocks.getRedditToken.mockResolvedValue("legacy-token");
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    const { runRedditMonitor } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("subreddits", "CrimsonDesert");
+
+    await expect(runRedditMonitor(formData)).rejects.toThrow("reddit monitor permanently disabled");
+    expect(mocks.getRedditToken).not.toHaveBeenCalled();
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+  });
 });
 
 describe("moderateReport", () => {
@@ -156,6 +188,8 @@ describe("setClusterFixStatus", () => {
       row: {
         patch: {
           fix_status: "verified_fixed",
+          fix_claimed_at: expect.any(String),
+          fix_claimed_patch_version: "1.13.01",
           admin_override: true,
           lifecycle_reason: "Locked by you. Manual status set to Marked fixed by maintainer.",
         },
@@ -185,7 +219,7 @@ describe("clearClusterFixStatusOverride", () => {
 });
 
 describe("setClusterVisibilityOverride", () => {
-  it("force_public writes the promotion escape hatch the engine already reads", async () => {
+  it("force_public writes the escape hatch and immediately refreshes effective visibility", async () => {
     const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
     const formData = new FormData();
     formData.set("cluster_id", "cluster-one");
@@ -193,13 +227,23 @@ describe("setClusterVisibilityOverride", () => {
 
     await setClusterVisibilityOverride(formData);
 
-    expect(mutations).toContainEqual({
-      table: "issue_clusters",
-      type: "update",
-      row: {
-        patch: { admin_visibility_override: "force_public" },
-        filters: [{ column: "id", value: "cluster-one" }],
-      },
+    expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
+      p_cluster_id: "cluster-one",
+      p_visibility: "force_public",
+    });
+  });
+
+  it("force_hidden removes a quiet cluster from public reads before the deeper refresh", async () => {
+    const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("visibility", "force_hidden");
+
+    await setClusterVisibilityOverride(formData);
+
+    expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
+      p_cluster_id: "cluster-one",
+      p_visibility: "force_hidden",
     });
   });
 
@@ -211,13 +255,9 @@ describe("setClusterVisibilityOverride", () => {
 
     await setClusterVisibilityOverride(formData);
 
-    expect(mutations).toContainEqual({
-      table: "issue_clusters",
-      type: "update",
-      row: {
-        patch: { admin_visibility_override: null },
-        filters: [{ column: "id", value: "cluster-one" }],
-      },
+    expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
+      p_cluster_id: "cluster-one",
+      p_visibility: "auto",
     });
   });
 
@@ -289,8 +329,8 @@ describe("setScannerPolicy", () => {
           minIntervalMinutes: 120,
           scheduledSearchCreditsPerRun: 3,
           monthlyTavilyCreditCap: 1000,
-          monthlyLlmUsdCap: 5,
-          modelPreset: "deepseek_qwen_pro",
+          monthlyLlmUsdCap: 2,
+          modelPreset: "deepseek_v4_flash",
         },
       }),
     });

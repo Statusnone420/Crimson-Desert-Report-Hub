@@ -34,7 +34,7 @@ export function routeToWatchlistCluster(input: RoutingInput, clusters: RoutableC
 
   if (input.llmClusterSlug) {
     const match = bySlug.get(input.llmClusterSlug);
-    if (match) return match;
+    if (match?.category === input.category) return match;
   }
 
   const text = `${input.issueTitle} ${input.summary}`;

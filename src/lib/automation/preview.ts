@@ -68,7 +68,7 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
 
       const extraction = await extractSignalWithOpenRouter(
         { title: result.title, snippet: result.snippet, url },
-        { llmCallsRemaining: preScreen.keep ? 1 : 0 },
+        { llmCallsRemaining: 0 },
       );
 
       const relevance: SignalRelevanceDecision = preScreen.keep ? shouldKeepExtractedSignal(extraction) : preScreen;

@@ -57,6 +57,7 @@ describe("buildRightNowReadout", () => {
           signalCount: 0,
           candidateSignalCount: 0,
           postCurrentPatchEvidenceCount: 0,
+          confirmationCount: 0,
           readout: readoutFor({
             directReportCount: 1,
             fixClaimedAt: "2026-07-08T06:00:00.000Z",
@@ -72,6 +73,7 @@ describe("buildRightNowReadout", () => {
           signalCount: 0,
           candidateSignalCount: 2,
           postCurrentPatchEvidenceCount: 0,
+          confirmationCount: 0,
           readout: readoutFor({ candidateSignalCount: 2 }),
         },
       ],
@@ -88,7 +90,7 @@ describe("buildRightNowReadout", () => {
     expect(observationText).toContain("No public source links");
     expect(readout.snapshotLine).toContain("Patch 1.13.01 hotfix");
     expect(readout.snapshotLine).toContain("1 player report");
-    expect(readout.snapshotLine).toContain("no public source links cleared");
+    expect(readout.snapshotLine).toContain("no public source links displayed");
     expect(readout.snapshotLine).toContain("7 radar leads — rumors, not evidence");
     expect(readout.worthChecking.map((issue) => issue.title)).toEqual([
       "FPS / performance regression since 1.13.00",
@@ -147,7 +149,7 @@ describe("buildRightNowReadout", () => {
     expect(readout.snapshotLine).toContain("scanner unavailable");
     expect(readout.worthChecking).toEqual([]);
     expect(readout.emptyWorthCheckingCopy).toBe(
-      "No watched issue has enough signal yet. Use the official links, source radar, or add your own case.",
+      "No watched issue has enough signal yet. Official notes and the source radar remain available.",
     );
   });
 
@@ -178,6 +180,7 @@ describe("buildRightNowReadout", () => {
           signalCount: 0,
           candidateSignalCount: 2,
           postCurrentPatchEvidenceCount: 0,
+          confirmationCount: 0,
           readout: readoutFor({ candidateSignalCount: 2 }),
         },
       ],
@@ -193,5 +196,69 @@ describe("buildRightNowReadout", () => {
     expect(JSON.stringify(readout.worthChecking)).not.toContain("http");
     expect(JSON.stringify(readout.worthChecking)).not.toContain("reddit.com");
     expect(JSON.stringify(readout.worthChecking)).not.toContain("reject");
+  });
+
+  it("keeps a claim-only question and a lone player tap in the right-now list", () => {
+    const oneTap = {
+      ...EMPTY_CLUSTER_CONFIRMATIONS,
+      totalCount: 1,
+      affectedCount: 1,
+      affectedNetworks: 1,
+      byKind: {
+        ...EMPTY_CLUSTER_CONFIRMATIONS.byKind,
+        have_it: { count: 1, networks: 1 },
+      },
+    };
+    const readout = buildRightNowReadout({
+      currentPatch: basePatch,
+      scanner: {
+        reviewedThisWeek: 0,
+        filteredThisWeek: 0,
+        keptThisWeek: 0,
+        awaiting: 0,
+        published: 0,
+        lastCheckedAt: null,
+        scannerActive: true,
+        scannerConnected: true,
+      },
+      directReports: 0,
+      communitySignals: 0,
+      publicFindingsCount: 0,
+      latestReportAt: null,
+      topClusters: [
+        {
+          id: "claim-only",
+          title: "Claim-only question",
+          category: "performance",
+          description: "An official claim awaiting player answers.",
+          directReportCount: 0,
+          signalCount: 0,
+          candidateSignalCount: 0,
+          postCurrentPatchEvidenceCount: 0,
+          confirmationCount: 0,
+          readout: readoutFor({ fixClaimedAt: "2026-07-09T00:00:00Z" }),
+        },
+        {
+          id: "one-tap",
+          title: "One quiet tap",
+          category: "controls",
+          description: "One raw player signal below the label threshold.",
+          directReportCount: 0,
+          signalCount: 0,
+          candidateSignalCount: 0,
+          postCurrentPatchEvidenceCount: 0,
+          confirmationCount: 1,
+          readout: readoutFor({ confirmations: oneTap }),
+        },
+      ],
+      sourceUrl,
+      supportUrl,
+    });
+
+    expect(readout.worthChecking.map((issue) => issue.title).sort()).toEqual([
+      "Claim-only question",
+      "One quiet tap",
+    ]);
+    expect(readout.worthChecking.find((issue) => issue.id === "one-tap")?.countSummary).toContain("1 player tap");
   });
 });
