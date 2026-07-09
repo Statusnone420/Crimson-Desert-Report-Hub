@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
 import { rescueCandidateSignal } from "@/lib/automation/run";
@@ -21,9 +22,16 @@ import { assertProductionWriteAllowed } from "@/lib/previewGuard";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
 import { classifySignal, summarize } from "@/lib/reddit";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
+import { ADMIN_COOKIE } from "@/lib/session";
 import { createServiceClient } from "@/lib/supabase";
 
 const DECISIONS = ["approved", "rejected", "spam"] as const;
+
+export async function signOutAdmin() {
+  const store = await cookies();
+  store.set(ADMIN_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  redirect("/admin/login");
+}
 
 type CompileReportRow = {
   category: string | null;

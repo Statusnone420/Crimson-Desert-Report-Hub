@@ -489,6 +489,10 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
     await page.goto("/");
     await openAdminPageFromFooter(page);
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/admin\/login$/);
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/admin\/login$/);
     await expectHealthyPage(page, problems);
   });
 
