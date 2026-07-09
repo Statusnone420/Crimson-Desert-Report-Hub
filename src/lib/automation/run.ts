@@ -16,7 +16,7 @@ import {
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
 import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
-import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
+import { hasUnsupportedSourceContext, preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { tavilyExtract, tavilySearch, type SearchResult } from "@/lib/automation/search";
 import type { ScannerPolicy } from "@/lib/automation/settings";
@@ -173,6 +173,7 @@ type ClusterRow = {
 type SourceSignalRow = {
   id?: string;
   cluster_id?: string | null;
+  source_url?: string | null;
   canonical_url?: string | null;
   source?: string;
   source_type?: string | null;
@@ -303,7 +304,16 @@ function sourceSignalEligibility(
   );
 }
 
-function stalePromotionReason(reason: CurrentPatchEligibilityReason): string {
+function isUnsupportedStoredSignal(row: SourceSignalRow): boolean {
+  return hasUnsupportedSourceContext({
+    title: row.title ?? "",
+    snippet: typeof row.summary === "string" ? row.summary : "",
+    url: row.canonical_url ?? row.source_url ?? undefined,
+  });
+}
+
+function stalePromotionReason(reason: CurrentPatchEligibilityReason | "source_not_issue_report"): string {
+  if (reason === "source_not_issue_report") return "source_not_issue_report";
   if (reason === "wrong_patch") return "wrong_patch";
   if (reason === "stale_source") return "stale_source";
   return "unknown_source_freshness";
@@ -337,7 +347,7 @@ async function loadPublicSignalsForAudit(supabase: ReturnType<typeof createServi
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from("source_signals")
-      .select("id, cluster_id, title, summary, source_published_at, public_status")
+      .select("id, cluster_id, source_url, canonical_url, title, summary, source_published_at, public_status")
       .eq("public_status", "public")
       .order("last_seen_at", { ascending: true })
       .range(from, from + pageSize - 1);
@@ -428,7 +438,9 @@ async function loadScanMemory(
   // and keep the same small cap as the individual title reads.
   const targetClusterTitles = [...new Set([...privateClusterTitles, ...seedClusterTitles])].slice(0, 10);
   return {
-    stalePublicSignals: publicSignals.filter((row) => !sourceSignalEligibility(row, currentPatch).canPublish).length,
+    stalePublicSignals: publicSignals.filter(
+      (row) => isUnsupportedStoredSignal(row) || !sourceSignalEligibility(row, currentPatch).canPublish,
+    ).length,
     privateSignals,
     rejectedCandidates,
     targetClusterTitles,
@@ -576,6 +588,7 @@ async function prepareSignals(
       {
         title: signal.title,
         snippet: signal.body,
+        url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
         sourcePublishedAt: signal.sourcePublishedAt ?? null,
       },
@@ -619,6 +632,7 @@ async function prepareSignals(
             {
               title: signal.title,
               snippet: effectiveBody,
+              url: canonicalUrl,
               sourceDomain: signal.sourceDomain,
               sourcePublishedAt: signal.sourcePublishedAt ?? null,
             },
@@ -790,6 +804,8 @@ type LifecycleReportRow = {
 
 type LifecycleSignalRow = {
   cluster_id: string | null;
+  source_url?: string | null;
+  canonical_url?: string | null;
   title?: string | null;
   summary: string;
   source_published_at?: string | null;
@@ -816,7 +832,7 @@ async function loadLifecycleReports(supabase: ReturnType<typeof createServiceCli
 async function loadLifecyclePublicSignals(supabase: ReturnType<typeof createServiceClient>): Promise<LifecycleSignalRow[]> {
   const { data, error } = await supabase
     .from("source_signals")
-    .select("cluster_id, title, summary, source_published_at")
+    .select("cluster_id, source_url, canonical_url, title, summary, source_published_at")
     .eq("public_status", "public");
   if (error) throw new Error(`lifecycle public signals read failed: ${error.message}`);
   return (data ?? []) as LifecycleSignalRow[];
@@ -842,6 +858,7 @@ function countLifecyclePublicPostHotfixEvidence(
     }
   }
   for (const signal of signals) {
+    if (isUnsupportedStoredSignal(signal)) continue;
     if (
       isPostCurrentPatchEvidence(
         { title: signal.title ?? null, summary: signal.summary, sourcePublishedAt: signal.source_published_at ?? null },
@@ -1143,7 +1160,9 @@ async function refreshClusterStats(
   const verifiedReportCount = new Set(
     excerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
   ).size;
-  const publishableSignals = signals.filter((signal) => sourceSignalEligibility(signal, currentPatch).canPublish);
+  const publishableSignals = signals.filter(
+    (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, currentPatch).canPublish,
+  );
   const { independentDomainCount, trustedDomainCount } = domainCounts(publishableSignals, now);
 
   const decision = shouldPromoteSignalCluster({
@@ -1164,13 +1183,15 @@ async function refreshClusterStats(
   let publicSignalCount = 0;
   for (const signal of signals) {
     if (!signal.id) continue;
+    const unsupported = isUnsupportedStoredSignal(signal);
     const eligibility = sourceSignalEligibility(signal, currentPatch);
     const shouldHideStale =
-      !eligibility.canPublish &&
-      (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source");
+      unsupported ||
+      (!eligibility.canPublish &&
+        (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source"));
     let publicStatus: "public" | "private" | "hidden";
     let promotionReason: string;
-    if (eligibility.canPublish) {
+    if (!unsupported && eligibility.canPublish) {
       const resolved = resolveSignalPublicStatus({
         decision,
         signalTrusted: domainTier(signalDomain(signal)) === "trusted",
@@ -1180,7 +1201,9 @@ async function refreshClusterStats(
       promotionReason = resolved.reason;
     } else {
       publicStatus = shouldHideStale ? "hidden" : "private";
-      promotionReason = shouldHideStale ? stalePromotionReason(eligibility.reason) : "below_threshold";
+      promotionReason = shouldHideStale
+        ? stalePromotionReason(unsupported ? "source_not_issue_report" : eligibility.reason)
+        : "below_threshold";
     }
     if (publicStatus === "public") publicSignalCount += 1;
     const { error: signalUpdateError } = await supabase
@@ -1203,7 +1226,9 @@ async function refreshClusterStats(
   // current-patch candidate signal stays VISIBLE as an "Unconfirmed" watchlist row
   // rather than being hidden. This does NOT publish anything — the candidate stays
   // private; only the cluster's visibility flag is preserved.
-  const hasLiveCandidates = signals.some((signal) => sourceSignalEligibility(signal, currentPatch).canStore);
+  const hasLiveCandidates = signals.some(
+    (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, currentPatch).canStore,
+  );
   const isPublic =
     decision.publicStatus === "public"
       ? true
@@ -1288,19 +1313,22 @@ async function quarantineStalePublicSignals(
   currentPatch: CurrentPatchContext,
 ): Promise<void> {
   const publicSignals = await loadPublicSignalsForAudit(supabase);
-  const staleSignals = publicSignals.filter((signal) => !sourceSignalEligibility(signal, currentPatch).canPublish);
+  const staleSignals = publicSignals.filter(
+    (signal) => isUnsupportedStoredSignal(signal) || !sourceSignalEligibility(signal, currentPatch).canPublish,
+  );
   if (staleSignals.length === 0) return;
 
   const touchedClusters = new Set<string>();
   for (const signal of staleSignals) {
     if (!signal.id) continue;
     const eligibility = sourceSignalEligibility(signal, currentPatch);
+    const unsupported = isUnsupportedStoredSignal(signal);
     const { error } = await supabase
       .from("source_signals")
       .update({
         public_status: "hidden",
         promoted_at: null,
-        promotion_reason: stalePromotionReason(eligibility.reason),
+        promotion_reason: stalePromotionReason(unsupported ? "source_not_issue_report" : eligibility.reason),
       })
       .eq("id", signal.id);
     if (error) throw new Error(`stale source signal quarantine failed: ${error.message}`);

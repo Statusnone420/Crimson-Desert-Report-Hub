@@ -3,6 +3,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
+import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
@@ -204,12 +205,15 @@ function filterPublicCurrentPatchSignals<T extends SignalRow>(
   rows: T[],
   currentPatch: { version: string; publishedAt: string | null },
 ): T[] {
-  return rows.filter((row) =>
-    evaluateCurrentPatchEligibility(
+  return rows.filter((row) => {
+    if (hasUnsupportedSourceContext({ title: row.title ?? "", snippet: row.summary, url: row.source_url })) {
+      return false;
+    }
+    return evaluateCurrentPatchEligibility(
       { title: row.title ?? null, summary: row.summary, sourcePublishedAt: row.source_published_at ?? null },
       currentPatch,
-    ).canPublish,
-  );
+    ).canPublish;
+  });
 }
 
 /**

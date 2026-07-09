@@ -28,8 +28,8 @@ export default async function AdminPage() {
 
   const flaggedReports = flagged ?? [];
   const clusterRows = clusters ?? [];
-  const lifecycleExceptions = clusterRows.filter((cluster) => String(cluster.lifecycle_reason ?? "").startsWith("Needs review:")).length;
-  const needsYou = (pending.count ?? 0) + lifecycleExceptions;
+  const lifecycleExceptionRows = clusterRows.filter((cluster) => String(cluster.lifecycle_reason ?? "").startsWith("Needs review:"));
+  const needsYou = (pending.count ?? 0) + lifecycleExceptionRows.length;
 
   return (
     <div className="space-y-6">
@@ -164,9 +164,19 @@ export default async function AdminPage() {
         )}
       </section>
 
-      <section className="panel">
-        <div className="stat-label mb-3">Lifecycle overrides</div>
-        <div className="space-y-2">
+      <details className="panel" open={lifecycleExceptionRows.length > 0}>
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3">
+          <span className="min-w-0 space-y-1">
+            <span className="stat-label block">Advanced lifecycle overrides</span>
+            <span className="block text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              No action needed unless a system label is wrong or an exception appears here.
+            </span>
+          </span>
+          <span className={lifecycleExceptionRows.length > 0 ? "badge badge-amber" : "badge badge-dim"}>
+            {lifecycleExceptionRows.length} exceptions
+          </span>
+        </summary>
+        <div className="mt-4 space-y-2 border-t pt-4">
           {clusterRows.map((cluster) => (
             <div key={cluster.id} className="flex flex-wrap items-center gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate">{cluster.title}</span>
@@ -200,7 +210,7 @@ export default async function AdminPage() {
             </div>
           ))}
         </div>
-      </section>
+      </details>
     </div>
   );
 }

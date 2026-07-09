@@ -966,6 +966,19 @@ describe("automation relevance", () => {
         ),
       ).toEqual({ canStore: true, canPublish: true, reason: "fresh_source" });
     });
+
+    it("stores but does not publish unknown-date current-patch language", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "Crash after todays update",
+            snippet: "Players report crashes after the latest patch.",
+            sourcePublishedAt: null,
+          },
+          { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ canStore: true, canPublish: false, reason: "fresh_language" });
+    });
   });
 
   describe("preScreenCandidate", () => {
@@ -1071,6 +1084,21 @@ describe("automation relevance", () => {
           snippet: "A troubleshooting guide for Windows settings.",
           sourceDomain: "youtube.com",
         }),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("rejects piracy and bypass discussions as bug evidence", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert Patch 1.13.01 HYPERVISOR by DenuvOwO",
+            snippet: "Discussion about repacks and bypass files.",
+            url: "https://www.reddit.com/r/CrackWatch/comments/example",
+            sourceDomain: "reddit.com",
+            sourcePublishedAt: "2026-07-09T08:00:00.000Z",
+          },
+          { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
 

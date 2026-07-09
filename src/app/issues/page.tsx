@@ -103,11 +103,15 @@ export default async function IssuesPage() {
 
         {signals.length > 0 ? (
           <div className="space-y-3 border-t pt-3">
-            <div className="stat-label">Community signals</div>
+            <div className="stat-label">{cluster.directReportCount > 0 ? "Community signals" : "Unverified public leads"}</div>
             {signals.slice(0, 3).map((signal) => (
               <div key={signal.id} className="space-y-1 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                  <SignalConfidenceBadge confidence={signal.confidence} />
+                  {cluster.directReportCount > 0 ? (
+                    <SignalConfidenceBadge confidence={signal.confidence} />
+                  ) : (
+                    <span className="badge badge-blue">Needs player report</span>
+                  )}
                   <span className="badge badge-dim">{signal.source.replace("_", " ")}</span>
                 </div>
                 <p className="leading-6" style={{ color: "var(--text-dim)" }}>

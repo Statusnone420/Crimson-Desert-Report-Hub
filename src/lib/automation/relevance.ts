@@ -9,6 +9,7 @@ export type SignalRelevanceDecision = { keep: true } | { keep: false; reason: Re
 export type CandidatePreScreenInput = {
   title: string;
   snippet: string;
+  url?: string | null;
   sourceDomain: string | null;
   sourcePublishedAt?: string | null;
 };
@@ -63,6 +64,15 @@ const BROAD_CONTENT_PATTERNS = [
 
 const PATCH_RELEASE_TITLE_PATTERNS = [
   /\b(?:patch|hotfix|update)\b.{0,80}\b(?:released|detailed|full notes?|update notes?|release notes?)\b/i,
+] as const;
+
+const UNSUPPORTED_SOURCE_CONTEXT_PATTERNS = [
+  /\bcrackwatch\b/i,
+  /\bdenuvoowo\b/i,
+  /\bhypervisor\b.{0,40}\bdenuvoowo\b/i,
+  /\bdenuvoowo\b.{0,40}\bhypervisor\b/i,
+  /\bhypervisor\s+bypass\b/i,
+  /\b(?:repacks?|pirat(?:e|ing|ed|es)|rin forum|clean steam files)\b/i,
 ] as const;
 
 const NO_ISSUE_PATTERNS = [
@@ -161,6 +171,14 @@ function isPatchReleaseTitle(title: string): boolean {
   return matchesAny(title, PATCH_RELEASE_TITLE_PATTERNS);
 }
 
+export function hasUnsupportedSourceContext(
+  input: Pick<CandidatePreScreenInput, "title" | "snippet" | "url">,
+): boolean {
+  const sourceText = compact(`${input.title} ${input.snippet}`);
+  const url = input.url ?? "";
+  return matchesAny(`${sourceText} ${url}`, UNSUPPORTED_SOURCE_CONTEXT_PATTERNS);
+}
+
 function isClaimedFixNotReport(text: string): boolean {
   const isClaimedFixedSymptomAnnouncement =
     matchesAny(text, FIX_ANNOUNCEMENT_CUES) && matchesAny(text, CLAIMED_FIXED_SYMPTOM_PATTERNS);
@@ -228,6 +246,9 @@ export function preScreenCandidate(
   options: { currentPatchVersion?: string; currentPatchPublishedAt?: string | null } = {},
 ): SignalRelevanceDecision {
   const sourceText = compact(`${input.title} ${input.snippet}`);
+  if (hasUnsupportedSourceContext(input)) {
+    return { keep: false, reason: "source_not_issue_report" };
+  }
   if (mentionsOnlyOtherPatch(sourceText, options.currentPatchVersion ?? CURRENT_PATCH)) {
     return { keep: false, reason: "wrong_patch" };
   }

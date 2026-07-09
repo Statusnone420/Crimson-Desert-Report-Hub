@@ -1512,6 +1512,66 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("hides existing public bypass discussions during a later scan", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-crash",
+          slug: "crash-startup",
+          title: "Crash/startup issue",
+          category: "crash_startup",
+          description: "Public source was not actually a player bug report.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-crackwatch",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/CrackWatch/comments/example",
+          canonical_url: "https://www.reddit.com/r/CrackWatch/comments/example",
+          title: "Crimson Desert Patch 1.13.01 HYPERVISOR by DenuvOwO",
+          summary: "Discussion about repacks and bypass files.",
+          source_domain: "reddit.com",
+          source_published_at: null,
+          semantic_fingerprint: "crackwatch-source",
+          cluster_id: "cluster-crash",
+          category: "crash_startup",
+          confidence: "high",
+          observed_at: "2026-07-09T08:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-09T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "source_not_issue_report",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+  });
+
   it("quarantines stale public source links beyond the first audit page", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;

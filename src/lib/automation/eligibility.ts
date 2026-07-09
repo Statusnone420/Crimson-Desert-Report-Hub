@@ -169,7 +169,7 @@ export function evaluateCurrentPatchEligibility(
   }
 
   if (mentionsCurrentPatchWindow(sourceText)) {
-    return { canStore: true, canPublish: true, reason: "fresh_language" };
+    return { canStore: true, canPublish: false, reason: "fresh_language" };
   }
 
   return { canStore: true, canPublish: false, reason: "unknown_source_freshness" };
