@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  countPostCurrentPatchReportsByCluster,
   countDistinctVerifiedReportsByCluster,
   excerptsByClusterForCurrentPatch,
   filterPatchFamilyReports,
   latestReportAtFromRows,
   publicFindingsFromSignals,
+  readExcerptsByClusterForCurrentPatch,
 } from "@/lib/queries";
 
 vi.mock("server-only", () => ({}));
@@ -57,6 +59,28 @@ describe("latestReportAtFromRows", () => {
   });
 });
 
+describe("countPostCurrentPatchReportsByCluster", () => {
+  it("requires the report's selected patch to match the current hotfix", () => {
+    const counts = countPostCurrentPatchReportsByCluster(
+      [
+        {
+          cluster_id: "pre-hotfix-report",
+          patch_version: "1.13.00",
+          created_at: "2026-07-08T12:00:00.000Z",
+        },
+        {
+          cluster_id: "current-hotfix-report",
+          patch_version: "1.13.01",
+          created_at: "2026-07-08T12:00:00.000Z",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+    );
+
+    expect(counts).toEqual({ "current-hotfix-report": 1 });
+  });
+});
+
 describe("excerptsByClusterForCurrentPatch", () => {
   it("filters stale excerpts before applying the public excerpt cap", () => {
     const staleRows = Array.from({ length: 120 }, (_, index) => ({
@@ -77,6 +101,59 @@ describe("excerptsByClusterForCurrentPatch", () => {
       100,
     );
 
+    expect(grouped["old-cluster"]).toBeUndefined();
+    expect(grouped["current-cluster"]).toEqual([{ text: "current patch excerpt", platform: "Base PS5" }]);
+  });
+});
+
+describe("readExcerptsByClusterForCurrentPatch", () => {
+  it("paginates approved excerpts before filtering by patch", async () => {
+    const staleRows = Array.from({ length: 1000 }, (_, index) => ({
+      excerpt_text: `old excerpt ${index}`,
+      created_at: "2026-07-08T13:00:00.000Z",
+      bug_reports: { cluster_id: "old-cluster", platform: "PC (Steam)", patch_version: "1.12.00" },
+    }));
+    const rangeCalls: [number, number][] = [];
+    const pages = [
+      staleRows,
+      [
+        {
+          excerpt_text: "current patch excerpt",
+          created_at: "2026-07-08T12:00:00.000Z",
+          bug_reports: { cluster_id: "current-cluster", platform: "Base PS5", patch_version: "1.13.01" },
+        },
+      ],
+    ];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("approved_excerpts");
+        return {
+          select() {
+            return {
+              order() {
+                return {
+                  async range(from: number, to: number) {
+                    rangeCalls.push([from, to]);
+                    return { data: pages.shift() ?? [], error: null };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const grouped = await readExcerptsByClusterForCurrentPatch(
+      supabase as never,
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+      100,
+    );
+
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
     expect(grouped["old-cluster"]).toBeUndefined();
     expect(grouped["current-cluster"]).toEqual([{ text: "current patch excerpt", platform: "Base PS5" }]);
   });

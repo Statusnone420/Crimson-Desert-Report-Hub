@@ -6,7 +6,7 @@ import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { belongsToPatchFamily, isPostCurrentPatchEvidence, type PatchContext } from "@/lib/patchWatch";
+import { belongsToPatchFamily, isPostCurrentPatchEvidence, matchesPatchVersion, type PatchContext } from "@/lib/patchWatch";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export type ClusterRow = {
@@ -152,16 +152,14 @@ export function latestReportAtFromRows<T extends { created_at: string }>(rows: T
   }, null);
 }
 
-function countPostCurrentPatchReportsByCluster(
+export function countPostCurrentPatchReportsByCluster(
   rows: DashboardReportRow[],
   currentPatch: PatchContext,
 ): Record<string, number> {
   return countClusterIds(
     rows.filter((row) =>
-      isPostCurrentPatchEvidence(
-        { title: `Patch ${row.patch_version}`, sourcePublishedAt: row.created_at },
-        currentPatch,
-      ),
+      matchesPatchVersion(row.patch_version, currentPatch.version) &&
+      isPostCurrentPatchEvidence({ sourcePublishedAt: row.created_at }, currentPatch),
     ),
   );
 }
@@ -245,6 +243,29 @@ export function excerptsByClusterForCurrentPatch(
     kept += 1;
   }
   return excerptsByCluster;
+}
+
+export async function readExcerptsByClusterForCurrentPatch(
+  supabase: ReturnType<typeof createServiceClient>,
+  currentPatch: PatchContext,
+  limit = 100,
+): Promise<Record<string, { text: string; platform: string }[]>> {
+  const pageSize = 1000;
+  const rows: ExcerptRow[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("approved_excerpts")
+      .select("excerpt_text, created_at, bug_reports(cluster_id, platform, patch_version)")
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) break;
+    const page = (data ?? []) as ExcerptRow[];
+    rows.push(...page);
+    const grouped = excerptsByClusterForCurrentPatch(rows, currentPatch, limit);
+    const kept = Object.values(grouped).reduce((sum, clusterRows) => sum + clusterRows.length, 0);
+    if (kept >= limit || page.length < pageSize) return grouped;
+  }
+  return excerptsByClusterForCurrentPatch(rows, currentPatch, limit);
 }
 
 function excerptClusterId(excerpt: VerifiedReportClusterRow): string | null {
@@ -440,11 +461,6 @@ async function getIssuesDataUncached() {
   const signalRows = filterPublicCurrentPatchSignals((signals ?? []) as SignalRow[], currentPatch);
   const currentReportRows = filterPatchFamilyReports(reportRows, currentPatch);
 
-  const { data: excerpts } = await supabase
-    .from("approved_excerpts")
-    .select("excerpt_text, created_at, bug_reports(cluster_id, platform, patch_version)")
-    .order("created_at", { ascending: false });
-
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase);
 
   const directByCluster = countClusterIds(currentReportRows);
@@ -478,7 +494,7 @@ async function getIssuesDataUncached() {
     (signalsByCluster[key] ??= []).push(signal);
   }
 
-  const excerptsByCluster = excerptsByClusterForCurrentPatch((excerpts ?? []) as ExcerptRow[], currentPatch);
+  const excerptsByCluster = await readExcerptsByClusterForCurrentPatch(supabase, currentPatch);
 
   return { clusters, excerptsByCluster, signalsByCluster };
 }

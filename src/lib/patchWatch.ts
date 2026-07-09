@@ -64,6 +64,13 @@ export function belongsToPatchFamily(version: string, currentVersion: string): b
   return Boolean(versionFamily && currentFamily && versionFamily === currentFamily);
 }
 
+export function matchesPatchVersion(version: string | null | undefined, currentVersion: string): boolean {
+  if (!version) return false;
+  const versionKey = patchVersionKey(version);
+  const currentVersionKey = patchVersionKey(currentVersion);
+  return Boolean(versionKey && currentVersionKey && versionKey === currentVersionKey);
+}
+
 export function isPostCurrentPatchEvidence(input: PatchWatchEvidenceInput, currentPatch: PatchContext): boolean {
   const sourceText = `${input.title ?? ""} ${input.summary ?? ""}`;
   const currentVersionKey = patchVersionKey(currentPatch.version);
