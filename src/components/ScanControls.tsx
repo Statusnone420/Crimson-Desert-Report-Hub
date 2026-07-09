@@ -30,6 +30,13 @@ const STAGE_LABELS: Record<string, string> = {
   done: "Finished",
 };
 
+const RUN_STATUS_LABELS: Record<string, string> = {
+  success: "Scan finished",
+  partial: "Scan finished",
+  failed: "Scan failed",
+  skipped: "Scan skipped",
+};
+
 const POLL_MS = 2500;
 const MAX_POLL_FAILURES = 4;
 
@@ -158,11 +165,13 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
         <div className="fade-rise panel-inset space-y-2 border p-3 text-sm" aria-live="polite">
           <div className="flex items-center justify-between gap-2">
             <span className={finished ? "badge badge-green badge-dot" : "badge badge-amber badge-dot"}>
-              {finished ? `scan ${run?.status}` : (STAGE_LABELS[progress?.stage ?? "starting"] ?? "Scanning")}
+              {finished
+                ? (RUN_STATUS_LABELS[run?.status ?? ""] ?? "Scan finished")
+                : (STAGE_LABELS[progress?.stage ?? "starting"] ?? "Scanning")}
             </span>
             {!finished ? (
               <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-                the site stays usable — this card updates itself
+                Updates live while the scan runs.
               </span>
             ) : null}
           </div>

@@ -27,7 +27,7 @@ export default async function CompilePage({ searchParams }: { searchParams: Prom
   return (
     <div className="space-y-6">
       <section>
-        <p className="stat-label">Admin deliverable</p>
+        <p className="stat-label">Admin controls</p>
         <h1 className="text-3xl font-semibold">Compile Pearl Abyss dossier</h1>
       </section>
 
@@ -41,7 +41,7 @@ export default async function CompilePage({ searchParams }: { searchParams: Prom
         </label>
         <button className="btn">Compile now</button>
         <span className="text-xs" style={{ color: "var(--text-dim)" }}>
-          Deterministic aggregates always. AI only rewrites prose and fails back to deterministic.
+          Aggregates are deterministic. AI only rewrites prose and falls back cleanly.
         </span>
       </form>
 

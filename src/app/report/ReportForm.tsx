@@ -81,7 +81,8 @@ export function ReportForm({
   const [saveImportMessage, setSaveImportMessage] = useState("");
   const graphicsModeRef = useRef<HTMLTextAreaElement>(null);
   const troubleshootingRef = useRef<HTMLTextAreaElement>(null);
-  const saveImportInputRef = useRef<HTMLInputElement>(null);
+  const saveImportFileInputRef = useRef<HTMLInputElement>(null);
+  const saveImportFolderInputRef = useRef<HTMLInputElement>(null);
 
   async function onSaveImport(event: ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.currentTarget.files ?? []).slice(0, MAX_IMPORT_FILES);
@@ -127,8 +128,11 @@ export function ReportForm({
   function onDiscardSaveImport() {
     setPendingImport(null);
     setSaveImportMessage("");
-    if (saveImportInputRef.current) {
-      saveImportInputRef.current.value = "";
+    if (saveImportFileInputRef.current) {
+      saveImportFileInputRef.current.value = "";
+    }
+    if (saveImportFolderInputRef.current) {
+      saveImportFolderInputRef.current.value = "";
     }
   }
 
@@ -206,10 +210,10 @@ export function ReportForm({
       <section className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0 space-y-2">
           <div className="stat-label">Anonymous structured report</div>
-          <h1 className="h-display">Add to the evidence board</h1>
+          <h1 className="h-display">Submit a report</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            No account, no email. Reports are checked and sorted automatically so the board can show how widespread a
-            patch problem is. The more detail you add, the stronger the public signal becomes.
+            No account, no email. Your report helps separate isolated bugs from patch-wide patterns. Add only what you
+            know; the site sorts it into the public issue counts after checks.
           </p>
         </div>
         <a
@@ -352,34 +356,66 @@ export function ReportForm({
         </section>
 
         <aside className="space-y-3">
-          <div className="panel space-y-3">
+          <div className="panel space-y-4">
             <div className="stat-label">Evidence assistant</div>
-            <h2 className="text-base font-semibold">Use local save / config files</h2>
-            <ol className="space-y-1 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              <li>
-                1. Pick your settings/log files &mdash; on PC look in Documents\Crimson Desert\ (the settings file is
-                user_engine_option_save.xml). Console players: skip this, it&rsquo;s PC-only.
-              </li>
-              <li>2. Your browser reads them locally and drafts one short note (GPU settings, file names &mdash; no personal data).</li>
-              <li>3. You preview the note before it touches your report. Nothing uploads until you press Submit, and only the note is sent.</li>
-            </ol>
+            <div className="space-y-2">
+              <h2 className="text-base font-semibold">Auto-fill from local PC files</h2>
+              <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+                Your browser cannot scan your PC. It can only read files or folders you choose here.
+              </p>
+              <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+                Raw files are not uploaded. You review the generated note before it touches your report.
+              </p>
+            </div>
+            <div className="panel-inset space-y-2 border p-3">
+              <div className="text-sm font-semibold">Best file to choose</div>
+              <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+                <span className="num">user_engine_option_save.xml</span> can fill graphics settings like upscale mode,
+                frame generation, VSync, and HDR.
+              </p>
+            </div>
+            <div className="panel-inset space-y-2 border p-3">
+              <div className="text-sm font-semibold">Find it on Windows</div>
+              <ol className="space-y-1 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+                <li>1. Open File Explorer and search This PC for user_engine_option_save.xml.</li>
+                <li>2. Right-click the result and choose Open file location.</li>
+                <li>3. Select that file here, or select the folder that contains it.</li>
+                <li>4. If search finds nothing, skip this helper.</li>
+              </ol>
+            </div>
+            <div className="panel-inset flex flex-wrap items-center gap-2 border p-2">
+              <label htmlFor="save_import" className="btn btn-ghost btn-sm mb-0 w-auto cursor-pointer">
+                Choose settings file
+              </label>
+              <label htmlFor="save_import_folder" className="btn btn-ghost btn-sm mb-0 w-auto cursor-pointer">
+                Choose folder
+              </label>
+              <span className="basis-full text-sm sm:basis-auto" style={{ color: "var(--text-faint)" }} aria-live="polite">
+                {saveImportMessage || "Nothing selected yet"}
+              </span>
+            </div>
             <input
               id="save_import"
               type="file"
               multiple
               accept=".xml,.save,.log,.txt"
               onChange={onSaveImport}
-              ref={saveImportInputRef}
+              ref={saveImportFileInputRef}
+              className="sr-only"
+            />
+            <input
+              id="save_import_folder"
+              type="file"
+              multiple
+              accept=".xml,.save,.log,.txt"
+              onChange={onSaveImport}
+              ref={saveImportFolderInputRef}
+              className="sr-only"
               {...DIRECTORY_INPUT_PROPS}
             />
             <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
               Inspects at most {MAX_IMPORT_FILES} selected files, reads only small XML/log/text files.
             </p>
-            {saveImportMessage ? (
-              <p className="badge badge-green" aria-live="polite">
-                {saveImportMessage}
-              </p>
-            ) : null}
             {pendingImport ? (
               <div className="space-y-2 border-t pt-3">
                 <div className="stat-label">Preview &mdash; nothing added yet</div>
@@ -405,7 +441,7 @@ export function ReportForm({
               <div className="space-y-2 border-t pt-3 text-xs leading-5">
                 <p style={{ color: "var(--text-dim)" }}>{saveImport.privacyNote}</p>
                 <p style={{ color: "var(--text-faint)" }}>{saveImport.evidenceNote}</p>
-                <span className="badge badge-green">added to Troubleshooting field</span>
+                <span className="badge badge-green">Added to Troubleshooting field</span>
               </div>
             ) : null}
           </div>

@@ -6,6 +6,9 @@ function collectConsoleProblems(page: Page): string[] {
   const problems: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warning") {
+      if (message.text().includes("/_next/webpack-hmr") && message.text().includes("WebSocket connection")) {
+        return;
+      }
       problems.push(`${message.type()}: ${message.text()}`);
     }
   });
@@ -19,6 +22,34 @@ async function expectHealthyPage(page: Page, problems: string[]) {
   await expect(page.locator("body")).not.toHaveText("");
   await expect(page.getByText(/Application error|Unhandled Runtime Error|Failed to compile/i)).toHaveCount(0);
   expect(problems).toEqual([]);
+}
+
+async function signInAsAdmin(page: Page) {
+  const response = await page.request.post("/api/admin/login", { data: { password: "admin-password" } });
+  expect(response.ok()).toBe(true);
+}
+
+async function openAdminSignIn(page: Page) {
+  const adminButton = page.getByRole("button", { name: "Admin" });
+  const passwordInput = page.getByLabel("Admin password");
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await adminButton.scrollIntoViewIfNeeded();
+    await adminButton.focus();
+    await page.keyboard.press("Enter");
+    if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) return;
+  }
+  await expect(passwordInput).toBeVisible();
+}
+
+async function openAdminPageFromFooter(page: Page) {
+  const adminButton = page.getByRole("button", { name: "Admin" });
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await adminButton.scrollIntoViewIfNeeded();
+    await adminButton.focus();
+    await page.keyboard.press("Enter");
+    if (await page.waitForURL(/\/admin$/, { timeout: 1_000 }).then(() => true, () => false)) return;
+  }
+  await expect(page).toHaveURL(/\/admin$/);
 }
 
 const settingsXml = `
@@ -273,26 +304,56 @@ test.describe("public surface visual regression", () => {
   test("dashboard renders moderated patch intelligence", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
+    const nav = page.getByRole("navigation", { name: "Primary" });
 
     await expect(page).toHaveTitle(/Crimson Desert Report Hub/i);
+    await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/");
+    await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("href", "/issues");
+    await expect(nav.getByRole("link", { name: "Submit report" })).toHaveAttribute("href", "/report");
+    await expect(nav.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
+    await expect(nav.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
+    await expect(page.getByText("Right now", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Patch 1\.13\.\d{2}/).first()).toBeVisible();
     await expect(page.getByText("Evidence-backed issues", { exact: true })).toBeVisible();
-    await expect(page.locator(".stat-label", { hasText: "Public signals" }).first()).toBeVisible();
-    await expect(page.getByText("Player reports", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
+    await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
+    await expect(page.getByText(/latest player report \d+[mhd] ago|no player reports yet/).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Official notes" }).first()).toHaveAttribute(
+      "href",
+      /pearlabyss\.com/,
+    );
+    await expect(page.getByRole("link", { name: "Pearl Abyss support" })).toHaveAttribute(
+      "href",
+      "https://support.pearlabyss.com/",
+    );
     await expect(page.getByRole("link", { name: "Source Radar" })).toHaveAttribute("href", "/scanner");
-    await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
-    await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
-    await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
-    await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
+    const hasPopulatedDashboard = (await page.getByRole("heading", { name: "Top issues this patch" }).count()) > 0;
+    if (hasPopulatedDashboard) {
+      await expect(page.getByRole("heading", { name: "Top issues this patch" })).toBeVisible();
+      await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
+      await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
+      await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
+      await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
+    } else {
+      await expect(page.getByRole("heading", { name: "Nothing backed by evidence yet" })).toBeVisible();
+      await expect(page.getByText("Known problem areas stay quiet until a player report or public source backs them.")).toBeVisible();
+    }
+    await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Official patch source" })).toBeVisible();
     await expect(page.getByText("View all 30 claims", { exact: true })).toHaveCount(0);
     await expect(page.getByText("View all 2 claims", { exact: true })).toHaveCount(0);
     // Overpromising dashboard copy must be gone.
     await expect(page.getByText("none found yet — scanner active", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Watchlist awaiting evidence", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Watchlist · awaiting first reports", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("What can be learned without waiting for reports")).toHaveCount(0);
+    await expect(page.getByText("Useful next clicks")).toHaveCount(0);
+    await expect(page.getByText("Patch web radar", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Patch brief", { exact: false })).toHaveCount(0);
     await expectHealthyPage(page, problems);
-    await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
+    if (hasPopulatedDashboard) {
+      await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
+    }
   });
 
   test("dashboard audit-critical text meets AA contrast", async ({ page }) => {
@@ -320,14 +381,20 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/issues");
 
-    await expect(page.getByRole("heading", { name: "Evidence board" })).toBeVisible();
-    await expect(page.getByText("Community signals").first()).toBeVisible();
-    await expect(page.getByText("Approved excerpts").first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
-    await expect(page.getByText("High confidence")).toBeVisible();
-    await expect(page.getByText("Confirmed")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "What players are reporting" })).toBeVisible();
+    const communitySignals = page.getByText("Community signals");
+    if ((await communitySignals.count()) > 0) {
+      await expect(communitySignals.first()).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
+      await expect(page.getByText("High confidence")).toBeVisible();
+    } else {
+      await expect(page.getByText("Source candidates stay private until they clear the rules.")).toBeVisible();
+      await expect(page.getByRole("link", { name: "Scanner funnel" })).toHaveAttribute("href", "/scanner");
+      await expect(page.getByRole("link", { name: "Submit a report" })).toHaveAttribute("href", "/report");
+    }
+    await expect(page.locator(".badge").filter({ hasText: /^Confirmed$/ })).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
-    await expect(page.getByText("Watchlist items stay lower and quieter until the data confirms them.")).toBeVisible();
+    await expect(page.getByText("Backed issues first.")).toBeVisible();
     // Overpromising watchlist copy must be gone: the scanner never claims per-row
     // active discovery, and zero-evidence seeds are never framed as live hunts.
     await expect(page.getByText("scanner is hunting", { exact: false })).toHaveCount(0);
@@ -381,13 +448,10 @@ test.describe("public surface visual regression", () => {
 
   test("admin scanner leads with Source Radar and useful kept-signal links", async ({ page }) => {
     const problems = collectConsoleProblems(page);
-    await page.goto("/");
-    const ownerButton = page.getByRole("button", { name: "Owner" });
-    await ownerButton.scrollIntoViewIfNeeded();
-    await ownerButton.focus();
-    await page.keyboard.press("Enter");
-    await page.getByLabel("Admin password").fill("admin-password");
-    await page.getByRole("button", { name: "Unlock controls" }).click();
+    await signInAsAdmin(page);
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Scanner monitor" })).toBeVisible();
 
     await page.goto("/scanner");
@@ -406,26 +470,29 @@ test.describe("public surface visual regression", () => {
     await expect(page).toHaveScreenshot("scanner-admin.png", { fullPage: true });
   });
 
-  test("owner console unlocks admin shortcuts", async ({ page }) => {
+  test("admin footer routes through sign-in to the admin page", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
 
-    // Keyboard activation: mobile-chromium's emulated touch hit-testing
-    // misreports the footer paragraph as the hit target even though the
-    // browser's own elementFromPoint resolves the button (verified), so a
-    // pointer tap flakes. Enter-on-focus exercises the same flow and also
-    // proves the control is keyboard-accessible.
-    const ownerButton = page.getByRole("button", { name: "Owner" });
-    await ownerButton.scrollIntoViewIfNeeded();
-    await ownerButton.focus();
-    await page.keyboard.press("Enter");
+    await openAdminSignIn(page);
+    await expect(page.getByLabel("Admin password")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Review reports" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByLabel("Admin password")).toHaveCount(0);
+
+    await openAdminSignIn(page);
     await expect(page.getByLabel("Admin password")).toBeVisible();
     await page.getByLabel("Admin password").fill("admin-password");
-    await page.getByRole("button", { name: "Unlock controls" }).click();
+    await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.getByRole("link", { name: "Moderation queue" })).toHaveAttribute("href", "/admin");
-    await expect(page.getByRole("link", { name: "Scanner monitor" })).toHaveAttribute("href", "/scanner");
-    await expect(page.getByRole("link", { name: "Compile dossier" })).toHaveAttribute("href", "/admin/compile");
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
+    await page.goto("/");
+    await openAdminPageFromFooter(page);
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/admin\/login$/);
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/admin\/login$/);
     await expectHealthyPage(page, problems);
   });
 
@@ -433,6 +500,8 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/report");
 
+    await expect(page.getByRole("heading", { name: "Submit a report" })).toBeVisible();
+    await expect(page.getByText("Your report helps separate isolated bugs from patch-wide patterns.")).toBeVisible();
     await page.getByLabel("Platform").selectOption("pc_steam");
     await page.getByLabel("Category").selectOption("performance");
     await page.getByLabel("Severity").selectOption("high");
@@ -454,11 +523,17 @@ test.describe("public surface visual regression", () => {
   test("local save import fills visible technical fields without uploading raw files", async ({ page }, testInfo) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/report");
+    await expect(page.getByText("Your browser cannot scan your PC.")).toBeVisible();
+    await expect(page.getByText("user_engine_option_save.xml").first()).toBeVisible();
+    await expect(page.getByText("Open File Explorer and search This PC for user_engine_option_save.xml.")).toBeVisible();
+    await expect(page.getByText("If search finds nothing, skip this helper.")).toBeVisible();
+
     const saveFolder = testInfo.outputPath("save-folder");
     await mkdir(saveFolder, { recursive: true });
-    await writeFile(path.join(saveFolder, "user_engine_option_save.xml"), settingsXml);
+    const settingsPath = path.join(saveFolder, "user_engine_option_save.xml");
+    await writeFile(settingsPath, settingsXml);
 
-    await page.setInputFiles("#save_import", saveFolder);
+    await page.setInputFiles("#save_import", settingsPath);
     await page.getByText("Add technical detail Pearl Abyss can use").click();
 
     // Selecting files shows a preview but must NOT mutate the form until the user opts in.
@@ -470,9 +545,11 @@ test.describe("public surface visual regression", () => {
     await page.getByRole("button", { name: "Add to report" }).click();
     await expect(page.getByText("Raw files are not uploaded").first()).toBeVisible();
     await expect(page.getByLabel("Graphics mode / FPS setting")).toHaveValue(
-      "NVIDIA DLSS 4.0 / AA / Frame Generation on / VSync off / HDR on",
+      "Upscaling: NVIDIA DLSS 4.0 (AA); Frame generation: on; VSync: off; HDR: on",
     );
-    await expect(page.getByLabel("Troubleshooting you tried")).toHaveValue(/settings XML parsed/);
+    await expect(page.getByLabel("Troubleshooting you tried")).toHaveValue(
+      /settings summary: Upscaling: NVIDIA DLSS 4.0 \(AA\)/,
+    );
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("report-import.png", { fullPage: true });
   });

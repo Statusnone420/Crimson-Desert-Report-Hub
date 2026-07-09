@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
@@ -16,7 +15,7 @@ async function readAdminStatus(): Promise<boolean> {
   }
 }
 
-export function OwnerConsole() {
+export function AdminControls() {
   const [admin, setAdmin] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -24,13 +23,23 @@ export function OwnerConsole() {
   const [password, setPassword] = useState("");
   const router = useRouter();
 
-  async function toggleOpen() {
-    const nextOpen = !open;
-    setOpen(nextOpen);
-    if (nextOpen && admin === null) {
+  async function onAdminClick() {
+    setError(false);
+    if (admin === true) {
+      router.push("/admin");
+      return;
+    }
+
+    setOpen(true);
+    if (admin === null) {
       setBusy(true);
-      setAdmin(await readAdminStatus());
+      const hasAccess = await readAdminStatus();
       setBusy(false);
+      setAdmin(hasAccess);
+      if (hasAccess) {
+        setOpen(false);
+        router.push("/admin");
+      }
     }
   }
 
@@ -50,36 +59,29 @@ export function OwnerConsole() {
     }
     setPassword("");
     setAdmin(true);
-    router.refresh();
-  }
-
-  async function onLogout() {
-    setBusy(true);
-    await fetch("/api/admin/login", { method: "DELETE" });
-    setBusy(false);
-    setAdmin(false);
-    router.refresh();
+    setOpen(false);
+    router.push("/admin");
   }
 
   return (
     <div className="relative">
       <button
         type="button"
-        onClick={toggleOpen}
+        onClick={onAdminClick}
         className="text-xs hover:text-[var(--text)]"
         style={{ color: "var(--text-dim)" }}
         aria-expanded={open}
       >
-        Owner
+        Admin
       </button>
       {open ? (
         <div className="pointer-events-none fixed inset-0 z-[var(--z-dropdown)]">
           <div className="pointer-events-auto absolute bottom-16 right-4 w-72 max-w-[calc(100vw-2rem)]">
             <div className="panel max-h-[calc(100dvh-5rem)] space-y-3 overflow-y-auto shadow-xl">
               <div>
-                <div className="stat-label">Owner console</div>
+                <div className="stat-label">Admin</div>
                 <p className="mt-1 text-sm" style={{ color: "var(--text-dim)" }}>
-                  Private controls for moderation and scanner runs.
+                  Sign in to open the admin workspace.
                 </p>
               </div>
 
@@ -87,27 +89,12 @@ export function OwnerConsole() {
                 <p className="text-sm" style={{ color: "var(--text-dim)" }}>
                   Checking access...
                 </p>
-              ) : admin ? (
-                <div className="space-y-2">
-                  <Link className="btn btn-ghost w-full text-center" href="/admin" onClick={() => setOpen(false)}>
-                    Moderation queue
-                  </Link>
-                  <Link className="btn btn-ghost w-full text-center" href="/scanner" onClick={() => setOpen(false)}>
-                    Scanner monitor
-                  </Link>
-                  <Link className="btn btn-ghost w-full text-center" href="/admin/compile" onClick={() => setOpen(false)}>
-                    Compile dossier
-                  </Link>
-                  <button type="button" className="btn w-full" disabled={busy} onClick={onLogout}>
-                    Sign out
-                  </button>
-                </div>
               ) : (
                 <form className="space-y-3" onSubmit={onLogin}>
                   <div>
-                    <label htmlFor="owner-password">Admin password</label>
+                    <label htmlFor="admin-password">Admin password</label>
                     <input
-                      id="owner-password"
+                      id="admin-password"
                       type="password"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
@@ -120,7 +107,10 @@ export function OwnerConsole() {
                     </p>
                   ) : null}
                   <button className="btn w-full" disabled={busy || password.length === 0}>
-                    {busy ? "Checking..." : "Unlock controls"}
+                    {busy ? "Checking..." : "Sign in"}
+                  </button>
+                  <button type="button" className="btn btn-ghost w-full" onClick={() => setOpen(false)}>
+                    Cancel
                   </button>
                 </form>
               )}

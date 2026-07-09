@@ -915,6 +915,32 @@ describe("automation relevance", () => {
       ).toEqual({ canStore: true, canPublish: true, reason: "current_patch" });
     });
 
+    it("keeps hotfix-prefixed current-patch complaints eligible without a source date", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "Hotfix 1.13.01 crashes still happen",
+            snippet: "Players report crashes after the hotfix.",
+            sourcePublishedAt: null,
+          },
+          { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ canStore: true, canPublish: true, reason: "current_patch" });
+    });
+
+    it("keeps same-family 1.13.00 evidence eligible after the 1.13.01 hotfix switch", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "Awful performance after patch 1.13.00",
+            snippet: "Players report frame-rate drops since 1.13.00.",
+            sourcePublishedAt: "2026-07-07T12:00:00.000Z",
+          },
+          { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ canStore: true, canPublish: true, reason: "current_patch" });
+    });
+
     it("blocks sources published before the current patch from public evidence", () => {
       expect(
         evaluateCurrentPatchEligibility(
@@ -951,6 +977,35 @@ describe("automation relevance", () => {
           sourceDomain: "example.com",
         }),
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("rejects third-party patch-note reposts even when they quote claimed fixes", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert Patch 1.13.01 Released & Detailed",
+            snippet:
+              "Patch 1.13.01 fixes an issue where the game would occasionally crash when riding a bear. Improved an issue where frame rates would drop in certain environments.",
+            sourceDomain: "dsogaming.com",
+            sourcePublishedAt: "2026-07-08",
+          },
+          { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+    });
+
+    it("keeps patch-release titles when they contain complaint language", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Patch 1.13.01 released, but crashes still happen",
+            snippet: "After the hotfix, crashes still happen when loading the map.",
+            sourceDomain: "example.com",
+            sourcePublishedAt: "2026-07-08",
+          },
+          { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ keep: true });
     });
 
     it("rejects issue language from a different patch than the current one", () => {
@@ -1052,6 +1107,20 @@ describe("automation relevance", () => {
             sourcePublishedAt: "2026-06-30T12:00:00.000Z",
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: "2026-07-03T03:00:00.000Z" },
+        ),
+      ).toEqual({ keep: false, reason: "stale_source" });
+    });
+
+    it("rejects dated old Steam discussions that only say today's update", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crash after todays update :: Crimson Desert General Discussions",
+            snippet: "Apr 4 @ 1:45am I keep crashing when closing the map after the update.",
+            sourceDomain: "steamcommunity.com",
+            sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
         ),
       ).toEqual({ keep: false, reason: "stale_source" });
     });
@@ -1869,8 +1938,8 @@ describe("search planning", () => {
 
   it("leads with Reddit-targeted issue queries instead of broad reviews or patch-note pages", () => {
     expect(buildSearchQueries(2)).toEqual([
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
-      "site:reddit.com Crimson Desert patch 1.13.00 crash freeze stutter issue",
+      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.01 crash stutter performance bug",
+      "site:reddit.com Crimson Desert patch 1.13.01 crash freeze stutter issue",
     ]);
   });
 
@@ -2029,11 +2098,13 @@ describe("official patch metadata", () => {
     const html = `
       <li>Fixed an issue where the map crashed the game.</li>
       <li>Improved lighting.</li>
+      <li>Improved an issue where frame rates would drop in certain environments.</li>
       <li>Fixed the map crash.</li>
     `;
 
     expect(parseClaimedFixes(html)).toEqual([
       "Fixed an issue where the map crashed the game.",
+      "Improved an issue where frame rates would drop in certain environments.",
       "Fixed the map crash.",
     ]);
   });

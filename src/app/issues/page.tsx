@@ -10,6 +10,7 @@ import {
   unconfirmedMentionsNote,
 } from "@/lib/evidence";
 import { clusterEvidenceState } from "@/lib/evidenceLadder";
+import { playerIssueStatus, type PlayerIssueStatus } from "@/lib/patchWatch";
 import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 
 export const revalidate = 300;
@@ -22,6 +23,14 @@ function timeAgo(iso: string | null): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function statusBadgeClass(tone: PlayerIssueStatus["tone"]): string {
+  if (tone === "crimson") return "badge badge-crimson";
+  if (tone === "amber") return "badge badge-amber";
+  if (tone === "green") return "badge badge-green";
+  if (tone === "blue") return "badge badge-blue";
+  return "badge badge-dim";
 }
 
 export default async function IssuesPage() {
@@ -43,6 +52,13 @@ export default async function IssuesPage() {
       publicSignalCount: cluster.signalCount,
       candidateSignalCount: cluster.candidateSignalCount,
     });
+    const status = playerIssueStatus({
+      directReportCount: cluster.directReportCount,
+      publicSignalCount: cluster.signalCount,
+      candidateSignalCount: cluster.candidateSignalCount,
+      postCurrentPatchEvidenceCount: cluster.postCurrentPatchEvidenceCount,
+      fixStatus: cluster.fix_status,
+    });
     return (
       <article className="panel space-y-3.5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -57,9 +73,17 @@ export default async function IssuesPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <span className={statusBadgeClass(status.tone)}>{status.label}</span>
             <FixStatusBadge status={cluster.fix_status} unverified={unverified} />
             <EvidenceLadderBadge state={state} />
           </div>
+        </div>
+
+        <div className="panel-inset border px-3 py-2 text-xs leading-5" style={{ color: "var(--text-dim)" }}>
+          <span className="font-medium" style={{ color: "var(--text)" }}>
+            {status.strengthLabel}.
+          </span>{" "}
+          {status.detail}
         </div>
 
         <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
@@ -110,27 +134,27 @@ export default async function IssuesPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        label="Moderated public evidence"
-        title="Evidence board"
-        description="Backed clusters come first, with public source links and approved player excerpts visible for verification. Watchlist items stay lower and quieter until the data confirms them."
+        label="Current patch watch"
+        title="What players are reporting"
+        description="Backed issues first. Suspected patterns stay lower until another player or public source confirms them."
       />
 
       <section className="grid grid-cols-3 gap-3">
         <div className="panel">
-          <div className="stat-label">Watchlist items</div>
+          <div className="stat-label">Topics watched</div>
           <div className="stat-value mt-1.5">{clusters.length}</div>
         </div>
         <div className="panel">
-          <div className="stat-label">With evidence</div>
+          <div className="stat-label">With player/public evidence</div>
           <div className="stat-value mt-1.5">{active.length}</div>
           {active.length === 0 ? (
             <div className="mt-1.5 text-xs font-medium" style={{ color: "var(--text-dim)" }}>
-              nothing confirmed yet
+              Nothing confirmed yet
             </div>
           ) : null}
         </div>
         <div className="panel">
-          <div className="stat-label">Evidence-backed persistent</div>
+          <div className="stat-label">Persistent after claimed fix</div>
           <div className="stat-value mt-1.5" style={{ color: active.length ? "var(--crimson-bright)" : undefined }}>
             {persistent}
           </div>
@@ -138,8 +162,25 @@ export default async function IssuesPage() {
       </section>
 
       {clusters.length === 0 ? (
-        <div className="panel text-sm" style={{ color: "var(--text-dim)" }}>
-          No public issue clusters yet.
+        <div className="panel space-y-3 text-sm" style={{ color: "var(--text-dim)" }}>
+          <p className="font-medium" style={{ color: "var(--text)" }}>
+            No public issue clusters yet.
+          </p>
+          <p className="leading-6">
+            Nothing has enough player or public evidence to promote here yet. Source candidates stay private until
+            they clear the rules.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/scanner" className="btn btn-ghost btn-sm">
+              Scanner funnel
+            </Link>
+            <Link href="/report" className="btn btn-sm">
+              Submit a report
+            </Link>
+            <Link href="/" className="btn btn-ghost btn-sm">
+              Dashboard
+            </Link>
+          </div>
         </div>
       ) : (
         <>
@@ -163,7 +204,12 @@ export default async function IssuesPage() {
                 <div className={candidates.length === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2"}>
                   {candidates.map((cluster) => (
                     <div key={cluster.id} className="panel-inset space-y-1.5 border px-3 py-2.5">
-                      <p className="truncate text-sm font-medium">{cluster.title}</p>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <p className="min-w-0 text-sm font-medium">{cluster.title}</p>
+                        <Link href="/report" className="link shrink-0 text-xs">
+                          I&apos;m seeing this
+                        </Link>
+                      </div>
                       <div className="flex items-center justify-between gap-2">
                         <EvidenceLadderBadge
                           state={clusterEvidenceState({
@@ -178,6 +224,9 @@ export default async function IssuesPage() {
                       </div>
                       <p className="text-xs" style={{ color: "var(--blue)" }}>
                         {unconfirmedMentionsNote(cluster.candidateSignalCount)}
+                      </p>
+                      <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+                        Why watched: {cluster.description} Missing: an approved player report or publishable current-patch source.
                       </p>
                     </div>
                   ))}

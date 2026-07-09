@@ -12,7 +12,9 @@ import {
   unconfirmedMentionsNote,
 } from "@/lib/evidence";
 import { clusterEvidenceState } from "@/lib/evidenceLadder";
-import { getDashboardData } from "@/lib/queries";
+import { getDashboardData, getPublicScannerData } from "@/lib/queries";
+import { buildRightNowReadout } from "@/lib/rightNow";
+import { PEARL_ABYSS_SUPPORT_URL, SOURCE_URL } from "@/lib/site";
 
 export const revalidate = 300;
 
@@ -64,7 +66,7 @@ function latestScanWorkSummary(run: {
 }
 
 export default async function DashboardPage() {
-  const d = await getDashboardData();
+  const [d, radar] = await Promise.all([getDashboardData(), getPublicScannerData()]);
   const persistentCount = countEvidenceBackedPersistentClusters(d.topClusters);
   const claimedFixWatchlistCount = countUnverifiedClaimedFixWatchlistClusters(d.topClusters);
   const active = d.topClusters.filter(hasClusterEvidence);
@@ -80,6 +82,32 @@ export default async function DashboardPage() {
   const claims = assessClaims(d.claimedFixes, d.topClusters);
   const disputedClaims = claims.disputed.filter((claim) => claim.cluster);
   const hasActivity = d.series.some((point) => point.count > 0) || d.signalSeries.some((point) => point.count > 0);
+  const readout = buildRightNowReadout({
+    currentPatch: d.currentPatch,
+    scanner: radar,
+    directReports: d.directReports,
+    communitySignals: d.communitySignals,
+    publicFindingsCount: d.communitySignals,
+    latestReportAt: d.latestReportAt,
+    topClusters: d.topClusters,
+    sourceUrl: SOURCE_URL,
+    supportUrl: PEARL_ABYSS_SUPPORT_URL,
+  });
+  const scannerStatusText = radar.scannerConnected
+    ? radar.scannerActive
+      ? "Scanner scheduled"
+      : "Scanner paused"
+    : "Scanner unavailable";
+  const scannerStatusTone = radar.scannerConnected
+    ? radar.scannerActive
+      ? "var(--green-bright)"
+      : "var(--amber-bright)"
+    : "var(--text-faint)";
+  const scannerStatusDot = radar.scannerConnected
+    ? radar.scannerActive
+      ? "var(--green)"
+      : "var(--amber)"
+    : "var(--text-faint)";
 
   return (
     <div className="space-y-6">
@@ -87,8 +115,8 @@ export default async function DashboardPage() {
         <div className="min-w-0 space-y-2.5">
           <h1 className="h-display max-w-3xl">Crimson Desert Report Hub</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            A community evidence board for patch damage: what is backed, how strong the signal is, where the source
-            links are, and what changed over time.
+            Current situation for Crimson Desert: backed issues, scanner signals, source links, and what looks worth
+            checking.
           </p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs" style={{ color: "var(--text-faint)" }}>
             <span className="num" style={{ color: "var(--text-dim)" }}>{active.length}</span> backed issues
@@ -97,7 +125,7 @@ export default async function DashboardPage() {
             <span aria-hidden="true">·</span>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.communitySignals}</span> public signals
             <span aria-hidden="true">·</span>
-            {d.latestReportAt ? `latest report ${timeAgo(d.latestReportAt)}` : "no reports yet"}
+            {d.latestReportAt ? `latest player report ${timeAgo(d.latestReportAt)}` : "no player reports yet"}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2.5 md:justify-end">
@@ -152,17 +180,35 @@ export default async function DashboardPage() {
       </section>
 
       <section className="panel-inset flex flex-wrap items-center justify-between gap-3 border px-4 py-3 text-sm">
-        <div style={{ color: "var(--text-dim)" }}>
-          <span className={d.scanner.paused ? "badge badge-amber badge-dot" : "badge badge-green badge-dot"}>
-            {d.scanner.paused ? "scanner paused" : "scanner scheduled"}
-          </span>{" "}
-          {d.latestAutomationRun
-            ? `Last scan ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
-            : "No non-test scan has run yet."}
+        <div className="min-w-0 space-y-1.5" style={{ color: "var(--text-dim)" }}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="badge badge-blue">Right now</span>
+            <span>{readout.snapshotLine}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" style={{ color: "var(--text-faint)" }}>
+            <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: scannerStatusTone }}>
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: scannerStatusDot }} />
+              {scannerStatusText}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {d.latestAutomationRun
+                ? `Last scan ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
+                : "No scheduled scan recorded yet."}
+            </span>
+          </div>
         </div>
-        <Link href="/scanner" className="btn btn-ghost btn-sm">
-          Source Radar
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="btn btn-ghost btn-sm">
+            Official notes
+          </a>
+          <a href={PEARL_ABYSS_SUPPORT_URL} target="_blank" rel="noreferrer noopener" className="btn btn-ghost btn-sm">
+            Pearl Abyss support
+          </a>
+          <Link href="/scanner" className="btn btn-ghost btn-sm">
+            Source Radar
+          </Link>
+        </div>
       </section>
 
       {disputedClaims.length > 0 ? (
@@ -185,7 +231,7 @@ export default async function DashboardPage() {
                 style={{ borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" }}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="badge badge-crimson">community evidence still active</span>
+                  <span className="badge badge-crimson">Evidence still active</span>
                   <Link href="/issues" className="link text-xs">
                     View evidence
                   </Link>
@@ -354,7 +400,7 @@ export default async function DashboardPage() {
                 Approved reports and public signals over time.
               </p>
             </div>
-            <span className="badge badge-dim">current patch</span>
+            <span className="badge badge-dim">Current patch</span>
           </div>
           {hasActivity ? (
             <PatchActivityChart reports={d.series} signals={d.signalSeries} />
