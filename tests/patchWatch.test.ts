@@ -55,6 +55,19 @@ describe("patch family helpers", () => {
       ),
     ).toBe(true);
   });
+
+  it("treats hotfix-prefixed current-version sources as post-hotfix evidence without a source date", () => {
+    expect(
+      isPostCurrentPatchEvidence(
+        {
+          title: "FPS still drops after Hotfix 1.13.01",
+          summary: "The frame-rate drop still happens.",
+          sourcePublishedAt: null,
+        },
+        currentPatch,
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("playerIssueStatus", () => {

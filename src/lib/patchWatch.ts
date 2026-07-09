@@ -38,7 +38,7 @@ function patchVersionKey(value: string): string | null {
 function explicitPatchVersionMentions(text: string): { key: string; isFullVersion: boolean }[] {
   const mentions: { key: string; isFullVersion: boolean }[] = [];
   const patterns = [
-    /\b(?:patch|update|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
+    /\b(?:patch|update|hotfix|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
     /\b(?:after|since|on)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
     /\b(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update|hotfix)\b/gi,
   ] as const;

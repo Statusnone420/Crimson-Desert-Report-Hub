@@ -38,9 +38,9 @@ export function normalizePatchVersion(value: string): string {
 export function explicitPatchVersions(text: string): string[] {
   const versions: string[] = [];
   const patterns = [
-    /\b(?:patch|update|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
+    /\b(?:patch|update|hotfix|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
     /\b(?:after|since|on)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
-    /\b(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update)\b/gi,
+    /\b(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update|hotfix)\b/gi,
   ] as const;
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern)) {

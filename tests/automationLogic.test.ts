@@ -915,6 +915,19 @@ describe("automation relevance", () => {
       ).toEqual({ canStore: true, canPublish: true, reason: "current_patch" });
     });
 
+    it("keeps hotfix-prefixed current-patch complaints eligible without a source date", () => {
+      expect(
+        evaluateCurrentPatchEligibility(
+          {
+            title: "Hotfix 1.13.01 crashes still happen",
+            snippet: "Players report crashes after the hotfix.",
+            sourcePublishedAt: null,
+          },
+          { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ canStore: true, canPublish: true, reason: "current_patch" });
+    });
+
     it("keeps same-family 1.13.00 evidence eligible after the 1.13.01 hotfix switch", () => {
       expect(
         evaluateCurrentPatchEligibility(
