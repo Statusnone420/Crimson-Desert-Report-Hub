@@ -145,6 +145,13 @@ export function filterPatchFamilyReports<T extends { patch_version: string | nul
   return rows.filter((row) => Boolean(row.patch_version && belongsToPatchFamily(row.patch_version, currentPatch.version)));
 }
 
+export function latestReportAtFromRows<T extends { created_at: string }>(rows: T[]): string | null {
+  return rows.reduce<string | null>((latest, row) => {
+    if (!latest) return row.created_at;
+    return new Date(row.created_at).getTime() > new Date(latest).getTime() ? row.created_at : latest;
+  }, null);
+}
+
 function countPostCurrentPatchReportsByCluster(
   rows: DashboardReportRow[],
   currentPatch: PatchContext,
@@ -309,13 +316,6 @@ async function getDashboardDataUncached() {
     .select("id", { count: "exact", head: true })
     .eq("moderation_status", "pending");
 
-  const { data: latest } = await supabase
-    .from("bug_reports")
-    .select("created_at")
-    .in("moderation_status", ["approved", "pending"])
-    .order("created_at", { ascending: false })
-    .limit(1);
-
   const [scanner, latestAutomation, currentPatch, claimedFixes, candidateSignalCounts] = await Promise.all([
     getAutomationControlState(supabase as unknown as AutomationSettingsClient),
     supabase
@@ -378,7 +378,7 @@ async function getDashboardDataUncached() {
     signalSeries: buildDailySeries(signalRows.map((row) => ({ created_at: row.observed_at })), 30, new Date()),
     topClusters,
     pendingCount: pendingCount ?? 0,
-    latestReportAt: latest?.[0]?.created_at ?? null,
+    latestReportAt: latestReportAtFromRows(currentReportRows),
     scanner,
     latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
     currentPatch,

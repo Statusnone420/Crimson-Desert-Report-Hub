@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   countDistinctVerifiedReportsByCluster,
   filterPatchFamilyReports,
+  latestReportAtFromRows,
   publicFindingsFromSignals,
 } from "@/lib/queries";
 
@@ -37,6 +38,21 @@ describe("filterPatchFamilyReports", () => {
     );
 
     expect(rows.map((row) => row.cluster_id)).toEqual(["family-base", "family-hotfix"]);
+  });
+});
+
+describe("latestReportAtFromRows", () => {
+  it("uses the newest report after patch-family filtering", () => {
+    const rows = filterPatchFamilyReports(
+      [
+        { cluster_id: "old-major", patch_version: "1.12.00", created_at: "2026-07-08T13:00:00.000Z" },
+        { cluster_id: "family-base", patch_version: "1.13.00", created_at: "2026-07-08T11:00:00.000Z" },
+        { cluster_id: "family-hotfix", patch_version: "1.13.01", created_at: "2026-07-08T12:00:00.000Z" },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+    );
+
+    expect(latestReportAtFromRows(rows)).toBe("2026-07-08T12:00:00.000Z");
   });
 });
 
