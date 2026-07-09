@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { LADDER_DESCRIPTIONS, LADDER_LABELS, type EvidenceLadderState } from "@/lib/evidenceLadder";
 import { ADMIN_OVERRIDE_LABEL, LIFECYCLE_LABELS } from "@/lib/lifecycle";
 
 type Tone = "crimson" | "amber" | "green" | "blue" | "dim";
@@ -167,18 +166,3 @@ export function SignalConfidenceBadge({ confidence }: { confidence: "low" | "med
   return <span className="badge badge-dim">Low confidence</span>;
 }
 
-const LADDER_TONE_CLASS: Record<EvidenceLadderState, string> = {
-  watching: "badge badge-dim",
-  candidates: "badge badge-blue",
-  corroborated: "badge badge-amber",
-  player_confirmed: "badge badge-green",
-};
-
-/** Four-state public evidence ladder badge: watching → candidates → corroborated → player_confirmed. */
-export function EvidenceLadderBadge({ state }: { state: EvidenceLadderState }) {
-  return (
-    <span className={LADDER_TONE_CLASS[state]} title={LADDER_DESCRIPTIONS[state]}>
-      {LADDER_LABELS[state]}
-    </span>
-  );
-}

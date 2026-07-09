@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { ConfirmationKind } from "@/lib/confirmations";
 import { PLATFORMS, PLATFORM_LABELS } from "@/lib/constants";
 
@@ -9,6 +9,33 @@ const KIND_LABELS: Record<ConfirmationKind, string> = {
   still_happening: "Still happening",
   fixed_for_me: "Fixed for me",
 };
+
+// localStorage as an external store: hydration-safe (server snapshot is null) and
+// same-tab writes notify subscribers, which plain localStorage does not.
+const stanceListeners = new Set<() => void>();
+
+function subscribeToStances(listener: () => void): () => void {
+  stanceListeners.add(listener);
+  return () => stanceListeners.delete(listener);
+}
+
+function readStance(key: string): ConfirmationKind | null {
+  try {
+    const stored = window.localStorage.getItem(key);
+    return stored && stored in KIND_LABELS ? (stored as ConfirmationKind) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStance(key: string, kind: ConfirmationKind): void {
+  try {
+    window.localStorage.setItem(key, kind);
+  } catch {
+    // Non-persistent storage: the tap still counted server-side.
+  }
+  for (const listener of stanceListeners) listener();
+}
 
 const KIND_TONES: Record<ConfirmationKind, { color: string; borderColor: string; background: string }> = {
   have_it: { color: "var(--blue)", borderColor: "var(--blue)", background: "var(--blue-tint)" },
@@ -32,24 +59,15 @@ export function ConfirmButtons({
   counts: Partial<Record<ConfirmationKind, number>>;
 }) {
   const storageKey = `cd-confirm-${clusterId}-${patchFamily}`;
+  const answered = useSyncExternalStore(
+    subscribeToStances,
+    () => readStance(storageKey),
+    () => null,
+  );
   const [phase, setPhase] = useState<Phase>("idle");
-  const [answered, setAnswered] = useState<ConfirmationKind | null>(null);
   const [pendingKind, setPendingKind] = useState<ConfirmationKind | null>(null);
   const [bumped, setBumped] = useState<ConfirmationKind | null>(null);
   const [message, setMessage] = useState("");
-
-  // Read the stored stance after mount so server and first client render match.
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(storageKey) as ConfirmationKind | null;
-      if (stored && stored in KIND_LABELS) {
-        setAnswered(stored);
-        setPhase("done");
-      }
-    } catch {
-      // Private-mode storage failures just mean the answered state won't persist.
-    }
-  }, [storageKey]);
 
   async function submit(platform: string) {
     if (!pendingKind) return;
@@ -62,14 +80,9 @@ export function ConfirmButtons({
         body: JSON.stringify({ cluster_id: clusterId, platform, kind: pendingKind }),
       });
       if (res.status === 201) {
-        setAnswered(pendingKind);
         setBumped(pendingKind);
         setPhase("done");
-        try {
-          window.localStorage.setItem(storageKey, pendingKind);
-        } catch {
-          // Non-persistent storage: the tap still counted server-side.
-        }
+        writeStance(storageKey, pendingKind);
         return;
       }
       setMessage(
@@ -88,7 +101,7 @@ export function ConfirmButtons({
     return (counts[kind] ?? 0) + (bumped === kind ? 1 : 0);
   }
 
-  if (phase === "done" && answered) {
+  if (answered) {
     const tone = KIND_TONES[answered];
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-faint)" }}>
