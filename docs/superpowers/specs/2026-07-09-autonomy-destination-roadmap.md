@@ -1,7 +1,8 @@
 # Crimson Desert Report Hub — Autonomy & Destination Roadmap
 
 **Date:** 2026-07-09  
-**Status:** Phase 1 approved by owner and implemented on `dev` for review. GLM-5.2 review amendments, owner AI-first realignment, and GSD codebase map findings incorporated (2026-07-09).
+**Status:** ⚠️ Partially superseded (2026-07-09, owner-approved) by [`2026-07-09-confirmation-board-design.md`](2026-07-09-confirmation-board-design.md) — see its §8 for exactly which rules here no longer bind (silence→"No fresh reports" as settled/green, UI-frozen constraint, follow-ups deferred to Phase 4, the locked label table). Cost/privacy posture here remains in force. Kept as history.
+Phase 1 approved by owner and implemented on `dev` for review. GLM-5.2 review amendments, owner AI-first realignment, and GSD codebase map findings incorporated (2026-07-09).
 **Audience:** Implementing agents and future reviewers.  
 **Branch:** `dev`  
 **Mode:** Design / roadmap plus Phase 1 implementation record.
