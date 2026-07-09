@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
-import { MeterBar, ReadoutBadge, SectionHeader } from "@/components/ui";
+import { MeterBar, ReadoutBadge, SectionHeader, StatCard } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS, PLATFORMS } from "@/lib/constants";
 import { DISPLAY_THRESHOLD_NETWORKS } from "@/lib/readout";
 import { hasClusterEvidence, monitoredAreasNote, splitWatchlistByCandidates } from "@/lib/evidence";
@@ -182,26 +182,18 @@ export default async function IssuesPage() {
         description="Backed issues first. Every number is a report or a tap someone actually sent — the site never fills in blanks."
       />
 
-      <section className="grid grid-cols-3 gap-3">
-        <div className="panel">
-          <div className="stat-label">Topics watched</div>
-          <div className="stat-value mt-1.5">{clusters.length}</div>
-        </div>
-        <div className="panel">
-          <div className="stat-label">With player/public evidence</div>
-          <div className="stat-value mt-1.5">{active.length}</div>
-          {active.length === 0 ? (
-            <div className="mt-1.5 text-xs font-medium" style={{ color: "var(--text-dim)" }}>
-              Nothing confirmed yet
-            </div>
-          ) : null}
-        </div>
-        <div className="panel">
-          <div className="stat-label">Still happening</div>
-          <div className="stat-value mt-1.5" style={{ color: stillHappening ? "var(--crimson-bright)" : undefined }}>
-            {stillHappening}
-          </div>
-        </div>
+      <section className="grid grid-cols-3 gap-2 sm:gap-3">
+        <StatCard label="Watched" value={clusters.length} />
+        <StatCard
+          label="With evidence"
+          value={active.length}
+          note={active.length === 0 ? "Nothing confirmed yet" : undefined}
+        />
+        <StatCard
+          label="Still happening"
+          value={stillHappening}
+          valueTone={stillHappening ? "crimson" : undefined}
+        />
       </section>
 
       {clusters.length === 0 ? (

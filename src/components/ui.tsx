@@ -24,16 +24,20 @@ export function StatCard({
   value,
   note,
   tone = "dim",
+  valueTone,
 }: {
   label: string;
   value: string | number;
   note?: string;
   tone?: Tone;
+  valueTone?: Tone;
 }) {
   return (
     <div className="panel">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value mt-2">{value}</div>
+      <div className="stat-label stat-label-zone">{label}</div>
+      <div className="stat-value mt-2" style={valueTone ? { color: TONE_TEXT[valueTone] } : undefined}>
+        {value}
+      </div>
       {note ? (
         <div className="mt-1.5 text-xs font-medium" style={{ color: TONE_TEXT[tone] }}>
           {note}

@@ -370,5 +370,16 @@ label { font-size: 0.8rem; color: var(--text-dim); display: block; margin-bottom
 }
 .nav-link:hover { color: var(--text); background: var(--surface-2); }
 .nav-link[data-active="true"] { color: var(--text); background: var(--surface-2); }
+/* Single-line nav strip: scrolls sideways on narrow screens, scrollbar hidden. */
+.nav-scroll { scrollbar-width: none; }
+.nav-scroll::-webkit-scrollbar { display: none; }
+@media (max-width: 639px) {
+  /* Taller tap target, tighter width: five links fit a ~375px phone in one line. */
+  .nav-link { padding: 8px 9px; font-size: 0.8125rem; }
+  .nav-scroll { gap: 2px; }
+  /* Stat tiles reserve a two-line label zone so neighboring values share a baseline
+     even when one label wraps and another doesn't. */
+  .stat-label-zone { min-height: 3em; }
+}
 
 ::selection { background: var(--crimson-tint); color: var(--text); }

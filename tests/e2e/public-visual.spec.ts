@@ -22,6 +22,9 @@ async function expectHealthyPage(page: Page, problems: string[]) {
   await expect(page.locator("body")).not.toHaveText("");
   await expect(page.getByText(/Application error|Unhandled Runtime Error|Failed to compile/i)).toHaveCount(0);
   expect(problems).toEqual([]);
+  // The page body must never scroll sideways — wide content scrolls in its own container.
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow, "page has horizontal overflow").toBeLessThanOrEqual(1);
 }
 
 async function signInAsAdmin(page: Page) {
@@ -309,7 +312,7 @@ test.describe("public surface visual regression", () => {
     await expect(page).toHaveTitle(/Crimson Desert Report Hub/i);
     await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/");
     await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("href", "/issues");
-    await expect(nav.getByRole("link", { name: "Submit report" })).toHaveAttribute("href", "/report");
+    await expect(nav.getByRole("link", { name: "Report", exact: true })).toHaveAttribute("href", "/report");
     await expect(nav.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
     await expect(nav.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/scanner");
     await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
