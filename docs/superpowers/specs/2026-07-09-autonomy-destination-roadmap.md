@@ -1,7 +1,7 @@
 # Crimson Desert Report Hub — Autonomy & Destination Roadmap
 
 **Date:** 2026-07-09  
-**Status:** Owner-approved roadmap + GLM-5.2 review amendments + owner AI-first realignment incorporated (2026-07-09). Ready for Phase 1 implementation planning.
+**Status:** Draft under refinement. GLM-5.2 review amendments, owner AI-first realignment, and GSD codebase map findings incorporated (2026-07-09); not approved for Phase 1 implementation until the owner says so.
 **Audience:** Implementing agents and future reviewers.  
 **Branch:** `dev`  
 **Mode:** Design / roadmap — implementation not started in this commit.  
@@ -31,6 +31,17 @@ The old Phase 1 framing was partly wrong for this owner:
 4. The concern is not “AI is unreliable”; the concern is treating negation-blind keyword fallbacks as if they were sure.
 
 The UI constraint remains unchanged: keep the same dense HUD/cockpit. Make the data and lifecycle brain smarter; do not redesign the product chrome.
+
+## GSD codebase-map refinements (2026-07-09)
+
+GSD mapped the existing app before this plan was approved for execution. Phase 1 should follow these constraints from `.planning/codebase/*.md`:
+
+1. The app is a route-first Next.js 16 / React 19 system. New lifecycle logic belongs in narrow `src/lib` and `src/lib/automation` modules, with route handlers and server actions kept as integration boundaries.
+2. There is no dedicated background worker. The lifecycle pass must run inside the existing cron/admin-triggered automation request path, be bounded/idempotent, and avoid broad worker/queue architecture in Phase 1.
+3. Current run orchestration is best-effort and can be weak under concurrent triggers. Phase 1 does not need to solve the whole job-locking architecture, but it must not add fragile lifecycle writes that duplicate, race, or overwrite newer decisions from a stale run snapshot.
+4. Existing admin/session auth is custom and not hardening-grade. Phase 1 should reuse the current `adminGuard` / session boundary for override actions and avoid expanding privileged mutation surface; a full auth hardening project is separate.
+5. Existing Reddit API code may remain, but Phase 1 must not require, expand, or depend on Reddit API health. Tavily/OpenRouter remain the intended discovery and claim-analysis path for this roadmap.
+6. Verification should use the existing local gates: Vitest for pure/domain and route behavior, lint/type-check/build for integration safety, and Playwright screenshots only when UI wiring changes need HUD-regression proof.
 
 ## A) What the owner wants (product north star)
 
@@ -235,16 +246,18 @@ Owner is comfortable spending pennies on DeepSeek/OpenRouter for high-value deci
 2. Keep/extend `routeToWatchlistCluster` for scanner signal routing, but do not present keyword confidence as lifecycle authority.
 3. Add pure `src/lib/lifecycle.ts` — `computeClusterLifecycle(input) → { status, primaryLabel, detail, reasons, needsHuman }`. Inputs include LLM claim decision, fallback proposal, `fix_claimed_at`, public post-hotfix evidence count, patch metadata, `admin_override`, and current status. No Supabase import.
 4. Migration file for `fix_claimed_at`, `admin_override`, `lifecycle_reason`.
-5. Automation run hook loads current patch claimed fixes and all relevant clusters, runs LLM claim mapping where needed, runs pure lifecycle for every relevant cluster, then writes `fix_status` / `fix_claimed_at` / `lifecycle_reason` when not overridden. When overridden, it skips status writes and refreshes reason only.
-6. Admin actions: manual status sets override; clear-override action; admin page shows “Needs you”, system reasons, and override state in existing chrome.
+5. Automation run hook runs inside the existing cron/admin-triggered request path. It loads current patch claimed fixes and all relevant clusters, runs LLM claim mapping where needed, runs pure lifecycle for every relevant cluster, then writes `fix_status` / `fix_claimed_at` / `lifecycle_reason` when not overridden. The pass must be idempotent, bounded, and safe if two runs are triggered close together; stale snapshots must not overwrite newer lifecycle decisions.
+6. Admin actions: manual status sets override; clear-override action; admin page shows “Needs you”, system reasons, and override state in existing chrome. Reuse the existing admin guard/session boundary for every privileged lifecycle mutation.
 7. Label map + read path: use the composer’s primary story in `rightNow`, issues, and claims display. Do not delete/rewrite `playerIssueStatus`, `evidenceLadder`, or `assessClaims`; route the primary story through the new composer surgically.
 8. Leave `issue_clusters.confidence` alone unless proven display-only and needed. Do not create a fifth status dialect.
 
-**Non-goals:** UI redesign, embeddings, follow-ups, Reddit API, Tavily cap raise, production `db push`, paid OpenRouter models, form redesign, accounts, proposal tables unless unavoidable.
+**Non-goals:** UI redesign, embeddings, follow-ups, Reddit API expansion, Tavily cap raise, production `db push`, paid OpenRouter models, form redesign, accounts, proposal tables unless unavoidable, queue/worker rewrite, full run-locking architecture, admin auth overhaul, CSP hardening.
 
 **Verify:**  
 - Unit tests: LLM-sure claim → `fix_claimed`; LLM-unsure/keyword-only does not auto-write; 7-day silence from `fix_claimed_at` → **Looks settled**; public evidence → **Still happening**; private-only candidates do not force persistence; override passthrough; clear override restores automation.
 - FPS fixture: 1 approved player report, 0 public signals, LLM-sure claim match → **PA says fixed — watching**; after 7 days public silence → **Looks settled**; public post-hotfix signal → **Still happening**; zero admin clicks.
+- Concurrency guard: duplicate/near-simultaneous run simulation does not double-set `fix_claimed_at`, clobber `admin_override`, or regress a newer `persists` / **Still happening** decision.
+- Repo gates: `npm run lint`, `npm test`, `npm exec tsc -- --noEmit`, and `npm run build`; run Playwright screenshots only if Phase 1 changes visible HUD wiring.
 - No user/admin-facing “Quiet after claim” or “Verified fixed” status labels.
 - No contradictory primary labels on one card.
 
@@ -435,8 +448,8 @@ Ordered. Migration apply to production only with owner OK in-message.
 2. **Keyword fallback tests** — keep keyword routing available for scanner/fallback proposals, but prove keyword-only claim matches never auto-write lifecycle or set `fix_claimed_at`.
 3. **Pure lifecycle + tests** — `src/lib/lifecycle.ts` + `tests/lifecycle.test.ts`: LLM-sure claim→**PA says fixed — watching**; 7 days from `fix_claimed_at`→**Looks settled**; public evidence→**Still happening**; private-only no persists; no-claim; mid-patch link; override passthrough; clear override restores automation. Pure (no Supabase).
 4. **Migration file** — `fix_claimed_at`, `admin_override`, `lifecycle_reason`; legacy non-overridden rows are re-derived by the first composer-enabled run.
-5. **Write hook** — at automation-run end, load current patch claims and all relevant clusters, run claim mapping/lifecycle for every relevant non-overridden cluster, skip status writes if `admin_override`, and refresh reason when useful.
-6. **Admin actions/page** — `setClusterFixStatus` sets override; clear-override action; show “Needs you”, **Locked by you**, and `lifecycle_reason` in existing admin chrome.
+5. **Write hook** — at automation-run end inside the existing cron/admin request path, load current patch claims and all relevant clusters, run claim mapping/lifecycle for every relevant non-overridden cluster, skip status writes if `admin_override`, and refresh reason when useful. Prove duplicate/near-simultaneous runs do not double-start the clock or overwrite newer lifecycle state.
+6. **Admin actions/page** — `setClusterFixStatus` sets override; clear-override action; show “Needs you”, **Locked by you**, and `lifecycle_reason` in existing admin chrome. Reuse existing `adminGuard` / session checks for all privileged lifecycle mutations.
 7. **Label + read path** — `FIX_STATUS_META` labels become **Still open**, **PA says fixed — watching**, **Looks settled**, **Still happening**; wire `rightNow` / issues / claims through composer primary; surgical, no delete-rewrite of helpers.
 8. **FPS acceptance** — fixture 1 report / 0 public signals / LLM-sure claim → **PA says fixed — watching**; 7 days public silence → **Looks settled**; one public post-hotfix signal → **Still happening**; zero admin clicks.
 
@@ -449,6 +462,8 @@ Ordered. Migration apply to production only with owner OK in-message.
 - Production `supabase db push` without owner OK  
 - Raise Tavily cap in Phase 1  
 - Require Reddit API  
+- Add a new queue/worker architecture for lifecycle
+- Expand privileged admin mutations without existing guard/session checks
 - Embeddings / auto-merge / accounts / form bloat  
 - Honesty/liar framing  
 - Composer writes at render time  
