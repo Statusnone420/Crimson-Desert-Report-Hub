@@ -65,11 +65,15 @@ describe("countPostCurrentPatchReportsByCluster", () => {
       [
         {
           cluster_id: "pre-hotfix-report",
+          category: "performance",
+          platform: "PC (Steam)",
           patch_version: "1.13.00",
           created_at: "2026-07-08T12:00:00.000Z",
         },
         {
           cluster_id: "current-hotfix-report",
+          category: "performance",
+          platform: "PC (Steam)",
           patch_version: "1.13.01",
           created_at: "2026-07-08T12:00:00.000Z",
         },

@@ -35,8 +35,8 @@ function patchVersionKey(value: string): string | null {
   return parts.map((part) => String(Number(part))).join(".");
 }
 
-function explicitPatchVersionKeys(text: string): string[] {
-  const versions: string[] = [];
+function explicitPatchVersionMentions(text: string): { key: string; isFullVersion: boolean }[] {
+  const mentions: { key: string; isFullVersion: boolean }[] = [];
   const patterns = [
     /\b(?:patch|update|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
     /\b(?:after|since|on)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
@@ -44,11 +44,14 @@ function explicitPatchVersionKeys(text: string): string[] {
   ] as const;
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern)) {
-      const key = match[1] ? patchVersionKey(match[1]) : null;
-      if (key) versions.push(key);
+      const version = match[1];
+      const key = version ? patchVersionKey(version) : null;
+      if (key && !mentions.some((mention) => mention.key === key)) {
+        mentions.push({ key, isFullVersion: version.split(".").length === 3 });
+      }
     }
   }
-  return [...new Set(versions)];
+  return mentions;
 }
 
 export function patchFamilyKey(version: string): string | null {
@@ -74,7 +77,9 @@ export function matchesPatchVersion(version: string | null | undefined, currentV
 export function isPostCurrentPatchEvidence(input: PatchWatchEvidenceInput, currentPatch: PatchContext): boolean {
   const sourceText = `${input.title ?? ""} ${input.summary ?? ""}`;
   const currentVersionKey = patchVersionKey(currentPatch.version);
-  if (currentVersionKey && explicitPatchVersionKeys(sourceText).includes(currentVersionKey)) return true;
+  const explicitMentions = explicitPatchVersionMentions(sourceText);
+  if (currentVersionKey && explicitMentions.some((mention) => mention.key === currentVersionKey)) return true;
+  if (currentVersionKey && explicitMentions.some((mention) => mention.isFullVersion)) return false;
 
   if (!input.sourcePublishedAt || !currentPatch.publishedAt) return false;
   const sourceTime = new Date(input.sourcePublishedAt).getTime();

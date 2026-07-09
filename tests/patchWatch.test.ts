@@ -30,6 +30,19 @@ describe("patch family helpers", () => {
     ).toBe(false);
   });
 
+  it("does not let a post-hotfix timestamp override an explicit older patch mention", () => {
+    expect(
+      isPostCurrentPatchEvidence(
+        {
+          title: "Awful performance after patch 1.13.00",
+          summary: "The old patch discussion is still circulating.",
+          sourcePublishedAt: "2026-07-08T12:00:00.000Z",
+        },
+        currentPatch,
+      ),
+    ).toBe(false);
+  });
+
   it("treats post-1.13.01 sources as post-hotfix evidence", () => {
     expect(
       isPostCurrentPatchEvidence(
