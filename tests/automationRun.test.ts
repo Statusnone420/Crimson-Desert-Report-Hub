@@ -2389,7 +2389,8 @@ describe("runAutomationMonitor", () => {
     expect(tables.issue_clusters[0]).toMatchObject({
       fix_status: "fix_claimed",
       fix_claimed_at: "2026-07-05T12:00:00.000Z",
-      lifecycle_reason: "PA claim matched this issue; watching for fresh reports.",
+      // normal states carry no automation prose — the readout composes it at read time
+      lifecycle_reason: null,
     });
     const lifecycleUpdate = mutations.find(
       (mutation) => mutation.table === "issue_clusters" && (mutation.row as { fix_status?: unknown }).fix_status === "fix_claimed",
@@ -2497,7 +2498,7 @@ describe("runAutomationMonitor", () => {
     });
   });
 
-  it("ages a watched fix to no fresh reports after seven public-silent days", async () => {
+  it("never ages a claimed fix by silence — quiet days stay fix_claimed", async () => {
     resetDb({
       issue_clusters: [
         {
@@ -2519,15 +2520,16 @@ describe("runAutomationMonitor", () => {
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
-    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-08T12:00:00.000Z") });
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-30T12:00:00.000Z") });
 
     expect(tables.issue_clusters[0]).toMatchObject({
-      fix_status: "verified_fixed",
-      lifecycle_reason: "No fresh public reports for 7 days after the fix claim.",
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-01T12:00:00.000Z",
+      lifecycle_reason: null,
     });
   });
 
-  it("marks a watched fix still happening when public post-hotfix evidence appears", async () => {
+  it("leaves persistence to the read-time composer — no persists writes from evidence", async () => {
     resetDb({
       issue_clusters: [
         {
@@ -2562,8 +2564,8 @@ describe("runAutomationMonitor", () => {
     await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(tables.issue_clusters[0]).toMatchObject({
-      fix_status: "persists",
-      lifecycle_reason: "Fresh public evidence appeared after the claimed fix.",
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-04T12:00:00.000Z",
     });
   });
 
@@ -2608,7 +2610,7 @@ describe("runAutomationMonitor", () => {
       fix_claimed_at: null,
       admin_override: true,
     });
-    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Locked by you. System would show: Watching fix.");
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Locked by you. System would show: Fix claimed — unverified.");
   });
 });
 

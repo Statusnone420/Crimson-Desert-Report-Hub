@@ -157,7 +157,7 @@ describe("setClusterFixStatus", () => {
         patch: {
           fix_status: "verified_fixed",
           admin_override: true,
-          lifecycle_reason: "Locked by you. Manual status set to No fresh reports.",
+          lifecycle_reason: "Locked by you. Manual status set to Marked fixed by maintainer.",
         },
         filters: [{ column: "id", value: "cluster-one" }],
       },
