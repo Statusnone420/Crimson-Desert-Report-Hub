@@ -149,7 +149,7 @@ export default async function DashboardPage() {
           <StatCard
             label="Evidence-backed issues"
             value={active.length}
-            note={persistentCount > 0 ? `${persistentCount} persist after claimed fixes` : "Reports or public signals"}
+            note={persistentCount > 0 ? `${persistentCount} still happening` : "Reports or public signals"}
             tone={persistentCount > 0 ? "crimson" : "green"}
           />
         </div>
@@ -273,7 +273,7 @@ export default async function DashboardPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="truncate font-medium">{cluster.title}</span>
-                      <FixStatusBadge status={cluster.fix_status} />
+                      <FixStatusBadge status={cluster.fix_status} adminOverride={Boolean(cluster.admin_override)} />
                     </span>
                     <span className="num ml-auto shrink-0 text-xs" style={{ color: "var(--text-dim)" }}>
                       {cluster.directReportCount} reports · {cluster.signalCount} signals

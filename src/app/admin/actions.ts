@@ -17,6 +17,7 @@ import { draftDossierWithAi } from "@/lib/ai";
 import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
+import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { assertProductionWriteAllowed } from "@/lib/previewGuard";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
@@ -134,7 +135,32 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
   if (!clusterId || !(FIX_STATUSES as readonly string[]).includes(fixStatus)) throw new Error("bad input");
 
   const supabase = createServiceClient();
-  const { error } = await supabase.from("issue_clusters").update({ fix_status: fixStatus }).eq("id", clusterId);
+  const label = LIFECYCLE_LABELS[fixStatus as keyof typeof LIFECYCLE_LABELS] ?? fixStatus.replace(/_/g, " ");
+  const { error } = await supabase
+    .from("issue_clusters")
+    .update({
+      fix_status: fixStatus,
+      admin_override: true,
+      lifecycle_reason: `Locked by you. Manual status set to ${label}.`,
+    })
+    .eq("id", clusterId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin");
+  revalidatePublicSurfaces();
+}
+
+export async function clearClusterFixStatusOverride(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const clusterId = String(formData.get("cluster_id") ?? "");
+  if (!clusterId) throw new Error("bad input");
+
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("issue_clusters")
+    .update({ admin_override: false, lifecycle_reason: null })
+    .eq("id", clusterId);
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");

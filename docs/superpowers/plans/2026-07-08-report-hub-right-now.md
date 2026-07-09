@@ -931,13 +931,13 @@ npm run dev
 
 Use Playwright or browser tooling to save:
 
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-home.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-issues.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-report.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-about.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-scanner.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-home-mobile.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-issues-mobile.png`
+- `<local-temp>/cd-report-hub-right-now-home.png`
+- `<local-temp>/cd-report-hub-right-now-issues.png`
+- `<local-temp>/cd-report-hub-right-now-report.png`
+- `<local-temp>/cd-report-hub-right-now-about.png`
+- `<local-temp>/cd-report-hub-right-now-scanner.png`
+- `<local-temp>/cd-report-hub-right-now-home-mobile.png`
+- `<local-temp>/cd-report-hub-right-now-issues-mobile.png`
 
 Expected: screenshots visually show homepage purpose in the first viewport and no text overlap.
 

@@ -116,7 +116,7 @@ describe("playerIssueStatus", () => {
     });
   });
 
-  it("does not mark a claimed fix persistent without post-hotfix evidence", () => {
+  it("marks a claimed fix as watching without post-hotfix evidence", () => {
     expect(
       playerIssueStatus({
         directReportCount: 1,
@@ -126,7 +126,7 @@ describe("playerIssueStatus", () => {
         fixStatus: "fix_claimed",
       }),
     ).toMatchObject({
-      label: "Player reported",
+      label: "Watching fix",
       strengthLabel: "1 player report, 0 public sources",
     });
   });
@@ -141,7 +141,22 @@ describe("playerIssueStatus", () => {
         fixStatus: "fix_claimed",
       }),
     ).toMatchObject({
-      label: "Still happening after hotfix",
+      label: "Still happening",
+      strengthLabel: "1 player report, 0 public sources",
+    });
+  });
+
+  it("labels verified fixed as no fresh reports", () => {
+    expect(
+      playerIssueStatus({
+        directReportCount: 1,
+        publicSignalCount: 0,
+        candidateSignalCount: 0,
+        postCurrentPatchEvidenceCount: 0,
+        fixStatus: "verified_fixed",
+      }),
+    ).toMatchObject({
+      label: "No fresh reports",
       strengthLabel: "1 player report, 0 public sources",
     });
   });

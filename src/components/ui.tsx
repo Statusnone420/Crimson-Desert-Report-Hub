@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { LADDER_DESCRIPTIONS, LADDER_LABELS, type EvidenceLadderState } from "@/lib/evidenceLadder";
+import { ADMIN_OVERRIDE_LABEL, LIFECYCLE_LABELS } from "@/lib/lifecycle";
 
 type Tone = "crimson" | "amber" | "green" | "blue" | "dim";
 
@@ -111,22 +112,42 @@ export function Skeleton({ className, style }: { className?: string; style?: Rea
 }
 
 const FIX_STATUS_META: Record<string, { label: string; cls: string }> = {
-  reported: { label: "Reported", cls: "badge badge-dim" },
-  acknowledged: { label: "PA acknowledged", cls: "badge badge-amber" },
-  fix_claimed: { label: "Fix claimed", cls: "badge badge-amber" },
-  verified_fixed: { label: "Verified fixed", cls: "badge badge-green badge-dot" },
-  persists: { label: "Persists after fix", cls: "badge badge-crimson badge-dot" },
+  reported: { label: LIFECYCLE_LABELS.reported, cls: "badge badge-dim" },
+  acknowledged: { label: LIFECYCLE_LABELS.acknowledged, cls: "badge badge-amber" },
+  fix_claimed: { label: LIFECYCLE_LABELS.fix_claimed, cls: "badge badge-amber" },
+  verified_fixed: { label: LIFECYCLE_LABELS.verified_fixed, cls: "badge badge-green badge-dot" },
+  persists: { label: LIFECYCLE_LABELS.persists, cls: "badge badge-crimson badge-dot" },
 };
 
-export function FixStatusBadge({ status, unverified = false }: { status: string; unverified?: boolean }) {
-  if (unverified && status === "persists") {
-    return <span className="badge badge-amber">Claimed-fix watch item</span>;
+export function FixStatusBadge({
+  status,
+  unverified = false,
+  adminOverride = false,
+  hideIfLabel,
+}: {
+  status: string;
+  unverified?: boolean;
+  adminOverride?: boolean;
+  hideIfLabel?: string;
+}) {
+  let label: string;
+  let cls: string;
+  if (adminOverride) {
+    label = ADMIN_OVERRIDE_LABEL;
+    cls = "badge badge-blue";
+  } else if (unverified && status === "persists") {
+    label = LIFECYCLE_LABELS.fix_claimed;
+    cls = "badge badge-amber";
+  } else if (unverified && status === "reported") {
+    label = LIFECYCLE_LABELS.reported;
+    cls = "badge badge-dim";
+  } else {
+    const meta = FIX_STATUS_META[status] ?? FIX_STATUS_META.reported;
+    label = meta.label;
+    cls = meta.cls;
   }
-  if (unverified && status === "reported") {
-    return <span className="badge badge-dim">Watchlist item</span>;
-  }
-  const meta = FIX_STATUS_META[status] ?? FIX_STATUS_META.reported;
-  return <span className={meta.cls}>{meta.label}</span>;
+  if (hideIfLabel === label) return null;
+  return <span className={cls}>{label}</span>;
 }
 
 const SEVERITY_META: Record<string, { label: string; cls: string }> = {

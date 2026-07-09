@@ -16,6 +16,9 @@ export type ClusterRow = {
   category: string;
   description: string;
   fix_status: string;
+  fix_claimed_at?: string | null;
+  admin_override?: boolean | null;
+  lifecycle_reason?: string | null;
   confidence: string;
   is_public: boolean;
 };
@@ -338,7 +341,7 @@ async function getDashboardDataUncached() {
 
   const { data: clusterData } = await supabase
     .from("issue_clusters")
-    .select("id, slug, title, category, description, fix_status, confidence, is_public")
+    .select("id, slug, title, category, description, fix_status, fix_claimed_at, admin_override, lifecycle_reason, confidence, is_public")
     .eq("is_public", true);
 
   const { data: signals } = await supabase
@@ -443,7 +446,7 @@ async function getIssuesDataUncached() {
 
   const { data: clusterData } = await supabase
     .from("issue_clusters")
-    .select("id, slug, title, category, description, fix_status, confidence, is_public")
+    .select("id, slug, title, category, description, fix_status, fix_claimed_at, admin_override, lifecycle_reason, confidence, is_public")
     .eq("is_public", true);
 
   const { data: reports } = await supabase

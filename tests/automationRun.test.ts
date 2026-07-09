@@ -4,8 +4,10 @@ const mocks = vi.hoisted(() => ({
   extractSignalWithOpenRouter: vi.fn(),
   fetchNewPosts: vi.fn(),
   from: vi.fn(),
+  getClaimedFixesForCurrentPatch: vi.fn(),
   getCurrentPatchMetadata: vi.fn(),
   getRedditToken: vi.fn(),
+  mapClaimToClusterWithOpenRouter: vi.fn(),
   getAutomationControlState: vi.fn(),
   runAutomationMonitor: vi.fn(),
   insertSkippedScheduledRun: vi.fn(),
@@ -42,10 +44,19 @@ vi.mock("@/lib/automation/extract", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/automation/claimMapping", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/claimMapping")>();
+  return {
+    ...actual,
+    mapClaimToClusterWithOpenRouter: mocks.mapClaimToClusterWithOpenRouter,
+  };
+});
+
 vi.mock("@/lib/officialPatch.server", () => ({
   CURRENT_PATCH_TAG: "current-patch",
   PUBLIC_DASHBOARD_TAG: "public-dashboard",
   PUBLIC_ISSUES_TAG: "public-issues",
+  getClaimedFixesForCurrentPatch: mocks.getClaimedFixesForCurrentPatch,
   getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
   syncOfficialPatchNote: mocks.syncOfficialPatchNote,
 }));
@@ -79,12 +90,13 @@ const tables: Record<TableName, Row[]> = {
   approved_excerpts: [],
   automation_settings: [],
 };
-const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown }[] = [];
+const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters?: Filter[] }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
 let selectFailure: { table: TableName; message: string; columns?: string } | null = null;
 let updateFailure: { table: TableName; message: string } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
+let beforeUpdate: ((table: TableName, patch: Row, filters: Filter[]) => void) | null = null;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -105,6 +117,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   selectFailure = null;
   updateFailure = null;
   deleteFailure = null;
+  beforeUpdate = null;
 }
 
 function nextId(table: TableName) {
@@ -292,9 +305,10 @@ class FakeQuery {
     if (updateFailure?.table === this.table) {
       return { data: null, error: { message: updateFailure.message } };
     }
+    beforeUpdate?.(this.table, this.patch!, [...this.filters]);
     const rows = this.filteredRows();
     for (const row of rows) Object.assign(row, this.patch);
-    mutations.push({ table: this.table, type: "update", row: this.patch });
+    mutations.push({ table: this.table, type: "update", row: this.patch, filters: [...this.filters] });
     return { data: rows, error: null };
   }
 
@@ -348,6 +362,16 @@ function configureProviders() {
   mocks.from.mockImplementation((table: TableName) => new FakeQuery(table));
   mocks.getCurrentPatchMetadata.mockResolvedValue(officialPatchFixture);
   mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: officialPatchFixture });
+  mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+  mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+    matchKind: "none",
+    clusterId: null,
+    clusterSlug: null,
+    reason: "No match.",
+    llmCallsUsed: 0,
+    llmCostUsd: 0,
+    extractionModel: null,
+  });
   mocks.getRedditToken.mockResolvedValue("reddit-token");
   mocks.fetchNewPosts.mockResolvedValue([
     {
@@ -2264,6 +2288,267 @@ describe("runAutomationMonitor", () => {
       .filter((progress): progress is { stage?: string } => Boolean(progress));
 
     expect(progressUpdates.some((progress) => progress.stage === "screening")).toBe(true);
+  });
+
+  it("auto-starts lifecycle watching when an LLM-sure claimed fix maps to a cluster", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-05T12:00:00.000Z",
+      lifecycle_reason: "PA claim matched this issue; watching for fresh reports.",
+    });
+    const lifecycleUpdate = mutations.find(
+      (mutation) => mutation.table === "issue_clusters" && (mutation.row as { fix_status?: unknown }).fix_status === "fix_claimed",
+    );
+    expect(lifecycleUpdate?.filters).toEqual(
+      expect.arrayContaining([
+        { type: "eq", column: "id", value: "cluster-fps" },
+        { type: "eq", column: "admin_override", value: false },
+        { type: "eq", column: "fix_status", value: "reported" },
+        { type: "is", column: "fix_claimed_at", value: null },
+      ]),
+    );
+  });
+
+  it("does not regress a newer lifecycle status when a stale run snapshot writes late", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    beforeUpdate = (table, patch) => {
+      if (table !== "issue_clusters" || patch.fix_status !== "fix_claimed") return;
+      Object.assign(tables.issue_clusters[0], {
+        fix_status: "persists",
+        lifecycle_reason: "Fresh public evidence appeared after the claimed fix.",
+      });
+    };
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "persists",
+      fix_claimed_at: null,
+      lifecycle_reason: "Fresh public evidence appeared after the claimed fix.",
+    });
+  });
+
+  it("keeps keyword-only claimed-fix matches as admin proposals", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "keyword_proposal",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "Needs review: keyword match is only a proposal.",
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      extractionModel: null,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "reported",
+      fix_claimed_at: null,
+      lifecycle_reason: "Needs review: keyword match is only a proposal.",
+    });
+  });
+
+  it("ages a watched fix to no fresh reports after seven public-silent days", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "fix_claimed",
+          fix_claimed_at: "2026-07-01T12:00:00.000Z",
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-08T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "verified_fixed",
+      lifecycle_reason: "No fresh public reports for 7 days after the fix claim.",
+    });
+  });
+
+  it("marks a watched fix still happening when public post-hotfix evidence appears", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "fix_claimed",
+          fix_claimed_at: "2026-07-04T12:00:00.000Z",
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-public",
+          cluster_id: "cluster-fps",
+          title: "FPS still drops after patch 1.13.00",
+          summary: "Players report FPS drops after the patch.",
+          source_published_at: "2026-07-04T13:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "persists",
+      lifecycle_reason: "Fresh public evidence appeared after the claimed fix.",
+    });
+  });
+
+  it("does not clobber admin-overridden lifecycle status", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: true,
+          lifecycle_reason: "Locked by you. Manual status set to Open.",
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "reported",
+      fix_claimed_at: null,
+      admin_override: true,
+    });
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Locked by you. System would show: Watching fix.");
   });
 });
 

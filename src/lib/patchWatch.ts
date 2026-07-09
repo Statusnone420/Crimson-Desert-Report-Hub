@@ -18,7 +18,7 @@ export type PlayerIssueStatusInput = {
 };
 
 export type PlayerIssueStatus = {
-  label: "No reports yet" | "Needs confirmation" | "Player reported" | "Still happening after hotfix";
+  label: "No reports yet" | "Needs confirmation" | "Player reported" | "Watching fix" | "No fresh reports" | "Still happening";
   strengthLabel: string;
   detail: string;
   tone: "green" | "amber" | "crimson" | "blue" | "dim";
@@ -95,11 +95,41 @@ export function playerIssueStatus(input: PlayerIssueStatusInput): PlayerIssueSta
         ? `${plural(input.candidateSignalCount, "private mention")}, no public proof`
         : "No player reports or public sources yet";
 
-  if (input.postCurrentPatchEvidenceCount > 0 && input.fixStatus === "fix_claimed") {
+  if (
+    input.postCurrentPatchEvidenceCount > 0 &&
+    (input.fixStatus === "fix_claimed" || input.fixStatus === "verified_fixed" || input.fixStatus === "persists")
+  ) {
     return {
-      label: "Still happening after hotfix",
+      label: "Still happening",
       strengthLabel,
-      detail: "There is evidence dated after the current hotfix, so this claimed fix needs attention.",
+      detail: "Fresh public evidence appeared after the claimed fix.",
+      tone: "crimson",
+    };
+  }
+
+  if (input.fixStatus === "verified_fixed") {
+    return {
+      label: "No fresh reports",
+      strengthLabel,
+      detail: "No fresh public reports are attached right now.",
+      tone: "green",
+    };
+  }
+
+  if (input.fixStatus === "fix_claimed") {
+    return {
+      label: "Watching fix",
+      strengthLabel,
+      detail: "PA claim matched this issue; watching for fresh reports.",
+      tone: "amber",
+    };
+  }
+
+  if (input.fixStatus === "persists") {
+    return {
+      label: "Still happening",
+      strengthLabel,
+      detail: "This is still marked active after a claimed fix.",
       tone: "crimson",
     };
   }
@@ -108,10 +138,7 @@ export function playerIssueStatus(input: PlayerIssueStatusInput): PlayerIssueSta
     return {
       label: "Player reported",
       strengthLabel,
-      detail:
-        input.fixStatus === "fix_claimed"
-          ? "Carried in this patch family, but not proof that it still happens after the hotfix."
-          : "At least one approved player report exists. More reports or public sources would strengthen it.",
+      detail: "At least one approved player report exists. More reports or public sources would strengthen it.",
       tone: "blue",
     };
   }

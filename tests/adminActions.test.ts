@@ -23,7 +23,7 @@ vi.mock("@/lib/automation/run", () => ({
 }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from }) }));
 
-type TableName = "bug_reports" | "approved_excerpts" | "automation_rejected_candidates";
+type TableName = "bug_reports" | "approved_excerpts" | "automation_rejected_candidates" | "issue_clusters";
 type AdminTableName = TableName | "automation_settings";
 
 let insertFailure: { table: TableName; message: string } | null = null;
@@ -138,6 +138,49 @@ describe("moderateReport", () => {
     });
     expect(mutations.some((mutation) => mutation.table === "approved_excerpts")).toBe(false);
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe("setClusterFixStatus", () => {
+  it("manual status changes set an admin override and owner-readable reason", async () => {
+    const { setClusterFixStatus } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("fix_status", "verified_fixed");
+
+    await setClusterFixStatus(formData);
+
+    expect(mutations).toContainEqual({
+      table: "issue_clusters",
+      type: "update",
+      row: {
+        patch: {
+          fix_status: "verified_fixed",
+          admin_override: true,
+          lifecycle_reason: "Locked by you. Manual status set to No fresh reports.",
+        },
+        filters: [{ column: "id", value: "cluster-one" }],
+      },
+    });
+  });
+});
+
+describe("clearClusterFixStatusOverride", () => {
+  it("clears only the override fields so automation can re-derive status", async () => {
+    const { clearClusterFixStatusOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+
+    await clearClusterFixStatusOverride(formData);
+
+    expect(mutations).toContainEqual({
+      table: "issue_clusters",
+      type: "update",
+      row: {
+        patch: { admin_override: false, lifecycle_reason: null },
+        filters: [{ column: "id", value: "cluster-one" }],
+      },
+    });
   });
 });
 

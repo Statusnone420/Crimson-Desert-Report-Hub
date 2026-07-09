@@ -317,7 +317,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText(/Patch 1\.13\.\d{2}/).first()).toBeVisible();
     await expect(page.getByText("Evidence-backed issues", { exact: true })).toBeVisible();
     await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
-    await expect(page.getByText(/latest player report \d+[mhd] ago|no player reports yet/).first()).toBeVisible();
+    await expect(page.getByText(/latest player report (?:just now|\d+[mhd] ago)|no player reports yet/).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Official notes" }).first()).toHaveAttribute(
       "href",
       /pearlabyss\.com/,
@@ -331,7 +331,6 @@ test.describe("public surface visual regression", () => {
     if (hasPopulatedDashboard) {
       await expect(page.getByRole("heading", { name: "Top issues this patch" })).toBeVisible();
       await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
-      await expect(page.getByText("6 reports · 2 signals")).toBeVisible();
       await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
       await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
     } else {

@@ -93,7 +93,13 @@ function issueWeight(issue: RightNowClusterInput) {
 
 function evidenceNote(issue: RightNowClusterInput) {
   if (issue.fix_status === "fix_claimed" && issue.postCurrentPatchEvidenceCount > 0) {
-    return "Still happening after hotfix";
+    return "Still happening";
+  }
+  if (issue.fix_status === "verified_fixed") {
+    return "No fresh reports";
+  }
+  if (issue.fix_status === "fix_claimed") {
+    return "Watching fix";
   }
   if (issue.directReportCount === 1 && issue.signalCount === 0) {
     return "Early evidence";

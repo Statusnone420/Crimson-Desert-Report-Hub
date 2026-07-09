@@ -74,8 +74,8 @@ describe("buildRightNowReadout", () => {
       "Mount, input, and title-screen lockups",
     ]);
     expect(readout.worthChecking[0]).toMatchObject({
-      statusLabel: "Player reported",
-      evidenceNote: "Early evidence",
+      statusLabel: "Watching fix",
+      evidenceNote: "Watching fix",
       strengthLabel: "1 player report, 0 public sources",
       countSummary: "1 report · 0 public sources",
     });

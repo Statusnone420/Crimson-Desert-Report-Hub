@@ -1,6 +1,11 @@
 import "server-only";
 
 import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation/budget";
+import {
+  mapClaimToClusterWithOpenRouter,
+  type ClaimMappingCluster,
+  type ClaimMappingDecision,
+} from "@/lib/automation/claimMapping";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
 import { countIndependentDomains, domainTier } from "@/lib/automation/domains";
 import {
@@ -18,7 +23,9 @@ import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { automationBudgetUsd, automationSubreddits, features } from "@/lib/env";
-import { getCurrentPatchMetadata, syncOfficialPatchNote } from "@/lib/officialPatch.server";
+import { computeClusterLifecycle, type LifecycleClaimDecision } from "@/lib/lifecycle";
+import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata, syncOfficialPatchNote } from "@/lib/officialPatch.server";
+import { isPostCurrentPatchEvidence, matchesPatchVersion } from "@/lib/patchWatch";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { createServiceClient } from "@/lib/supabase";
 
@@ -768,6 +775,189 @@ async function loadRoutableClusters(supabase: ReturnType<typeof createServiceCli
   return (data ?? []) as RoutableClusterRow[];
 }
 
+type LifecycleClusterRow = ClaimMappingCluster & {
+  fix_status: string;
+  fix_claimed_at?: string | null;
+  admin_override?: boolean | null;
+  lifecycle_reason?: string | null;
+};
+
+type LifecycleReportRow = {
+  cluster_id: string | null;
+  patch_version: string | null;
+  created_at: string;
+};
+
+type LifecycleSignalRow = {
+  cluster_id: string | null;
+  title?: string | null;
+  summary: string;
+  source_published_at?: string | null;
+};
+
+async function loadLifecycleClusters(supabase: ReturnType<typeof createServiceClient>): Promise<LifecycleClusterRow[]> {
+  const { data, error } = await supabase
+    .from("issue_clusters")
+    .select("id, slug, title, category, description, fix_status, fix_claimed_at, admin_override, lifecycle_reason")
+    .eq("is_public", true);
+  if (error) throw new Error(`lifecycle clusters read failed: ${error.message}`);
+  return (data ?? []) as LifecycleClusterRow[];
+}
+
+async function loadLifecycleReports(supabase: ReturnType<typeof createServiceClient>): Promise<LifecycleReportRow[]> {
+  const { data, error } = await supabase
+    .from("bug_reports")
+    .select("cluster_id, patch_version, created_at")
+    .eq("moderation_status", "approved");
+  if (error) throw new Error(`lifecycle reports read failed: ${error.message}`);
+  return (data ?? []) as LifecycleReportRow[];
+}
+
+async function loadLifecyclePublicSignals(supabase: ReturnType<typeof createServiceClient>): Promise<LifecycleSignalRow[]> {
+  const { data, error } = await supabase
+    .from("source_signals")
+    .select("cluster_id, title, summary, source_published_at")
+    .eq("public_status", "public");
+  if (error) throw new Error(`lifecycle public signals read failed: ${error.message}`);
+  return (data ?? []) as LifecycleSignalRow[];
+}
+
+function incrementCount(counts: Map<string, number>, clusterId: string | null | undefined): void {
+  if (!clusterId) return;
+  counts.set(clusterId, (counts.get(clusterId) ?? 0) + 1);
+}
+
+function countLifecyclePublicPostHotfixEvidence(
+  reports: LifecycleReportRow[],
+  signals: LifecycleSignalRow[],
+  currentPatch: CurrentPatchContext,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const report of reports) {
+    if (
+      matchesPatchVersion(report.patch_version, currentPatch.version) &&
+      isPostCurrentPatchEvidence({ sourcePublishedAt: report.created_at }, currentPatch)
+    ) {
+      incrementCount(counts, report.cluster_id);
+    }
+  }
+  for (const signal of signals) {
+    if (
+      isPostCurrentPatchEvidence(
+        { title: signal.title ?? null, summary: signal.summary, sourcePublishedAt: signal.source_published_at ?? null },
+        currentPatch,
+      )
+    ) {
+      incrementCount(counts, signal.cluster_id);
+    }
+  }
+  return counts;
+}
+
+function decisionRank(decision: ClaimMappingDecision): number {
+  if (decision.matchKind === "llm_sure") return 3;
+  if (decision.matchKind === "llm_unsure" || decision.matchKind === "keyword_proposal") return 2;
+  return 1;
+}
+
+function toLifecycleClaimDecision(decision: ClaimMappingDecision | undefined): LifecycleClaimDecision | null {
+  if (!decision) return null;
+  if (decision.matchKind === "llm_sure") return { matchKind: "llm_sure", reason: decision.reason };
+  if (decision.matchKind === "llm_unsure") {
+    return { matchKind: "llm_unsure", reason: decision.reason || "Needs review: PA claim was not confidently matched." };
+  }
+  if (decision.matchKind === "keyword_proposal") {
+    return { matchKind: "keyword_proposal", reason: decision.reason || "Needs review: keyword match is only a proposal." };
+  }
+  return { matchKind: "none", reason: decision.reason };
+}
+
+async function writeLifecycleResult(
+  supabase: ReturnType<typeof createServiceClient>,
+  cluster: LifecycleClusterRow,
+  computed: ReturnType<typeof computeClusterLifecycle>,
+): Promise<void> {
+  if (cluster.admin_override) {
+    if (cluster.lifecycle_reason === computed.detail) return;
+    const { error } = await supabase
+      .from("issue_clusters")
+      .update({ lifecycle_reason: computed.detail })
+      .eq("id", cluster.id)
+      .eq("admin_override", true);
+    if (error) throw new Error(`lifecycle override reason update failed: ${error.message}`);
+    return;
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (computed.status !== cluster.fix_status) patch.fix_status = computed.status;
+  if (!cluster.fix_claimed_at && computed.fixClaimedAt) patch.fix_claimed_at = computed.fixClaimedAt;
+  const shouldWriteReason = computed.needsHuman || computed.status !== "reported";
+  if (shouldWriteReason && cluster.lifecycle_reason !== computed.detail) {
+    patch.lifecycle_reason = computed.detail;
+  } else if (!shouldWriteReason && cluster.lifecycle_reason) {
+    patch.lifecycle_reason = null;
+  }
+  if (Object.keys(patch).length === 0) return;
+
+  let query = supabase
+    .from("issue_clusters")
+    .update(patch)
+    .eq("id", cluster.id)
+    .eq("admin_override", false)
+    .eq("fix_status", cluster.fix_status);
+  if (!cluster.fix_claimed_at && computed.fixClaimedAt) {
+    query = query.is("fix_claimed_at", null);
+  }
+  const { error } = await query;
+  if (error) throw new Error(`lifecycle cluster update failed: ${error.message}`);
+}
+
+async function runLifecyclePass(
+  supabase: ReturnType<typeof createServiceClient>,
+  result: AutomationResult,
+  budget: AutomationBudget,
+  currentPatch: CurrentPatchContext,
+  now: Date,
+): Promise<void> {
+  const [clusters, claims, reports, signals] = await Promise.all([
+    loadLifecycleClusters(supabase),
+    getClaimedFixesForCurrentPatch(supabase),
+    loadLifecycleReports(supabase),
+    loadLifecyclePublicSignals(supabase),
+  ]);
+  const evidenceCounts = countLifecyclePublicPostHotfixEvidence(reports, signals, currentPatch);
+  const claimDecisionByCluster = new Map<string, ClaimMappingDecision>();
+  let llmCallsRemaining = Math.max(0, budget.maxLlmCalls - result.llmCallsUsed);
+
+  for (const claim of claims) {
+    const decision = await mapClaimToClusterWithOpenRouter(claim, clusters, {
+      llmCallsRemaining,
+      llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
+    });
+    result.llmCallsUsed += decision.llmCallsUsed;
+    result.llmCostUsd += decision.llmCostUsd;
+    result.estimatedCostUsd += decision.llmCostUsd;
+    llmCallsRemaining = Math.max(0, llmCallsRemaining - decision.llmCallsUsed);
+    if (!decision.clusterId) continue;
+    const existing = claimDecisionByCluster.get(decision.clusterId);
+    if (!existing || decisionRank(decision) > decisionRank(existing)) {
+      claimDecisionByCluster.set(decision.clusterId, decision);
+    }
+  }
+
+  for (const cluster of clusters) {
+    const computed = computeClusterLifecycle({
+      currentStatus: cluster.fix_status,
+      fixClaimedAt: cluster.fix_claimed_at ?? null,
+      adminOverride: Boolean(cluster.admin_override),
+      publicPostHotfixEvidenceCount: evidenceCounts.get(cluster.id) ?? 0,
+      now,
+      claimDecision: toLifecycleClaimDecision(claimDecisionByCluster.get(cluster.id)),
+    });
+    await writeLifecycleResult(supabase, cluster, computed);
+  }
+}
+
 function matchingReportCluster(signal: PreparedSignal, reports: ApprovedReportRow[]): string | null {
   const match = reports.find(
     (report) =>
@@ -1304,9 +1494,10 @@ async function executeAutomationRun(
     writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
 
   let rejected: RejectedCandidate[] = [];
+  let currentPatch: CurrentPatchContext | null = null;
 
   try {
-    let currentPatch = await getCurrentPatchMetadata(supabase);
+    currentPatch = await getCurrentPatchMetadata(supabase);
     if (mode !== "dry_run") {
       try {
         currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
@@ -1363,6 +1554,14 @@ async function executeAutomationRun(
   if (mode !== "dry_run") {
     await persistRejectedCandidates(supabase, runId, rejected, result);
     await deleteExpiredRejectedCandidates(supabase, now, result);
+    if (currentPatch) {
+      try {
+        await runLifecyclePass(supabase, result, budget, currentPatch, now);
+      } catch (error) {
+        result.status = result.status === "success" ? "partial" : result.status;
+        result.errors.push(toErrorMessage(error, "lifecycle pass failed"));
+      }
+    }
   }
 
   await finalizeRunLedgerSafely(supabase, runId, result);

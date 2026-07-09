@@ -74,7 +74,12 @@ export default async function IssuesPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className={statusBadgeClass(status.tone)}>{status.label}</span>
-            <FixStatusBadge status={cluster.fix_status} unverified={unverified} />
+            <FixStatusBadge
+              status={cluster.fix_status}
+              unverified={unverified}
+              adminOverride={Boolean(cluster.admin_override)}
+              hideIfLabel={status.label}
+            />
             <EvidenceLadderBadge state={state} />
           </div>
         </div>
@@ -83,7 +88,7 @@ export default async function IssuesPage() {
           <span className="font-medium" style={{ color: "var(--text)" }}>
             {status.strengthLabel}.
           </span>{" "}
-          {status.detail}
+          {cluster.lifecycle_reason ?? status.detail}
         </div>
 
         <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
@@ -154,7 +159,7 @@ export default async function IssuesPage() {
           ) : null}
         </div>
         <div className="panel">
-          <div className="stat-label">Persistent after claimed fix</div>
+          <div className="stat-label">Still happening</div>
           <div className="stat-value mt-1.5" style={{ color: active.length ? "var(--crimson-bright)" : undefined }}>
             {persistent}
           </div>

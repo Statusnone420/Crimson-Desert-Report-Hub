@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { moderateReport, setClusterFixStatus, signOutAdmin } from "@/app/admin/actions";
+import { clearClusterFixStatusOverride, moderateReport, setClusterFixStatus, signOutAdmin } from "@/app/admin/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { FixStatusBadge, SectionHeader, StatCard } from "@/components/ui";
 import { CATEGORY_LABELS, FIX_STATUSES, PLATFORM_LABELS } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
+import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
 import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -19,13 +20,16 @@ export default async function AdminPage() {
       .eq("moderation_status", "pending")
       .order("created_at", { ascending: true })
       .limit(50),
-    supabase.from("issue_clusters").select("id, title, fix_status").order("title"),
+    supabase.from("issue_clusters").select("id, title, fix_status, admin_override, lifecycle_reason").order("title"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
   ]);
 
   const flaggedReports = flagged ?? [];
+  const clusterRows = clusters ?? [];
+  const lifecycleExceptions = clusterRows.filter((cluster) => String(cluster.lifecycle_reason ?? "").startsWith("Needs review:")).length;
+  const needsYou = (pending.count ?? 0) + lifecycleExceptions;
 
   return (
     <div className="space-y-6">
@@ -54,10 +58,10 @@ export default async function AdminPage() {
       />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Needs you" value={needsYou} note={needsYou === 0 ? "No exceptions" : "Review exceptions"} tone={needsYou > 0 ? "amber" : "green" } />
         <StatCard label="Auto-sorted" value={approved.count ?? 0} note="Approved automatically" tone="green" />
-        <StatCard label="Flagged" value={pending.count ?? 0} note="Waiting for your call" tone="amber" />
+        <StatCard label="Flagged reports" value={pending.count ?? 0} note="Waiting for your call" tone="amber" />
         <StatCard label="Filtered as spam" value={spam.count ?? 0} note="Blocked automatically" tone="dim" />
-        <StatCard label="Issues tracked" value={(clusters ?? []).length} note="Clusters" tone="dim" />
       </section>
 
       <section className="space-y-3">
@@ -132,7 +136,7 @@ export default async function AdminPage() {
                   <input type="hidden" name="id" value={report.id} />
                   <select name="cluster_id" defaultValue={report.cluster_id ?? ""} className="min-w-0">
                     <option value="">No cluster</option>
-                    {(clusters ?? []).map((cluster) => (
+                    {clusterRows.map((cluster) => (
                       <option key={cluster.id} value={cluster.id}>
                         {cluster.title}
                       </option>
@@ -161,24 +165,39 @@ export default async function AdminPage() {
       </section>
 
       <section className="panel">
-        <div className="stat-label mb-3">Cluster fix-status</div>
+        <div className="stat-label mb-3">Lifecycle overrides</div>
         <div className="space-y-2">
-          {(clusters ?? []).map((cluster) => (
-            <form key={cluster.id} action={setClusterFixStatus} className="flex flex-wrap items-center gap-2 text-sm">
-              <input type="hidden" name="cluster_id" value={cluster.id} />
+          {clusterRows.map((cluster) => (
+            <div key={cluster.id} className="flex flex-wrap items-center gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate">{cluster.title}</span>
-              <FixStatusBadge status={cluster.fix_status} />
-              <select name="fix_status" defaultValue={cluster.fix_status} className="w-52">
-                {FIX_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status.replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
-              <SubmitButton className="btn btn-ghost btn-sm" pendingText="Saving…">
-                Save
-              </SubmitButton>
-            </form>
+              <FixStatusBadge status={cluster.fix_status} adminOverride={Boolean(cluster.admin_override)} />
+              {cluster.lifecycle_reason ? (
+                <span className="min-w-48 flex-1 text-xs" style={{ color: "var(--text-dim)" }}>
+                  {cluster.lifecycle_reason}
+                </span>
+              ) : null}
+              <form action={setClusterFixStatus} className="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="cluster_id" value={cluster.id} />
+                <select name="fix_status" defaultValue={cluster.fix_status} className="w-44">
+                  {FIX_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {LIFECYCLE_LABELS[status] ?? status.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+                <SubmitButton className="btn btn-ghost btn-sm" pendingText="Locking...">
+                  Lock
+                </SubmitButton>
+              </form>
+              {cluster.admin_override ? (
+                <form action={clearClusterFixStatusOverride}>
+                  <input type="hidden" name="cluster_id" value={cluster.id} />
+                  <SubmitButton className="btn btn-ghost btn-sm" pendingText="Clearing...">
+                    Clear
+                  </SubmitButton>
+                </form>
+              ) : null}
+            </div>
           ))}
         </div>
       </section>

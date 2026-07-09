@@ -18,6 +18,9 @@
 # local agent worktrees
 /.worktrees
 
+# local planning artifacts
+/.planning/
+
 # next.js
 /.next/
 /out/
