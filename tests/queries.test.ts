@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   countDistinctVerifiedReportsByCluster,
+  excerptsByClusterForCurrentPatch,
   filterPatchFamilyReports,
   latestReportAtFromRows,
   publicFindingsFromSignals,
@@ -53,6 +54,31 @@ describe("latestReportAtFromRows", () => {
     );
 
     expect(latestReportAtFromRows(rows)).toBe("2026-07-08T12:00:00.000Z");
+  });
+});
+
+describe("excerptsByClusterForCurrentPatch", () => {
+  it("filters stale excerpts before applying the public excerpt cap", () => {
+    const staleRows = Array.from({ length: 120 }, (_, index) => ({
+      excerpt_text: `old excerpt ${index}`,
+      created_at: "2026-07-08T13:00:00.000Z",
+      bug_reports: { cluster_id: "old-cluster", platform: "PC (Steam)", patch_version: "1.12.00" },
+    }));
+    const grouped = excerptsByClusterForCurrentPatch(
+      [
+        ...staleRows,
+        {
+          excerpt_text: "current patch excerpt",
+          created_at: "2026-07-08T12:00:00.000Z",
+          bug_reports: { cluster_id: "current-cluster", platform: "Base PS5", patch_version: "1.13.01" },
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+      100,
+    );
+
+    expect(grouped["old-cluster"]).toBeUndefined();
+    expect(grouped["current-cluster"]).toEqual([{ text: "current patch excerpt", platform: "Base PS5" }]);
   });
 });
 

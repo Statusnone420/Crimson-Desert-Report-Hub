@@ -981,6 +981,20 @@ describe("automation relevance", () => {
       ).toEqual({ keep: false, reason: "source_not_issue_report" });
     });
 
+    it("keeps patch-release titles when they contain complaint language", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Patch 1.13.01 released, but crashes still happen",
+            snippet: "After the hotfix, crashes still happen when loading the map.",
+            sourceDomain: "example.com",
+            sourcePublishedAt: "2026-07-08",
+          },
+          { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toEqual({ keep: true });
+    });
+
     it("rejects issue language from a different patch than the current one", () => {
       expect(
         preScreenCandidate(

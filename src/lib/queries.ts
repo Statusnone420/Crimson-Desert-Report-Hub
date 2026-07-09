@@ -226,6 +226,27 @@ function relatedReport<T>(value: RelatedReport<T>): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
+export function excerptsByClusterForCurrentPatch(
+  rows: ExcerptRow[],
+  currentPatch: PatchContext,
+  limit = 100,
+): Record<string, { text: string; platform: string }[]> {
+  const excerptsByCluster: Record<string, { text: string; platform: string }[]> = {};
+  let kept = 0;
+  for (const excerpt of rows) {
+    if (kept >= limit) break;
+    const report = relatedReport(excerpt.bug_reports);
+    if (!report?.patch_version || !belongsToPatchFamily(report.patch_version, currentPatch.version)) continue;
+    const key = report.cluster_id ?? "unclustered";
+    (excerptsByCluster[key] ??= []).push({
+      text: excerpt.excerpt_text,
+      platform: report.platform ?? "other",
+    });
+    kept += 1;
+  }
+  return excerptsByCluster;
+}
+
 function excerptClusterId(excerpt: VerifiedReportClusterRow): string | null {
   const report = relatedReport(excerpt.bug_reports);
   return report?.cluster_id ?? null;
@@ -422,8 +443,7 @@ async function getIssuesDataUncached() {
   const { data: excerpts } = await supabase
     .from("approved_excerpts")
     .select("excerpt_text, created_at, bug_reports(cluster_id, platform, patch_version)")
-    .order("created_at", { ascending: false })
-    .limit(100);
+    .order("created_at", { ascending: false });
 
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase);
 
@@ -458,16 +478,7 @@ async function getIssuesDataUncached() {
     (signalsByCluster[key] ??= []).push(signal);
   }
 
-  const excerptsByCluster: Record<string, { text: string; platform: string }[]> = {};
-  for (const excerpt of (excerpts ?? []) as ExcerptRow[]) {
-    const report = relatedReport(excerpt.bug_reports);
-    if (!report?.patch_version || !belongsToPatchFamily(report.patch_version, currentPatch.version)) continue;
-    const key = report?.cluster_id ?? "unclustered";
-    (excerptsByCluster[key] ??= []).push({
-      text: excerpt.excerpt_text,
-      platform: report?.platform ?? "other",
-    });
-  }
+  const excerptsByCluster = excerptsByClusterForCurrentPatch((excerpts ?? []) as ExcerptRow[], currentPatch);
 
   return { clusters, excerptsByCluster, signalsByCluster };
 }

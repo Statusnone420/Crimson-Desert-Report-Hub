@@ -47,7 +47,6 @@ const SYMPTOM_PATTERNS = [
 
 const BROAD_CONTENT_PATTERNS = [
   /\bpatch notes?\b/i,
-  /\b(?:patch|hotfix|update)\b.{0,80}\b(?:released|detailed|full notes?|update notes?|release notes?)\b/i,
   /\breview\b/i,
   /\bbenchmark\b/i,
   /\bperformance test\b/i,
@@ -60,6 +59,10 @@ const BROAD_CONTENT_PATTERNS = [
   /\btrailer\b/i,
   /\bwalkthrough\b/i,
   /\bfirst look\b/i,
+] as const;
+
+const PATCH_RELEASE_TITLE_PATTERNS = [
+  /\b(?:patch|hotfix|update)\b.{0,80}\b(?:released|detailed|full notes?|update notes?|release notes?)\b/i,
 ] as const;
 
 const NO_ISSUE_PATTERNS = [
@@ -154,6 +157,10 @@ function isBroadContentTitle(title: string): boolean {
   return matchesAny(title, BROAD_CONTENT_PATTERNS);
 }
 
+function isPatchReleaseTitle(title: string): boolean {
+  return matchesAny(title, PATCH_RELEASE_TITLE_PATTERNS);
+}
+
 function isClaimedFixNotReport(text: string): boolean {
   const isClaimedFixedSymptomAnnouncement =
     matchesAny(text, FIX_ANNOUNCEMENT_CUES) && matchesAny(text, CLAIMED_FIXED_SYMPTOM_PATTERNS);
@@ -230,6 +237,13 @@ export function preScreenCandidate(
   );
   if (!patchEligibility.canStore) {
     return { keep: false, reason: patchEligibility.reason === "wrong_patch" ? "wrong_patch" : "stale_source" };
+  }
+  if (
+    isPatchReleaseTitle(input.title) &&
+    !matchesAny(sourceText, FIX_PERSISTENCE_CUES) &&
+    !hasComplaintSymptom(sourceText)
+  ) {
+    return { keep: false, reason: "source_not_issue_report" };
   }
   if (isBroadContentTitle(input.title)) {
     return { keep: false, reason: "source_not_issue_report" };
