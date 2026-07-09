@@ -1,11 +1,11 @@
 # Crimson Desert Report Hub — Autonomy & Destination Roadmap
 
 **Date:** 2026-07-09  
-**Status:** Owner-approved roadmap; awaiting reviewing-agent pass before Phase 1 code  
-**Audience:** Reviewing agent (LLM) prior to execution. Grow the idea; do not nitpick tone or bikeshed renames.  
+**Status:** Owner-approved roadmap + GLM-5.2 review amendments incorporated (2026-07-09). Ready for Phase 1 implementation after owner picks quiet badge label.  
+**Audience:** Implementing agents and future reviewers.  
 **Branch:** `dev`  
-**Mode:** Design / roadmap only — no implementation yet.  
-**Authoring agent:** Grok (brainstorming after Kimi essay + owner screenshots + owner revision rounds).
+**Mode:** Design / roadmap — implementation not started in this commit.  
+**Authoring agent:** Grok (roadmap) + GLM-5.2 (structural review, approve-with-amendments) + Grok (amendment merge).
 
 ---
 
@@ -121,27 +121,68 @@ Owner reported FPS regression (1 report, 0 public signals). 1.13.01 shipped; see
 
 **Pain:** FPS dropdown / “now what?”
 
-**Build**
+#### Required schema (minimal migration — file only until owner OK to apply)
 
-1. Pure `computeClusterLifecycle` (new small module or tight extension of `claims`/`patchWatch`):
-   - Inputs: claim routing, post-hotfix evidence counts, last evidence timestamps, patch publish time, admin override if any
-   - Outputs: `{ status, primaryLabel, detail, reasons[] }`
-2. **Policy (owner-confirmed):**
-   - Claim routes confidently → `fix_claimed` (auto)
-   - `fix_claimed` + post-hotfix evidence > 0 → `persists` (auto)
-   - `fix_claimed` + **7 days** zero post-hotfix evidence → quiet state (prefer reuse `verified_fixed` with new **semantics/labels** to avoid migration unless necessary; document semantic change)
-   - No claim → do not invent quiet/fixed
-3. Write on automation run end; public pages read stored status + reason
-4. Admin dropdown = **override**, show computed reason
-5. Composer guarantees **one primary** public story (existing badge components updated in place — same look, coherent data)
+`issue_clusters` today has **no** `fix_claimed_at` / override bit (`schema.sql`). Silence cannot safely use patch `published_at` alone (claim may link mid-patch → false immediate quiet).
 
-**Non-goals:** UI redesign, embeddings, follow-ups, Reddit API
+| Column | Type | Purpose |
+| --- | --- | --- |
+| `fix_claimed_at` | `timestamptz null` | Clock start: first time lifecycle commits a claim→cluster match at **high** confidence |
+| `admin_override` | `boolean not null default false` | Composer must not clobber admin on every hourly run |
+| `lifecycle_reason` | `text null` | Human-readable why status is what it is (also written when overridden, so admin sees “system would say…”) |
 
-**Verify:** unit tests for claim+7d silence, claim+evidence, no-claim; FPS-class fixture needs zero admin clicks; no conflicting primary labels
+No new `fix_status` enum values. Reuse `verified_fixed` for quiet-after-claim **semantics**. **Label must change** in `ui.tsx` `FIX_STATUS_META` (today: “Verified fixed”) — owner picks display string (open question below).
 
-**Files:** `constants.ts`, `claims.ts`, `patchWatch.ts`, `queries.ts`, `automation/run.ts`, `admin/actions.ts`, `admin/page.tsx`, `components/ui.tsx` (label maps only), pages only if they assemble badges inconsistently
+Legacy rows: first composer run re-derives all non-overridden clusters; document + optional one-time reset of pre-Phase-1 `verified_fixed` so old “I clicked it” meaning does not linger.
 
-**Possible schema need (reviewer should check):** `fix_claimed_at` or “lifecycle_changed_at” if silence cannot be measured from patch publish time alone when claim is linked mid-patch. Prefer minimal columns.
+#### Router confidence (required before any auto-write of `fix_claimed`)
+
+`routeToWatchlistCluster` (`route.ts`) today returns `RoutableCluster | null` only — **no confidence**. Keyword patterns are presence-based and **negation-blind** (`/\bfps\b/i` matches “no fps issues”). Roadmap phrase “routes confidently” cannot be implemented without this change.
+
+| Match kind | Confidence | Auto-write `fix_status = fix_claimed`? | Set `fix_claimed_at`? |
+| --- | --- | --- | --- |
+| Validated LLM slug | **high** | Yes | Yes (on first commit) |
+| Keyword regex | **medium** | **No** — admin **proposal** only | **No** (clock must not start until high commit) |
+| No match | null | No | No |
+
+Keyword stays **medium forever** (never high) so negation-blind false positives cannot manufacture green/amber lifecycle lies. Optional later: negation windows in regex — not required if medium never auto-writes.
+
+#### Lifecycle policy (owner + review)
+
+| Rule | Behavior |
+| --- | --- |
+| High-confidence claim match | Auto `fix_claimed`; set `fix_claimed_at` if null |
+| Medium-confidence claim match | Do **not** change `fix_status`; surface proposal in admin with reason |
+| `fix_claimed` + **public** post-hotfix evidence > 0 | Auto `persists` |
+| `fix_claimed` + **7 days** after `fix_claimed_at` + zero **public** post-hotfix evidence | Auto quiet (`verified_fixed` value, new label) |
+| Private/candidate-only post-hotfix noise | Does **not** flip `persists` (align with `promote.ts` public gate) |
+| No claim | Do not invent quiet/fixed |
+| `admin_override = true` | Skip status writes; still refresh `lifecycle_reason` with what system would compute |
+| Clear override admin action | Re-enable composer control |
+
+**Public post-hotfix evidence** = counts already used for dispute/display, but gated to signals with `public_status = 'public'` (not private candidates). Prevents one scrapy private hit from crimson-flipping a cluster.
+
+#### Build
+
+1. Pure `src/lib/lifecycle.ts` — `computeClusterLifecycle(input) → { status, primaryLabel, detail, reasons[] }`  
+   Inputs: claim match + confidence tier, `fix_claimed_at`, public post-hotfix evidence count, `last_signal_at`, patch metadata (context only, **not** silence clock), `admin_override`.  
+   **Pure on read** — no Supabase import. **Write only** inside automation run (after/near `refreshClusterStats` in `run.ts`).
+2. Extend `routeToWatchlistCluster` return type with confidence; tests for high/medium/null.
+3. Migration file for three columns + legacy reconciliation note.
+4. Run hook writes `fix_status` / `fix_claimed_at` / `lifecycle_reason` when not overridden.
+5. `setClusterFixStatus` sets `admin_override = true` + reason; add clear-override action; admin UI shows computed reason in **existing** detail slots.
+6. Label map: `verified_fixed` → owner-approved quiet wording (not “Verified fixed”).
+7. Read path: `rightNow.ts`, issues page, claims display consume composer primary story — do **not** delete `playerIssueStatus` / `evidenceLadder` / `assessClaims`; route through composer surgically.
+8. Leave `issue_clusters.confidence` alone unless proven display-only and needed — do not create a fifth dialect.
+
+**Non-goals:** UI redesign, embeddings, follow-ups, Reddit API, Tavily cap raise, production `db push` without owner OK.
+
+**Verify:**  
+- Unit tests: claim+7d silence from `fix_claimed_at` (not patch publish); claim+public evidence→persists; private-only evidence does not→persists; no-claim; mid-patch claim link; override passthrough; keyword never auto-writes.  
+- FPS fixture: 1 report, 0 public signals, high-confidence claim → monitoring then quiet at 7d with reason; zero admin clicks.  
+- No conflicting primary labels on one card.
+
+**Files:** `lifecycle.ts` (new), `route.ts`, `run.ts`, `claims.ts`, `patchWatch.ts`, `rightNow.ts`, `queries.ts`, `admin/actions.ts`, `admin/page.tsx`, `components/ui.tsx` (label + reason only), migration under `supabase/migrations/`, tests listed in §M checklist.
 
 ---
 
@@ -241,12 +282,15 @@ Without Tavily (and with Reddit API off), the automated discovery side of the co
 
 ## G) PR order on `dev`
 
-1. Lifecycle pure functions + tests (7-day silence)  
-2. Wire writes on scan + admin override + reason strings  
-3. Point existing dashboard/issues badges at composer (minimal UI touch)  
-4. Scanner/admin exception semantics  
-5. Follow-ups if still wanted  
-6. Optional: raise Tavily cap / per-run credits only after measurement  
+1. Router confidence tier + tests (`route.ts`)  
+2. Lifecycle pure functions + tests (`lifecycle.ts`, 7-day from `fix_claimed_at`)  
+3. Migration file (three columns + legacy note) — local/preview only until owner OK  
+4. Wire writes on scan + admin override/clear + reason strings  
+5. Label map + point existing dashboard/issues badges at composer (minimal UI touch)  
+6. FPS acceptance fixture  
+7. Scanner/admin exception semantics (Phase 3)  
+8. Follow-ups if still wanted (Phase 4)  
+9. Optional: raise Tavily cap / per-run credits only after measurement  
 
 ---
 
@@ -276,23 +320,17 @@ Without Tavily (and with Reddit API off), the automated discovery side of the co
 
 ---
 
-## J) Advice for reviewing agent (grow, don’t nitpick)
+## J) Review disposition (GLM-5.2, 2026-07-09)
 
-**Do challenge:**
+**Verdict accepted:** Approve with amendments. Strategy spine confirmed. Three load-bearing holes closed in §E Phase 1:
 
-- Whether 7-day silence needs `fix_claimed_at` vs patch `published_at`  
-- Auto-write vs propose when claim→cluster routing confidence is low  
-- Collapsing FIX_STATUSES + ladder into one model without huge migration  
-- Exact weight of follow-ups vs public signals  
-- Whether Phase 2 can be entirely absorbed into Phase 1 PR if composer is the only page touch needed  
+1. Silence clock = `fix_claimed_at`, not patch `published_at`  
+2. Router confidence tier; auto-write only **high**  
+3. `admin_override` so hourly composer cannot clobber admin  
 
-**Do not:**
+**Grok refinement on medium confidence:** Do **not** set `fix_claimed_at` on medium proposals (GLM suggested writing the timestamp without status). Clock starts only when high-confidence `fix_claimed` is committed — otherwise silence can expire before a real claim is ever public.
 
-- Propose a redesign of the dashboard “for clarity”  
-- Re-center on admin bugtracker  
-- Require Reddit API  
-- Expand into embeddings in v1  
-- Relitigate “liar” framing  
+**Still open for owner:** exact display label replacing “Verified fixed” (enum value stays `verified_fixed`).
 
 ---
 
@@ -300,14 +338,57 @@ Without Tavily (and with Reddit API off), the automated discovery side of the co
 
 | Knob | Value |
 | --- | --- |
-| Silence → quiet | **7 days** |
+| Silence → quiet | **7 days** from `fix_claimed_at` |
 | UI redesign | **Forbidden** — feed existing cockpit |
 | Reddit API | **Shelved** (Tavily for discovery) |
-| Tavily paid upgrade | **Deferred** until headroom + Phase 1–2; explain only |
+| Tavily paid upgrade | **Deferred** until headroom + Phase 1–2 |
 | Phase 0 honesty | **Killed** |
+| Auto `fix_claimed` | **High confidence only** (LLM slug) |
+| Keyword routes | **Medium** — propose only, never auto-write |
+| Auto `persists` | **Public** post-hotfix evidence only |
+| Quiet badge label | **Owner TBD** (see open question) |
 
 ---
 
 ## L) Human TL;DR
 
-You’re not missing a soul in the screenshots — you’re missing a **closed data loop** so the cockpit’s gauges stop fighting each other, and so you stop being the human firmware for fix-status. Keep the HUD. Automate lifecycle (7-day quiet). Make admin an exception panel. Don’t buy Tavily upgrades until free capacity and lifecycle work are used. Proud = people open this for Crimson Desert instead of five other tabs — with the dashboard they already like, telling a coherent story.
+You’re not missing a soul in the screenshots — you’re missing a **closed data loop** so the cockpit’s gauges stop fighting each other, and so you stop being the human firmware for fix-status. Keep the HUD. Automate lifecycle (7-day quiet from claim-link time). Auto-write only high-confidence claims; keyword = proposal. Protect admin overrides. Don’t buy Tavily upgrades until free capacity and lifecycle work are used. Proud = people open this for Crimson Desert instead of five other tabs — with the dashboard they already like, telling a coherent story.
+
+---
+
+## M) Phase 1 execution checklist (implementer)
+
+Ordered. Migration apply to production only with owner OK in-message.
+
+1. **Router confidence + tests** — `route.ts`: return `{ cluster, confidence: "high" | "medium" | null }`; LLM slug = high; keyword = medium; null = none. Keyword never high.  
+2. **Pure lifecycle + tests** — `src/lib/lifecycle.ts` + `tests/lifecycle.test.ts`: claim+7d from `fix_claimed_at`→quiet; claim+public evidence→persists; private-only no persists; no-claim; mid-patch link; override passthrough. Pure (no Supabase).  
+3. **Migration file** — `fix_claimed_at`, `admin_override`, `lifecycle_reason`; legacy `verified_fixed` reconciliation note.  
+4. **Write hook** — after `refreshClusterStats` in `run.ts`; skip status write if `admin_override`; always refresh reason when useful.  
+5. **Admin actions** — `setClusterFixStatus` sets override; clear-override action; show `lifecycle_reason` in existing admin chrome.  
+6. **Label + read path** — `FIX_STATUS_META` quiet label; wire `rightNow` / issues / claims through composer primary; surgical, no delete-rewrite of helpers.  
+7. **FPS acceptance** — fixture 1 report / 0 public signals / high claim → monitoring → quiet at 7d; one public post-hotfix → persists; zero admin clicks.
+
+### Do not do (implementer)
+
+- Redesign dashboard/badges/nav/graphs  
+- New `fix_status` enum values  
+- Auto-write `fix_claimed` on keyword matches  
+- Auto-`persists` from private candidates  
+- Production `supabase db push` without owner OK  
+- Raise Tavily cap in Phase 1  
+- Require Reddit API  
+- Embeddings / auto-merge / accounts / form bloat  
+- Honesty/liar framing  
+- Composer writes at render time  
+- Rewrite ladder/claims/playerIssueStatus from scratch  
+- Touch `issue_clusters.confidence` into a fifth dialect  
+
+### Open question (owner)
+
+Replacement **display** label for reused `verified_fixed` enum, e.g.:
+
+- “Quiet after claim”  
+- “No new signals (7d)”  
+- Owner’s pick  
+
+Enum reuse is safe; only the string kills the “Verified fixed + remains unverified” contradiction at the badge.
