@@ -150,6 +150,27 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
   revalidatePublicSurfaces();
 }
 
+const VISIBILITY_OVERRIDES = ["auto", "force_public", "force_hidden"] as const;
+
+/** Writer for the promotion engine's visibility escape hatch (it already reads this column). */
+export async function setClusterVisibilityOverride(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const clusterId = String(formData.get("cluster_id") ?? "");
+  const visibility = String(formData.get("visibility") ?? "");
+  if (!clusterId || !(VISIBILITY_OVERRIDES as readonly string[]).includes(visibility)) throw new Error("bad input");
+
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("issue_clusters")
+    .update({ admin_visibility_override: visibility === "auto" ? null : visibility })
+    .eq("id", clusterId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin");
+  revalidatePublicSurfaces();
+}
+
 export async function clearClusterFixStatusOverride(formData: FormData): Promise<void> {
   await requireAdmin();
   assertProductionWriteAllowed();

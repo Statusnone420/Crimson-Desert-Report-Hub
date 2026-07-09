@@ -184,6 +184,54 @@ describe("clearClusterFixStatusOverride", () => {
   });
 });
 
+describe("setClusterVisibilityOverride", () => {
+  it("force_public writes the promotion escape hatch the engine already reads", async () => {
+    const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("visibility", "force_public");
+
+    await setClusterVisibilityOverride(formData);
+
+    expect(mutations).toContainEqual({
+      table: "issue_clusters",
+      type: "update",
+      row: {
+        patch: { admin_visibility_override: "force_public" },
+        filters: [{ column: "id", value: "cluster-one" }],
+      },
+    });
+  });
+
+  it("auto clears the override back to engine control", async () => {
+    const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("visibility", "auto");
+
+    await setClusterVisibilityOverride(formData);
+
+    expect(mutations).toContainEqual({
+      table: "issue_clusters",
+      type: "update",
+      row: {
+        patch: { admin_visibility_override: null },
+        filters: [{ column: "id", value: "cluster-one" }],
+      },
+    });
+  });
+
+  it("rejects unknown visibility values", async () => {
+    const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("visibility", "yeet");
+
+    await expect(setClusterVisibilityOverride(formData)).rejects.toThrow("bad input");
+    expect(mutations).toEqual([]);
+  });
+});
+
 describe("setAutomationPaused", () => {
   it("blocks scanner setting writes in Vercel preview", async () => {
     process.env.VERCEL_ENV = "preview";

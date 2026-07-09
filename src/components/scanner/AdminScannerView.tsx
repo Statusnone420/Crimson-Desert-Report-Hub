@@ -155,8 +155,8 @@ function ReviewCandidate({ candidate }: { candidate: RejectedCandidateRow }) {
         </div>
         <form action={rescueRejectedCandidate}>
           <input type="hidden" name="id" value={candidate.id} />
-          <SubmitButton className="btn btn-ghost btn-sm" pendingText="Keeping...">
-            Keep for review
+          <SubmitButton className="btn btn-ghost btn-sm" pendingText="Rescuing...">
+            Rescue
           </SubmitButton>
         </form>
       </div>
@@ -194,9 +194,9 @@ export function AdminScannerView({
   const projectedCredits = projectedMonthlyCredits(control);
   const latestRun = latestRealRun;
   const redditOff = !features.reddit;
-  const reviewQueue = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
-  const visibleQueue = reviewQueue.slice(0, 6);
-  const hiddenQueue = reviewQueue.slice(6);
+  const rejectedArchive = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
+  const visibleArchive = rejectedArchive.slice(0, 3);
+  const hiddenArchive = rejectedArchive.slice(3);
   const recentSignals = signals.slice(0, 6);
 
   return (
@@ -206,7 +206,7 @@ export function AdminScannerView({
           <p className="stat-label">Admin · scanner</p>
           <h1 className="h-display">Scanner monitor</h1>
           <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-            Source health, kept signal links, and the small queue that may need a human call.
+            Source health, kept radar leads, and an expiring archive of auto-rejected candidates.
           </p>
         </div>
       </section>
@@ -237,7 +237,7 @@ export function AdminScannerView({
       <section className="grid gap-4 lg:grid-cols-2 lg:items-start xl:grid-cols-[1.15fr_1.15fr_0.9fr]">
         <section className="panel space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="h-section">Recent kept signals</h2>
+            <h2 className="h-section">Recent radar leads</h2>
             <span className="badge badge-dim">{signals.length} recent</span>
           </div>
           {recentSignals.length > 0 ? (
@@ -251,26 +251,27 @@ export function AdminScannerView({
 
         <section className="panel space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="h-section">Review queue</h2>
+            <h2 className="h-section">Rejected archive</h2>
             <span className="badge badge-dim">
-              <span className="num">{reviewQueue.length}</span>
+              <span className="num">{rejectedArchive.length}</span>&nbsp;expiring
             </span>
           </div>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            Usually noise. Keep anything that is actually a player problem.
+            Auto-rejected candidates, held briefly in case one was real. They expire on their own — rescuing is
+            optional, not homework.
           </p>
-          {visibleQueue.length > 0 ? (
+          {visibleArchive.length > 0 ? (
             <>
-              {visibleQueue.map((candidate) => (
+              {visibleArchive.map((candidate) => (
                 <ReviewCandidate key={candidate.id} candidate={candidate} />
               ))}
-              {hiddenQueue.length > 0 ? (
+              {hiddenArchive.length > 0 ? (
                 <details className="pt-1">
                   <summary className="cursor-pointer text-sm" style={{ color: "var(--text-dim)" }}>
-                    Show {hiddenQueue.length} more filtered candidates
+                    Show {hiddenArchive.length} more before they expire
                   </summary>
                   <div className="mt-2">
-                    {hiddenQueue.map((candidate) => (
+                    {hiddenArchive.map((candidate) => (
                       <ReviewCandidate key={candidate.id} candidate={candidate} />
                     ))}
                   </div>
@@ -279,7 +280,7 @@ export function AdminScannerView({
             </>
           ) : (
             <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-              Nothing waiting. The queue is clear.
+              Archive is empty.
             </p>
           )}
         </section>

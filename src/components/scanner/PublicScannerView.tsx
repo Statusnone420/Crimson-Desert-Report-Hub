@@ -30,7 +30,7 @@ export function PublicScannerView({
           <p className="stat-label">Public source radar</p>
           <h1 className="h-display">Scanner</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            {`Crimson Desert ${patchVersion} web chatter, filtered into source health, private leads, and publishable evidence.`}
+            {`Crimson Desert ${patchVersion} web chatter, filtered into source health, radar leads, and publishable evidence. A lead is a rumor with a link — players confirm or bury it on the issue board.`}
           </p>
         </div>
         <span className={scannerBadgeClass}>{scannerLabel}</span>
@@ -72,7 +72,7 @@ export function PublicScannerView({
 
       <section className="flex flex-wrap gap-3">
         <Link href="/issues" className="btn">
-          See verified issues
+          See the issue board
         </Link>
         <Link href="/report" className="btn btn-ghost">
           Submit a report

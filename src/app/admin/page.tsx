@@ -1,13 +1,22 @@
 import Link from "next/link";
-import { clearClusterFixStatusOverride, moderateReport, setClusterFixStatus, signOutAdmin } from "@/app/admin/actions";
+import {
+  clearClusterFixStatusOverride,
+  moderateReport,
+  setClusterFixStatus,
+  setClusterVisibilityOverride,
+  signOutAdmin,
+} from "@/app/admin/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { FixStatusBadge, SectionHeader, StatCard } from "@/components/ui";
-import { CATEGORY_LABELS, FIX_STATUSES, PLATFORM_LABELS } from "@/lib/constants";
+import { CATEGORY_LABELS, PLATFORM_LABELS, type FixStatus } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
 import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
+
+// acknowledged is a dead state: no rule produces it, so the lock menu doesn't offer it.
+const LOCKABLE_STATUSES: FixStatus[] = ["reported", "fix_claimed", "verified_fixed", "persists"];
 
 export default async function AdminPage() {
   await requireAdmin();
@@ -20,7 +29,10 @@ export default async function AdminPage() {
       .eq("moderation_status", "pending")
       .order("created_at", { ascending: true })
       .limit(50),
-    supabase.from("issue_clusters").select("id, title, fix_status, admin_override, lifecycle_reason").order("title"),
+    supabase
+      .from("issue_clusters")
+      .select("id, title, fix_status, admin_override, lifecycle_reason, admin_visibility_override, is_public")
+      .order("title"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
@@ -28,15 +40,17 @@ export default async function AdminPage() {
 
   const flaggedReports = flagged ?? [];
   const clusterRows = clusters ?? [];
-  const lifecycleExceptionRows = clusterRows.filter((cluster) => String(cluster.lifecycle_reason ?? "").startsWith("Needs review:"));
-  const needsYou = (pending.count ?? 0) + lifecycleExceptionRows.length;
+  const exceptionRows = clusterRows.filter(
+    (cluster) => String(cluster.lifecycle_reason ?? "").startsWith("Needs review:") || cluster.admin_override,
+  );
+  const needsYou = (pending.count ?? 0) + exceptionRows.filter((cluster) => !cluster.admin_override).length;
 
   return (
     <div className="space-y-6">
       <SectionHeader
         label="Admin controls"
         title="Report review"
-        description="Auto-sorted reports, flagged submissions, and issue fix-status controls."
+        description="Auto-sorted reports, flagged submissions, and the short list of exceptions that actually need you."
         action={
           <div className="grid w-[calc(100vw-2rem)] grid-cols-2 gap-2 sm:w-auto sm:flex sm:flex-wrap">
             <Link className="btn btn-ghost btn-sm justify-center" href="/scanner">
@@ -58,7 +72,7 @@ export default async function AdminPage() {
       />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Needs you" value={needsYou} note={needsYou === 0 ? "No exceptions" : "Review exceptions"} tone={needsYou > 0 ? "amber" : "green" } />
+        <StatCard label="Needs you" value={needsYou} note={needsYou === 0 ? "No exceptions" : "Review exceptions"} tone={needsYou > 0 ? "amber" : "green"} />
         <StatCard label="Auto-sorted" value={approved.count ?? 0} note="Approved automatically" tone="green" />
         <StatCard label="Flagged reports" value={pending.count ?? 0} note="Waiting for your call" tone="amber" />
         <StatCard label="Filtered as spam" value={spam.count ?? 0} note="Blocked automatically" tone="dim" />
@@ -164,50 +178,91 @@ export default async function AdminPage() {
         )}
       </section>
 
-      <details className="panel" open={lifecycleExceptionRows.length > 0}>
-        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3">
+      <section className="panel space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="min-w-0 space-y-1">
-            <span className="stat-label block">Advanced lifecycle overrides</span>
+            <span className="stat-label block">Lifecycle exceptions</span>
             <span className="block text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              No action needed unless a system label is wrong or an exception appears here.
+              The system decides labels from counts. Only unsure claim matches and your own locks appear here.
             </span>
           </span>
-          <span className={lifecycleExceptionRows.length > 0 ? "badge badge-amber" : "badge badge-dim"}>
-            {lifecycleExceptionRows.length} exceptions
+          <span className={exceptionRows.length > 0 ? "badge badge-amber" : "badge badge-dim"}>
+            {exceptionRows.length} {exceptionRows.length === 1 ? "item" : "items"}
+          </span>
+        </div>
+        {exceptionRows.length === 0 ? (
+          <p className="border-t pt-3 text-sm" style={{ color: "var(--text-dim)" }}>
+            Nothing needs a call. Locks you set and unsure claim matches will surface here.
+          </p>
+        ) : (
+          <div className="space-y-2 border-t pt-3">
+            {exceptionRows.map((cluster) => (
+              <div key={cluster.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="min-w-0 flex-1 truncate">{cluster.title}</span>
+                <FixStatusBadge status={cluster.fix_status} adminOverride={Boolean(cluster.admin_override)} />
+                {cluster.lifecycle_reason ? (
+                  <span className="min-w-48 flex-1 text-xs" style={{ color: "var(--text-dim)" }}>
+                    {cluster.lifecycle_reason}
+                  </span>
+                ) : null}
+                <form action={setClusterFixStatus} className="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="cluster_id" value={cluster.id} />
+                  <select name="fix_status" defaultValue={cluster.fix_status} className="w-56">
+                    {LOCKABLE_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {LIFECYCLE_LABELS[status]}
+                      </option>
+                    ))}
+                  </select>
+                  <SubmitButton className="btn btn-ghost btn-sm" pendingText="Locking...">
+                    Lock
+                  </SubmitButton>
+                </form>
+                {cluster.admin_override ? (
+                  <form action={clearClusterFixStatusOverride}>
+                    <input type="hidden" name="cluster_id" value={cluster.id} />
+                    <SubmitButton className="btn btn-ghost btn-sm" pendingText="Clearing...">
+                      Clear
+                    </SubmitButton>
+                  </form>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <details className="panel">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3">
+          <span className="min-w-0 space-y-1">
+            <span className="stat-label block">Visibility overrides</span>
+            <span className="block text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              Force a cluster onto or off the public board when the promotion rules get it wrong.
+            </span>
+          </span>
+          <span className="badge badge-dim">
+            {clusterRows.filter((cluster) => cluster.admin_visibility_override).length} forced
           </span>
         </summary>
         <div className="mt-4 space-y-2 border-t pt-4">
           {clusterRows.map((cluster) => (
-            <div key={cluster.id} className="flex flex-wrap items-center gap-2 text-sm">
+            <form
+              key={cluster.id}
+              action={setClusterVisibilityOverride}
+              className="flex flex-wrap items-center gap-2 text-sm"
+            >
+              <input type="hidden" name="cluster_id" value={cluster.id} />
               <span className="min-w-0 flex-1 truncate">{cluster.title}</span>
-              <FixStatusBadge status={cluster.fix_status} adminOverride={Boolean(cluster.admin_override)} />
-              {cluster.lifecycle_reason ? (
-                <span className="min-w-48 flex-1 text-xs" style={{ color: "var(--text-dim)" }}>
-                  {cluster.lifecycle_reason}
-                </span>
-              ) : null}
-              <form action={setClusterFixStatus} className="flex flex-wrap items-center gap-2">
-                <input type="hidden" name="cluster_id" value={cluster.id} />
-                <select name="fix_status" defaultValue={cluster.fix_status} className="w-44">
-                  {FIX_STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {LIFECYCLE_LABELS[status] ?? status.replace(/_/g, " ")}
-                    </option>
-                  ))}
-                </select>
-                <SubmitButton className="btn btn-ghost btn-sm" pendingText="Locking...">
-                  Lock
-                </SubmitButton>
-              </form>
-              {cluster.admin_override ? (
-                <form action={clearClusterFixStatusOverride}>
-                  <input type="hidden" name="cluster_id" value={cluster.id} />
-                  <SubmitButton className="btn btn-ghost btn-sm" pendingText="Clearing...">
-                    Clear
-                  </SubmitButton>
-                </form>
-              ) : null}
-            </div>
+              <span className="badge badge-dim">{cluster.is_public ? "public" : "private"}</span>
+              <select name="visibility" defaultValue={cluster.admin_visibility_override ?? "auto"} className="w-40">
+                <option value="auto">Auto (engine)</option>
+                <option value="force_public">Force public</option>
+                <option value="force_hidden">Force hidden</option>
+              </select>
+              <SubmitButton className="btn btn-ghost btn-sm" pendingText="Saving...">
+                Apply
+              </SubmitButton>
+            </form>
           ))}
         </div>
       </details>
