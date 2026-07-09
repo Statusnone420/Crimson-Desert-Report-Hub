@@ -1,24 +1,14 @@
 import Link from "next/link";
 import { PatchActivityChart } from "@/components/PatchActivityChart";
-import { EvidenceLadderBadge, FixStatusBadge, MeterBar, SectionHeader, StatCard } from "@/components/ui";
+import { MeterBar, ReadoutBadge, SectionHeader, StatCard } from "@/components/ui";
 import { assessClaims } from "@/lib/claims";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
-import {
-  countEvidenceBackedPersistentClusters,
-  countUnverifiedClaimedFixWatchlistClusters,
-  hasClusterEvidence,
-  monitoredAreasNote,
-  splitWatchlistByCandidates,
-  unconfirmedMentionsNote,
-} from "@/lib/evidence";
-import { clusterEvidenceState } from "@/lib/evidenceLadder";
+import { hasClusterEvidence, monitoredAreasNote, splitWatchlistByCandidates } from "@/lib/evidence";
 import { getDashboardData, getPublicScannerData } from "@/lib/queries";
 import { buildRightNowReadout } from "@/lib/rightNow";
 import { PEARL_ABYSS_SUPPORT_URL, SOURCE_URL } from "@/lib/site";
 
 export const revalidate = 300;
-
-type Tone = "crimson" | "amber" | "green" | "blue" | "dim";
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "no reports yet";
@@ -28,13 +18,6 @@ function timeAgo(iso: string | null): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
-}
-
-function statusTone(fixStatus: string): Tone {
-  if (fixStatus === "persists") return "crimson";
-  if (fixStatus === "acknowledged" || fixStatus === "fix_claimed") return "amber";
-  if (fixStatus === "verified_fixed") return "green";
-  return "dim";
 }
 
 function latestScanWorkSummary(run: {
@@ -67,8 +50,9 @@ function latestScanWorkSummary(run: {
 
 export default async function DashboardPage() {
   const [d, radar] = await Promise.all([getDashboardData(), getPublicScannerData()]);
-  const persistentCount = countEvidenceBackedPersistentClusters(d.topClusters);
-  const claimedFixWatchlistCount = countUnverifiedClaimedFixWatchlistClusters(d.topClusters);
+  const stillHappeningCount = d.topClusters.filter((cluster) => cluster.readout.label === "Still happening").length;
+  const claimPollCount = d.topClusters.filter((cluster) => cluster.readout.poll !== null).length;
+  const playerTaps = d.topClusters.reduce((sum, cluster) => sum + cluster.confirmations.affectedCount, 0);
   const active = d.topClusters.filter(hasClusterEvidence);
   const watchlist = d.topClusters.filter((cluster) => !hasClusterEvidence(cluster));
   const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
@@ -78,9 +62,11 @@ export default async function DashboardPage() {
   const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
   const maxPlatform = Math.max(...platformEntries.map(([, n]) => n), 1);
   const patchLabel = `Patch ${d.currentPatch.version}`;
-  const pendingMentions = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
   const claims = assessClaims(d.claimedFixes, d.topClusters);
-  const disputedClaims = claims.disputed.filter((claim) => claim.cluster);
+  const stillHappeningClusterIds = new Set(
+    d.topClusters.filter((cluster) => cluster.readout.label === "Still happening").map((cluster) => cluster.id),
+  );
+  const disputedClaims = claims.all.filter((claim) => claim.cluster && stillHappeningClusterIds.has(claim.cluster.id));
   const hasActivity = d.series.some((point) => point.count > 0) || d.signalSeries.some((point) => point.count > 0);
   const readout = buildRightNowReadout({
     currentPatch: d.currentPatch,
@@ -123,6 +109,8 @@ export default async function DashboardPage() {
             <span aria-hidden="true">·</span>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.directReports}</span> reports
             <span aria-hidden="true">·</span>
+            <span className="num" style={{ color: "var(--text-dim)" }}>{playerTaps}</span> player taps
+            <span aria-hidden="true">·</span>
             <span className="num" style={{ color: "var(--text-dim)" }}>{d.communitySignals}</span> public signals
             <span aria-hidden="true">·</span>
             {d.latestReportAt ? `latest player report ${timeAgo(d.latestReportAt)}` : "no player reports yet"}
@@ -149,8 +137,8 @@ export default async function DashboardPage() {
           <StatCard
             label="Evidence-backed issues"
             value={active.length}
-            note={persistentCount > 0 ? `${persistentCount} still happening` : "Reports or public signals"}
-            tone={persistentCount > 0 ? "crimson" : "green"}
+            note={stillHappeningCount > 0 ? `${stillHappeningCount} still happening` : "Reports, taps, or public links"}
+            tone={stillHappeningCount > 0 ? "crimson" : "green"}
           />
         </div>
         <div className="rise" style={{ animationDelay: "80ms" }}>
@@ -163,18 +151,18 @@ export default async function DashboardPage() {
         </div>
         <div className="rise" style={{ animationDelay: "120ms" }}>
           <StatCard
-            label="Public signals"
-            value={d.communitySignals}
-            note={d.communitySignals === 0 ? "None public yet" : "Links visible on issues"}
-            tone="blue"
+            label="Fix claims — players verify"
+            value={claimPollCount}
+            note={claimPollCount === 0 ? "No open fix claims" : "PA says fixed; taps decide"}
+            tone="amber"
           />
         </div>
         <div className="rise" style={{ animationDelay: "160ms" }}>
           <StatCard
-            label="Awaiting corroboration"
-            value={pendingMentions}
-            note={claimedFixWatchlistCount > 0 ? `${claimedFixWatchlistCount} claimed-fix watch items` : "Needs another source"}
-            tone="amber"
+            label="Radar leads"
+            value={candidates.length}
+            note="Rumors with links — not evidence"
+            tone="blue"
           />
         </div>
       </section>
@@ -216,7 +204,7 @@ export default async function DashboardPage() {
           <SectionHeader
             label={`${patchLabel} context`}
             title="Still reported after claimed fix"
-            description="Official notes are context. This section appears only when a claimed fix overlaps active community evidence."
+            description="Official notes are context. This section appears only when players or public sources say a claimed fix didn't take."
             action={
               <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="link text-xs">
                 Official notes ↗
@@ -273,13 +261,13 @@ export default async function DashboardPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="truncate font-medium">{cluster.title}</span>
-                      <FixStatusBadge status={cluster.fix_status} adminOverride={Boolean(cluster.admin_override)} />
+                      <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
                     </span>
                     <span className="num ml-auto shrink-0 text-xs" style={{ color: "var(--text-dim)" }}>
-                      {cluster.directReportCount} reports · {cluster.signalCount} signals
+                      {cluster.directReportCount} reports · {cluster.confirmations.affectedCount} taps · {cluster.signalCount} links
                     </span>
                   </div>
-                  <MeterBar value={cluster.strengthScore} max={maxStrength} tone={statusTone(cluster.fix_status)} />
+                  <MeterBar value={cluster.strengthScore} max={maxStrength} tone={cluster.readout.tone} />
                 </Link>
               ))}
             </div>
@@ -298,19 +286,13 @@ export default async function DashboardPage() {
                     >
                       <p className="truncate text-sm font-medium">{cluster.title}</p>
                       <div className="flex items-center justify-between gap-2">
-                        <EvidenceLadderBadge
-                          state={clusterEvidenceState({
-                            directReportCount: cluster.directReportCount,
-                            publicSignalCount: cluster.signalCount,
-                            candidateSignalCount: cluster.candidateSignalCount,
-                          })}
-                        />
+                        <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
                         <span className="text-xs" style={{ color: "var(--text-faint)" }}>
                           {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
                         </span>
                       </div>
-                      <p className="text-xs" style={{ color: "var(--blue)" }}>
-                        {unconfirmedMentionsNote(cluster.candidateSignalCount)}
+                      <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+                        {cluster.readout.sentence}
                       </p>
                     </Link>
                   ))}
@@ -325,8 +307,8 @@ export default async function DashboardPage() {
           ) : null}
 
           <p className="border-t pt-3 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-            Watchlist clusters start unverified at zero. They become evidence only after approved reports or public
-            signals confirm them; the tracker never invents counts.
+            Watchlist clusters start at zero. They become evidence only after player reports, one-tap confirmations,
+            or public sources back them; the tracker never invents counts — and quiet never means fixed.
           </p>
         </div>
 

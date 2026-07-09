@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { EMPTY_CLUSTER_CONFIRMATIONS } from "@/lib/confirmations";
+import { composeIssueReadout, type IssueReadoutInput } from "@/lib/readout";
 import { buildRightNowReadout } from "@/lib/rightNow";
 
 const basePatch = {
@@ -11,6 +13,21 @@ const basePatch = {
 
 const sourceUrl = "https://github.com/Statusnone420/Crimson-Desert-Report-Hub";
 const supportUrl = "https://support.pearlabyss.com/";
+
+function readoutFor(over: Partial<IssueReadoutInput>) {
+  return composeIssueReadout({
+    directReportCount: 0,
+    publicSignalCount: 0,
+    candidateSignalCount: 0,
+    postClaimEvidenceCount: 0,
+    confirmations: EMPTY_CLUSTER_CONFIRMATIONS,
+    fixClaimedAt: null,
+    adminOverride: false,
+    storedFixStatus: "reported",
+    patchVersion: basePatch.version,
+    ...over,
+  });
+}
 
 describe("buildRightNowReadout", () => {
   it("creates a useful readout when automation has leads but public evidence is thin", () => {
@@ -36,22 +53,26 @@ describe("buildRightNowReadout", () => {
           title: "FPS / performance regression since 1.13.00",
           category: "performance",
           description: "Frame-rate drops, stutter, and frame-pacing issues after patch 1.13.00.",
-          fix_status: "fix_claimed",
           directReportCount: 1,
           signalCount: 0,
           candidateSignalCount: 0,
           postCurrentPatchEvidenceCount: 0,
+          readout: readoutFor({
+            directReportCount: 1,
+            fixClaimedAt: "2026-07-08T06:00:00.000Z",
+            storedFixStatus: "fix_claimed",
+          }),
         },
         {
           id: "mount",
           title: "Mount, input, and title-screen lockups",
           category: "controls",
           description: "Horse or mount control failures, unresponsive inputs, and title-screen lockups.",
-          fix_status: "reported",
           directReportCount: 0,
           signalCount: 0,
           candidateSignalCount: 2,
           postCurrentPatchEvidenceCount: 0,
+          readout: readoutFor({ candidateSignalCount: 2 }),
         },
       ],
       sourceUrl,
@@ -68,20 +89,23 @@ describe("buildRightNowReadout", () => {
     expect(readout.snapshotLine).toContain("Patch 1.13.01 hotfix");
     expect(readout.snapshotLine).toContain("1 player report");
     expect(readout.snapshotLine).toContain("no public source links cleared");
-    expect(readout.snapshotLine).toContain("7 private leads awaiting corroboration");
+    expect(readout.snapshotLine).toContain("7 radar leads — rumors, not evidence");
     expect(readout.worthChecking.map((issue) => issue.title)).toEqual([
       "FPS / performance regression since 1.13.00",
       "Mount, input, and title-screen lockups",
     ]);
     expect(readout.worthChecking[0]).toMatchObject({
-      statusLabel: "Watching fix",
-      evidenceNote: "Watching fix",
+      statusLabel: "Fix claimed — unverified",
+      tone: "amber",
       strengthLabel: "1 player report, 0 public sources",
       countSummary: "1 report · 0 public sources",
+      actionLabel: "Add your tap",
     });
+    expect(readout.worthChecking[0].detail).toContain("Quiet can mean fixed");
     expect(readout.worthChecking[1]).toMatchObject({
-      statusLabel: "Needs confirmation",
-      strengthLabel: "2 private mentions, no public proof",
+      statusLabel: "Radar lead",
+      tone: "blue",
+      strengthLabel: "2 radar leads, no public proof",
       countSummary: "0 reports · 0 public sources · 2 leads",
     });
     expect(readout.usefulLinks.map((link) => link.label)).toEqual([
@@ -150,11 +174,11 @@ describe("buildRightNowReadout", () => {
           title: "Crashes and startup hangs",
           category: "crashes",
           description: "Crashes during launch or startup.",
-          fix_status: "reported",
           directReportCount: 0,
           signalCount: 0,
           candidateSignalCount: 2,
           postCurrentPatchEvidenceCount: 0,
+          readout: readoutFor({ candidateSignalCount: 2 }),
         },
       ],
       sourceUrl,
@@ -162,9 +186,9 @@ describe("buildRightNowReadout", () => {
     });
 
     expect(readout.worthChecking[0]).toMatchObject({
-      statusLabel: "Needs confirmation",
+      statusLabel: "Radar lead",
       countSummary: "0 reports · 0 public sources · 2 leads",
-      actionLabel: "I am seeing this",
+      actionLabel: "Add your tap",
     });
     expect(JSON.stringify(readout.worthChecking)).not.toContain("http");
     expect(JSON.stringify(readout.worthChecking)).not.toContain("reddit.com");

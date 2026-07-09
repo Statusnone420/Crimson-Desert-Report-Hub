@@ -119,35 +119,26 @@ const FIX_STATUS_META: Record<string, { label: string; cls: string }> = {
   persists: { label: LIFECYCLE_LABELS.persists, cls: "badge badge-crimson badge-dot" },
 };
 
-export function FixStatusBadge({
-  status,
-  unverified = false,
-  adminOverride = false,
-  hideIfLabel,
-}: {
-  status: string;
-  unverified?: boolean;
-  adminOverride?: boolean;
-  hideIfLabel?: string;
-}) {
-  let label: string;
-  let cls: string;
+/** Admin-only: shows the stored fix_status (public surfaces render ReadoutBadge instead). */
+export function FixStatusBadge({ status, adminOverride = false }: { status: string; adminOverride?: boolean }) {
   if (adminOverride) {
-    label = ADMIN_OVERRIDE_LABEL;
-    cls = "badge badge-blue";
-  } else if (unverified && status === "persists") {
-    label = LIFECYCLE_LABELS.fix_claimed;
-    cls = "badge badge-amber";
-  } else if (unverified && status === "reported") {
-    label = LIFECYCLE_LABELS.reported;
-    cls = "badge badge-dim";
-  } else {
-    const meta = FIX_STATUS_META[status] ?? FIX_STATUS_META.reported;
-    label = meta.label;
-    cls = meta.cls;
+    return <span className="badge badge-blue">{ADMIN_OVERRIDE_LABEL}</span>;
   }
-  if (hideIfLabel === label) return null;
-  return <span className={cls}>{label}</span>;
+  const meta = FIX_STATUS_META[status] ?? FIX_STATUS_META.reported;
+  return <span className={meta.cls}>{meta.label}</span>;
+}
+
+const READOUT_TONE_CLASS: Record<Tone, string> = {
+  crimson: "badge badge-crimson",
+  amber: "badge badge-amber",
+  green: "badge badge-green",
+  blue: "badge badge-blue",
+  dim: "badge badge-dim",
+};
+
+/** The one public status badge: label + tone come from the readout composer. */
+export function ReadoutBadge({ label, tone }: { label: string; tone: Tone }) {
+  return <span className={READOUT_TONE_CLASS[tone]}>{label}</span>;
 }
 
 const SEVERITY_META: Record<string, { label: string; cls: string }> = {

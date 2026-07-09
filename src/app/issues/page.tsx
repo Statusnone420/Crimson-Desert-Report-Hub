@@ -1,16 +1,10 @@
 import Link from "next/link";
-import { EvidenceLadderBadge, FixStatusBadge, SectionHeader, SignalConfidenceBadge } from "@/components/ui";
-import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
-import {
-  countEvidenceBackedPersistentClusters,
-  hasClusterEvidence,
-  isUnverifiedWatchlistCluster,
-  monitoredAreasNote,
-  splitWatchlistByCandidates,
-  unconfirmedMentionsNote,
-} from "@/lib/evidence";
-import { clusterEvidenceState } from "@/lib/evidenceLadder";
-import { playerIssueStatus, type PlayerIssueStatus } from "@/lib/patchWatch";
+import { ConfirmButtons } from "@/components/ConfirmButtons";
+import { MeterBar, ReadoutBadge, SectionHeader } from "@/components/ui";
+import { CATEGORY_LABELS, PLATFORM_LABELS, PLATFORMS } from "@/lib/constants";
+import { DISPLAY_THRESHOLD_NETWORKS } from "@/lib/readout";
+import { hasClusterEvidence, monitoredAreasNote, splitWatchlistByCandidates } from "@/lib/evidence";
+import { patchFamilyKey } from "@/lib/patchWatch";
 import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 
 export const revalidate = 300;
@@ -25,40 +19,99 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function statusBadgeClass(tone: PlayerIssueStatus["tone"]): string {
-  if (tone === "crimson") return "badge badge-crimson";
-  if (tone === "amber") return "badge badge-amber";
-  if (tone === "green") return "badge badge-green";
-  if (tone === "blue") return "badge badge-blue";
-  return "badge badge-dim";
+function sourceHost(url: string, fallback: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return fallback;
+  }
 }
 
 export default async function IssuesPage() {
-  const [{ clusters, excerptsByCluster, signalsByCluster }, scanMeta] = await Promise.all([
+  const [{ clusters, excerptsByCluster, signalsByCluster, currentPatch }, scanMeta] = await Promise.all([
     getIssuesData(),
     getLatestPublicScanMeta(),
   ]);
+  const patchFamily = patchFamilyKey(currentPatch.version) ?? currentPatch.version;
   const active = clusters.filter(hasClusterEvidence);
-  const watchlist = clusters.filter((c) => !hasClusterEvidence(c));
+  const watchlist = clusters.filter((cluster) => !hasClusterEvidence(cluster));
   const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
-  const persistent = countEvidenceBackedPersistentClusters(clusters);
+  const stillHappening = clusters.filter((cluster) => cluster.readout.state === "still_happening").length;
+
+  function PlatformTallies({ cluster }: { cluster: (typeof clusters)[number] }) {
+    const rows = PLATFORMS.map((platform) => {
+      const reports = cluster.reportPlatformCounts[platform] ?? 0;
+      const confirms = cluster.confirmations.byPlatform[platform] ?? { count: 0, networks: 0 };
+      const escalatedConfirms = confirms.networks >= DISPLAY_THRESHOLD_NETWORKS ? confirms.count : 0;
+      return { platform, reports, confirms: confirms.count, weight: reports * 3 + escalatedConfirms };
+    }).filter((row) => row.reports > 0 || row.confirms > 0);
+    if (rows.length === 0) return null;
+    const max = Math.max(...rows.map((row) => row.weight), 1);
+    return (
+      <div className="space-y-1.5 border-t pt-3">
+        {rows.map((row) => (
+          <div key={row.platform} className="grid grid-cols-[96px_minmax(0,1fr)_auto] items-center gap-3 text-xs">
+            <span style={{ color: "var(--text-dim)" }}>
+              {PLATFORM_LABELS[row.platform as keyof typeof PLATFORM_LABELS] ?? row.platform}
+            </span>
+            <MeterBar value={row.weight} max={max} tone={row.weight > 0 ? cluster.readout.tone : "dim"} />
+            <span className="num" style={{ color: "var(--text-faint)" }}>
+              {row.reports} {row.reports === 1 ? "report" : "reports"} · {row.confirms} confirm
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function PollStrip({ cluster }: { cluster: (typeof clusters)[number] }) {
+    const poll = cluster.readout.poll;
+    if (!poll || poll.fixedCount + poll.stillCount === 0) return null;
+    const total = poll.fixedCount + poll.stillCount;
+    const fixedPct = Math.round((poll.fixedCount / total) * 100);
+    return (
+      <div className="space-y-1.5 border-t pt-3">
+        {poll.escalated ? (
+          <div className="meter" style={{ display: "flex" }} role="presentation">
+            <span style={{ width: `${fixedPct}%`, background: "var(--green)" }} />
+            <span style={{ width: `${100 - fixedPct}%`, background: "var(--crimson)" }} />
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between text-xs" style={{ color: "var(--text-faint)" }}>
+          <span>
+            <span className="num" style={{ color: "var(--green-bright)" }}>{poll.fixedCount}</span> say fixed for me
+          </span>
+          <span>
+            <span className="num" style={{ color: "var(--crimson-bright)" }}>{poll.stillCount}</span> say still happening
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  function ConfirmStrip({ cluster }: { cluster: (typeof clusters)[number] }) {
+    const ask = cluster.readout.ask;
+    if (!ask) return null;
+    return (
+      <div className="border-t pt-3">
+        <ConfirmButtons
+          clusterId={cluster.id}
+          patchFamily={patchFamily}
+          question={ask.question}
+          kinds={ask.kinds}
+          counts={{
+            have_it: cluster.confirmations.affectedCount,
+            fixed_for_me: cluster.confirmations.pollFixedCount,
+            still_happening: cluster.confirmations.pollStillCount,
+          }}
+        />
+      </div>
+    );
+  }
 
   function ClusterCard({ cluster }: { cluster: (typeof clusters)[number] }) {
     const signals = signalsByCluster[cluster.id] ?? [];
     const excerpts = excerptsByCluster[cluster.id] ?? [];
-    const unverified = isUnverifiedWatchlistCluster(cluster);
-    const state = clusterEvidenceState({
-      directReportCount: cluster.directReportCount,
-      publicSignalCount: cluster.signalCount,
-      candidateSignalCount: cluster.candidateSignalCount,
-    });
-    const status = playerIssueStatus({
-      directReportCount: cluster.directReportCount,
-      publicSignalCount: cluster.signalCount,
-      candidateSignalCount: cluster.candidateSignalCount,
-      postCurrentPatchEvidenceCount: cluster.postCurrentPatchEvidenceCount,
-      fixStatus: cluster.fix_status,
-    });
     return (
       <article className="panel space-y-3.5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -69,50 +122,31 @@ export default async function IssuesPage() {
               {" · "}
               <span className="num">{cluster.directReportCount}</span> reports
               {" · "}
-              <span className="num">{cluster.signalCount}</span> signals
+              <span className="num">{cluster.signalCount}</span> source links
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={statusBadgeClass(status.tone)}>{status.label}</span>
-            <FixStatusBadge
-              status={cluster.fix_status}
-              unverified={unverified}
-              adminOverride={Boolean(cluster.admin_override)}
-              hideIfLabel={status.label}
-            />
-            <EvidenceLadderBadge state={state} />
-          </div>
+          <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
         </div>
 
         <div className="panel-inset border px-3 py-2 text-xs leading-5" style={{ color: "var(--text-dim)" }}>
-          <span className="font-medium" style={{ color: "var(--text)" }}>
-            {status.strengthLabel}.
-          </span>{" "}
-          {cluster.lifecycle_reason ?? status.detail}
+          {cluster.readout.sentence}
         </div>
 
         <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
           {cluster.description}
         </p>
 
-        {state === "candidates" ? (
-          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            {unconfirmedMentionsNote(cluster.candidateSignalCount)}
-          </p>
-        ) : null}
+        <PlatformTallies cluster={cluster} />
+        <PollStrip cluster={cluster} />
+        <ConfirmStrip cluster={cluster} />
 
         {signals.length > 0 ? (
           <div className="space-y-3 border-t pt-3">
-            <div className="stat-label">{cluster.directReportCount > 0 ? "Community signals" : "Unverified public leads"}</div>
+            <div className="stat-label">Links seen in the wild</div>
             {signals.slice(0, 3).map((signal) => (
               <div key={signal.id} className="space-y-1 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                  {cluster.directReportCount > 0 ? (
-                    <SignalConfidenceBadge confidence={signal.confidence} />
-                  ) : (
-                    <span className="badge badge-blue">Needs player report</span>
-                  )}
-                  <span className="badge badge-dim">{signal.source.replace("_", " ")}</span>
+                  <span className="badge badge-dim">{sourceHost(signal.source_url, signal.source)}</span>
                 </div>
                 <p className="leading-6" style={{ color: "var(--text-dim)" }}>
                   {signal.summary}
@@ -145,7 +179,7 @@ export default async function IssuesPage() {
       <SectionHeader
         label="Current patch watch"
         title="What players are reporting"
-        description="Backed issues first. Suspected patterns stay lower until another player or public source confirms them."
+        description="Backed issues first. Every number is a report or a tap someone actually sent — the site never fills in blanks."
       />
 
       <section className="grid grid-cols-3 gap-3">
@@ -164,8 +198,8 @@ export default async function IssuesPage() {
         </div>
         <div className="panel">
           <div className="stat-label">Still happening</div>
-          <div className="stat-value mt-1.5" style={{ color: active.length ? "var(--crimson-bright)" : undefined }}>
-            {persistent}
+          <div className="stat-value mt-1.5" style={{ color: stillHappening ? "var(--crimson-bright)" : undefined }}>
+            {stillHappening}
           </div>
         </div>
       </section>
@@ -206,37 +240,28 @@ export default async function IssuesPage() {
               <div className="space-y-1">
                 <h2 className="stat-label">Watchlist</h2>
                 <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-                  Nothing here is backed yet. A topic moves up the moment a player report or public source backs it.
+                  Nothing here is backed yet. A topic moves up the moment a player report, public source, or enough
+                  one-tap confirmations back it.
                 </p>
               </div>
               {candidates.length > 0 ? (
                 <div className={candidates.length === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2"}>
                   {candidates.map((cluster) => (
-                    <div key={cluster.id} className="panel-inset space-y-1.5 border px-3 py-2.5">
+                    <div key={cluster.id} className="panel-inset space-y-2 border px-3 py-2.5">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <p className="min-w-0 text-sm font-medium">{cluster.title}</p>
-                        <Link href="/report" className="link shrink-0 text-xs">
-                          I&apos;m seeing this
+                        <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
+                      </div>
+                      <p className="text-xs leading-5" style={{ color: "var(--text-dim)" }}>
+                        {cluster.readout.sentence}
+                      </p>
+                      <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--text-faint)" }}>
+                        <span>{CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}</span>
+                        <Link href="/report" className="link shrink-0">
+                          Full report →
                         </Link>
                       </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <EvidenceLadderBadge
-                          state={clusterEvidenceState({
-                            directReportCount: cluster.directReportCount,
-                            publicSignalCount: cluster.signalCount,
-                            candidateSignalCount: cluster.candidateSignalCount,
-                          })}
-                        />
-                        <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-                          {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
-                        </span>
-                      </div>
-                      <p className="text-xs" style={{ color: "var(--blue)" }}>
-                        {unconfirmedMentionsNote(cluster.candidateSignalCount)}
-                      </p>
-                      <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-                        Why watched: {cluster.description} Missing: an approved player report or publishable current-patch source.
-                      </p>
+                      <ConfirmStrip cluster={cluster} />
                     </div>
                   ))}
                 </div>

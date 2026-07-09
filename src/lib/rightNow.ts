@@ -1,17 +1,17 @@
-import { playerIssueStatus, type PlayerIssueStatus } from "@/lib/patchWatch";
+import type { IssueReadout } from "@/lib/readout";
 
-type Tone = PlayerIssueStatus["tone"];
+type Tone = IssueReadout["tone"];
 
 export type RightNowClusterInput = {
   id: string;
   title: string;
   category: string;
   description: string;
-  fix_status: string;
   directReportCount: number;
   signalCount: number;
   candidateSignalCount: number;
   postCurrentPatchEvidenceCount: number;
+  readout: IssueReadout;
 };
 
 export type RightNowScannerInput = {
@@ -49,13 +49,13 @@ export type RightNowIssue = {
   description: string;
   category: string;
   href: string;
-  statusLabel: PlayerIssueStatus["label"];
+  statusLabel: string;
   evidenceNote: string;
   strengthLabel: string;
   detail: string;
   tone: Tone;
   countSummary: string;
-  actionLabel: "View evidence" | "I am seeing this";
+  actionLabel: "View evidence" | "Add your tap";
 };
 
 export type RightNowReadout = {
@@ -91,26 +91,14 @@ function issueWeight(issue: RightNowClusterInput) {
   );
 }
 
-function evidenceNote(issue: RightNowClusterInput) {
-  if (issue.fix_status === "fix_claimed" && issue.postCurrentPatchEvidenceCount > 0) {
-    return "Still happening";
-  }
-  if (issue.fix_status === "verified_fixed") {
-    return "No fresh reports";
-  }
-  if (issue.fix_status === "fix_claimed") {
-    return "Watching fix";
-  }
-  if (issue.directReportCount === 1 && issue.signalCount === 0) {
-    return "Early evidence";
-  }
+function strengthLabel(issue: RightNowClusterInput): string {
   if (issue.directReportCount > 0 || issue.signalCount > 0) {
-    return "Backed signal";
+    return `${plural(issue.directReportCount, "player report")}, ${plural(issue.signalCount, "public source")}`;
   }
   if (issue.candidateSignalCount > 0) {
-    return "Needs another source";
+    return `${plural(issue.candidateSignalCount, "radar lead")}, no public proof`;
   }
-  return "Watching";
+  return "No player reports or public sources yet";
 }
 
 function snapshotLine(input: RightNowInput) {
@@ -120,13 +108,13 @@ function snapshotLine(input: RightNowInput) {
     input.publicFindingsCount > 0
       ? `${plural(input.publicFindingsCount, "public source link")} cleared`
       : "no public source links cleared yet";
-  const privateLeads = input.scanner.scannerConnected
+  const radarLeads = input.scanner.scannerConnected
     ? input.scanner.awaiting > 0
-      ? `${plural(input.scanner.awaiting, "private lead")} awaiting corroboration`
-      : "no private leads waiting"
+      ? `${plural(input.scanner.awaiting, "radar lead")} — rumors, not evidence`
+      : "no radar leads waiting"
     : "scanner unavailable";
 
-  return [`Patch ${displayPatchVersion(input.currentPatch.version)}`, reports, publicLinks, privateLeads].join(" · ");
+  return [`Patch ${displayPatchVersion(input.currentPatch.version)}`, reports, publicLinks, radarLeads].join(" · ");
 }
 
 export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
@@ -137,8 +125,8 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
   if (input.scanner.scannerConnected) {
     observations.push(
       input.scanner.awaiting > 0
-        ? `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; ${plural(input.scanner.awaiting, "lead")} still ${input.scanner.awaiting === 1 ? "needs" : "need"} another source before publishing.`
-        : `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; nothing is waiting for corroboration.`,
+        ? `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; ${plural(input.scanner.awaiting, "radar lead")} ${input.scanner.awaiting === 1 ? "is" : "are"} waiting for players to confirm.`
+        : `Scanner checked ${input.scanner.reviewedThisWeek} public candidates this week; no radar leads are waiting.`,
     );
   } else {
     observations.push("Scanner data is unavailable in this environment.");
@@ -160,30 +148,20 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
     .filter((cluster) => cluster.directReportCount > 0 || cluster.signalCount > 0 || cluster.candidateSignalCount > 0)
     .sort((a, b) => issueWeight(b) - issueWeight(a))
     .slice(0, 5)
-    .map((cluster) => {
-      const status = playerIssueStatus({
-        directReportCount: cluster.directReportCount,
-        publicSignalCount: cluster.signalCount,
-        candidateSignalCount: cluster.candidateSignalCount,
-        postCurrentPatchEvidenceCount: cluster.postCurrentPatchEvidenceCount,
-        fixStatus: cluster.fix_status,
-      });
-
-      return {
-        id: cluster.id,
-        title: cluster.title,
-        description: cluster.description,
-        category: cluster.category,
-        href: "/issues",
-        statusLabel: status.label,
-        evidenceNote: evidenceNote(cluster),
-        strengthLabel: status.strengthLabel,
-        detail: status.detail,
-        tone: status.tone,
-        countSummary: countSummary(cluster),
-        actionLabel: cluster.directReportCount > 0 || cluster.signalCount > 0 ? "View evidence" : "I am seeing this",
-      };
-    });
+    .map((cluster) => ({
+      id: cluster.id,
+      title: cluster.title,
+      description: cluster.description,
+      category: cluster.category,
+      href: "/issues",
+      statusLabel: cluster.readout.label,
+      evidenceNote: cluster.readout.label,
+      strengthLabel: strengthLabel(cluster),
+      detail: cluster.readout.sentence,
+      tone: cluster.readout.tone,
+      countSummary: countSummary(cluster),
+      actionLabel: cluster.readout.ask ? "Add your tap" : "View evidence",
+    }));
 
   return {
     patchLabel: `Patch ${displayPatchVersion(input.currentPatch.version)}`,

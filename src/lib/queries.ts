@@ -544,7 +544,12 @@ export const getDashboardData = unstable_cache(getDashboardDataUncached, ["dashb
 
 async function getIssuesDataUncached() {
   if (!hasSupabaseServiceConfig()) {
-    return { clusters: [], excerptsByCluster: {}, signalsByCluster: {} };
+    return {
+      clusters: [] as DecoratedCluster[],
+      excerptsByCluster: {} as Record<string, { text: string; platform: string }[]>,
+      signalsByCluster: {} as Record<string, SignalRow[]>,
+      currentPatch: await getCurrentPatchMetadata(),
+    };
   }
 
   const supabase = createServiceClient();
@@ -600,7 +605,7 @@ async function getIssuesDataUncached() {
 
   const excerptsByCluster = await readExcerptsByClusterForCurrentPatch(supabase, currentPatch);
 
-  return { clusters, excerptsByCluster, signalsByCluster };
+  return { clusters, excerptsByCluster, signalsByCluster, currentPatch };
 }
 
 export const getIssuesData = unstable_cache(getIssuesDataUncached, ["issues-data"], {
