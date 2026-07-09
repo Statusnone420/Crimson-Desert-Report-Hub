@@ -316,7 +316,8 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Right now", { exact: true })).toBeVisible();
     await expect(page.getByText(/Patch 1\.13\.\d{2}/).first()).toBeVisible();
     await expect(page.getByText("Evidence-backed issues", { exact: true })).toBeVisible();
-    await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
+    await expect(page.getByText("Radar leads", { exact: true })).toBeVisible();
+    await expect(page.getByText("Rumors with links — not evidence", { exact: true })).toBeVisible();
     await expect(page.getByText(/latest player report (?:just now|\d+[mhd] ago)|no player reports yet/).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Official notes" }).first()).toHaveAttribute(
       "href",
@@ -330,7 +331,7 @@ test.describe("public surface visual regression", () => {
     const hasPopulatedDashboard = (await page.getByRole("heading", { name: "Top issues this patch" }).count()) > 0;
     if (hasPopulatedDashboard) {
       await expect(page.getByRole("heading", { name: "Top issues this patch" })).toBeVisible();
-      await expect(page.getByText(/\d+ reports · \d+ signals/).first()).toBeVisible();
+      await expect(page.getByText(/\d+ reports · \d+ taps · \d+ links/).first()).toBeVisible();
       await expect(page.getByText("FPS regression since 1.13").first()).toBeVisible();
       await expect(page.getByText("Map-open crash persists after fix").first()).toBeVisible();
     } else {
@@ -381,11 +382,12 @@ test.describe("public surface visual regression", () => {
     await page.goto("/issues");
 
     await expect(page.getByRole("heading", { name: "What players are reporting" })).toBeVisible();
-    const communitySignals = page.getByText("Community signals");
-    if ((await communitySignals.count()) > 0) {
-      await expect(communitySignals.first()).toBeVisible();
+    const publicLinks = page.getByText("Links seen in the wild");
+    if ((await publicLinks.count()) > 0) {
+      await expect(publicLinks.first()).toBeVisible();
       await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
-      await expect(page.getByText("High confidence")).toBeVisible();
+      // Public cards never wear confidence chrome — that authority theater is gone.
+      await expect(page.getByText("High confidence")).toHaveCount(0);
     } else {
       await expect(page.getByText("Source candidates stay private until they clear the rules.")).toBeVisible();
       await expect(page.getByRole("link", { name: "Scanner funnel" })).toHaveAttribute("href", "/scanner");
@@ -456,11 +458,11 @@ test.describe("public surface visual regression", () => {
     await page.goto("/scanner");
     await expect(page.getByRole("heading", { name: "Scanner monitor" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Source Radar" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Recent kept signals" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recent radar leads" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Review queue" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Keep for review" }).first()).toBeVisible();
-    await expect(page.getByText("Usually noise. Keep anything that is actually a player problem.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Rejected archive" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Rescue" }).first()).toBeVisible();
+    await expect(page.getByText("rescuing is optional, not homework", { exact: false })).toBeVisible();
     await expect(page.getByText("Scan history")).toBeVisible();
     await expect(page.getByText("Show raw scanner codes")).toBeHidden();
     await expect(page.getByText("Scanner settings & budget")).toBeVisible();
@@ -476,13 +478,18 @@ test.describe("public surface visual regression", () => {
     await openAdminSignIn(page);
     await expect(page.getByLabel("Admin password")).toBeVisible();
     await expect(page.getByRole("link", { name: "Review reports" })).toHaveCount(0);
-    await page.getByRole("button", { name: "Cancel" }).click();
+    // Keyboard activation, like openAdminSignIn: with the page scrolled to the very
+    // bottom, mobile emulation offsets the visual viewport and skews click coordinates
+    // into the field above the button (the dialog itself is fine on real devices).
+    await page.getByRole("button", { name: "Cancel" }).focus();
+    await page.keyboard.press("Enter");
     await expect(page.getByLabel("Admin password")).toHaveCount(0);
 
     await openAdminSignIn(page);
     await expect(page.getByLabel("Admin password")).toBeVisible();
     await page.getByLabel("Admin password").fill("admin-password");
-    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.getByRole("button", { name: "Sign in" }).focus();
+    await page.keyboard.press("Enter");
 
     await expect(page).toHaveURL(/\/admin$/);
     await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();

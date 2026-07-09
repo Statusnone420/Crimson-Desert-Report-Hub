@@ -31,7 +31,8 @@ const clusters = [
     title: "Map-open crash persists after fix",
     category: "crash_startup",
     description: "Opening the world map can still crash or freeze the client after the claimed fix.",
-    fix_status: "persists",
+    fix_status: "fix_claimed",
+    fix_claimed_at: "2026-07-08T06:00:00.000Z",
     confidence: "medium",
     is_public: true,
   },
@@ -358,6 +359,26 @@ const automationSettings = [
   },
 ];
 
+// One-tap confirmations: FPS cluster gets escalated "have it" taps; the map cluster's
+// claim poll gets a 2-still vs 1-fixed split so the poll strip renders in snapshots.
+const issueConfirmations = [
+  ["confirm-1", 30, "cluster-fps", "pc_steam", "have_it", "mock-voter-1"],
+  ["confirm-2", 90, "cluster-fps", "pc_steam", "have_it", "mock-voter-2"],
+  ["confirm-3", 200, "cluster-fps", "ps5", "have_it", "mock-voter-3"],
+  ["confirm-4", 45, "cluster-map", "ps5", "still_happening", "mock-voter-4"],
+  ["confirm-5", 50, "cluster-map", "pc_steam", "still_happening", "mock-voter-5"],
+  ["confirm-6", 55, "cluster-map", "pc_steam", "fixed_for_me", "mock-voter-6"],
+].map(([id, minutes, clusterId, platform, kind, hash]) => ({
+  id,
+  created_at: isoMinutesAgo(minutes),
+  cluster_id: clusterId,
+  patch_family: "1.13",
+  patch_version: "1.13.01",
+  platform,
+  kind,
+  voter_ip_hash: hash,
+}));
+
 const officialPatchNotes = [
   {
     id: "official-patch-113",
@@ -562,6 +583,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/automation_rejected_candidates" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(rejectedCandidates, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/issue_confirmations" && req.method === "GET") {
+    sendJson(res, req.method ?? "GET", 200, issueConfirmations);
     return;
   }
 
