@@ -484,10 +484,15 @@ async function loadMonthSpend(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
 ): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number; openRouterCircuitOpen: boolean }> {
+  const monthStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const unverifiedWindowStartMs = now.getTime() - COST_UNVERIFIED_TRIP_WINDOW_MS;
+  // The blip window is rolling, so during the first 24h of a month the read must
+  // reach back into the previous month; spend and money-anomaly checks stay
+  // month-scoped in code below.
   const { data, error } = await supabase
     .from("automation_runs")
     .select("estimated_cost_usd, search_queries_used, skips, started_at")
-    .gte("started_at", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString());
+    .gte("started_at", new Date(Math.min(monthStartMs, unverifiedWindowStartMs)).toISOString());
   if (error) throw new Error(`automation spend read failed: ${error.message}`);
   const rows = (data ?? []) as {
     estimated_cost_usd?: number | string | null;
@@ -495,7 +500,10 @@ async function loadMonthSpend(
     skips?: unknown;
     started_at?: string | null;
   }[];
-  const usage = rows.reduce(
+  const startedAtMs = (row: { started_at?: string | null }) =>
+    typeof row.started_at === "string" ? new Date(row.started_at).getTime() : Number.NaN;
+  const monthRows = rows.filter((row) => startedAtMs(row) >= monthStartMs);
+  const usage = monthRows.reduce(
     (sum, row) => ({
       estimatedCostUsd: sum.estimatedCostUsd + Number(row.estimated_cost_usd ?? 0),
       tavilyCredits: sum.tavilyCredits + Number(row.search_queries_used ?? 0),
@@ -504,15 +512,11 @@ async function loadMonthSpend(
   );
   const hasSkip = (row: { skips?: unknown }, reason: string) =>
     Array.isArray(row.skips) && row.skips.includes(reason);
-  const moneyAnomaly = rows.some(
+  const moneyAnomaly = monthRows.some(
     (row) => hasSkip(row, "openrouter_unexpected_charge") || hasSkip(row, "openrouter_budget_exceeded"),
   );
-  const unverifiedWindowStart = now.getTime() - COST_UNVERIFIED_TRIP_WINDOW_MS;
   const recentUnverifiedRuns = rows.filter(
-    (row) =>
-      hasSkip(row, "openrouter_cost_unverified") &&
-      typeof row.started_at === "string" &&
-      new Date(row.started_at).getTime() >= unverifiedWindowStart,
+    (row) => hasSkip(row, "openrouter_cost_unverified") && startedAtMs(row) >= unverifiedWindowStartMs,
   ).length;
   return {
     ...usage,

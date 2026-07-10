@@ -135,6 +135,9 @@ export function ConfirmButtons({
             }}
             disabled={phase === "sending"}
             aria-pressed={selectedKind === kind}
+            aria-label={
+              countFor(kind) > 0 ? `${KIND_LABELS[kind]} — ${countFor(kind)} counted so far` : undefined
+            }
             style={selectedKind === kind ? KIND_TONES[kind] : undefined}
             onClick={() => {
               setPendingKind(kind);
@@ -144,7 +147,7 @@ export function ConfirmButtons({
           >
             {KIND_LABELS[kind]}
             {countFor(kind) > 0 ? (
-              <span className="num" style={{ color: "var(--text-faint)" }}>
+              <span aria-hidden="true" className="num" style={{ color: "var(--text-faint)" }}>
                 {countFor(kind)}
               </span>
             ) : null}

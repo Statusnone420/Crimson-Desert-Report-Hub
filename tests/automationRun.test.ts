@@ -1029,6 +1029,64 @@ describe("runAutomationMonitor", () => {
     expect(result.skips).toContain("openrouter_circuit_open");
   });
 
+  it("counts cost-unverified runs across a UTC month boundary inside the 24-hour window", async () => {
+    const blipRun = (id: string, startedAt: string) => ({
+      id,
+      started_at: startedAt,
+      finished_at: startedAt,
+      estimated_cost_usd: 0.016,
+      search_queries_used: 2,
+      mode: "scheduled",
+      status: "success",
+      skips: ["openrouter_cost_unverified"],
+    });
+    // Two blips late on June 30, one early on July 1 — all inside 24h of "now".
+    resetDb({
+      automation_runs: [
+        blipRun("run-blip-june-1", "2026-06-30T20:00:00.000Z"),
+        blipRun("run-blip-june-2", "2026-06-30T23:00:00.000Z"),
+        blipRun("run-blip-july", "2026-07-01T02:00:00.000Z"),
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-01T10:00:00.000Z") });
+
+    expect(
+      mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining === 0),
+    ).toBe(true);
+    expect(result.skips).toContain("openrouter_circuit_open");
+  });
+
+  it("keeps monthly spend accounting month-scoped even when the circuit read crosses the boundary", async () => {
+    // A pricey June run inside the 24h read window must not count against July's budget.
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-june-spend",
+          started_at: "2026-06-30T20:00:00.000Z",
+          finished_at: "2026-06-30T20:01:00.000Z",
+          estimated_cost_usd: 1.5,
+          search_queries_used: 2,
+          mode: "scheduled",
+          status: "success",
+          skips: [],
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-01T10:00:00.000Z") });
+
+    expect(result.skips).not.toContain("openrouter_circuit_open");
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(
+      mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining > 0),
+    ).toBe(true);
+  });
+
   it("ignores cost-unverified runs older than 24 hours when deciding the circuit", async () => {
     const blipRun = (id: string, startedAt: string) => ({
       id,
