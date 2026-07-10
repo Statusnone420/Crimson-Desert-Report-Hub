@@ -12,6 +12,7 @@ Older dated specs and plans under `docs/superpowers/` are historical records. Th
 
 | Document | Use it for |
 | --- | --- |
+| [State of Play & Next Steps](NEXT-STEPS.md) | Owner's resume-cold note: current state, ranked backlog, health check. Read first after time away. |
 | [Launch Checklist](LAUNCH_CHECKLIST.md) | Production setup, required services, first run, and final verification. |
 | [Operations Guide](OPERATIONS.md) | Environment variables, confirmation/scanner controls, deployment behavior, and safe live previews. |
 | [Privacy](PRIVACY.md) | What the app stores, what it shows publicly, and what it avoids collecting. |

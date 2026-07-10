@@ -142,7 +142,7 @@ Role-aware page:
 /scanner
 ```
 
-Anonymous visitors see source health, funnel transparency, and mapped lead questions. An authenticated admin sees these controls:
+Anonymous visitors see source health, funnel transparency, and mapped lead questions. The "AI extraction (OpenRouter)" card on both views is honest about the cost-safety circuit: when the circuit is open (or the run-history read fails), the badge shows an amber "Paused" instead of "Connected". The badge and the scan engine evaluate the same rolling run history through `src/lib/automation/circuit.ts`, so the display can never disagree with what the next scan will do. An authenticated admin sees these controls:
 
 - `Test scan without publishing`: writes only the run ledger.
 - `Run capped scan now`: runs the real scanner within the monthly budget.

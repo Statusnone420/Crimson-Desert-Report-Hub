@@ -22,6 +22,13 @@ This page is the short operating checklist for maintainers.
 8. Confirm mapped public items read as lead questions, never evidence.
 9. Only then run a capped real scan.
 
+## If "AI extraction (OpenRouter)" Shows Paused
+
+- Paused means the cost-safety circuit is open; scans keep running with Tavily and deterministic extraction, so nothing is broken.
+- Check the latest runs' skip codes on the admin `/scanner` view: `openrouter_cost_unverified` three or more times inside 24 hours self-heals once the failures age out of the window — no action needed.
+- `openrouter_unexpected_charge` or `openrouter_budget_exceeded` keeps the circuit open for the rest of the UTC month by design; verify the OpenRouter dashboard's key-level spend before considering any change.
+- There is no manual reset. The circuit is recomputed from run history each scan and closes on its own when conditions clear.
+
 ## Confirmation Board Checks
 
 - Confirm that a successful tap acknowledges the selected stance but leaves totals server-authored until refresh.

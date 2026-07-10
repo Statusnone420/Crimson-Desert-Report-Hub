@@ -33,6 +33,8 @@ The real-scan Tavily ledger is capped at 1,000 credits per month, normally aroun
 
 High-value scanner extraction and official fix-claim mapping use only `deepseek/deepseek-v4-flash`. Software caps that lane at $2 per UTC month and applies per-request price ceilings of $0.10 per million prompt tokens and $0.20 per million completion tokens. Routine report moderation and dossier prose use `openrouter/free`, an explicit `:free` model, or deterministic fallback. Confirmation taps make no search, LLM, or captcha call on the happy path.
 
+A cost-safety circuit protects the high-value lane. A response with unverifiable cost (usually a transport blip) charges its worst-case ceiling against the month and stops LLM calls for that run only; three or more unverified-cost runs inside a rolling 24 hours open the circuit until those failures age out. An unexpected charge or a response above its ceiling opens the circuit for the rest of the UTC month. While the circuit is open, Tavily discovery and deterministic extraction continue, and the scanner page's "AI extraction" card shows "Paused". The circuit is recomputed from run history on every scan, so it closes by itself — no manual reset exists or is needed.
+
 The deployment should use a dedicated OpenRouter key with a provider-side monthly reset limit of $2 or lower. Maintainers must configure and verify that limit in OpenRouter; the repository cannot inspect the provider dashboard and does not claim the setting is already verified.
 
 ## Reddit Policy
