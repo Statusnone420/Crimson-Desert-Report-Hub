@@ -18,7 +18,7 @@ import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
 import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
-import { isValidPatchVersion, OFFICIAL_NOTICE_LIST_URL } from "@/lib/officialPatch";
+import { isValidPatchVersion } from "@/lib/officialPatch";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { assertProductionWriteAllowed } from "@/lib/previewGuard";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
@@ -245,27 +245,11 @@ export async function setCurrentPatchOverride(formData: FormData): Promise<void>
 
   const supabase = createServiceClient();
   const observedAt = new Date().toISOString();
-
-  const { error: clearError } = await supabase
-    .from("official_patch_notes")
-    .update({ is_current: false })
-    .eq("is_current", true);
-  if (clearError) throw new Error(clearError.message);
-
-  const { error: upsertError } = await supabase.from("official_patch_notes").upsert(
-    {
-      board_no: `manual-${version}`,
-      title: `Manual override: Patch ${version}`,
-      patch_version: version,
-      official_url: OFFICIAL_NOTICE_LIST_URL,
-      published_at: observedAt,
-      summary: null,
-      observed_at: observedAt,
-      is_current: true,
-    },
-    { onConflict: "board_no" },
-  );
-  if (upsertError) throw new Error(upsertError.message);
+  const { error } = await supabase.rpc("set_current_patch_override", {
+    p_patch_version: version,
+    p_observed_at: observedAt,
+  });
+  if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
   revalidatePublicSurfaces();

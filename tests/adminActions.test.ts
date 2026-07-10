@@ -516,34 +516,18 @@ describe("setCurrentPatchOverride", () => {
     expect(mocks.revalidateTag).not.toHaveBeenCalled();
   });
 
-  it("clears the previous current row, upserts a manual row, and refreshes public surfaces", async () => {
+  it("writes the manual current patch through one atomic RPC and refreshes public surfaces", async () => {
     const { setCurrentPatchOverride } = await import("@/app/admin/actions");
     const formData = new FormData();
     formData.set("patch_version", "1.13.02");
 
     await setCurrentPatchOverride(formData);
 
-    const clearIndex = mutations.findIndex(
-      (mutation) =>
-        mutation.table === "official_patch_notes" &&
-        mutation.type === "update" &&
-        JSON.stringify(mutation.row) ===
-          JSON.stringify({ patch: { is_current: false }, filters: [{ column: "is_current", value: true }] }),
-    );
-    const upsertIndex = mutations.findIndex(
-      (mutation) => mutation.table === "official_patch_notes" && mutation.type === "upsert",
-    );
-    expect(clearIndex).toBeGreaterThanOrEqual(0);
-    expect(upsertIndex).toBeGreaterThan(clearIndex);
-    expect(mutations[upsertIndex]?.row).toEqual(
-      expect.objectContaining({
-        board_no: "manual-1.13.02",
-        patch_version: "1.13.02",
-        is_current: true,
-        title: expect.stringContaining("1.13.02"),
-        official_url: expect.stringContaining("pearlabyss.com"),
-      }),
-    );
+    expect(mocks.rpc).toHaveBeenCalledWith("set_current_patch_override", {
+      p_observed_at: expect.any(String),
+      p_patch_version: "1.13.02",
+    });
+    expect(mutations.filter((mutation) => mutation.table === "official_patch_notes")).toEqual([]);
     expect(mocks.revalidateTag).toHaveBeenCalledWith("current-patch", "max");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
   });
@@ -558,13 +542,14 @@ describe("setCurrentPatchOverride", () => {
     expect(mutations).toEqual([]);
   });
 
-  it("surfaces an upsert failure instead of claiming success", async () => {
-    upsertFailure = { table: "official_patch_notes", message: "manual patch upsert failed" };
+  it("surfaces an atomic write failure instead of claiming success", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: "manual patch write failed" } });
     const { setCurrentPatchOverride } = await import("@/app/admin/actions");
     const formData = new FormData();
     formData.set("patch_version", "1.13.02");
 
-    await expect(setCurrentPatchOverride(formData)).rejects.toThrow("manual patch upsert failed");
+    await expect(setCurrentPatchOverride(formData)).rejects.toThrow("manual patch write failed");
+    expect(mutations.filter((mutation) => mutation.table === "official_patch_notes")).toEqual([]);
     expect(mocks.revalidateTag).not.toHaveBeenCalled();
   });
 });
