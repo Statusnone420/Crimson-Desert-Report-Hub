@@ -4,28 +4,28 @@
 
 **An unofficial, privacy-first confirmation board and source radar for Crimson Desert issues.**
 
-<p>
-  <a href="https://crimsonreporthub.com"><img alt="Crimson Dev badge linking to the live site" src="public/readme/badges/crimson-dev.png" width="156"></a>
-  <a href="docs/README.md"><img alt="Adventurer badge linking to project docs" src="public/readme/badges/adventurer.png" width="156"></a>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/actions/workflows/ci.yml"><img alt="Warrior badge linking to CI" src="public/readme/badges/warrior.png" width="156"></a>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/issues"><img alt="Battle Tested badge linking to issues" src="public/readme/badges/battle-tested.png" width="156"></a>
-  <a href="docs/wiki/Home.md"><img alt="Explorer badge linking to the wiki source" src="public/readme/badges/explorer.png" width="156"></a>
+<p align="center">
+  <a href="https://crimsonreporthub.com" title="Open the live site"><img alt="Crimson Dev plaque linking to the live site" src="public/readme/badges/plaques/crimson-dev.svg" width="150"></a>
+  <a href="docs/README.md" title="Project documentation"><img alt="Adventurer plaque linking to project docs" src="public/readme/badges/plaques/adventurer.svg" width="150"></a>
+  <a href="docs/wiki/Home.md" title="Wiki source pages"><img alt="Explorer plaque linking to the wiki source" src="public/readme/badges/plaques/explorer.svg" width="150"></a>
+  <a href="PRODUCT.md" title="Product notes and principles"><img alt="Scout plaque linking to product notes" src="public/readme/badges/plaques/scout.svg" width="150"></a>
+  <a href="DESIGN.md" title="Design system notes"><img alt="Documentor plaque linking to design notes" src="public/readme/badges/plaques/documentor.svg" width="150"></a>
 </p>
 
-<p>
-  <a href="SECURITY.md"><img alt="Survivor badge linking to security policy" src="public/readme/badges/survivor.png" width="156"></a>
-  <a href="PRODUCT.md"><img alt="Scout badge linking to product notes" src="public/readme/badges/scout.png" width="156"></a>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions"><img alt="Fan badge linking to discussions" src="public/readme/badges/fan.png" width="156"></a>
-  <a href="docs/OPERATIONS.md"><img alt="Resourceful badge linking to operations docs" src="public/readme/badges/resourceful.png" width="156"></a>
-  <a href="LICENSE"><img alt="Supporter badge linking to the MIT license" src="public/readme/badges/supporter.png" width="156"></a>
+<p align="center">
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/actions/workflows/ci.yml" title="CI runs"><img alt="Battle Tested plaque linking to CI" src="public/readme/badges/plaques/battle-tested.svg" width="150"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/issues" title="Bugs and scoped work"><img alt="Warrior plaque linking to issues" src="public/readme/badges/plaques/warrior.svg" width="150"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/pulls" title="Open pull requests"><img alt="Team Player plaque linking to pull requests" src="public/readme/badges/plaques/team-player.svg" width="150"></a>
+  <a href="CONTRIBUTING.md" title="How to contribute"><img alt="Contributor plaque linking to contributing guide" src="public/readme/badges/plaques/contributor.svg" width="150"></a>
+  <a href="docs/OPERATIONS.md" title="Operations runbook"><img alt="Resourceful plaque linking to operations docs" src="public/readme/badges/plaques/resourceful.svg" width="150"></a>
 </p>
 
-<p>
-  <a href="CONTRIBUTING.md"><img alt="Contributor badge linking to contributing guide" src="public/readme/badges/contributor.png" width="156"></a>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions"><img alt="Team Player badge linking to discussions" src="public/readme/badges/team-player.png" width="156"></a>
-  <a href="SECURITY.md"><img alt="Guardian badge linking to security policy" src="public/readme/badges/guardian.png" width="156"></a>
-  <a href="docs/README.md"><img alt="Documentor badge linking to documentation" src="public/readme/badges/documentor.png" width="156"></a>
-  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub"><img alt="Legend badge linking to repository home" src="public/readme/badges/legend.png" width="156"></a>
+<p align="center">
+  <a href="SECURITY.md" title="Security policy"><img alt="Survivor plaque linking to security policy" src="public/readme/badges/plaques/survivor.svg" width="150"></a>
+  <a href="docs/PRIVACY.md" title="Privacy model"><img alt="Guardian plaque linking to the privacy model" src="public/readme/badges/plaques/guardian.svg" width="150"></a>
+  <a href="LICENSE" title="MIT license"><img alt="Supporter plaque linking to the MIT license" src="public/readme/badges/plaques/supporter.svg" width="150"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/discussions" title="Community questions"><img alt="Fan plaque linking to discussions" src="public/readme/badges/plaques/fan.svg" width="150"></a>
+  <a href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/stargazers" title="Star the repo"><img alt="Legend plaque linking to stargazers" src="public/readme/badges/plaques/legend.svg" width="150"></a>
 </p>
 
 <a href="https://crimsonreporthub.com">
