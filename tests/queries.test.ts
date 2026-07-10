@@ -100,6 +100,15 @@ describe("filterExactPatchReports", () => {
     ];
     expect(filterExactPatchReports(rows, "1.13.01").map((row) => row.id)).toEqual(["current"]);
   });
+
+  it("counts equivalent version spellings as the exact current patch", () => {
+    const rows = [
+      { id: "no-leading-zero", patch_version: "1.13.1" },
+      { id: "exact", patch_version: "1.13.01" },
+      { id: "older", patch_version: "1.13.00" },
+    ];
+    expect(filterExactPatchReports(rows, "1.13.01").map((row) => row.id)).toEqual(["no-leading-zero", "exact"]);
+  });
 });
 
 describe("countRowsAtOrAfterClaimByCluster", () => {
