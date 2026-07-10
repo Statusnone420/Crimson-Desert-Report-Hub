@@ -234,6 +234,7 @@ type ApprovedExcerptRow = {
 const SEARCH_QUERY_COST_USD = 0.008;
 const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
 const MAX_RESERVED_EXTRACTION_LLM_CALLS = 2;
+const MAX_RESCUE_LLM_CALLS = 1;
 // Hard cap on full-page recon fetches per run. Each fetch is one Tavily extract
 // credit, so this bounds the extra cost of the "read the real thread before
 // rejecting" lane regardless of how many borderline candidates a run surfaces.
@@ -1748,24 +1749,113 @@ export async function rescueCandidateSignal(
   const routableClusters = await loadRoutableClusters(supabase);
   const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
 
+  const monthlyBudgetUsd = automationBudgetUsd();
+  let budgetReadError: string | null = null;
+  let spentMonthToDateUsd = 0;
+  let tavilyCreditsMonthToDate = 0;
+  let llmSpentMonthToDateUsd = 0;
+  let openRouterCircuitOpen = false;
+  try {
+    const monthSpend = await loadMonthSpend(supabase, now);
+    spentMonthToDateUsd = monthSpend.estimatedCostUsd;
+    tavilyCreditsMonthToDate = monthSpend.tavilyCredits;
+    llmSpentMonthToDateUsd = monthSpend.llmCostUsd;
+    openRouterCircuitOpen = monthSpend.openRouterCircuitOpen;
+  } catch (error) {
+    budgetReadError = toErrorMessage(error, "automation spend read failed");
+    openRouterCircuitOpen = true;
+    spentMonthToDateUsd = monthlyBudgetUsd;
+    llmSpentMonthToDateUsd = monthlyBudgetUsd;
+  }
+  const computedBudget = computeAutomationBudget({
+    monthlyBudgetUsd,
+    spentMonthToDateUsd,
+    tavilyCreditsMonthToDate,
+    llmSpentMonthToDateUsd,
+    mode: "manual",
+    now,
+  });
+  const budget: AutomationBudget = {
+    ...computedBudget,
+    allowPaidSearch: false,
+    maxSearchQueries: 0,
+    maxSearchResults: 0,
+    maxLlmCalls: openRouterCircuitOpen ? 0 : Math.min(MAX_RESCUE_LLM_CALLS, computedBudget.maxLlmCalls),
+  };
+  const runId = await createRunLedger(supabase, "manual", budget, now);
+  const result: AutomationResult = {
+    status: "success",
+    redditPostsSeen: 0,
+    searchQueriesUsed: 0,
+    searchResultsSeen: 0,
+    llmCallsUsed: 0,
+    candidatesSeen: 1,
+    prefilterRejected: 0,
+    signalsInserted: 0,
+    signalsDeduped: 0,
+    clustersPromoted: 0,
+    intent: "rescue_candidate",
+    targetClusterTitles: routableClusters.map((cluster) => cluster.title),
+    signalsReobserved: 0,
+    staleSignalsHidden: 0,
+    candidatesRescued: 0,
+    estimatedCostUsd: 0,
+    llmCostUsd: 0,
+    skips: [...budget.skipReasons, ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : [])],
+    errors: [],
+  };
+  if (budgetReadError) result.errors.push(budgetReadError);
+
   // Rescue deliberately skips preScreenCandidate and shouldKeepExtractedSignal —
   // an admin rescuing a candidate has already judged it relevant, so re-running
   // the automated relevance gates here would defeat the point of a rescue.
-  const extraction = await extractSignalWithOpenRouter(
-    { title: source.title, snippet: source.body, url: canonicalUrl },
-    { llmCallsRemaining: 0, clusterOptions },
-  );
+  try {
+    const extraction = await extractSignalWithOpenRouter(
+      { title: source.title, snippet: source.body, url: canonicalUrl },
+      {
+        llmCallsRemaining: budget.maxLlmCalls,
+        llmBudgetRemainingUsd: budget.remainingLlmUsd,
+        clusterOptions,
+      },
+    );
+    result.llmCallsUsed = extraction.llmCallsUsed;
+    result.llmCostUsd = extraction.llmCostUsd;
+    result.estimatedCostUsd = extraction.llmCostUsd;
+    if (extraction.fallbackReason && !result.skips.includes(extraction.fallbackReason)) {
+      result.skips.push(extraction.fallbackReason);
+    }
+    recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
-  const externalHash = externalIdHash(source.source, source.id);
-  const prepared: PreparedSignal = {
-    ...source,
-    canonicalUrl,
-    externalHash,
-    semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
-    extraction,
-  };
+    const externalHash = externalIdHash(source.source, source.id);
+    const prepared: PreparedSignal = {
+      ...source,
+      canonicalUrl,
+      externalHash,
+      semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
+      extraction,
+    };
 
-  const reports = await loadApprovedReports(supabase);
-  const clusterBySemantic = new Map<string, string>();
-  await persistOneSignal(supabase, prepared, reports, clusterBySemantic, routableClusters, now, null);
+    const reports = await loadApprovedReports(supabase);
+    const clusterBySemantic = new Map<string, string>();
+    const persistence = await persistOneSignal(
+      supabase,
+      prepared,
+      reports,
+      clusterBySemantic,
+      routableClusters,
+      now,
+      runId,
+    );
+    if (persistence.reobserved) result.signalsReobserved = 1;
+    else result.signalsInserted = 1;
+    if (persistence.promoted) result.clustersPromoted = 1;
+    result.candidatesRescued = 1;
+    if (result.errors.length > 0) result.status = "partial";
+  } catch (error) {
+    result.status = "failed";
+    result.errors.push(toErrorMessage(error, "candidate rescue failed"));
+    throw error;
+  } finally {
+    await finalizeRunLedgerSafely(supabase, runId, result);
+  }
 }

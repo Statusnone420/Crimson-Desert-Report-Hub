@@ -110,6 +110,18 @@ export async function moderateReport(formData: FormData): Promise<void> {
   if (!id || !(DECISIONS as readonly string[]).includes(decision)) throw new Error("bad input");
 
   const supabase = createServiceClient();
+  const { data: existingReports, error: existingError } = await supabase
+    .from("bug_reports")
+    .select("moderation_status, cluster_id")
+    .eq("id", id)
+    .limit(1);
+  if (existingError) throw new Error(`report read failed: ${existingError.message}`);
+  const existingReport = ((existingReports ?? []) as {
+    moderation_status: string;
+    cluster_id: string | null;
+  }[])[0];
+  if (!existingReport) throw new Error("report not found");
+
   const { error } = await supabase
     .from("bug_reports")
     .update({ moderation_status: decision, cluster_id: clusterId || null })
@@ -123,11 +135,18 @@ export async function moderateReport(formData: FormData): Promise<void> {
     if (excerptError) throw new Error(`approved excerpt insert failed: ${excerptError.message}`);
   }
 
-  if (decision === "approved" && clusterId) {
+  const clustersToRefresh = new Set<string>();
+  if (existingReport.moderation_status === "approved" && existingReport.cluster_id) {
+    clustersToRefresh.add(existingReport.cluster_id);
+  }
+  if (decision === "approved" && clusterId) clustersToRefresh.add(clusterId);
+
+  for (const affectedClusterId of clustersToRefresh) {
     try {
       // The report trigger already made core visibility durable. Keep this deep
       // stats/source refresh best-effort after the excerpt is safely persisted.
-      await refreshClusterVisibility(clusterId);
+      // Recompute the old destination too when an approval moves or is removed.
+      await refreshClusterVisibility(affectedClusterId);
     } catch (refreshError) {
       console.error("cluster visibility refresh failed:", refreshError);
     }

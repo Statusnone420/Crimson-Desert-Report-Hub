@@ -2551,6 +2551,119 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("uses one budgeted semantic extraction when rescuing a rejected source", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Heavy traversal stutter",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: "Traversal causes repeated frame-time spikes on Steam.",
+      clusterSlug: "performance_regression",
+      extractionProvider: "openrouter",
+      extractionModel: "deepseek/deepseek-v4-flash",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/hitching/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 2,
+        clusterOptions: [{ slug: "performance_regression", title: "Performance regression" }],
+      }),
+    );
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-seeded-perf",
+      extraction_provider: "openrouter",
+      extraction_model: "deepseek/deepseek-v4-flash",
+    });
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "success",
+      mode: "manual",
+      intent: "rescue_candidate",
+      llm_calls_used: 1,
+      candidates_rescued: 1,
+      estimated_cost_usd: 0.0002,
+    });
+  });
+
+  it("rescues deterministically without spending when the monthly LLM budget is exhausted", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-monthly-cap",
+          started_at: new Date().toISOString(),
+          estimated_cost_usd: 2,
+          search_queries_used: 0,
+          skips: [],
+        },
+      ],
+    });
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/capped/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmCallsRemaining: 0, llmBudgetRemainingUsd: 0 }),
+    );
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ extraction_provider: "deterministic" });
+    expect(tables.automation_runs).toHaveLength(2);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "success",
+      mode: "manual",
+      intent: "rescue_candidate",
+      llm_calls_used: 0,
+      candidates_rescued: 1,
+      estimated_cost_usd: 0,
+    });
+    expect(tables.automation_runs[1].skips).toEqual(
+      expect.arrayContaining(["budget_capped", "llm_budget_capped"]),
+    );
+  });
+
   it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
     resetDb({
       issue_clusters: [

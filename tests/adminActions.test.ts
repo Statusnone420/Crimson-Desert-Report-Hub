@@ -125,7 +125,9 @@ beforeEach(() => {
   mocks.refreshClusterVisibility.mockResolvedValue(undefined);
   vi.resetModules();
   insertFailure = null;
-  seedRows = {};
+  seedRows = {
+    bug_reports: [{ id: "report-one", moderation_status: "pending", cluster_id: null }],
+  };
   mutations.length = 0;
   mocks.from.mockImplementation((table: AdminTableName) => new FakeQuery(table));
   mocks.rpc.mockResolvedValue({ data: null, error: null });
@@ -214,6 +216,38 @@ describe("moderateReport", () => {
     });
     expect(mutations.some((mutation) => mutation.table === "approved_excerpts")).toBe(false);
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the old cluster when an approved report is rejected", async () => {
+    seedRows = {
+      bug_reports: [{ id: "report-one", moderation_status: "approved", cluster_id: "cluster-old" }],
+    };
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "rejected");
+
+    await moderateReport(formData);
+
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledTimes(1);
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-old");
+  });
+
+  it("refreshes both clusters when an approved report moves", async () => {
+    seedRows = {
+      bug_reports: [{ id: "report-one", moderation_status: "approved", cluster_id: "cluster-old" }],
+    };
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "approved");
+    formData.set("cluster_id", "cluster-new");
+
+    await moderateReport(formData);
+
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledTimes(2);
+    expect(mocks.refreshClusterVisibility).toHaveBeenNthCalledWith(1, "cluster-old");
+    expect(mocks.refreshClusterVisibility).toHaveBeenNthCalledWith(2, "cluster-new");
   });
 });
 
