@@ -105,7 +105,7 @@ The deployment should use a dedicated OpenRouter key with a provider-side monthl
 
 Admins can see pending report details, claim-mapping exceptions, scanner run data, and rejected lead candidates. Admin access is password-gated and session-cookie based.
 
-Maintainers may approve/reject reports, redact public excerpts, lock a lifecycle display, or force a cluster public/hidden. Forced visibility takes effect atomically through a service-role RPC, database triggers preserve it across concurrent scanner writes, and public surfaces are refreshed. `Auto` only clears the override; normal promotion re-evaluates effective visibility on the next scan. Overrides do not change the meaning of reports, confirmations, or scanner leads.
+Maintainers may approve/reject reports, redact public excerpts, lock a lifecycle display, or force a cluster public/hidden. Forced visibility takes effect atomically through a service-role RPC, database triggers preserve it across concurrent scanner writes, and public surfaces are refreshed. The automatic baseline stays current while an override is active; `Auto` restores it and immediately re-runs a revision-checked, atomic promotion refresh for current reports and source rows. Overrides do not change the meaning of reports, confirmations, or scanner leads.
 
 ## Third Parties
 

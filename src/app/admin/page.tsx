@@ -241,7 +241,7 @@ export default async function AdminPage() {
           <span className="min-w-0 space-y-1">
             <span className="stat-label block">Visibility overrides</span>
             <span className="block text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              Force public/hidden takes effect immediately. Auto returns control to the engine on its next scan.
+              Force public/hidden takes effect immediately. Auto immediately recomputes engine-owned visibility.
             </span>
           </span>
           <span className="badge badge-dim">
