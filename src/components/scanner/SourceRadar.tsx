@@ -21,7 +21,7 @@ export function SourceRadar({
   data,
   integrations,
   title = "Source Radar",
-  description = "Public sources move through the same funnel every run: review, filter noise, hold weak signals, then publish only backed evidence.",
+  description = "Public sources move through the same funnel every run: review, filter noise, hold weak leads, then publish only links that clear the board rules. Links remain leads, not player evidence.",
   actions,
 }: {
   data: PublicScannerData;
@@ -49,14 +49,14 @@ export function SourceRadar({
       key: "awaiting",
       value: data.awaiting,
       name: "Awaiting corroboration",
-      desc: "Plausible signal, not enough sources yet",
+      desc: "Plausible lead, not enough sources yet",
       color: "var(--blue)",
     },
     {
       key: "published",
       value: data.published,
-      name: "Published",
-      desc: "Evidence-backed issues live on the board",
+      name: "Published issues",
+      desc: "Full cards with a report or reviewed link",
       color: "var(--crimson)",
     },
   ];

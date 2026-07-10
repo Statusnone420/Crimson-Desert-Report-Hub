@@ -13,7 +13,7 @@ describe("computeFeatures", () => {
     });
   });
 
-  it("reddit requires all three reddit vars", () => {
+  it("reddit stays off with partial or complete legacy credentials", () => {
     expect(computeFeatures({ REDDIT_CLIENT_ID: "a", REDDIT_CLIENT_SECRET: "b" }).reddit).toBe(false);
     expect(
       computeFeatures({
@@ -21,12 +21,15 @@ describe("computeFeatures", () => {
         REDDIT_CLIENT_SECRET: "b",
         REDDIT_USER_AGENT: "c",
       }).reddit,
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("ai on with either groq or openrouter", () => {
-    expect(computeFeatures({ GROQ_API_KEY: "g" }).ai).toBe(true);
+  it("ai requires OpenRouter with the approved automation model", () => {
+    expect(computeFeatures({ GROQ_API_KEY: "g" }).ai).toBe(false);
     expect(computeFeatures({ OPENROUTER_API_KEY: "o" }).ai).toBe(true);
+    expect(
+      computeFeatures({ OPENROUTER_API_KEY: "o", OPENROUTER_AUTOMATION_MODEL: "deepseek/deepseek-v4-pro" }).ai,
+    ).toBe(false);
   });
 
   it("turnstile requires both the public site key and secret", () => {
@@ -41,7 +44,7 @@ describe("computeFeatures", () => {
     expect(computeFeatures({ XAI_API_KEY: "x" }).xSearch).toBe(true);
   });
 
-  it("webSearch flips on Tavily and automation follows Reddit or web search", () => {
+  it("webSearch flips on Tavily and is the only source that enables automation", () => {
     expect(computeFeatures({ TAVILY_API_KEY: "t" })).toMatchObject({
       webSearch: true,
       automation: true,
@@ -53,8 +56,8 @@ describe("computeFeatures", () => {
         REDDIT_USER_AGENT: "c",
       }),
     ).toMatchObject({
-      reddit: true,
-      automation: true,
+      reddit: false,
+      automation: false,
     });
   });
 
@@ -76,8 +79,8 @@ describe("integrationStatuses", () => {
         key: "reddit",
         label: "Reddit API",
         connected: false,
-        missingEnv: ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT"],
-        detail: "Not connected — the scanner reads no Reddit posts and relies on web search only.",
+        missingEnv: [],
+        detail: "Permanently off — Reddit pages are discovered through web search only.",
       },
       {
         key: "web_search",
@@ -96,17 +99,17 @@ describe("integrationStatuses", () => {
     ]);
   });
 
-  it("reddit partially configured stays disconnected and lists only the missing vars", () => {
+  it("reddit partially configured stays permanently off", () => {
     const statuses = integrationStatuses({ REDDIT_CLIENT_ID: "a" });
     const reddit = statuses.find((s) => s.key === "reddit");
     expect(reddit).toMatchObject({
       connected: false,
-      missingEnv: ["REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT"],
-      detail: "Not connected — the scanner reads no Reddit posts and relies on web search only.",
+      missingEnv: [],
+      detail: "Permanently off — Reddit pages are discovered through web search only.",
     });
   });
 
-  it("reports all three integrations connected when all env vars are present", () => {
+  it("keeps Reddit off while reporting the two supported integrations connected", () => {
     const statuses = integrationStatuses({
       REDDIT_CLIENT_ID: "a",
       REDDIT_CLIENT_SECRET: "b",
@@ -118,9 +121,9 @@ describe("integrationStatuses", () => {
       {
         key: "reddit",
         label: "Reddit API",
-        connected: true,
+        connected: false,
         missingEnv: [],
-        detail: "Reading r/CrimsonDesert posts each run.",
+        detail: "Permanently off — Reddit pages are discovered through web search only.",
       },
       {
         key: "web_search",
@@ -134,7 +137,7 @@ describe("integrationStatuses", () => {
         label: "AI extraction (OpenRouter)",
         connected: true,
         missingEnv: [],
-        detail: "Extracting signals with a free model.",
+        detail: "Extracting signals with budget-capped DeepSeek V4 Flash.",
       },
     ]);
   });
@@ -155,20 +158,33 @@ describe("integrationStatuses", () => {
     expect(ai).toMatchObject({
       connected: true,
       missingEnv: [],
-      detail: "Extracting signals with a free model.",
+      detail: "Extracting signals with budget-capped DeepSeek V4 Flash.",
+    });
+  });
+
+  it("reports AI extraction disconnected when the configured automation model is not approved", () => {
+    const ai = integrationStatuses({
+      OPENROUTER_API_KEY: "o",
+      OPENROUTER_AUTOMATION_MODEL: "deepseek/deepseek-v4-pro",
+    }).find((status) => status.key === "ai_extraction");
+
+    expect(ai).toMatchObject({
+      connected: false,
+      missingEnv: ["OPENROUTER_AUTOMATION_MODEL"],
+      detail: "Not connected — the configured automation model is not approved.",
     });
   });
 });
 
 describe("automation env helpers", () => {
-  it("defaults monthly automation budget to 5 and clamps invalid values", () => {
-    expect(automationBudgetUsd({})).toBe(5);
-    expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "-1" })).toBe(5);
-    expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "not-a-number" })).toBe(5);
-    expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "100" })).toBe(50);
+  it("defaults and caps the monthly automation dollar budget at two dollars", () => {
+    expect(automationBudgetUsd({})).toBe(2);
+    expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "-1" })).toBe(0);
+    expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "not-a-number" })).toBe(0);
+    expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "100" })).toBe(2);
   });
 
-  it("keeps budget 0 as an explicit automation cutoff", () => {
+  it("keeps an explicit zero-dollar budget at zero", () => {
     expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "0" })).toBe(0);
   });
 

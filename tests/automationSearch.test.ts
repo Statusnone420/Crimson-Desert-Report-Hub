@@ -104,7 +104,11 @@ describe("Tavily extract request", () => {
       authorization: "Bearer tavily-key",
     });
     expect(JSON.parse(init.body)).toStrictEqual({
-      urls: ["https://reddit.com/r/CrimsonDesert/comments/thin/current_patch/"],
+      urls: ["https://old.reddit.com/r/CrimsonDesert/comments/thin/current_patch/"],
+      query: "Crimson Desert current patch issue crash stutter performance fixed still happening player report",
+      chunks_per_source: 5,
+      extract_depth: "basic",
+      include_usage: true,
     });
   });
 

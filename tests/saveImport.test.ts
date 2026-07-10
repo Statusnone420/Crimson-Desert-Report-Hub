@@ -23,7 +23,7 @@ const settingsXml = `
 describe("save import helper", () => {
   it("sanitizes local save paths before they can be inserted into reports", () => {
     expect(sanitizeSavePath("87637437/slot100/save.save")).toBe("slot100/save.save");
-    expect(sanitizeSavePath("C:/Users/Antho/AppData/Local/Pearl Abyss/CD/save/87637437/slot2/lobby.save")).toBe(
+    expect(sanitizeSavePath("C:/Users/Player/AppData/Local/Pearl Abyss/CD/save/87637437/slot2/lobby.save")).toBe(
       "slot2/lobby.save",
     );
   });

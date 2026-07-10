@@ -3,10 +3,19 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
+import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
+import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
 import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { belongsToPatchFamily, isPostCurrentPatchEvidence, matchesPatchVersion, type PatchContext } from "@/lib/patchWatch";
+import {
+  belongsToPatchFamily,
+  isPostCurrentPatchEvidence,
+  matchesPatchVersion,
+  patchFamilyKey,
+  type PatchContext,
+} from "@/lib/patchWatch";
+import { composeIssueReadout, DISPLAY_THRESHOLD_NETWORKS, type IssueReadout } from "@/lib/readout";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export type ClusterRow = {
@@ -16,6 +25,10 @@ export type ClusterRow = {
   category: string;
   description: string;
   fix_status: string;
+  fix_claimed_at?: string | null;
+  fix_claimed_patch_version?: string | null;
+  admin_override?: boolean | null;
+  lifecycle_reason?: string | null;
   confidence: string;
   is_public: boolean;
 };
@@ -138,11 +151,91 @@ function countClusterIds(rows: { cluster_id: string | null }[]): Record<string, 
   return countBy(rows, (row) => row.cluster_id);
 }
 
+export function countRowsAtOrAfterClaimByCluster<T extends { cluster_id: string | null }>(
+  rows: T[],
+  fixClaimedAtByCluster: Record<string, string | null>,
+  evidenceTime: (row: T) => string | null | undefined,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    if (!row.cluster_id) continue;
+    const claimedAt = fixClaimedAtByCluster[row.cluster_id];
+    const happenedAt = evidenceTime(row);
+    if (!claimedAt || !happenedAt) continue;
+    const claimTime = new Date(claimedAt).getTime();
+    const evidenceTimestamp = new Date(happenedAt).getTime();
+    if (!Number.isFinite(claimTime) || !Number.isFinite(evidenceTimestamp) || evidenceTimestamp < claimTime) continue;
+    counts[row.cluster_id] = (counts[row.cluster_id] ?? 0) + 1;
+  }
+  return counts;
+}
+
+export function groupConfirmationRowsByCluster(rows: ConfirmationRow[]): Record<string, ConfirmationRow[]> {
+  const grouped: Record<string, ConfirmationRow[]> = {};
+  for (const row of rows) {
+    (grouped[row.cluster_id] ??= []).push(row);
+  }
+  return grouped;
+}
+
+export function reportPlatformCountsByCluster(
+  rows: { cluster_id: string | null; platform: string | null }[],
+): Record<string, Record<string, number>> {
+  const counts: Record<string, Record<string, number>> = {};
+  for (const row of rows) {
+    if (!row.cluster_id || !row.platform) continue;
+    const platformCounts = (counts[row.cluster_id] ??= {});
+    platformCounts[row.platform] = (platformCounts[row.platform] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Raw confirmation rows for the current patch family, grouped per cluster.
+ * voter_ip_hash is consumed server-side for distinct-network tallies and never
+ * reaches a page — only aggregated ClusterConfirmations leave this module.
+ */
+export async function readConfirmationRowsByClusterForPatchFamily(
+  supabase: ReturnType<typeof createServiceClient>,
+  currentPatchVersion: string,
+): Promise<Record<string, ConfirmationRow[]>> {
+  const family = patchFamilyKey(currentPatchVersion) ?? currentPatchVersion;
+  const pageSize = 1000;
+  const rows: ConfirmationRow[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("issue_confirmations")
+      .select("id, cluster_id, platform, kind, voter_ip_hash, created_at")
+      .eq("patch_family", family)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      // The branch can render before its migration is applied; other read errors should stay visible.
+      if (error.code === "42P01") return {};
+      throw new Error(`confirmation rows read failed: ${error.message}`);
+    }
+    const page = (data ?? []) as ConfirmationRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return groupConfirmationRowsByCluster(rows);
+}
+
 export function filterPatchFamilyReports<T extends { patch_version: string | null }>(
   rows: T[],
   currentPatch: PatchContext,
 ): T[] {
   return rows.filter((row) => Boolean(row.patch_version && belongsToPatchFamily(row.patch_version, currentPatch.version)));
+}
+
+export function filterExactPatchReports<T extends { patch_version: string | null }>(
+  rows: T[],
+  currentPatchVersion: string,
+): T[] {
+  // Intake accepts any trimmed spelling, so exact-patch evidence must compare
+  // normalized version keys ("1.13.1" counts against "1.13.01"), matching the
+  // family filters above.
+  return rows.filter((row) => matchesPatchVersion(row.patch_version, currentPatchVersion));
 }
 
 export function latestReportAtFromRows<T extends { created_at: string }>(rows: T[]): string | null {
@@ -201,23 +294,54 @@ function filterPublicCurrentPatchSignals<T extends SignalRow>(
   rows: T[],
   currentPatch: { version: string; publishedAt: string | null },
 ): T[] {
-  return rows.filter((row) =>
-    evaluateCurrentPatchEligibility(
+  return rows.filter((row) => {
+    if (hasUnsupportedSourceContext({ title: row.title ?? "", snippet: row.summary, url: row.source_url })) {
+      return false;
+    }
+    return evaluateCurrentPatchEligibility(
       { title: row.title ?? null, summary: row.summary, sourcePublishedAt: row.source_published_at ?? null },
       currentPatch,
-    ).canPublish,
+    ).canPublish;
+  });
+}
+
+type CandidateSignalRow = {
+  cluster_id: string | null;
+  title: string | null;
+  summary: string;
+  source_url: string;
+  source_published_at: string | null;
+};
+
+export function countCurrentPatchCandidateSignalsByCluster(
+  rows: CandidateSignalRow[],
+  currentPatch: PatchContext,
+): Record<string, number> {
+  return countClusterIds(
+    rows.filter((row) => {
+      if (!row.cluster_id) return false;
+      if (hasUnsupportedSourceContext({ title: row.title ?? "", snippet: row.summary, url: row.source_url })) {
+        return false;
+      }
+      return evaluateCurrentPatchEligibility(
+        { title: row.title, summary: row.summary, sourcePublishedAt: row.source_published_at },
+        currentPatch,
+      ).canStore;
+    }),
   );
 }
 
-/**
- * Count private (not-yet-independent) signals per cluster for public pages.
- * ONLY selects cluster_id — never select private summaries/urls onto a public page.
- */
+/** Private text is read only for current-patch eligibility; only cluster counts leave this server module. */
 async function getCandidateSignalCountsByCluster(
   supabase: ReturnType<typeof createServiceClient>,
+  currentPatch: PatchContext,
 ): Promise<Record<string, number>> {
-  const { data } = await supabase.from("source_signals").select("cluster_id").eq("public_status", "private");
-  return countClusterIds((data ?? []) as { cluster_id: string | null }[]);
+  const { data, error } = await supabase
+    .from("source_signals")
+    .select("cluster_id, title, summary, source_url, source_published_at")
+    .eq("public_status", "private");
+  if (error) throw new Error(`candidate signals read failed: ${error.message}`);
+  return countCurrentPatchCandidateSignalsByCluster((data ?? []) as CandidateSignalRow[], currentPatch);
 }
 
 function relatedReport<T>(value: RelatedReport<T>): T | null {
@@ -285,6 +409,70 @@ export function countDistinctVerifiedReportsByCluster(rows: VerifiedReportCluste
   return countClusterIds(clusterRows);
 }
 
+type ClusterCounts = {
+  signalCount: number;
+  directReportCount: number;
+  verifiedReportCount?: number;
+  candidateSignalCount: number;
+  postCurrentPatchReportCount: number;
+  postCurrentPatchSignalCount: number;
+  postClaimEvidenceCount: number;
+  confirmationRows: ConfirmationRow[];
+  reportPlatformCounts: Record<string, number>;
+  patchVersion: string;
+};
+
+export type DecoratedCluster = ClusterRow & {
+  count: number;
+  signalCount: number;
+  directReportCount: number;
+  verifiedReportCount: number;
+  candidateSignalCount: number;
+  postCurrentPatchReportCount: number;
+  postCurrentPatchSignalCount: number;
+  postCurrentPatchEvidenceCount: number;
+  confirmations: ClusterConfirmations;
+  reportPlatformCounts: Record<string, number>;
+  readout: IssueReadout;
+  strengthScore: number;
+};
+
+/** One decoration path for dashboard + issues: counts in, readout out. */
+function decorateCluster(cluster: ClusterRow & { count: number }, counts: ClusterCounts): DecoratedCluster {
+  const fixClaimedAt =
+    cluster.fix_claimed_patch_version === counts.patchVersion ? cluster.fix_claimed_at ?? null : null;
+  const confirmations = computeClusterConfirmations(counts.confirmationRows, fixClaimedAt);
+  const postCurrentPatchEvidenceCount = counts.postCurrentPatchReportCount + counts.postCurrentPatchSignalCount;
+  const readout = composeIssueReadout({
+    directReportCount: counts.directReportCount,
+    publicSignalCount: counts.signalCount,
+    candidateSignalCount: counts.candidateSignalCount,
+    postClaimEvidenceCount: counts.postClaimEvidenceCount,
+    confirmations,
+    fixClaimedAt,
+    adminOverride: Boolean(cluster.admin_override),
+    storedFixStatus: cluster.fix_status,
+    patchVersion: counts.patchVersion,
+  });
+  // Confirmations join the ranking only once their tally is escalated (>= threshold networks).
+  const escalatedConfirms = confirmations.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS ? confirmations.affectedCount : 0;
+  return {
+    ...cluster,
+    count: counts.directReportCount,
+    signalCount: counts.signalCount,
+    directReportCount: counts.directReportCount,
+    verifiedReportCount: counts.verifiedReportCount ?? 0,
+    candidateSignalCount: counts.candidateSignalCount,
+    postCurrentPatchReportCount: counts.postCurrentPatchReportCount,
+    postCurrentPatchSignalCount: counts.postCurrentPatchSignalCount,
+    postCurrentPatchEvidenceCount,
+    confirmations,
+    reportPlatformCounts: counts.reportPlatformCounts,
+    readout,
+    strengthScore: counts.signalCount + counts.directReportCount * 3 + escalatedConfirms,
+  };
+}
+
 const GPU_PATTERN = /\b(rtx|gtx|rx|arc)\s*-?\s*(\d{3,4})\s*(ti|super|xt|xtx|gre)?\b/gi;
 
 function countGpus(rows: DashboardReportRow[]): Record<string, number> {
@@ -338,7 +526,7 @@ async function getDashboardDataUncached() {
 
   const { data: clusterData } = await supabase
     .from("issue_clusters")
-    .select("id, slug, title, category, description, fix_status, confidence, is_public")
+    .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public")
     .eq("is_public", true);
 
   const { data: signals } = await supabase
@@ -358,7 +546,7 @@ async function getDashboardDataUncached() {
     .select("id", { count: "exact", head: true })
     .eq("moderation_status", "pending");
 
-  const [scanner, latestAutomation, currentPatch, claimedFixes, candidateSignalCounts] = await Promise.all([
+  const [scanner, latestAutomation, currentPatch, claimedFixes] = await Promise.all([
     getAutomationControlState(supabase as unknown as AutomationSettingsClient),
     supabase
       .from("automation_runs")
@@ -371,39 +559,47 @@ async function getDashboardDataUncached() {
       .limit(1),
     getCurrentPatchMetadata(supabase),
     getClaimedFixesForCurrentPatch(supabase),
-    getCandidateSignalCountsByCluster(supabase),
   ]);
+  const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
+  const confirmationsByCluster = await readConfirmationRowsByClusterForPatchFamily(supabase, currentPatch.version);
+  const publicClusters = (clusterData ?? []) as ClusterRow[];
+  const fixClaimedAtByCluster = Object.fromEntries(
+    publicClusters.map((cluster) => [
+      cluster.id,
+      cluster.fix_claimed_patch_version === currentPatch.version ? cluster.fix_claimed_at ?? null : null,
+    ]),
+  );
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
+  const platformCountsByCluster = reportPlatformCountsByCluster(currentReportRows);
   const postCurrentPatchReportByCluster = countPostCurrentPatchReportsByCluster(currentReportRows, currentPatch);
   const postCurrentPatchSignalByCluster = countPostCurrentPatchSignalsByCluster(signalRows, currentPatch);
+  const postClaimReportByCluster = countRowsAtOrAfterClaimByCluster(
+    filterExactPatchReports(currentReportRows, currentPatch.version),
+    fixClaimedAtByCluster,
+    (row) => row.created_at,
+  );
   const verifiedByCluster = countDistinctVerifiedReportsByCluster(verifiedRows);
   const verifiedReportCount = new Set(verifiedRows.map((row) => row.report_id)).size;
-  const topClusters = rankClusters((clusterData ?? []) as ClusterRow[], rows)
-    .map((cluster) => {
-      const signalCount = signalByCluster[cluster.id] ?? 0;
-      const directReportCount = directByCluster[cluster.id] ?? 0;
-      const verifiedReportCount = verifiedByCluster[cluster.id] ?? 0;
-      const candidateSignalCount = candidateSignalCounts[cluster.id] ?? 0;
-      const postCurrentPatchReportCount = postCurrentPatchReportByCluster[cluster.id] ?? 0;
-      const postCurrentPatchSignalCount = postCurrentPatchSignalByCluster[cluster.id] ?? 0;
-      return {
-        ...cluster,
-        count: directReportCount,
-        signalCount,
-        directReportCount,
-        verifiedReportCount,
-        candidateSignalCount,
-        postCurrentPatchReportCount,
-        postCurrentPatchSignalCount,
-        postCurrentPatchEvidenceCount: postCurrentPatchReportCount + postCurrentPatchSignalCount,
-        strengthScore: signalCount + directReportCount * 3,
-      };
-    })
+  const topClusters = rankClusters(publicClusters, rows)
+    .map((cluster) =>
+      decorateCluster(cluster, {
+        signalCount: signalByCluster[cluster.id] ?? 0,
+        directReportCount: directByCluster[cluster.id] ?? 0,
+        verifiedReportCount: verifiedByCluster[cluster.id] ?? 0,
+        candidateSignalCount: candidateSignalCounts[cluster.id] ?? 0,
+        postCurrentPatchReportCount: postCurrentPatchReportByCluster[cluster.id] ?? 0,
+        postCurrentPatchSignalCount: postCurrentPatchSignalByCluster[cluster.id] ?? 0,
+        postClaimEvidenceCount: postClaimReportByCluster[cluster.id] ?? 0,
+        confirmationRows: confirmationsByCluster[cluster.id] ?? [],
+        reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
+        patchVersion: currentPatch.version,
+      }),
+    )
     .sort((a, b) => b.strengthScore - a.strengthScore);
 
   return {
@@ -436,14 +632,19 @@ export const getDashboardData = unstable_cache(getDashboardDataUncached, ["dashb
 
 async function getIssuesDataUncached() {
   if (!hasSupabaseServiceConfig()) {
-    return { clusters: [], excerptsByCluster: {}, signalsByCluster: {} };
+    return {
+      clusters: [] as DecoratedCluster[],
+      excerptsByCluster: {} as Record<string, { text: string; platform: string }[]>,
+      signalsByCluster: {} as Record<string, SignalRow[]>,
+      currentPatch: await getCurrentPatchMetadata(),
+    };
   }
 
   const supabase = createServiceClient();
 
   const { data: clusterData } = await supabase
     .from("issue_clusters")
-    .select("id, slug, title, category, description, fix_status, confidence, is_public")
+    .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public")
     .eq("is_public", true);
 
   const { data: reports } = await supabase
@@ -460,32 +661,41 @@ async function getIssuesDataUncached() {
   const currentPatch = await getCurrentPatchMetadata(supabase);
   const signalRows = filterPublicCurrentPatchSignals((signals ?? []) as SignalRow[], currentPatch);
   const currentReportRows = filterPatchFamilyReports(reportRows, currentPatch);
+  const publicClusters = (clusterData ?? []) as ClusterRow[];
+  const fixClaimedAtByCluster = Object.fromEntries(
+    publicClusters.map((cluster) => [
+      cluster.id,
+      cluster.fix_claimed_patch_version === currentPatch.version ? cluster.fix_claimed_at ?? null : null,
+    ]),
+  );
 
-  const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase);
+  const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
+  const confirmationsByCluster = await readConfirmationRowsByClusterForPatchFamily(supabase, currentPatch.version);
 
   const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
+  const platformCountsByCluster = reportPlatformCountsByCluster(currentReportRows);
   const postCurrentPatchReportByCluster = countPostCurrentPatchReportsByCluster(currentReportRows, currentPatch);
   const postCurrentPatchSignalByCluster = countPostCurrentPatchSignalsByCluster(signalRows, currentPatch);
-  const clusters = rankClusters((clusterData ?? []) as ClusterRow[], currentReportRows)
-    .map((cluster) => {
-      const signalCount = signalByCluster[cluster.id] ?? 0;
-      const directReportCount = directByCluster[cluster.id] ?? 0;
-      const candidateSignalCount = candidateSignalCounts[cluster.id] ?? 0;
-      const postCurrentPatchReportCount = postCurrentPatchReportByCluster[cluster.id] ?? 0;
-      const postCurrentPatchSignalCount = postCurrentPatchSignalByCluster[cluster.id] ?? 0;
-      return {
-        ...cluster,
-        count: directReportCount,
-        signalCount,
-        directReportCount,
-        candidateSignalCount,
-        postCurrentPatchReportCount,
-        postCurrentPatchSignalCount,
-        postCurrentPatchEvidenceCount: postCurrentPatchReportCount + postCurrentPatchSignalCount,
-        strengthScore: signalCount + directReportCount * 3,
-      };
-    })
+  const postClaimReportByCluster = countRowsAtOrAfterClaimByCluster(
+    filterExactPatchReports(currentReportRows, currentPatch.version),
+    fixClaimedAtByCluster,
+    (row) => row.created_at,
+  );
+  const clusters = rankClusters(publicClusters, currentReportRows)
+    .map((cluster) =>
+      decorateCluster(cluster, {
+        signalCount: signalByCluster[cluster.id] ?? 0,
+        directReportCount: directByCluster[cluster.id] ?? 0,
+        candidateSignalCount: candidateSignalCounts[cluster.id] ?? 0,
+        postCurrentPatchReportCount: postCurrentPatchReportByCluster[cluster.id] ?? 0,
+        postCurrentPatchSignalCount: postCurrentPatchSignalByCluster[cluster.id] ?? 0,
+        postClaimEvidenceCount: postClaimReportByCluster[cluster.id] ?? 0,
+        confirmationRows: confirmationsByCluster[cluster.id] ?? [],
+        reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
+        patchVersion: currentPatch.version,
+      }),
+    )
     .sort((a, b) => b.strengthScore - a.strengthScore);
 
   const signalsByCluster: Record<string, SignalRow[]> = {};
@@ -496,7 +706,7 @@ async function getIssuesDataUncached() {
 
   const excerptsByCluster = await readExcerptsByClusterForCurrentPatch(supabase, currentPatch);
 
-  return { clusters, excerptsByCluster, signalsByCluster };
+  return { clusters, excerptsByCluster, signalsByCluster, currentPatch };
 }
 
 export const getIssuesData = unstable_cache(getIssuesDataUncached, ["issues-data"], {
@@ -607,9 +817,9 @@ export type PublicScannerData = {
 };
 
 /**
- * Aggregate-only scanner counts for the public /scanner tab. Selects ONLY numeric
- * columns, cluster_id, and public_status — never a title, url, summary, or reject
- * reason. This is the public privacy boundary: raw content never leaves this query.
+ * Aggregate-only scanner counts for the public /scanner tab. Public and private
+ * source text is read server-side only to enforce current-patch eligibility; no
+ * title, URL, summary, rejection reason, or candidate row leaves this function.
  */
 async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
   const empty: PublicScannerData = {
@@ -670,21 +880,13 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     const currentPatch = await getCurrentPatchMetadata(supabase);
     const { data: publicSignalData } = await supabase
       .from("source_signals")
-      .select("cluster_id, title, summary, source_published_at")
+      .select("cluster_id, title, summary, source_url, source_published_at")
       .eq("public_status", "public");
     const publicSignalClusters = new Set<string>();
     for (const signal of filterPublicCurrentPatchSignals((publicSignalData ?? []) as SignalRow[], currentPatch)) {
       if (signal.cluster_id) publicSignalClusters.add(signal.cluster_id);
     }
-    // Private candidates: only cluster_id is selected — private content never leaves here.
-    const { data: privateSignalData } = await supabase
-      .from("source_signals")
-      .select("cluster_id")
-      .eq("public_status", "private");
-    const privateSignalClusters = new Set<string>();
-    for (const signal of (privateSignalData ?? []) as { cluster_id: string | null }[]) {
-      if (signal.cluster_id) privateSignalClusters.add(signal.cluster_id);
-    }
+    const privateSignalClusters = new Set(Object.keys(await getCandidateSignalCountsByCluster(supabase, currentPatch)));
 
     const { data: reportData } = await supabase
       .from("bug_reports")
@@ -704,8 +906,8 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       if (publicSignalClusters.has(cluster.id) || approvedReportClusters.has(cluster.id)) published += 1;
     }
 
-    // Awaiting = every cluster with a private candidate signal that is not yet live
-    // evidence, INCLUDING brand-new candidates whose cluster is still is_public=false.
+    // Awaiting = current-patch eligible private-lead clusters not backed by a
+    // public link or approved report, including clusters not yet public.
     let awaiting = 0;
     for (const id of privateSignalClusters) {
       if (!publicSignalClusters.has(id) && !approvedReportClusters.has(id)) awaiting += 1;

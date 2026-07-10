@@ -451,7 +451,7 @@ export function ReportForm({
             <ul className="space-y-2 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
               <li>Checked and sorted into the right issue automatically.</li>
               <li>Your raw words stay private. Only counts and a neutral summary go public.</li>
-              <li>Duplicates merge, so one real patch problem reads as one stronger evidence signal.</li>
+              <li>Duplicates merge, so one real patch problem reads as one moderated issue cluster.</li>
             </ul>
           </div>
         </aside>

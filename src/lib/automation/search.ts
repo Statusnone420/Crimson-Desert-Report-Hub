@@ -107,6 +107,26 @@ type TavilyExtractResult = {
   raw_content?: string;
 };
 
+const REDDIT_EXTRACT_HOSTS = new Set(["reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com"]);
+const EXTRACT_QUERY = "Crimson Desert current patch issue crash stutter performance fixed still happening player report";
+
+function extractionUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    if (!REDDIT_EXTRACT_HOSTS.has(parsed.hostname.toLowerCase())) return value;
+    parsed.protocol = "https:";
+    parsed.hostname = "old.reddit.com";
+    parsed.port = "";
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+}
+
 /**
  * Fetch the full page text for one URL via Tavily's extract endpoint. Returns the
  * first result's trimmed raw_content, or null when no key is configured or no
@@ -121,13 +141,19 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   const res = await fetcher("https://api.tavily.com/extract", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ urls: [url] }),
+    body: JSON.stringify({
+      urls: [extractionUrl(url)],
+      query: EXTRACT_QUERY,
+      chunks_per_source: 5,
+      extract_depth: "basic",
+      include_usage: true,
+    }),
   });
   if (!res.ok) throw new Error(`tavily extract failed: ${res.status}`);
 
   const data = (await res.json()) as { results?: TavilyExtractResult[] };
   const rawContent = (data.results ?? [])[0]?.raw_content?.trim();
-  return rawContent ? rawContent : null;
+  return rawContent ? rawContent.slice(0, 4_000) : null;
 }
 
 export async function tavilySearch(query: string, options: TavilySearchOptions = {}): Promise<SearchResult[]> {

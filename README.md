@@ -2,7 +2,7 @@
 
 # Crimson Desert Report Hub
 
-**An unofficial, privacy-first evidence board for Crimson Desert bug reports.**
+**An unofficial, privacy-first confirmation board and source radar for Crimson Desert issues.**
 
 <p>
   <a href="https://crimsonreporthub.com"><img alt="Crimson Dev badge linking to the live site" src="public/readme/badges/crimson-dev.png" width="156"></a>
@@ -40,26 +40,33 @@
 
 ## What This Is
 
-Crimson Desert Report Hub turns scattered player bug reports into structured community evidence: public signals, anonymous direct reports, moderation-approved excerpts, and Pearl Abyss-ready dossiers.
+Crimson Desert Report Hub keeps the current patch situation readable without pretending to know more than its inputs support. Structured anonymous reports are evidence, one-tap anonymous confirmations are player signals, and scanner-discovered public links are leads that generate questions—not proof.
+
+The dashboard, issue board, and source radar are designed to remain complete and useful with zero visitors. Official patch context, scanner health, mapped lead questions, and exact-patch fix-claim provenance carry the site at N=0; community input adds resolution when it exists.
 
 It is not affiliated with Pearl Abyss, Reddit, X, Vercel, Supabase, Tavily, or OpenRouter.
 
 ## Core Flow
 
 ```text
-public reports + community signals
-        -> issue clusters
-        -> moderation review
-        -> public evidence board
-        -> exportable dossier
+official patch context + scanner leads
+                    -> issue questions
+structured reports -> evidence counts
+confirmation taps  -> player-signal counts
+                    -> one count-backed readout, never a verdict
 ```
 
 ## Principles
 
 - Evidence before outrage.
-- Anonymous report intake by default.
+- Reports are evidence; confirmations are signals; scanner links are leads.
+- Anonymous report and confirmation intake by default.
+- No verdicts from quiet, elapsed time, or scanner links.
 - No accounts, ads, analytics trackers, or public raw complaint feed.
-- Paid integrations are optional and budget-capped.
+- No raw IP storage; network hashes stay server-side for deduplication and abuse limits.
+- Reddit API is permanently off. Tavily may discover public Reddit pages through normal web search and may perform bounded basic extraction against `old.reddit.com` for thin, promising results.
+- Tavily is capped at 1,000 monthly credits. High-value scanner extraction and official fix-claim mapping use only `deepseek/deepseek-v4-flash` under a hard $2 UTC-month software cap and per-request price ceilings.
+- Routine report moderation and dossier prose use `openrouter/free`, an explicit `:free` model, or deterministic fallback.
 - Official patch notes are treated as source metadata, not branding.
 
 ## Start Here
@@ -87,7 +94,7 @@ npm run build
 npm run dev
 ```
 
-Create `.env.local` from [.env.local.example](.env.local.example) for full local runs. Never commit `.env.local`, API keys, passwords, dashboard screenshots with secrets, or local credential notes.
+Create `.env.local` from [.env.local.example](.env.local.example) for full local runs. The example caps high-value OpenRouter automation at `$2` per UTC month and Tavily at 1,000 monthly credits. Before enabling automation, configure a dedicated OpenRouter key with a provider-side monthly reset limit of `$2` or lower and verify that dashboard setting manually; the repository cannot verify it for you. Never commit `.env.local`, API keys, passwords, dashboard screenshots with secrets, or local credential notes.
 
 ## Verification
 

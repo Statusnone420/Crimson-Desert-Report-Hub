@@ -4,8 +4,11 @@ const mocks = vi.hoisted(() => ({
   extractSignalWithOpenRouter: vi.fn(),
   fetchNewPosts: vi.fn(),
   from: vi.fn(),
+  getClaimedFixesForCurrentPatch: vi.fn(),
   getCurrentPatchMetadata: vi.fn(),
   getRedditToken: vi.fn(),
+  mapClaimToClusterWithOpenRouter: vi.fn(),
+  rpc: vi.fn(),
   getAutomationControlState: vi.fn(),
   runAutomationMonitor: vi.fn(),
   insertSkippedScheduledRun: vi.fn(),
@@ -17,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 
 vi.mock("@/lib/supabase", () => ({
-  createServiceClient: () => ({ from: mocks.from }),
+  createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }),
 }));
 
 vi.mock("@/lib/reddit.server", () => ({
@@ -42,10 +45,19 @@ vi.mock("@/lib/automation/extract", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/automation/claimMapping", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/claimMapping")>();
+  return {
+    ...actual,
+    mapClaimToClusterWithOpenRouter: mocks.mapClaimToClusterWithOpenRouter,
+  };
+});
+
 vi.mock("@/lib/officialPatch.server", () => ({
   CURRENT_PATCH_TAG: "current-patch",
   PUBLIC_DASHBOARD_TAG: "public-dashboard",
   PUBLIC_ISSUES_TAG: "public-issues",
+  getClaimedFixesForCurrentPatch: mocks.getClaimedFixesForCurrentPatch,
   getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
   syncOfficialPatchNote: mocks.syncOfficialPatchNote,
 }));
@@ -79,12 +91,16 @@ const tables: Record<TableName, Row[]> = {
   approved_excerpts: [],
   automation_settings: [],
 };
-const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown }[] = [];
+const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters?: Filter[] }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
 let selectFailure: { table: TableName; message: string; columns?: string } | null = null;
 let updateFailure: { table: TableName; message: string } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
+let beforeUpdate: ((table: TableName, patch: Row, filters: Filter[]) => void) | null = null;
+let beforeSelect: ((table: TableName) => void) | null = null;
+let beforeVisibilityRefreshRpc: ((args: Record<string, unknown>) => void) | null = null;
+let visibilityRefreshFailure: string | null = null;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -105,6 +121,10 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   selectFailure = null;
   updateFailure = null;
   deleteFailure = null;
+  beforeUpdate = null;
+  beforeSelect = null;
+  beforeVisibilityRefreshRpc = null;
+  visibilityRefreshFailure = null;
 }
 
 function nextId(table: TableName) {
@@ -292,13 +312,15 @@ class FakeQuery {
     if (updateFailure?.table === this.table) {
       return { data: null, error: { message: updateFailure.message } };
     }
+    beforeUpdate?.(this.table, this.patch!, [...this.filters]);
     const rows = this.filteredRows();
     for (const row of rows) Object.assign(row, this.patch);
-    mutations.push({ table: this.table, type: "update", row: this.patch });
+    mutations.push({ table: this.table, type: "update", row: this.patch, filters: [...this.filters] });
     return { data: rows, error: null };
   }
 
   private executeSelect() {
+    beforeSelect?.(this.table);
     // A failure with `columns` set targets only queries whose select string
     // contains it (e.g. loadMonthSpend's "estimated_cost_usd"). Substring match,
     // not equality, so adding a column to the production select can't silently
@@ -346,8 +368,57 @@ async function importRunner() {
 
 function configureProviders() {
   mocks.from.mockImplementation((table: TableName) => new FakeQuery(table));
+  mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+    if (name !== "apply_cluster_visibility_refresh") throw new Error(`unexpected rpc ${name}`);
+    if (visibilityRefreshFailure) return { data: null, error: { message: visibilityRefreshFailure } };
+    beforeVisibilityRefreshRpc?.(args);
+
+    const cluster = tables.issue_clusters.find((row) => row.id === args.p_cluster_id);
+    if (!cluster) return { data: null, error: { message: "issue cluster not found" } };
+    if (Number(cluster.visibility_revision ?? 0) !== Number(args.p_expected_revision)) {
+      return { data: false, error: null };
+    }
+
+    const signalPatches = (args.p_signal_patches ?? []) as Row[];
+    for (const signalPatch of signalPatches) {
+      const signal = tables.source_signals.find(
+        (row) => row.id === signalPatch.id && row.cluster_id === args.p_cluster_id,
+      );
+      if (!signal) return { data: null, error: { message: "source signal not found in cluster" } };
+      Object.assign(signal, signalPatch);
+    }
+
+    const clusterPatch = args.p_cluster_patch as Row;
+    if (cluster.admin_visibility_override) {
+      // A forced state controls only the effective flag. The atomic refresh still
+      // advances the engine-owned baseline that Auto will restore later.
+      cluster.visibility_restore_auto_public = clusterPatch.auto_public;
+      cluster.visibility_restore_is_public = clusterPatch.is_public;
+    }
+    const effectiveIsPublic =
+      cluster.admin_visibility_override === "force_hidden"
+        ? false
+        : cluster.admin_visibility_override === "force_public"
+          ? true
+          : clusterPatch.is_public;
+    Object.assign(cluster, clusterPatch, {
+      is_public: effectiveIsPublic,
+      visibility_revision: Number(cluster.visibility_revision ?? 0) + 1,
+    });
+    return { data: true, error: null };
+  });
   mocks.getCurrentPatchMetadata.mockResolvedValue(officialPatchFixture);
   mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: officialPatchFixture });
+  mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+  mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+    matchKind: "none",
+    clusterId: null,
+    clusterSlug: null,
+    reason: "No match.",
+    llmCallsUsed: 0,
+    llmCostUsd: 0,
+    extractionModel: null,
+  });
   mocks.getRedditToken.mockResolvedValue("reddit-token");
   mocks.fetchNewPosts.mockResolvedValue([
     {
@@ -358,15 +429,18 @@ function configureProviders() {
       created_utc: 1783260000,
     },
   ]);
-  mocks.tavilySearch.mockResolvedValue([
-    {
-      title: "Crimson Desert patch 1.13 FPS regression",
-      url: "https://example.com/fps",
-      snippet: "Players report FPS drops on Steam.",
-      sourceDomain: "example.com",
-      observedAt: "2026-07-05T12:00:00.000Z",
-    },
-  ]);
+  mocks.tavilySearch.mockImplementation(async () => {
+    const firstResult = mocks.tavilySearch.mock.calls.length === 1;
+    return [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: firstResult ? "https://reddit.com/r/CrimsonDesert/comments/fps/report" : "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: firstResult ? "reddit.com" : "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ];
+  });
   // Recon is off by default: no full-page text unless a test opts in. Existing
   // borderline behavior (extract on the thin snippet) must be unchanged.
   mocks.tavilyExtract.mockResolvedValue(null);
@@ -383,9 +457,9 @@ function configureProviders() {
       confidence: canUseOpenRouter ? "high" : "medium",
       summary: isCrash ? "Map crash on PS5." : "Players report FPS drops on Steam.",
       extractionProvider: canUseOpenRouter ? "openrouter" : "deterministic",
-      extractionModel: canUseOpenRouter ? process.env.OPENROUTER_FREE_MODEL : null,
+      extractionModel: canUseOpenRouter ? "deepseek/deepseek-v4-flash" : null,
       llmCallsUsed: canUseOpenRouter ? 1 : 0,
-      llmCostUsd: canUseOpenRouter ? 0.0002 : 0,
+      llmCostUsd: 0,
     };
   });
   mocks.getAutomationControlState.mockResolvedValue({
@@ -393,8 +467,8 @@ function configureProviders() {
     minIntervalMinutes: 60,
     scheduledSearchCreditsPerRun: 1,
     monthlyTavilyCreditCap: 900,
-    monthlyLlmUsdCap: 1,
-    modelPreset: "deepseek_qwen_pro",
+    monthlyLlmUsdCap: 2,
+    modelPreset: "deepseek_v4_flash",
     updatedAt: null,
   });
 }
@@ -409,8 +483,9 @@ beforeEach(() => {
   process.env.REDDIT_CLIENT_SECRET = "reddit-secret";
   process.env.REDDIT_USER_AGENT = "report-hub-test";
   process.env.TAVILY_API_KEY = "tavily-key";
-  process.env.AUTOMATION_BUDGET_USD_MONTHLY = "5";
+  process.env.AUTOMATION_BUDGET_USD_MONTHLY = "2";
   process.env.OPENROUTER_API_KEY = "openrouter-key";
+  process.env.OPENROUTER_AUTOMATION_MODEL = "deepseek/deepseek-v4-flash";
   process.env.OPENROUTER_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
   delete process.env.CRON_SECRET;
   delete process.env.VERCEL_ENV;
@@ -422,13 +497,488 @@ afterEach(() => {
 });
 
 describe("runAutomationMonitor", () => {
+  it("immediately restores automatic cluster and signal visibility after force-hidden is cleared", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          admin_visibility_override: null,
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-fps",
+          cluster_id: "cluster-fps",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Frame-rate drops after patch 1.13.00",
+          moderation_status: "approved",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-fps",
+          cluster_id: "cluster-fps",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://old.reddit.com/r/CrimsonDesert/comments/fps/report",
+          canonical_url: "https://old.reddit.com/r/CrimsonDesert/comments/fps/report",
+          source_domain: "reddit.com",
+          title: "Crimson Desert 1.13.00 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          source_published_at: "2026-07-05T11:00:00.000Z",
+          public_status: "hidden",
+          promotion_reason: "admin_force_hidden",
+          extracted_facts: {},
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-fps", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      id: "cluster-fps",
+      admin_visibility_override: null,
+      auto_public: true,
+      is_public: true,
+    });
+    expect(tables.source_signals[0]).toMatchObject({
+      id: "signal-fps",
+      public_status: "public",
+      promotion_reason: "direct_report_match",
+    });
+  });
+
+  it("keeps report-backed automatic eligibility while a force-hidden override is active", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          admin_visibility_override: "force_hidden",
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-fps",
+          cluster_id: "cluster-fps",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Frame-rate drops after patch 1.13.00",
+          moderation_status: "approved",
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-fps", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: true, is_public: false });
+  });
+
+  it("advances the Auto baseline when evidence expires during a force-hidden period", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-expired",
+          category: "performance",
+          admin_visibility_override: "force_hidden",
+          visibility_revision: 1,
+          visibility_restore_is_public: true,
+          visibility_restore_auto_public: true,
+          auto_public: true,
+          is_public: false,
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-expired", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: "force_hidden",
+      visibility_revision: 2,
+      visibility_restore_is_public: false,
+      visibility_restore_auto_public: false,
+      auto_public: false,
+      is_public: false,
+    });
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "apply_cluster_visibility_refresh",
+      expect.objectContaining({ p_cluster_id: "cluster-expired", p_expected_revision: 1 }),
+    );
+  });
+
+  it("does not mistake force-public for automatic eligibility", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-private",
+          slug: "private_watchlist",
+          title: "Private watchlist",
+          category: "performance",
+          description: "Below-threshold private watchlist.",
+          admin_visibility_override: "force_public",
+          auto_public: false,
+          is_public: true,
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-private", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: true });
+  });
+
+  it("retries a stale force-public refresh after Auto changes the visibility revision", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-race",
+          category: "performance",
+          admin_visibility_override: "force_public",
+          visibility_revision: 1,
+          auto_public: false,
+          is_public: true,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-race",
+          cluster_id: "cluster-race",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://facebook.com/groups/crimsondesert/posts/fps-race",
+          canonical_url: "https://facebook.com/groups/crimsondesert/posts/fps-race",
+          source_domain: "facebook.com",
+          title: "Crimson Desert 1.13.00 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          source_published_at: "2026-07-05T11:00:00.000Z",
+          public_status: "private",
+          promotion_reason: "below_threshold",
+          extracted_facts: {},
+        },
+      ],
+    });
+    let transitionedToAuto = false;
+    const transitionToAuto = () => {
+      if (transitionedToAuto) return;
+      transitionedToAuto = true;
+      Object.assign(tables.issue_clusters[0], {
+        admin_visibility_override: null,
+        visibility_revision: 2,
+        is_public: false,
+      });
+    };
+    // Current direct writes reach the update hook; the fixed atomic implementation
+    // reaches the RPC hook. Either way, Auto wins between the stale read and write.
+    beforeUpdate = (table) => {
+      if (table === "source_signals") transitionToAuto();
+    };
+    beforeVisibilityRefreshRpc = transitionToAuto;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-race", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(transitionedToAuto).toBe(true);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: null,
+      visibility_revision: expect.any(Number),
+      auto_public: false,
+      is_public: false,
+    });
+    expect(tables.source_signals[0]).toMatchObject({
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+    expect(mocks.rpc.mock.calls.map(([, args]) => args.p_expected_revision)).toEqual([1, 2]);
+  });
+
+  it("does not overwrite transactional report promotion with a pre-revision report snapshot", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-report-race",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+    });
+    beforeSelect = (table) => {
+      if (table !== "issue_clusters") return;
+      beforeSelect = null;
+      tables.bug_reports.push({
+        id: "report-race",
+        cluster_id: "cluster-report-race",
+        category: "performance",
+        platform: "pc_steam",
+        issue_title: "Approved while a refresh starts",
+        moderation_status: "approved",
+      });
+      Object.assign(tables.issue_clusters[0], {
+        visibility_revision: 1,
+        auto_public: true,
+        is_public: true,
+      });
+    };
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-report-race", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      visibility_revision: 2,
+      direct_report_count: 1,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("never calls the Reddit API when legacy credentials remain", async () => {
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "dry_run", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.redditPostsSeen).toBe(0);
+    expect(result.skips).toContain("reddit_disabled");
+    expect(mocks.getRedditToken).not.toHaveBeenCalled();
+    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+  });
+
+  it("continues high-value LLM work after a normal accounted DeepSeek charge", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          is_public: true,
+          admin_override: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed intermittent frame-rate drops.", category: "performance" },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert patch 1.13 FPS drops in towns",
+        url: "https://reddit.com/r/CrimsonDesert/comments/fps/towns",
+        snippet: "Players report stutter and FPS drops after patch 1.13.00.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 combat stutter",
+        url: "https://steamcommunity.com/app/3321460/discussions/stutter",
+        snippet: "Players report combat stutter and FPS drops after patch 1.13.00.",
+        sourceDomain: "steamcommunity.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    let extractionCall = 0;
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
+      extractionCall += 1;
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        issueTitle: candidate.title,
+        category: "performance",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: candidate.snippet,
+        clusterSlug: "performance_regression",
+        extractionProvider: "openrouter",
+        extractionModel: "deepseek/deepseek-v4-flash",
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: extractionCall === 1 ? 0.0025 : 0,
+      };
+    });
+    mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => {
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        matchKind: "none",
+        clusterId: null,
+        clusterSlug: null,
+        reason: "No match.",
+        llmCallsUsed: 0,
+        llmCostUsd: 0,
+        extractionModel: null,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(2);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][1].llmCallsRemaining).toBeGreaterThan(0);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[1][1].llmCallsRemaining).toBeGreaterThan(0);
+    expect(mocks.mapClaimToClusterWithOpenRouter).toHaveBeenCalledOnce();
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls[0][2].llmCallsRemaining).toBeGreaterThan(0);
+    expect(openRouterAttempts).toBe(3);
+    expect(result.llmCostUsd).toBe(0.0025);
+    expect(result.skips).not.toContain("openrouter_cost_unverified");
+  });
+
+  it("reserves scheduled LLM allowance for scanner extraction after claim mapping", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          is_public: true,
+          admin_override: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue(
+      Array.from({ length: 4 }, (_, index) => ({
+        fixText: `Fixed performance issue ${index + 1}.`,
+        category: "performance",
+      })),
+    );
+    mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => ({
+      matchKind: "none",
+      clusterId: null,
+      clusterSlug: null,
+      reason: "No match.",
+      llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+      llmCostUsd: 0,
+      extractionModel: options.llmCallsRemaining > 0 ? "deepseek/deepseek-v4-flash" : null,
+    }));
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "scheduled", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls.some((call) => call[2].llmCallsRemaining > 0)).toBe(true);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][1].llmCallsRemaining).toBeGreaterThan(0);
+  });
+
+  it("opens the run-level circuit when claim mapping cannot verify cost", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          is_public: true,
+          admin_override: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed frame-rate drops in towns.", category: "performance" },
+      { fixText: "Fixed combat frame-rate drops.", category: "performance" },
+    ]);
+    let mappingCall = 0;
+    mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => {
+      mappingCall += 1;
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        matchKind: "none",
+        clusterId: null,
+        clusterSlug: null,
+        reason: mappingCall === 1 ? "OpenRouter cost could not be verified." : "No match.",
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: 0,
+        extractionModel: options.llmCallsRemaining > 0 ? "deepseek/deepseek-v4-flash" : null,
+        ...(mappingCall === 1 ? { circuitReason: "openrouter_cost_unverified" as const } : {}),
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.mapClaimToClusterWithOpenRouter).toHaveBeenCalledTimes(2);
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls[0][2].llmCallsRemaining).toBeGreaterThan(0);
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls[1][2].llmCallsRemaining).toBe(0);
+    expect(openRouterAttempts).toBe(1);
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.skips).toContain("openrouter_cost_unverified");
+  });
+
+  it("keeps the current-month LLM circuit open across later runs", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-charged-free-model",
+          started_at: "2026-07-04T12:00:00.000Z",
+          finished_at: "2026-07-04T12:01:00.000Z",
+          estimated_cost_usd: 0.0025,
+          search_queries_used: 0,
+          mode: "scheduled",
+          status: "success",
+          skips: ["openrouter_unexpected_charge"],
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(5);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(2);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining === 0)).toBe(true);
+    expect(openRouterAttempts).toBe(0);
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.skips).toContain("openrouter_circuit_open");
+    expect(tables.automation_runs[0]).toMatchObject({
+      estimated_cost_usd: 0.0025,
+      skips: ["openrouter_unexpected_charge"],
+    });
+    expect(tables.automation_runs[1]).toMatchObject({
+      skips: expect.arrayContaining(["openrouter_circuit_open"]),
+    });
+  });
+
   it("dry run writes only an automation_runs ledger row", async () => {
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "dry_run", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(result.status).toBe("success");
-    expect(result.redditPostsSeen).toBe(1);
+    expect(result.redditPostsSeen).toBe(0);
     expect(result.searchResultsSeen).toBe(5);
     expect(tables.automation_runs).toHaveLength(1);
     expect(tables.automation_runs[0]).toMatchObject({
@@ -471,7 +1021,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
     await runAutomationMonitor({
@@ -483,7 +1033,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
 
@@ -495,28 +1045,23 @@ describe("runAutomationMonitor", () => {
     );
   });
 
-  it("budget 0 skips paid search and OpenRouter attempts but still stores deterministic Reddit signals", async () => {
+  it("budget 0 still runs Tavily and deterministic extraction without paid LLM calls", async () => {
     process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
-    expect(result.skips).toContain("budget_zero");
-    expect(result.searchQueriesUsed).toBe(0);
-    expect(result.searchResultsSeen).toBe(0);
+    expect(result.skips).not.toContain("budget_zero");
+    expect(result.searchQueriesUsed).toBe(5);
+    expect(result.searchResultsSeen).toBe(5);
     expect(result.llmCallsUsed).toBe(0);
     expect(openRouterAttempts).toBe(0);
-    expect(mocks.tavilySearch).not.toHaveBeenCalled();
-    expect(sourceSignalRows()).toHaveLength(1);
-    expect(sourceSignalRows()[0]).toMatchObject({
-      source: "reddit",
-      extraction_provider: "deterministic",
-      extraction_model: null,
-      public_status: "private",
-    });
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(5);
+    expect(sourceSignalRows()).toHaveLength(2);
+    expect(sourceSignalRows()[0]).toMatchObject({ source: "web_search", extraction_provider: "deterministic" });
   });
 
-  it("scheduled runs with an exhausted Tavily credit cap write a skipped ledger row without providers", async () => {
+  it("an exhausted Tavily cap still runs free patch maintenance without web discovery", async () => {
     resetDb({
       automation_runs: [
         {
@@ -541,24 +1086,24 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 1,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
 
-    expect(result.status).toBe("skipped");
+    expect(result.status).toBe("success");
     expect(result.skips).toContain("tavily_credit_cap");
     expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(openRouterAttempts).toBe(0);
     expect(tables.automation_runs).toHaveLength(2);
     expect(tables.automation_runs[1]).toMatchObject({
-      status: "skipped",
+      status: "success",
       mode: "scheduled",
       skips: expect.arrayContaining(["tavily_credit_cap"]),
     });
   });
 
-  it("scheduled runs with an exhausted LLM cap write a skipped ledger row without providers", async () => {
+  it("historical LLM spend at the cap stops DeepSeek while Tavily and maintenance continue", async () => {
     resetDb({
       automation_runs: [
         {
@@ -583,19 +1128,18 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
 
-    expect(result.status).toBe("skipped");
+    expect(result.status).toBe("success");
     expect(result.skips).toContain("llm_budget_capped");
     expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
-    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).toHaveBeenCalledOnce();
     expect(openRouterAttempts).toBe(0);
     expect(tables.automation_runs[1]).toMatchObject({
-      status: "skipped",
+      status: "success",
       mode: "scheduled",
-      skips: expect.arrayContaining(["llm_budget_capped"]),
     });
   });
 
@@ -681,12 +1225,11 @@ describe("runAutomationMonitor", () => {
     ]);
     expect(sourceSignalRows()[0]).toMatchObject({
       extraction_provider: "openrouter",
-      extraction_model: "meta-llama/llama-3.3-70b-instruct:free",
+      extraction_model: "deepseek/deepseek-v4-flash",
     });
   });
 
   it("direct approved reports promote a matching one-source signal", async () => {
-    delete process.env.TAVILY_API_KEY;
     resetDb({
       issue_clusters: [
         {
@@ -712,16 +1255,16 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([
+    mocks.tavilySearch.mockResolvedValue([
       {
-        id: "reddit-map",
         title: "Map crash on PS5",
-        selftext: "Map crash still happens on PS5.",
-        permalink: "/r/CrimsonDesert/comments/reddit-map/map/",
-        created_utc: 1783260000,
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-map/map",
+        snippet: "Map crash still happens on PS5.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
       },
     ]);
-    delete process.env.TAVILY_API_KEY;
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -809,7 +1352,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("promotes a trusted (reddit.com) direct-report signal to public even without domain corroboration", async () => {
-    delete process.env.TAVILY_API_KEY;
     resetDb({
       issue_clusters: [
         {
@@ -835,16 +1377,16 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([
+    mocks.tavilySearch.mockResolvedValue([
       {
-        id: "reddit-map",
         title: "Map crash on PS5",
-        selftext: "Map crash still happens on PS5.",
-        permalink: "/r/CrimsonDesert/comments/reddit-map/map/",
-        created_utc: 1783260000,
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-map/map",
+        snippet: "Map crash still happens on PS5.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
       },
     ]);
-    delete process.env.TAVILY_API_KEY;
     const { runAutomationMonitor } = await importRunner();
 
     await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -913,13 +1455,12 @@ describe("runAutomationMonitor", () => {
     });
     expect(tables.issue_clusters[0]).toMatchObject({
       public_signal_count: 0,
-      auto_public: false,
+      auto_public: true,
       is_public: false,
     });
   });
 
   it("counts duplicate approved excerpts as one verified report per report", async () => {
-    delete process.env.TAVILY_API_KEY;
     resetDb({
       issue_clusters: [
         {
@@ -949,16 +1490,16 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([
+    mocks.tavilySearch.mockResolvedValue([
       {
-        id: "reddit-map",
         title: "Map crash on PS5",
-        selftext: "Map crash still happens on PS5.",
-        permalink: "/r/CrimsonDesert/comments/reddit-map/map/",
-        created_utc: 1783260000,
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-map/map",
+        snippet: "Map crash still happens on PS5.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
       },
     ]);
-    delete process.env.TAVILY_API_KEY;
     const { runAutomationMonitor } = await importRunner();
 
     await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -1354,17 +1895,16 @@ describe("runAutomationMonitor", () => {
     expect(mocks.tavilyExtract).not.toHaveBeenCalled();
   });
 
-  it("does not recon-fetch when paid search is not allowed", async () => {
+  it("allows free-tier recon when the dollar budget is zero", async () => {
     process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
-    // A trusted borderline Reddit candidate still flows through prepareSignals even with
-    // paid search off, but the recon fetch must be gated behind allowPaidSearch.
-    mocks.fetchNewPosts.mockResolvedValue([
+    mocks.tavilySearch.mockResolvedValue([
       {
-        id: "reddit-borderline",
         title: "Crimson Desert patch 1.13 player discussion",
-        selftext: "Body retained for moderator review.",
-        permalink: "/r/CrimsonDesert/comments/reddit-borderline/current_patch/",
-        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-borderline/current_patch",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
       },
     ]);
     mocks.tavilyExtract.mockResolvedValue(
@@ -1374,9 +1914,9 @@ describe("runAutomationMonitor", () => {
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
-    expect(result.skips).toContain("budget_zero");
-    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
-    expect(result.skips).not.toContain("candidate_recon");
+    expect(result.skips).not.toContain("budget_zero");
+    expect(mocks.tavilyExtract).toHaveBeenCalledOnce();
+    expect(result.skips).toContain("candidate_recon");
   });
 
   it("does not book a phantom recon credit when Tavily is unconfigured but paid search is allowed", async () => {
@@ -1485,6 +2025,66 @@ describe("runAutomationMonitor", () => {
     });
     expect(tables.automation_runs[0]).toMatchObject({
       stale_signals_hidden: 1,
+    });
+  });
+
+  it("hides existing public bypass discussions during a later scan", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-crash",
+          slug: "crash-startup",
+          title: "Crash/startup issue",
+          category: "crash_startup",
+          description: "Public source was not actually a player bug report.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-crackwatch",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/CrackWatch/comments/example",
+          canonical_url: "https://www.reddit.com/r/CrackWatch/comments/example",
+          title: "Crimson Desert Patch 1.13.01 HYPERVISOR by DenuvOwO",
+          summary: "Discussion about repacks and bypass files.",
+          source_domain: "reddit.com",
+          source_published_at: null,
+          semantic_fingerprint: "crackwatch-source",
+          cluster_id: "cluster-crash",
+          category: "crash_startup",
+          confidence: "high",
+          observed_at: "2026-07-09T08:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-09T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "source_not_issue_report",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
     });
   });
 
@@ -1698,7 +2298,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
 
@@ -1756,7 +2356,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
 
@@ -1805,7 +2405,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
 
@@ -1850,7 +2450,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
 
@@ -1922,7 +2522,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_qwen_pro",
+        modelPreset: "deepseek_v4_flash",
       },
     });
 
@@ -1934,7 +2534,7 @@ describe("runAutomationMonitor", () => {
     const { rescueCandidateSignal } = await importRunner();
 
     await rescueCandidateSignal(
-      { from: mocks.from } as never,
+      { from: mocks.from, rpc: mocks.rpc } as never,
       {
         title: "Thin player report",
         url: "https://reddit.com/r/CrimsonDesert/comments/thin/report/",
@@ -1951,8 +2551,120 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("uses one budgeted semantic extraction when rescuing a rejected source", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Heavy traversal stutter",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: "Traversal causes repeated frame-time spikes on Steam.",
+      clusterSlug: "performance_regression",
+      extractionProvider: "openrouter",
+      extractionModel: "deepseek/deepseek-v4-flash",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/hitching/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 2,
+        clusterOptions: [{ slug: "performance_regression", title: "Performance regression" }],
+      }),
+    );
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-seeded-perf",
+      extraction_provider: "openrouter",
+      extraction_model: "deepseek/deepseek-v4-flash",
+    });
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "success",
+      mode: "manual",
+      intent: "rescue_candidate",
+      llm_calls_used: 1,
+      candidates_rescued: 1,
+      estimated_cost_usd: 0.0002,
+    });
+  });
+
+  it("rescues deterministically without spending when the monthly LLM budget is exhausted", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-monthly-cap",
+          started_at: new Date().toISOString(),
+          estimated_cost_usd: 2,
+          search_queries_used: 0,
+          skips: [],
+        },
+      ],
+    });
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/capped/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmCallsRemaining: 0, llmBudgetRemainingUsd: 0 }),
+    );
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ extraction_provider: "deterministic" });
+    expect(tables.automation_runs).toHaveLength(2);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "success",
+      mode: "manual",
+      intent: "rescue_candidate",
+      llm_calls_used: 0,
+      candidates_rescued: 1,
+      estimated_cost_usd: 0,
+    });
+    expect(tables.automation_runs[1].skips).toEqual(
+      expect.arrayContaining(["budget_capped", "llm_budget_capped"]),
+    );
+  });
+
   it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
-    delete process.env.TAVILY_API_KEY;
     resetDb({
       issue_clusters: [
         {
@@ -1969,16 +2681,16 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([
+    mocks.tavilySearch.mockResolvedValue([
       {
-        id: "reddit-fps-route",
         title: "FPS drops since 1.13",
-        selftext: "Steam users are seeing stutter.",
-        permalink: "/r/CrimsonDesert/comments/reddit-fps-route/fps/",
-        created_utc: 1783260000,
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-fps-route/fps",
+        snippet: "Steam users are seeing stutter.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
       },
     ]);
-    delete process.env.TAVILY_API_KEY;
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -1992,7 +2704,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("keeps a public seeded watchlist cluster visible when a below-threshold signal routes into it", async () => {
-    delete process.env.TAVILY_API_KEY;
     resetDb({
       issue_clusters: [
         {
@@ -2009,16 +2720,16 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([
+    mocks.tavilySearch.mockResolvedValue([
       {
-        id: "reddit-fps-seed-visible",
         title: "FPS drops since 1.13",
-        selftext: "Steam users are seeing stutter.",
-        permalink: "/r/CrimsonDesert/comments/reddit-fps-seed-visible/fps/",
-        created_utc: 1783260000,
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-fps-seed-visible/fps",
+        snippet: "Steam users are seeing stutter.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
       },
     ]);
-    delete process.env.TAVILY_API_KEY;
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -2117,7 +2828,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("does not promote from a stale existing signal plus one fresh source", async () => {
-    delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     resetDb({
       issue_clusters: [
@@ -2151,7 +2861,16 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.TAVILY_API_KEY;
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://fresh.example.com/fps",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: "fresh.example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
     delete process.env.OPENROUTER_API_KEY;
     const { runAutomationMonitor } = await importRunner();
 
@@ -2170,7 +2889,7 @@ describe("runAutomationMonitor", () => {
   });
 
   it("records promotion update failures without incrementing promoted clusters", async () => {
-    updateFailure = { table: "source_signals", message: "source signal status update failed" };
+    visibilityRefreshFailure = "source signal status update failed";
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -2264,6 +2983,271 @@ describe("runAutomationMonitor", () => {
       .filter((progress): progress is { stage?: string } => Boolean(progress));
 
     expect(progressUpdates.some((progress) => progress.stage === "screening")).toBe(true);
+  });
+
+  it("auto-starts lifecycle watching when an LLM-sure claimed fix maps to a cluster", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-05T12:00:00.000Z",
+      // normal states carry no automation prose — the readout composes it at read time
+      lifecycle_reason: null,
+    });
+    const lifecycleUpdate = mutations.find(
+      (mutation) => mutation.table === "issue_clusters" && (mutation.row as { fix_status?: unknown }).fix_status === "fix_claimed",
+    );
+    expect(lifecycleUpdate?.filters).toEqual(
+      expect.arrayContaining([
+        { type: "eq", column: "id", value: "cluster-fps" },
+        { type: "eq", column: "admin_override", value: false },
+        { type: "eq", column: "fix_status", value: "reported" },
+        { type: "is", column: "fix_claimed_at", value: null },
+      ]),
+    );
+  });
+
+  it("does not regress a newer lifecycle status when a stale run snapshot writes late", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    beforeUpdate = (table, patch) => {
+      if (table !== "issue_clusters" || patch.fix_status !== "fix_claimed") return;
+      Object.assign(tables.issue_clusters[0], {
+        fix_status: "persists",
+        lifecycle_reason: "Fresh public evidence appeared after the claimed fix.",
+      });
+    };
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "persists",
+      fix_claimed_at: null,
+      lifecycle_reason: "Fresh public evidence appeared after the claimed fix.",
+    });
+  });
+
+  it("keeps keyword-only claimed-fix matches as admin proposals", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "keyword_proposal",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "keyword match is only a proposal.",
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      extractionModel: null,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "reported",
+      fix_claimed_at: null,
+      lifecycle_reason: "Needs review: keyword match is only a proposal.",
+    });
+  });
+
+  it("never ages a claimed fix by silence — quiet days stay fix_claimed", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "fix_claimed",
+          fix_claimed_at: "2026-07-01T12:00:00.000Z",
+          fix_claimed_patch_version: "1.13.00",
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-30T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-01T12:00:00.000Z",
+      lifecycle_reason: null,
+    });
+  });
+
+  it("leaves persistence to the read-time composer — no persists writes from evidence", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "fix_claimed",
+          fix_claimed_at: "2026-07-04T12:00:00.000Z",
+          fix_claimed_patch_version: "1.13.00",
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-public",
+          cluster_id: "cluster-fps",
+          title: "FPS still drops after patch 1.13.00",
+          summary: "Players report FPS drops after the patch.",
+          source_published_at: "2026-07-04T13:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-04T12:00:00.000Z",
+    });
+  });
+
+  it("does not clobber admin-overridden lifecycle status", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: true,
+          lifecycle_reason: "Locked by you. Manual status set to Open.",
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "reported",
+      fix_claimed_at: null,
+      admin_override: true,
+    });
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Locked by you. System would show: Fix claimed — unverified.");
   });
 });
 
@@ -2437,7 +3421,7 @@ describe("cron keepalive route", () => {
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 900,
       monthlyLlmUsdCap: 1,
-      modelPreset: "deepseek_qwen_pro",
+      modelPreset: "deepseek_v4_flash",
       updatedAt: "2026-07-05T12:00:00.000Z",
     });
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
@@ -2550,7 +3534,7 @@ describe("cron keepalive route", () => {
         minIntervalMinutes: 60,
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
-        monthlyLlmUsdCap: 1,
+        monthlyLlmUsdCap: 2,
       }),
     });
     expect(mocks.insertSkippedScheduledRun).not.toHaveBeenCalled();

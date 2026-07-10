@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { LADDER_DESCRIPTIONS, LADDER_LABELS, type EvidenceLadderState } from "@/lib/evidenceLadder";
+import { ADMIN_OVERRIDE_LABEL, LIFECYCLE_LABELS } from "@/lib/lifecycle";
 
 type Tone = "crimson" | "amber" | "green" | "blue" | "dim";
 
@@ -24,16 +24,20 @@ export function StatCard({
   value,
   note,
   tone = "dim",
+  valueTone,
 }: {
   label: string;
   value: string | number;
   note?: string;
   tone?: Tone;
+  valueTone?: Tone;
 }) {
   return (
     <div className="panel">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value mt-2">{value}</div>
+      <div className="stat-label stat-label-zone">{label}</div>
+      <div className="stat-value mt-2" style={valueTone ? { color: TONE_TEXT[valueTone] } : undefined}>
+        {value}
+      </div>
       {note ? (
         <div className="mt-1.5 text-xs font-medium" style={{ color: TONE_TEXT[tone] }}>
           {note}
@@ -111,22 +115,33 @@ export function Skeleton({ className, style }: { className?: string; style?: Rea
 }
 
 const FIX_STATUS_META: Record<string, { label: string; cls: string }> = {
-  reported: { label: "Reported", cls: "badge badge-dim" },
-  acknowledged: { label: "PA acknowledged", cls: "badge badge-amber" },
-  fix_claimed: { label: "Fix claimed", cls: "badge badge-amber" },
-  verified_fixed: { label: "Verified fixed", cls: "badge badge-green badge-dot" },
-  persists: { label: "Persists after fix", cls: "badge badge-crimson badge-dot" },
+  reported: { label: LIFECYCLE_LABELS.reported, cls: "badge badge-dim" },
+  acknowledged: { label: LIFECYCLE_LABELS.acknowledged, cls: "badge badge-amber" },
+  fix_claimed: { label: LIFECYCLE_LABELS.fix_claimed, cls: "badge badge-amber" },
+  verified_fixed: { label: LIFECYCLE_LABELS.verified_fixed, cls: "badge badge-green badge-dot" },
+  persists: { label: LIFECYCLE_LABELS.persists, cls: "badge badge-crimson badge-dot" },
 };
 
-export function FixStatusBadge({ status, unverified = false }: { status: string; unverified?: boolean }) {
-  if (unverified && status === "persists") {
-    return <span className="badge badge-amber">Claimed-fix watch item</span>;
-  }
-  if (unverified && status === "reported") {
-    return <span className="badge badge-dim">Watchlist item</span>;
+/** Admin-only: shows the stored fix_status (public surfaces render ReadoutBadge instead). */
+export function FixStatusBadge({ status, adminOverride = false }: { status: string; adminOverride?: boolean }) {
+  if (adminOverride) {
+    return <span className="badge badge-blue">{ADMIN_OVERRIDE_LABEL}</span>;
   }
   const meta = FIX_STATUS_META[status] ?? FIX_STATUS_META.reported;
   return <span className={meta.cls}>{meta.label}</span>;
+}
+
+const READOUT_TONE_CLASS: Record<Tone, string> = {
+  crimson: "badge badge-crimson",
+  amber: "badge badge-amber",
+  green: "badge badge-green",
+  blue: "badge badge-blue",
+  dim: "badge badge-dim",
+};
+
+/** The one public status badge: label + tone come from the readout composer. */
+export function ReadoutBadge({ label, tone }: { label: string; tone: Tone }) {
+  return <span className={READOUT_TONE_CLASS[tone]}>{label}</span>;
 }
 
 const SEVERITY_META: Record<string, { label: string; cls: string }> = {
@@ -155,18 +170,3 @@ export function SignalConfidenceBadge({ confidence }: { confidence: "low" | "med
   return <span className="badge badge-dim">Low confidence</span>;
 }
 
-const LADDER_TONE_CLASS: Record<EvidenceLadderState, string> = {
-  watching: "badge badge-dim",
-  candidates: "badge badge-blue",
-  corroborated: "badge badge-amber",
-  player_confirmed: "badge badge-green",
-};
-
-/** Four-state public evidence ladder badge: watching → candidates → corroborated → player_confirmed. */
-export function EvidenceLadderBadge({ state }: { state: EvidenceLadderState }) {
-  return (
-    <span className={LADDER_TONE_CLASS[state]} title={LADDER_DESCRIPTIONS[state]}>
-      {LADDER_LABELS[state]}
-    </span>
-  );
-}

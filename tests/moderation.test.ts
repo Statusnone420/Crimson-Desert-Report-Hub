@@ -1,8 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { matchCluster, moderateReport, neutralSummary, type ClusterRef } from "@/lib/moderation";
 
 delete process.env.OPENROUTER_API_KEY;
 delete process.env.OPENROUTER_FREE_MODEL;
+
+afterEach(() => {
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_FREE_MODEL;
+  vi.unstubAllGlobals();
+});
 
 const clusters: ClusterRef[] = [
   { id: "perf", title: "FPS / performance regression since 1.13.00", category: "performance" },
@@ -77,6 +83,11 @@ describe("moderateReport", () => {
   });
 
   it("flags reports with personal data for review instead of publishing", async () => {
+    process.env.OPENROUTER_API_KEY = "openrouter-key";
+    process.env.OPENROUTER_FREE_MODEL = "openrouter/free";
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+
     const decision = await moderateReport(
       {
         ...base,
@@ -88,6 +99,8 @@ describe("moderateReport", () => {
     );
     expect(decision.status).toBe("pending");
     expect(decision.reason).toBe("flagged_personal_data");
+    expect(decision.aiUsed).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("filters obvious spam and publishes nothing", async () => {
@@ -102,5 +115,29 @@ describe("moderateReport", () => {
     );
     expect(decision.status).toBe("spam");
     expect(decision.publicSummary).toBeNull();
+  });
+
+  it("uses a zero-price private route and ignores charged AI moderation", async () => {
+    process.env.OPENROUTER_API_KEY = "openrouter-key";
+    process.env.OPENROUTER_FREE_MODEL = "openrouter/free";
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"relevant":false,"sensitive":false}' } }],
+        usage: { cost: 0.0002 },
+      }),
+    }));
+    vi.stubGlobal("fetch", fetcher);
+
+    const decision = await moderateReport(base, clusters);
+
+    expect(decision).toMatchObject({ status: "approved", reason: "auto_approved", aiUsed: false });
+    const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body).provider).toEqual({
+      require_parameters: true,
+      data_collection: "deny",
+      zdr: true,
+      max_price: { prompt: 0, completion: 0, request: 0, image: 0 },
+    });
   });
 });

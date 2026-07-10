@@ -1,3 +1,5 @@
+import { MAX_MONTHLY_LLM_USD_CAP, resolveAutomationOpenRouterModel } from "@/lib/automation/budget";
+
 type EnvLike = Record<string, string | undefined>;
 
 export type Features = {
@@ -14,20 +16,26 @@ function hasEnvValue(value: string | undefined): boolean {
   return Boolean(trimmed && trimmed !== "\"\"" && trimmed !== "''");
 }
 
+function hasApprovedAutomationModel(env: EnvLike): boolean {
+  try {
+    resolveAutomationOpenRouterModel(env.OPENROUTER_AUTOMATION_MODEL);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function computeFeatures(env: EnvLike): Features {
-  const reddit =
-    hasEnvValue(env.REDDIT_CLIENT_ID) &&
-    hasEnvValue(env.REDDIT_CLIENT_SECRET) &&
-    hasEnvValue(env.REDDIT_USER_AGENT);
   const webSearch = hasEnvValue(env.TAVILY_API_KEY);
+  const ai = hasEnvValue(env.OPENROUTER_API_KEY) && hasApprovedAutomationModel(env);
 
   return {
     turnstile: hasEnvValue(env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) && hasEnvValue(env.TURNSTILE_SECRET_KEY),
-    reddit,
-    ai: hasEnvValue(env.GROQ_API_KEY) || hasEnvValue(env.OPENROUTER_API_KEY),
+    reddit: false,
+    ai,
     xSearch: hasEnvValue(env.XAI_API_KEY),
     webSearch,
-    automation: reddit || webSearch,
+    automation: webSearch,
   };
 }
 
@@ -40,31 +48,25 @@ export type IntegrationStatus = {
 };
 
 export function integrationStatuses(env: EnvLike = process.env): IntegrationStatus[] {
-  const redditVars: Array<[string, string | undefined]> = [
-    ["REDDIT_CLIENT_ID", env.REDDIT_CLIENT_ID],
-    ["REDDIT_CLIENT_SECRET", env.REDDIT_CLIENT_SECRET],
-    ["REDDIT_USER_AGENT", env.REDDIT_USER_AGENT],
-  ];
-  const redditMissing = redditVars.filter(([, value]) => !hasEnvValue(value)).map(([name]) => name);
-  const redditConnected = redditMissing.length === 0;
-
   const webSearchConnected = hasEnvValue(env.TAVILY_API_KEY);
 
-  // The automation extractor (extractSignalWithOpenRouter) reads OPENROUTER_API_KEY
-  // ONLY and otherwise returns deterministic keyword extraction, so a Groq-only env
-  // is NOT connected for the scanner even though computeFeatures().ai may still be true.
-  const aiConnected = hasEnvValue(env.OPENROUTER_API_KEY);
-  const aiMissing = aiConnected ? [] : ["OPENROUTER_API_KEY"];
+  // Scanner AI is intentionally limited to the owner-approved automation model.
+  const hasOpenRouterKey = hasEnvValue(env.OPENROUTER_API_KEY);
+  const approvedAutomationModel = hasApprovedAutomationModel(env);
+  const aiConnected = hasOpenRouterKey && approvedAutomationModel;
+  const aiMissing = !hasOpenRouterKey
+    ? ["OPENROUTER_API_KEY"]
+    : approvedAutomationModel
+      ? []
+      : ["OPENROUTER_AUTOMATION_MODEL"];
 
   return [
     {
       key: "reddit",
       label: "Reddit API",
-      connected: redditConnected,
-      missingEnv: redditMissing,
-      detail: redditConnected
-        ? "Reading r/CrimsonDesert posts each run."
-        : "Not connected — the scanner reads no Reddit posts and relies on web search only.",
+      connected: false,
+      missingEnv: [],
+      detail: "Permanently off — Reddit pages are discovered through web search only.",
     },
     {
       key: "web_search",
@@ -81,17 +83,20 @@ export function integrationStatuses(env: EnvLike = process.env): IntegrationStat
       connected: aiConnected,
       missingEnv: aiMissing,
       detail: aiConnected
-        ? "Extracting signals with a free model."
-        : "Not connected — falling back to deterministic keyword extraction.",
+        ? "Extracting signals with budget-capped DeepSeek V4 Flash."
+        : hasOpenRouterKey && !approvedAutomationModel
+          ? "Not connected — the configured automation model is not approved."
+          : "Not connected — falling back to deterministic keyword extraction.",
     },
   ];
 }
 
 export function automationBudgetUsd(env: EnvLike = process.env): number {
-  const raw = env.AUTOMATION_BUDGET_USD_MONTHLY?.trim() ?? "5";
+  const raw = env.AUTOMATION_BUDGET_USD_MONTHLY?.trim();
+  if (!raw) return MAX_MONTHLY_LLM_USD_CAP;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 5;
-  return Math.min(parsed, 50);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.min(parsed, MAX_MONTHLY_LLM_USD_CAP);
 }
 
 export function automationSubreddits(env: EnvLike = process.env): string[] {

@@ -14,8 +14,8 @@ export default function AboutPage() {
       <section className="panel space-y-3 text-sm leading-6">
         <h2 className="text-lg font-semibold">What it is</h2>
         <p>
-          Crimson Desert Report Hub is an unofficial, fan-run community tracker. It exists to show players
-          they are not alone when a patch issue appears, and to compile evidence that Pearl Abyss can act on.
+          Crimson Desert Report Hub is an unofficial, fan-run confirmation board. It organizes structured player
+          reports, one-tap confirmations, and public source leads without turning any of them into a verdict.
         </p>
         <p>
           It is not affiliated with Pearl Abyss, Reddit, or X. No Pearl Abyss assets, logos, or artwork are used here.
@@ -33,14 +33,15 @@ export default function AboutPage() {
       </section>
 
       <section className="panel space-y-3 text-sm leading-6">
-        <h2 className="text-lg font-semibold">Evidence and watchlist</h2>
+        <h2 className="text-lg font-semibold">Evidence, signals, and leads</h2>
         <p>
-          Evidence counts come only from approved direct reports, public signals backed by separate sources, and
-          moderator-approved excerpts. Zero-count watchlist items are maintainer-seeded tracking prompts, not vetted
-          proof that an issue is active.
+          Reports are evidence: structured submissions remain private except for counts and moderator-approved
+          excerpts. Confirmations are signals: anonymous taps count what players say without declaring a verdict.
+          Source links are leads: they provide inspectable context but never become player evidence.
         </p>
         <p>
-          The <Link href="/scanner" className="link">Scanner page</Link> shows how public chatter becomes evidence.
+          The <Link href="/scanner" className="link">Scanner page</Link> shows how public chatter is filtered into
+          source leads and calm questions while private candidates stay private.
         </p>
       </section>
 

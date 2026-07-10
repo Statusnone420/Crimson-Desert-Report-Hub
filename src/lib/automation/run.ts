@@ -1,6 +1,11 @@
 import "server-only";
 
 import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation/budget";
+import {
+  mapClaimToClusterWithOpenRouter,
+  type ClaimMappingCluster,
+  type ClaimMappingDecision,
+} from "@/lib/automation/claimMapping";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
 import { countIndependentDomains, domainTier } from "@/lib/automation/domains";
 import {
@@ -11,14 +16,15 @@ import {
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
 import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
-import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
+import { hasUnsupportedSourceContext, preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { tavilyExtract, tavilySearch, type SearchResult } from "@/lib/automation/search";
 import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { automationBudgetUsd, automationSubreddits, features } from "@/lib/env";
-import { getCurrentPatchMetadata, syncOfficialPatchNote } from "@/lib/officialPatch.server";
+import { computeClusterLifecycle, type LifecycleClaimDecision } from "@/lib/lifecycle";
+import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata, syncOfficialPatchNote } from "@/lib/officialPatch.server";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { createServiceClient } from "@/lib/supabase";
 
@@ -56,6 +62,28 @@ export type RunProgress = {
   kept: number;
   promoted: number;
 };
+
+function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): number {
+  if (
+    ["openrouter_unexpected_charge", "openrouter_cost_unverified", "openrouter_budget_exceeded"].some((reason) =>
+      result.skips.includes(reason),
+    )
+  ) {
+    return 0;
+  }
+  return result.llmCostUsd >= budget.remainingLlmUsd
+    ? 0
+    : Math.max(0, budget.maxLlmCalls - result.llmCallsUsed);
+}
+
+function recordOpenRouterCircuitReason(result: AutomationResult, reason: string | undefined): void {
+  if (
+    (reason === "openrouter_cost_unverified" || reason === "openrouter_budget_exceeded") &&
+    !result.skips.includes(reason)
+  ) {
+    result.skips.push(reason);
+  }
+}
 
 function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
   return {
@@ -161,11 +189,15 @@ type ClusterRow = {
   admin_visibility_override?: "force_public" | "force_hidden" | null;
   auto_public?: boolean | null;
   is_public?: boolean | null;
+  visibility_restore_auto_public?: boolean | null;
+  visibility_restore_is_public?: boolean | null;
+  visibility_revision?: number | string | null;
 };
 
 type SourceSignalRow = {
   id?: string;
   cluster_id?: string | null;
+  source_url?: string | null;
   canonical_url?: string | null;
   source?: string;
   source_type?: string | null;
@@ -201,6 +233,8 @@ type ApprovedExcerptRow = {
 
 const SEARCH_QUERY_COST_USD = 0.008;
 const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
+const MAX_RESERVED_EXTRACTION_LLM_CALLS = 2;
+const MAX_RESCUE_LLM_CALLS = 1;
 // Hard cap on full-page recon fetches per run. Each fetch is one Tavily extract
 // credit, so this bounds the extra cost of the "read the real thread before
 // rejecting" lane regardless of how many borderline candidates a run surfaces.
@@ -296,7 +330,16 @@ function sourceSignalEligibility(
   );
 }
 
-function stalePromotionReason(reason: CurrentPatchEligibilityReason): string {
+function isUnsupportedStoredSignal(row: SourceSignalRow): boolean {
+  return hasUnsupportedSourceContext({
+    title: row.title ?? "",
+    snippet: typeof row.summary === "string" ? row.summary : "",
+    url: row.canonical_url ?? row.source_url ?? undefined,
+  });
+}
+
+function stalePromotionReason(reason: CurrentPatchEligibilityReason | "source_not_issue_report"): string {
+  if (reason === "source_not_issue_report") return "source_not_issue_report";
   if (reason === "wrong_patch") return "wrong_patch";
   if (reason === "stale_source") return "stale_source";
   return "unknown_source_freshness";
@@ -330,7 +373,7 @@ async function loadPublicSignalsForAudit(supabase: ReturnType<typeof createServi
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from("source_signals")
-      .select("id, cluster_id, title, summary, source_published_at, public_status")
+      .select("id, cluster_id, source_url, canonical_url, title, summary, source_published_at, public_status")
       .eq("public_status", "public")
       .order("last_seen_at", { ascending: true })
       .range(from, from + pageSize - 1);
@@ -421,7 +464,9 @@ async function loadScanMemory(
   // and keep the same small cap as the individual title reads.
   const targetClusterTitles = [...new Set([...privateClusterTitles, ...seedClusterTitles])].slice(0, 10);
   return {
-    stalePublicSignals: publicSignals.filter((row) => !sourceSignalEligibility(row, currentPatch).canPublish).length,
+    stalePublicSignals: publicSignals.filter(
+      (row) => isUnsupportedStoredSignal(row) || !sourceSignalEligibility(row, currentPatch).canPublish,
+    ).length,
     privateSignals,
     rejectedCandidates,
     targetClusterTitles,
@@ -432,13 +477,18 @@ async function loadScanMemory(
 async function loadMonthSpend(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
-): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number }> {
+): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number; openRouterCircuitOpen: boolean }> {
   const { data, error } = await supabase
     .from("automation_runs")
-    .select("estimated_cost_usd, search_queries_used")
+    .select("estimated_cost_usd, search_queries_used, skips")
     .gte("started_at", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString());
   if (error) throw new Error(`automation spend read failed: ${error.message}`);
-  const usage = ((data ?? []) as { estimated_cost_usd?: number | string | null; search_queries_used?: number | string | null }[]).reduce(
+  const rows = (data ?? []) as {
+    estimated_cost_usd?: number | string | null;
+    search_queries_used?: number | string | null;
+    skips?: unknown;
+  }[];
+  const usage = rows.reduce(
     (sum, row) => ({
       estimatedCostUsd: sum.estimatedCostUsd + Number(row.estimated_cost_usd ?? 0),
       tavilyCredits: sum.tavilyCredits + Number(row.search_queries_used ?? 0),
@@ -448,6 +498,13 @@ async function loadMonthSpend(
   return {
     ...usage,
     llmCostUsd: Math.max(0, usage.estimatedCostUsd - usage.tavilyCredits * SEARCH_QUERY_COST_USD),
+    openRouterCircuitOpen: rows.some((row) => {
+      if (!Array.isArray(row.skips)) return false;
+      const skips = row.skips;
+      return ["openrouter_unexpected_charge", "openrouter_cost_unverified", "openrouter_budget_exceeded"].some(
+        (reason) => skips.includes(reason),
+      );
+    }),
   };
 }
 
@@ -569,6 +626,7 @@ async function prepareSignals(
       {
         title: signal.title,
         snippet: signal.body,
+        url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
         sourcePublishedAt: signal.sourcePublishedAt ?? null,
       },
@@ -612,6 +670,7 @@ async function prepareSignals(
             {
               title: signal.title,
               snippet: effectiveBody,
+              url: canonicalUrl,
               sourceDomain: signal.sourceDomain,
               sourcePublishedAt: signal.sourcePublishedAt ?? null,
             },
@@ -636,7 +695,7 @@ async function prepareSignals(
         const extraction = await extractSignalWithOpenRouter(
           { title: signal.title, snippet: effectiveBody, url: canonicalUrl },
           {
-            llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed),
+            llmCallsRemaining: remainingLlmCalls(result, budget),
             llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
             clusterOptions,
           },
@@ -645,6 +704,7 @@ async function prepareSignals(
         result.llmCostUsd += extraction.llmCostUsd ?? 0;
         result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
         if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
+        recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
         const relevance = shouldKeepExtractedSignal(extraction);
         if (relevance.keep) {
@@ -693,7 +753,7 @@ async function prepareSignals(
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
       {
-        llmCallsRemaining: Math.max(0, budget.maxLlmCalls - result.llmCallsUsed),
+        llmCallsRemaining: remainingLlmCalls(result, budget),
         llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
         clusterOptions,
       },
@@ -702,6 +762,7 @@ async function prepareSignals(
     result.llmCostUsd += extraction.llmCostUsd ?? 0;
     result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
+    recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
     const relevance = shouldKeepExtractedSignal(extraction);
     if (!relevance.keep) {
@@ -766,6 +827,151 @@ async function loadRoutableClusters(supabase: ReturnType<typeof createServiceCli
     .not("slug", "like", "auto-%");
   if (error) throw new Error(`routable clusters read failed: ${error.message}`);
   return (data ?? []) as RoutableClusterRow[];
+}
+
+type LifecycleClusterRow = ClaimMappingCluster & {
+  fix_status: string;
+  fix_claimed_at?: string | null;
+  fix_claimed_patch_version?: string | null;
+  admin_override?: boolean | null;
+  lifecycle_reason?: string | null;
+};
+
+async function loadLifecycleClusters(supabase: ReturnType<typeof createServiceClient>): Promise<LifecycleClusterRow[]> {
+  const { data, error } = await supabase
+    .from("issue_clusters")
+    .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason")
+    .eq("is_public", true);
+  if (error) throw new Error(`lifecycle clusters read failed: ${error.message}`);
+  return (data ?? []) as LifecycleClusterRow[];
+}
+
+function decisionRank(decision: ClaimMappingDecision): number {
+  if (decision.matchKind === "llm_sure") return 3;
+  if (decision.matchKind === "llm_unsure" || decision.matchKind === "keyword_proposal") return 2;
+  return 1;
+}
+
+function needsReviewReason(reason: string, fallback: string): string {
+  const normalized = reason.trim() || fallback;
+  return normalized.startsWith("Needs review:") ? normalized : `Needs review: ${normalized}`;
+}
+
+function toLifecycleClaimDecision(decision: ClaimMappingDecision | undefined): LifecycleClaimDecision | null {
+  if (!decision) return null;
+  if (decision.matchKind === "llm_sure") return { matchKind: "llm_sure", reason: decision.reason };
+  if (decision.matchKind === "llm_unsure") {
+    return {
+      matchKind: "llm_unsure",
+      reason: needsReviewReason(decision.reason, "PA claim was not confidently matched."),
+    };
+  }
+  if (decision.matchKind === "keyword_proposal") {
+    return {
+      matchKind: "keyword_proposal",
+      reason: needsReviewReason(decision.reason, "Keyword match is only a proposal."),
+    };
+  }
+  return { matchKind: "none", reason: decision.reason };
+}
+
+async function writeLifecycleResult(
+  supabase: ReturnType<typeof createServiceClient>,
+  cluster: LifecycleClusterRow,
+  computed: ReturnType<typeof computeClusterLifecycle>,
+): Promise<void> {
+  if (cluster.admin_override) {
+    if (cluster.lifecycle_reason === computed.detail) return;
+    const { error } = await supabase
+      .from("issue_clusters")
+      .update({ lifecycle_reason: computed.detail })
+      .eq("id", cluster.id)
+      .eq("admin_override", true);
+    if (error) throw new Error(`lifecycle override reason update failed: ${error.message}`);
+    return;
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (computed.status !== cluster.fix_status) patch.fix_status = computed.status;
+  if (computed.fixClaimedAt !== (cluster.fix_claimed_at ?? null)) patch.fix_claimed_at = computed.fixClaimedAt;
+  if (computed.fixClaimedPatchVersion !== (cluster.fix_claimed_patch_version ?? null)) {
+    patch.fix_claimed_patch_version = computed.fixClaimedPatchVersion;
+  }
+  // Only human exceptions carry stored prose; normal states are composed at read time.
+  const shouldWriteReason = computed.needsHuman;
+  if (shouldWriteReason && cluster.lifecycle_reason !== computed.detail) {
+    patch.lifecycle_reason = computed.detail;
+  } else if (!shouldWriteReason && cluster.lifecycle_reason) {
+    patch.lifecycle_reason = null;
+  }
+  if (Object.keys(patch).length === 0) return;
+
+  let query = supabase
+    .from("issue_clusters")
+    .update(patch)
+    .eq("id", cluster.id)
+    .eq("admin_override", false)
+    .eq("fix_status", cluster.fix_status);
+  query = cluster.fix_claimed_at
+    ? query.eq("fix_claimed_at", cluster.fix_claimed_at)
+    : query.is("fix_claimed_at", null);
+  query = cluster.fix_claimed_patch_version
+    ? query.eq("fix_claimed_patch_version", cluster.fix_claimed_patch_version)
+    : query.is("fix_claimed_patch_version", null);
+  const { error } = await query;
+  if (error) throw new Error(`lifecycle cluster update failed: ${error.message}`);
+}
+
+async function runLifecyclePass(
+  supabase: ReturnType<typeof createServiceClient>,
+  result: AutomationResult,
+  budget: AutomationBudget,
+  currentPatch: CurrentPatchContext,
+  now: Date,
+): Promise<void> {
+  const [clusters, claims] = await Promise.all([
+    loadLifecycleClusters(supabase),
+    getClaimedFixesForCurrentPatch(supabase),
+  ]);
+  const claimDecisionByCluster = new Map<string, ClaimMappingDecision>();
+  const initialLlmCallsRemaining = remainingLlmCalls(result, budget);
+  const extractionReserve = budget.allowPaidSearch
+    ? Math.min(MAX_RESERVED_EXTRACTION_LLM_CALLS, Math.floor(initialLlmCallsRemaining / 2))
+    : 0;
+  let claimLlmCallsRemaining = initialLlmCallsRemaining - extractionReserve;
+  const claimOffset = claims.length > 0 ? Math.floor(now.getTime() / SEARCH_ROTATION_WINDOW_MS) % claims.length : 0;
+  const orderedClaims = [...claims.slice(claimOffset), ...claims.slice(0, claimOffset)];
+
+  for (const claim of orderedClaims) {
+    const llmCallsRemaining = Math.min(claimLlmCallsRemaining, remainingLlmCalls(result, budget));
+    const decision = await mapClaimToClusterWithOpenRouter(claim, clusters, {
+      llmCallsRemaining,
+      llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
+    });
+    result.llmCallsUsed += decision.llmCallsUsed;
+    result.llmCostUsd += decision.llmCostUsd;
+    result.estimatedCostUsd += decision.llmCostUsd;
+    recordOpenRouterCircuitReason(result, decision.circuitReason);
+    claimLlmCallsRemaining = Math.max(0, claimLlmCallsRemaining - decision.llmCallsUsed);
+    if (!decision.clusterId) continue;
+    const existing = claimDecisionByCluster.get(decision.clusterId);
+    if (!existing || decisionRank(decision) > decisionRank(existing)) {
+      claimDecisionByCluster.set(decision.clusterId, decision);
+    }
+  }
+
+  for (const cluster of clusters) {
+    const computed = computeClusterLifecycle({
+      currentStatus: cluster.fix_status,
+      fixClaimedAt: cluster.fix_claimed_at ?? null,
+      fixClaimedPatchVersion: cluster.fix_claimed_patch_version ?? null,
+      currentPatchVersion: currentPatch.version,
+      adminOverride: Boolean(cluster.admin_override),
+      now,
+      claimDecision: toLifecycleClaimDecision(claimDecisionByCluster.get(cluster.id)),
+    });
+    await writeLifecycleResult(supabase, cluster, computed);
+  }
 }
 
 function matchingReportCluster(signal: PreparedSignal, reports: ApprovedReportRow[]): string | null {
@@ -916,7 +1122,9 @@ async function upsertSignal(
 async function loadCluster(supabase: ReturnType<typeof createServiceClient>, clusterId: string): Promise<ClusterRow> {
   const { data, error } = await supabase
     .from("issue_clusters")
-    .select("id, category, admin_visibility_override, auto_public, is_public")
+    .select(
+      "id, category, admin_visibility_override, auto_public, is_public, visibility_restore_auto_public, visibility_restore_is_public, visibility_revision",
+    )
     .eq("id", clusterId)
     .limit(1);
   if (error) throw new Error(`automation cluster read failed: ${error.message}`);
@@ -942,103 +1150,134 @@ async function loadClusterSignals(
 async function refreshClusterStats(
   supabase: ReturnType<typeof createServiceClient>,
   clusterId: string,
-  reports: ApprovedReportRow[],
-  excerpts: ApprovedExcerptRow[],
   now: Date,
-  currentPatch: CurrentPatchContext,
 ): Promise<boolean> {
-  const [cluster, signals] = await Promise.all([loadCluster(supabase, clusterId), loadClusterSignals(supabase, clusterId)]);
-  const clusterReports = reports.filter((report) => report.cluster_id === clusterId);
-  const reportIds = new Set(clusterReports.map((report) => report.id));
-  const verifiedReportCount = new Set(
-    excerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
-  ).size;
-  const publishableSignals = signals.filter((signal) => sourceSignalEligibility(signal, currentPatch).canPublish);
-  const { independentDomainCount, trustedDomainCount } = domainCounts(publishableSignals, now);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    // Read the revision before every input it protects. If a report/override
+    // changes afterward, its database trigger bumps the revision and the RPC
+    // rejects this entire snapshot before any visibility row is written.
+    const cluster = await loadCluster(supabase, clusterId);
+    const [signals, activeReports, activeExcerpts, activeCurrentPatch] = await Promise.all([
+      loadClusterSignals(supabase, clusterId),
+      loadApprovedReports(supabase),
+      loadApprovedExcerpts(supabase),
+      getCurrentPatchMetadata(supabase),
+    ]);
+    const clusterReports = activeReports.filter((report) => report.cluster_id === clusterId);
+    const reportIds = new Set(clusterReports.map((report) => report.id));
+    const verifiedReportCount = new Set(
+      activeExcerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
+    ).size;
+    const publishableSignals = signals.filter(
+      (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, activeCurrentPatch).canPublish,
+    );
+    const { independentDomainCount, trustedDomainCount } = domainCounts(publishableSignals, now);
 
-  const decision = shouldPromoteSignalCluster({
-    independentDomainCount,
-    trustedDomainCount,
-    directReportCount: clusterReports.length,
-    hasAdminForcePublic: cluster.admin_visibility_override === "force_public",
-    hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",
-  });
+    const automaticDecision = shouldPromoteSignalCluster({
+      independentDomainCount,
+      trustedDomainCount,
+      directReportCount: clusterReports.length,
+      hasAdminForcePublic: false,
+      hasAdminForceHidden: false,
+    });
+    const decision = cluster.admin_visibility_override
+      ? shouldPromoteSignalCluster({
+          independentDomainCount,
+          trustedDomainCount,
+          directReportCount: clusterReports.length,
+          hasAdminForcePublic: cluster.admin_visibility_override === "force_public",
+          hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",
+        })
+      : automaticDecision;
 
-  // A cluster's approved report makes the CLUSTER public (direct_report_match), but
-  // an individual scanner signal only counts as standalone public evidence if the
-  // cluster is independently corroborated by domains. This mirrors the domain-count
-  // thresholds in shouldPromoteSignalCluster so an untrusted single-domain signal
-  // riding a direct report is not published on its own.
-  const corroboratedByDomains =
-    (independentDomainCount >= 2 && trustedDomainCount >= 1) || independentDomainCount >= 3;
-  let publicSignalCount = 0;
-  for (const signal of signals) {
-    if (!signal.id) continue;
-    const eligibility = sourceSignalEligibility(signal, currentPatch);
-    const shouldHideStale =
-      !eligibility.canPublish &&
-      (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source");
-    let publicStatus: "public" | "private" | "hidden";
-    let promotionReason: string;
-    if (eligibility.canPublish) {
-      const resolved = resolveSignalPublicStatus({
-        decision,
-        signalTrusted: domainTier(signalDomain(signal)) === "trusted",
-        corroboratedByDomains,
-      });
-      publicStatus = resolved.publicStatus;
-      promotionReason = resolved.reason;
-    } else {
-      publicStatus = shouldHideStale ? "hidden" : "private";
-      promotionReason = shouldHideStale ? stalePromotionReason(eligibility.reason) : "below_threshold";
-    }
-    if (publicStatus === "public") publicSignalCount += 1;
-    const { error: signalUpdateError } = await supabase
-      .from("source_signals")
-      .update({
+    // A cluster's approved report makes the CLUSTER public (direct_report_match), but
+    // an individual scanner signal only counts as standalone public evidence if the
+    // cluster is independently corroborated by domains. This mirrors the domain-count
+    // thresholds in shouldPromoteSignalCluster so an untrusted single-domain signal
+    // riding a direct report is not published on its own.
+    const corroboratedByDomains =
+      (independentDomainCount >= 2 && trustedDomainCount >= 1) || independentDomainCount >= 3;
+    let publicSignalCount = 0;
+    const signalPatches = signals.map((signal) => {
+      if (!signal.id) throw new Error(`cluster signal is missing an id: ${clusterId}`);
+      const unsupported = isUnsupportedStoredSignal(signal);
+      const eligibility = sourceSignalEligibility(signal, activeCurrentPatch);
+      const shouldHideStale =
+        unsupported ||
+        (!eligibility.canPublish &&
+          (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source"));
+      let publicStatus: "public" | "private" | "hidden";
+      let promotionReason: string;
+      if (!unsupported && eligibility.canPublish) {
+        const resolved = resolveSignalPublicStatus({
+          decision,
+          signalTrusted: domainTier(signalDomain(signal)) === "trusted",
+          corroboratedByDomains,
+        });
+        publicStatus = resolved.publicStatus;
+        promotionReason = resolved.reason;
+      } else {
+        publicStatus = shouldHideStale ? "hidden" : "private";
+        promotionReason = shouldHideStale
+          ? stalePromotionReason(unsupported ? "source_not_issue_report" : eligibility.reason)
+          : "below_threshold";
+      }
+      if (publicStatus === "public") publicSignalCount += 1;
+      return {
+        id: signal.id,
         public_status: publicStatus,
         promoted_at: publicStatus === "public" ? now.toISOString() : null,
         promotion_reason: promotionReason,
-      })
-      .eq("id", signal.id);
-    if (signalUpdateError) throw new Error(`source signal promotion update failed: ${signalUpdateError.message}`);
+      };
+    });
+
+    // Forced visibility is only the effective presentation state. Retention and
+    // demotion must be calculated from the engine-owned baseline kept underneath it.
+    const priorAutomaticIsPublic = cluster.admin_visibility_override
+      ? (cluster.visibility_restore_is_public ?? cluster.is_public ?? false)
+      : (cluster.is_public ?? false);
+    const priorAutomaticOwner = cluster.admin_visibility_override
+      ? (cluster.visibility_restore_auto_public ?? cluster.auto_public ?? false)
+      : (cluster.auto_public ?? false);
+    const hasPublicEvidence = publicSignalCount > 0 || clusterReports.length > 0;
+    const hasLiveCandidates = signals.some(
+      (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, activeCurrentPatch).canStore,
+    );
+    const automaticIsPublic =
+      automaticDecision.publicStatus === "public"
+        ? true
+        : priorAutomaticIsPublic && hasLiveCandidates
+          ? true
+          : priorAutomaticOwner && !hasPublicEvidence
+            ? false
+            : priorAutomaticIsPublic;
+
+    const { data: applied, error: applyError } = await supabase.rpc("apply_cluster_visibility_refresh", {
+      p_cluster_id: clusterId,
+      p_expected_revision: Number(cluster.visibility_revision ?? 0),
+      p_signal_patches: signalPatches,
+      p_cluster_patch: {
+        signal_count: signals.length,
+        direct_report_count: clusterReports.length,
+        verified_report_count: verifiedReportCount,
+        public_signal_count: publicSignalCount,
+        last_signal_at: lastObservedAt(signals),
+        auto_public: automaticDecision.publicStatus === "public",
+        // The RPC derives override-effective visibility from this automatic baseline.
+        is_public: automaticIsPublic,
+      },
+    });
+    if (applyError) throw new Error(`cluster visibility refresh apply failed: ${applyError.message}`);
+    if (applied === true) return automaticDecision.publicStatus === "public" && !priorAutomaticOwner;
+    if (attempt === 2) throw new Error(`cluster visibility refresh conflicted repeatedly: ${clusterId}`);
   }
 
-  // Promotion can turn a cluster public or (via admin force-hidden) hide it, but a
-  // below-threshold decision must NOT hide a cluster that is already public — that
-  // would make a seeded watchlist item vanish the moment a private scanner signal
-  // routes into it. Below threshold, keep the cluster's existing visibility.
-  const hasPublicEvidence = publicSignalCount > 0 || clusterReports.length > 0;
-  // An already-visible cluster that drops below threshold but still holds a live
-  // current-patch candidate signal stays VISIBLE as an "Unconfirmed" watchlist row
-  // rather than being hidden. This does NOT publish anything — the candidate stays
-  // private; only the cluster's visibility flag is preserved.
-  const hasLiveCandidates = signals.some((signal) => sourceSignalEligibility(signal, currentPatch).canStore);
-  const isPublic =
-    decision.publicStatus === "public"
-      ? true
-      : decision.publicStatus === "hidden"
-        ? false
-        : cluster.is_public && hasLiveCandidates
-          ? true
-          : cluster.auto_public && !hasPublicEvidence
-            ? false
-            : (cluster.is_public ?? false);
-  const { error: clusterUpdateError } = await supabase
-    .from("issue_clusters")
-    .update({
-      signal_count: signals.length,
-      direct_report_count: clusterReports.length,
-      verified_report_count: verifiedReportCount,
-      public_signal_count: publicSignalCount,
-      last_signal_at: lastObservedAt(signals),
-      auto_public: decision.publicStatus === "public",
-      is_public: isPublic,
-    })
-    .eq("id", clusterId);
-  if (clusterUpdateError) throw new Error(`issue cluster promotion update failed: ${clusterUpdateError.message}`);
+  throw new Error(`cluster visibility refresh did not complete: ${clusterId}`);
+}
 
-  return decision.publicStatus === "public" && !cluster.auto_public;
+export async function refreshClusterVisibility(clusterId: string, now = new Date()): Promise<void> {
+  const supabase = createServiceClient();
+  await refreshClusterStats(supabase, clusterId, now);
 }
 
 /**
@@ -1050,16 +1289,14 @@ async function persistOneSignal(
   supabase: ReturnType<typeof createServiceClient>,
   signal: PreparedSignal,
   reports: ApprovedReportRow[],
-  excerpts: ApprovedExcerptRow[],
   clusterBySemantic: Map<string, string>,
   routableClusters: RoutableCluster[],
   now: Date,
   runId: string | null,
-  currentPatch: CurrentPatchContext,
 ): Promise<{ clusterId: string; promoted: boolean; reobserved: boolean }> {
   const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
   const persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
-  const promoted = await refreshClusterStats(supabase, clusterId, reports, excerpts, now, currentPatch);
+  const promoted = await refreshClusterStats(supabase, clusterId, now);
   return { clusterId, promoted, reobserved: persistence === "reobserved" };
 }
 
@@ -1070,10 +1307,8 @@ async function persistSignals(
   now: Date,
   routableClusters: RoutableCluster[],
   runId: string,
-  currentPatch: CurrentPatchContext,
 ) {
   const reports = await loadApprovedReports(supabase);
-  const excerpts = await loadApprovedExcerpts(supabase);
   const clusterBySemantic = new Map<string, string>();
   const touchedClusters = new Set<string>();
 
@@ -1085,7 +1320,7 @@ async function persistSignals(
   }
 
   for (const clusterId of touchedClusters) {
-    if (await refreshClusterStats(supabase, clusterId, reports, excerpts, now, currentPatch)) {
+    if (await refreshClusterStats(supabase, clusterId, now)) {
       result.clustersPromoted += 1;
     }
   }
@@ -1098,19 +1333,22 @@ async function quarantineStalePublicSignals(
   currentPatch: CurrentPatchContext,
 ): Promise<void> {
   const publicSignals = await loadPublicSignalsForAudit(supabase);
-  const staleSignals = publicSignals.filter((signal) => !sourceSignalEligibility(signal, currentPatch).canPublish);
+  const staleSignals = publicSignals.filter(
+    (signal) => isUnsupportedStoredSignal(signal) || !sourceSignalEligibility(signal, currentPatch).canPublish,
+  );
   if (staleSignals.length === 0) return;
 
   const touchedClusters = new Set<string>();
   for (const signal of staleSignals) {
     if (!signal.id) continue;
     const eligibility = sourceSignalEligibility(signal, currentPatch);
+    const unsupported = isUnsupportedStoredSignal(signal);
     const { error } = await supabase
       .from("source_signals")
       .update({
         public_status: "hidden",
         promoted_at: null,
-        promotion_reason: stalePromotionReason(eligibility.reason),
+        promotion_reason: stalePromotionReason(unsupported ? "source_not_issue_report" : eligibility.reason),
       })
       .eq("id", signal.id);
     if (error) throw new Error(`stale source signal quarantine failed: ${error.message}`);
@@ -1119,10 +1357,8 @@ async function quarantineStalePublicSignals(
   }
 
   if (touchedClusters.size === 0) return;
-  const reports = await loadApprovedReports(supabase);
-  const excerpts = await loadApprovedExcerpts(supabase);
   for (const clusterId of touchedClusters) {
-    await refreshClusterStats(supabase, clusterId, reports, excerpts, now, currentPatch);
+    await refreshClusterStats(supabase, clusterId, now);
   }
 }
 
@@ -1263,6 +1499,7 @@ async function executeAutomationRun(
   mode: AutomationMode,
   budget: AutomationBudget,
   budgetReadError: string | null,
+  openRouterCircuitOpen: boolean,
   now: Date,
 ): Promise<AutomationResult> {
   const result: AutomationResult = {
@@ -1283,7 +1520,7 @@ async function executeAutomationRun(
     candidatesRescued: 0,
     estimatedCostUsd: 0,
     llmCostUsd: 0,
-    skips: [...budget.skipReasons],
+    skips: [...budget.skipReasons, ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : [])],
     errors: [],
   };
 
@@ -1294,25 +1531,26 @@ async function executeAutomationRun(
     await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }
-  if (mode === "scheduled" && budget.skipReasons.length > 0) {
-    result.status = "skipped";
-    await finalizeRunLedgerSafely(supabase, runId, result);
-    return result;
-  }
-
   const report = (stage: RunProgress["stage"]) =>
     writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
 
   let rejected: RejectedCandidate[] = [];
+  let currentPatch: CurrentPatchContext | null = null;
 
   try {
-    let currentPatch = await getCurrentPatchMetadata(supabase);
+    currentPatch = await getCurrentPatchMetadata(supabase);
     if (mode !== "dry_run") {
       try {
         currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
       } catch (error) {
         result.status = "partial";
         result.errors.push(toErrorMessage(error, "official patch sync failed"));
+      }
+      try {
+        await runLifecyclePass(supabase, result, budget, currentPatch, now);
+      } catch (error) {
+        result.status = result.status === "success" ? "partial" : result.status;
+        result.errors.push(toErrorMessage(error, "lifecycle pass failed"));
       }
     }
 
@@ -1347,7 +1585,7 @@ async function executeAutomationRun(
     if (mode !== "dry_run") {
       await report("persisting");
       try {
-        await persistSignals(supabase, prepared.prepared, result, now, routableClusters, runId, currentPatch);
+        await persistSignals(supabase, prepared.prepared, result, now, routableClusters, runId);
       } catch (error) {
         result.status = "failed";
         result.errors.push(toErrorMessage(error, "automation persistence failed"));
@@ -1384,17 +1622,20 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
   let spentMonthToDateUsd = 0;
   let tavilyCreditsMonthToDate = 0;
   let llmSpentMonthToDateUsd = 0;
+  let openRouterCircuitOpen = false;
   try {
     const monthSpend = await loadMonthSpend(supabase, now);
     spentMonthToDateUsd = monthSpend.estimatedCostUsd;
     tavilyCreditsMonthToDate = monthSpend.tavilyCredits;
     llmSpentMonthToDateUsd = monthSpend.llmCostUsd;
+    openRouterCircuitOpen = monthSpend.openRouterCircuitOpen;
   } catch (error) {
     budgetReadError = toErrorMessage(error, "automation spend read failed");
+    openRouterCircuitOpen = true;
     spentMonthToDateUsd = monthlyBudgetUsd;
     llmSpentMonthToDateUsd = monthlyBudgetUsd;
   }
-  const budget = computeAutomationBudget({
+  const computedBudget = computeAutomationBudget({
     monthlyBudgetUsd,
     spentMonthToDateUsd,
     tavilyCreditsMonthToDate,
@@ -1403,9 +1644,18 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     now,
     scannerPolicy: input.scannerPolicy,
   });
+  const budget = openRouterCircuitOpen ? { ...computedBudget, maxLlmCalls: 0 } : computedBudget;
 
   const runId = await createRunLedger(supabase, input.mode, budget, now);
-  const completion = executeAutomationRun(supabase, runId, input.mode, budget, budgetReadError, now);
+  const completion = executeAutomationRun(
+    supabase,
+    runId,
+    input.mode,
+    budget,
+    budgetReadError,
+    openRouterCircuitOpen,
+    now,
+  );
   return { status: "started", runId, completion };
 }
 
@@ -1499,26 +1749,113 @@ export async function rescueCandidateSignal(
   const routableClusters = await loadRoutableClusters(supabase);
   const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
 
+  const monthlyBudgetUsd = automationBudgetUsd();
+  let budgetReadError: string | null = null;
+  let spentMonthToDateUsd = 0;
+  let tavilyCreditsMonthToDate = 0;
+  let llmSpentMonthToDateUsd = 0;
+  let openRouterCircuitOpen = false;
+  try {
+    const monthSpend = await loadMonthSpend(supabase, now);
+    spentMonthToDateUsd = monthSpend.estimatedCostUsd;
+    tavilyCreditsMonthToDate = monthSpend.tavilyCredits;
+    llmSpentMonthToDateUsd = monthSpend.llmCostUsd;
+    openRouterCircuitOpen = monthSpend.openRouterCircuitOpen;
+  } catch (error) {
+    budgetReadError = toErrorMessage(error, "automation spend read failed");
+    openRouterCircuitOpen = true;
+    spentMonthToDateUsd = monthlyBudgetUsd;
+    llmSpentMonthToDateUsd = monthlyBudgetUsd;
+  }
+  const computedBudget = computeAutomationBudget({
+    monthlyBudgetUsd,
+    spentMonthToDateUsd,
+    tavilyCreditsMonthToDate,
+    llmSpentMonthToDateUsd,
+    mode: "manual",
+    now,
+  });
+  const budget: AutomationBudget = {
+    ...computedBudget,
+    allowPaidSearch: false,
+    maxSearchQueries: 0,
+    maxSearchResults: 0,
+    maxLlmCalls: openRouterCircuitOpen ? 0 : Math.min(MAX_RESCUE_LLM_CALLS, computedBudget.maxLlmCalls),
+  };
+  const runId = await createRunLedger(supabase, "manual", budget, now);
+  const result: AutomationResult = {
+    status: "success",
+    redditPostsSeen: 0,
+    searchQueriesUsed: 0,
+    searchResultsSeen: 0,
+    llmCallsUsed: 0,
+    candidatesSeen: 1,
+    prefilterRejected: 0,
+    signalsInserted: 0,
+    signalsDeduped: 0,
+    clustersPromoted: 0,
+    intent: "rescue_candidate",
+    targetClusterTitles: routableClusters.map((cluster) => cluster.title),
+    signalsReobserved: 0,
+    staleSignalsHidden: 0,
+    candidatesRescued: 0,
+    estimatedCostUsd: 0,
+    llmCostUsd: 0,
+    skips: [...budget.skipReasons, ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : [])],
+    errors: [],
+  };
+  if (budgetReadError) result.errors.push(budgetReadError);
+
   // Rescue deliberately skips preScreenCandidate and shouldKeepExtractedSignal —
   // an admin rescuing a candidate has already judged it relevant, so re-running
   // the automated relevance gates here would defeat the point of a rescue.
-  const extraction = await extractSignalWithOpenRouter(
-    { title: source.title, snippet: source.body, url: canonicalUrl },
-    { llmCallsRemaining: 1, clusterOptions },
-  );
+  try {
+    const extraction = await extractSignalWithOpenRouter(
+      { title: source.title, snippet: source.body, url: canonicalUrl },
+      {
+        llmCallsRemaining: budget.maxLlmCalls,
+        llmBudgetRemainingUsd: budget.remainingLlmUsd,
+        clusterOptions,
+      },
+    );
+    result.llmCallsUsed = extraction.llmCallsUsed;
+    result.llmCostUsd = extraction.llmCostUsd;
+    result.estimatedCostUsd = extraction.llmCostUsd;
+    if (extraction.fallbackReason && !result.skips.includes(extraction.fallbackReason)) {
+      result.skips.push(extraction.fallbackReason);
+    }
+    recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
-  const externalHash = externalIdHash(source.source, source.id);
-  const prepared: PreparedSignal = {
-    ...source,
-    canonicalUrl,
-    externalHash,
-    semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
-    extraction,
-  };
+    const externalHash = externalIdHash(source.source, source.id);
+    const prepared: PreparedSignal = {
+      ...source,
+      canonicalUrl,
+      externalHash,
+      semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
+      extraction,
+    };
 
-  const reports = await loadApprovedReports(supabase);
-  const excerpts = await loadApprovedExcerpts(supabase);
-  const clusterBySemantic = new Map<string, string>();
-  const currentPatch = await getCurrentPatchMetadata(supabase);
-  await persistOneSignal(supabase, prepared, reports, excerpts, clusterBySemantic, routableClusters, now, null, currentPatch);
+    const reports = await loadApprovedReports(supabase);
+    const clusterBySemantic = new Map<string, string>();
+    const persistence = await persistOneSignal(
+      supabase,
+      prepared,
+      reports,
+      clusterBySemantic,
+      routableClusters,
+      now,
+      runId,
+    );
+    if (persistence.reobserved) result.signalsReobserved = 1;
+    else result.signalsInserted = 1;
+    if (persistence.promoted) result.clustersPromoted = 1;
+    result.candidatesRescued = 1;
+    if (result.errors.length > 0) result.status = "partial";
+  } catch (error) {
+    result.status = "failed";
+    result.errors.push(toErrorMessage(error, "candidate rescue failed"));
+    throw error;
+  } finally {
+    await finalizeRunLedgerSafely(supabase, runId, result);
+  }
 }

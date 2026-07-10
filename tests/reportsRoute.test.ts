@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const cacheMocks = vi.hoisted(() => ({
   revalidateTag: vi.fn(),
 }));
+const automationMocks = vi.hoisted(() => ({
+  refreshClusterVisibility: vi.fn(),
+}));
 
 const state = {
   insertError: null as { message: string } | null,
@@ -51,6 +54,9 @@ vi.mock("@/lib/supabase", () => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidateTag: cacheMocks.revalidateTag }));
+vi.mock("@/lib/automation/run", () => ({
+  refreshClusterVisibility: automationMocks.refreshClusterVisibility,
+}));
 
 vi.mock("@/lib/turnstile", () => ({
   verifyTurnstile: vi.fn(async (token: string | undefined) =>
@@ -89,6 +95,8 @@ function makeRequest(body: unknown, ip = "203.0.113.7"): Request {
 beforeEach(() => {
   delete process.env.VERCEL_ENV;
   cacheMocks.revalidateTag.mockClear();
+  automationMocks.refreshClusterVisibility.mockReset();
+  automationMocks.refreshClusterVisibility.mockResolvedValue(undefined);
   bugReportInsert.mockClear();
   excerptInsert.mockClear();
   state.insertError = null;
@@ -122,8 +130,24 @@ describe("POST /api/reports", () => {
     expect(excerptInsert).toHaveBeenCalledOnce();
     const excerpt = excerptInsert.mock.calls[0][0] as { excerpt_text: string };
     expect(excerpt.excerpt_text).toContain("player reports");
+    expect(automationMocks.refreshClusterVisibility).toHaveBeenCalledWith("perf");
     expect(cacheMocks.revalidateTag).toHaveBeenCalledWith("public-dashboard", "max");
     expect(cacheMocks.revalidateTag).toHaveBeenCalledWith("public-issues", "max");
+  });
+
+  it("does not invite a duplicate submission when post-insert visibility refresh fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    automationMocks.refreshClusterVisibility.mockRejectedValueOnce(new Error("refresh failed"));
+
+    const res = await POST(makeRequest(valid));
+
+    expect(res.status).toBe(201);
+    expect(bugReportInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ moderation_status: "approved", cluster_id: "perf" }),
+    );
+    expect(automationMocks.refreshClusterVisibility).toHaveBeenCalledWith("perf");
+    expect(consoleError).toHaveBeenCalledWith("cluster visibility refresh failed:", expect.any(Error));
+    consoleError.mockRestore();
   });
 
   it("400 on invalid json and on validation failure", async () => {

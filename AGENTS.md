@@ -6,67 +6,66 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # AGENTS.md
 
-Non-negotiable operating rules. Merge with project instructions; project instructions win on conflict.
+Universal rules. Obey host precedence; among recognized instruction files, the most specific applicable repository rule wins.
 
-**Bias:** caution over speed. Trivial one-liners: use judgment. Everything else: follow exactly.
+**Bias:** ask on consequential choices; act on routine, reversible details; deliver correct, complete, minimal, verified work.
 
-## 1. Think Before Coding
+## 1. Establish the Contract
 
-**Never code on an assumption you haven't written down.**
+- Turn the request into verifiable acceptance criteria.
+- Before editing, read applicable instructions, relevant code/tests/docs/config, and working-tree status/diff when present.
+- Existing changes are user-owned. Preserve and integrate with them; never revert or “clean them up.”
+- Resolve uncertainty from repository evidence first.
+- Ask when valid interpretations materially change intent, behavior, architecture, scope, data, security, cost, contracts, or irreversible actions. Give options and a recommendation.
+- Otherwise choose the safest reversible path, state any material assumption, and proceed.
+- Review, explanation, and diagnosis are read-only. Do not implement unless asked.
 
-Before any implementation:
-- List your assumptions in your response. Uncertain? Ask — do not guess.
-- Multiple valid interpretations? Present them and stop. Never pick one silently.
-- See a simpler approach than what was asked? Say so before building the complex one.
-- Confused by anything? Halt. Name the confusion. Ask. Confusion buried in code becomes a bug.
+## 2. Plan the Proof
 
-## 2. Simplicity First
+- Mechanical edits may skip a written plan—never context, scope control, or verification.
+- For non-trivial work, use a short plan with a concrete check per step.
+- Trace relevant callers, tests, types, and interfaces.
+- Reproduce bugs first when safe and practical; prefer a failing regression test.
+- Derive stack, versions, commands, conventions, and package manager from the repository.
+- Reuse existing utilities and patterns before creating new ones.
+- If the requested approach is unsafe or overcomplex, explain why and propose a safer option; never substitute silently.
 
-**The correct amount of code is the minimum that solves the stated problem.**
+## 3. Implement the Smallest Correct Change
 
-Hard bans:
-- No features that weren't requested.
-- No abstractions, helpers, or layers for code used once.
-- No "configurability," options, or flags nobody asked for.
-- No error handling for scenarios that cannot occur.
+- Make the smallest complete diff. Every edit must be necessary for the requested outcome; keep supporting changes localized.
+- Preserve behavior and public contracts unless explicitly changed.
+- Match local style and architecture; prefer readable, direct code over clever code.
+- No speculative features, premature abstraction/configuration, unrelated refactors, masking fallbacks, or unjustified dependencies.
+- Add a helper or boundary only when it simplifies changed code, enables focused testing/reuse, enforces safety, or matches a pattern.
+- Do not touch unrelated code or format unaffected files. Use repository tooling for generated output.
+- Remove only items your change directly makes unused; leave pre-existing cleanup alone.
+- Fix root causes. Never silence diagnostics, swallow failures, bypass type safety, or hide defects.
 
-Gate before submitting: "Would a senior engineer call this overcomplicated?"
-If yes — or if 200 lines could be 50 — rewrite it. That is not optional.
+## 4. Protect the System
 
-## 3. Surgical Changes
+- Validate untrusted input at boundaries; use safe command, query, path, and serialization APIs.
+- Preserve authentication, authorization, privacy, isolation, and security controls. Never weaken them to pass.
+- Never hardcode, print, commit, or expose secrets, tokens, private data, or sensitive logs.
+- Handle realistic I/O, service, concurrency, and corrupted-state failures; omit guards only where enforced invariants make states unreachable.
+- Get explicit authorization before destructive or irreversible operations. Keep migrations explicit, data-safe, and reversible where practical.
+- Never deploy, publish, message, or modify production data without authorization; ask before adding dependencies or running migrations.
 
-**Every changed line must trace directly to the request. No exceptions.**
+## 5. Verify with Evidence
 
-Editing existing code:
-- Do not touch adjacent code, comments, or formatting — even to "improve" them.
-- Do not refactor anything that isn't broken.
-- Match the file's existing style, even where you'd choose differently.
-- Unrelated dead code: mention it in your summary. Never delete it.
+- Add focused tests for behavior changes when the repository supports them; otherwise report the coverage gap.
+- Run narrow checks first, then repository-prescribed format, lint, typecheck, tests, and build; report anything skipped and why.
+- Never delete, skip, or weaken valid tests to pass. Change expectations only for intended behavior.
+- Diagnose failures before editing or retrying; never rerun unchanged commands blindly.
+- Separate failures caused by your change from verified pre-existing failures.
+- Claim a check passed only after running it fresh and seeing it pass.
 
-Your own mess:
-- Delete imports/variables/functions that YOUR change orphaned.
-- Leave pre-existing dead code alone unless explicitly told.
+## 6. Deliver Cleanly
 
-Final diff check: any line you can't trace to the request gets reverted before you finish.
-
-## 4. Goal-Driven Execution
-
-**No task is done until its success criteria pass. "Looks right" is not a criterion.**
-
-Rewrite every task as a verifiable goal before starting:
-- "Add validation" → "Tests for invalid inputs exist and pass."
-- "Fix the bug" → "A test reproduces it, then passes."
-- "Refactor X" → "Tests pass before AND after; behavior identical."
-
-Multi-step tasks require a plan, stated up front:
-```
-1. [Step] → verify: [concrete check]
-2. [Step] → verify: [concrete check]
-3. [Step] → verify: [concrete check]
-```
-
-Loop on failures independently. Weak criteria ("make it work") — stop and ask for real ones.
+- Review the final diff for scope, correctness, churn, debug code, generated files, secrets, and unintended behavior.
+- Do not use destructive git commands. Do not commit, amend, rebase, push, or force-update unless asked.
+- Report changes, affected files, checks/results, skipped checks/reasons, and remaining risks.
+- If blocked, stop safely; report the blocker, evidence, and smallest next action.
 
 ---
 
-**Working correctly looks like:** small diffs, zero speculative code, questions asked BEFORE code exists — never after it breaks.
+**Done means:** requested outcome achieved; acceptance criteria met; diff scoped; required checks passed; no user work disturbed.

@@ -1,5 +1,7 @@
 # Report Hub Right Now Implementation Plan
 
+> **HISTORICAL / SUPERSEDED (2026-07-09). DO NOT EXECUTE.** The Right Now framing remains useful background, but the owner-approved [Confirmation Board design](../specs/2026-07-09-confirmation-board-design.md) replaces this plan's status helpers, source-signal terminology, and empty-state behavior. The unchecked boxes below preserve the original implementation record; they are not an active backlog.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rework Crimson Desert Report Hub so the public homepage answers "what is happening right now?" using automation, reports, official links, and source transparency without becoming a patch notes site or a bug tracker dead end.
@@ -931,13 +933,13 @@ npm run dev
 
 Use Playwright or browser tooling to save:
 
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-home.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-issues.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-report.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-about.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-scanner.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-home-mobile.png`
-- `C:/Users/Antho/AppData/Local/Temp/cd-report-hub-right-now-issues-mobile.png`
+- `<local-temp>/cd-report-hub-right-now-home.png`
+- `<local-temp>/cd-report-hub-right-now-issues.png`
+- `<local-temp>/cd-report-hub-right-now-report.png`
+- `<local-temp>/cd-report-hub-right-now-about.png`
+- `<local-temp>/cd-report-hub-right-now-scanner.png`
+- `<local-temp>/cd-report-hub-right-now-home-mobile.png`
+- `<local-temp>/cd-report-hub-right-now-issues-mobile.png`
 
 Expected: screenshots visually show homepage purpose in the first viewport and no text overlap.
 

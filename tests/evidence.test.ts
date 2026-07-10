@@ -1,32 +1,20 @@
 import { describe, expect, it } from "vitest";
-import {
-  countEvidenceBackedPersistentClusters,
-  countUnverifiedClaimedFixWatchlistClusters,
-  hasClusterEvidence,
-  isUnverifiedWatchlistCluster,
-  monitoredAreasNote,
-  splitWatchlistByCandidates,
-  unconfirmedMentionsNote,
-} from "@/lib/evidence";
+import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
 
-const clusters = [
-  { confidence: "seed_unverified", fix_status: "persists", strengthScore: 0 },
-  { confidence: "seed_unverified", fix_status: "fix_claimed", strengthScore: 0 },
-  { confidence: "medium", fix_status: "persists", strengthScore: 2 },
-  { confidence: "low", fix_status: "reported", strengthScore: 1 },
-];
-
-describe("cluster evidence display rules", () => {
-  it("treats zero-strength seeded clusters as watchlist items, not evidence", () => {
-    expect(hasClusterEvidence(clusters[0])).toBe(false);
-    expect(isUnverifiedWatchlistCluster(clusters[0])).toBe(true);
-    expect(hasClusterEvidence(clusters[2])).toBe(true);
-    expect(isUnverifiedWatchlistCluster(clusters[2])).toBe(false);
+describe("hasClusterEvidence", () => {
+  it("treats approved player reports as evidence and other signals separately", () => {
+    expect(hasClusterEvidence({ directReportCount: 0 })).toBe(false);
+    expect(hasClusterEvidence({ directReportCount: 2 })).toBe(true);
   });
+});
 
-  it("counts persistence only when evidence exists", () => {
-    expect(countEvidenceBackedPersistentClusters(clusters)).toBe(1);
-    expect(countUnverifiedClaimedFixWatchlistClusters(clusters)).toBe(2);
+describe("needsFullIssueCard", () => {
+  it("keeps claim polls and every raw confirmation reachable without calling them evidence", () => {
+    const base = { strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0 }, readout: { poll: null } };
+    expect(needsFullIssueCard(base)).toBe(false);
+    expect(needsFullIssueCard({ ...base, confirmations: { totalCount: 1 } })).toBe(true);
+    expect(needsFullIssueCard({ ...base, readout: { poll: { fixedCount: 0, stillCount: 0 } } })).toBe(true);
+    expect(needsFullIssueCard({ ...base, strengthScore: 1 })).toBe(true);
   });
 });
 
@@ -73,15 +61,5 @@ describe("monitoredAreasNote", () => {
     expect(monitoredAreasNote(2)).toBe(
       "Monitoring 2 more known problem areas — no player reports or public sources yet.",
     );
-  });
-});
-
-describe("unconfirmedMentionsNote", () => {
-  it("uses the singular 'mention' for one", () => {
-    expect(unconfirmedMentionsNote(1)).toBe("1 unconfirmed mention — not enough separate sources to back it yet");
-  });
-
-  it("uses the plural 'mentions' for more than one", () => {
-    expect(unconfirmedMentionsNote(2)).toBe("2 unconfirmed mentions — not enough separate sources to back it yet");
   });
 });

@@ -53,10 +53,10 @@ beforeEach(() => {
     platform: "pc_steam",
     confidence: "medium",
     summary: "Players report FPS drops on Steam after patch 1.13.",
-    extractionProvider: "openrouter",
-    extractionModel: "openrouter/free",
-    llmCallsUsed: 1,
-    llmCostUsd: 0.0002,
+    extractionProvider: "deterministic",
+    extractionModel: null,
+    llmCallsUsed: 0,
+    llmCostUsd: 0,
   });
 });
 
@@ -82,7 +82,7 @@ describe("previewAutomationSearch", () => {
             issueTitle: "FPS regression since 1.13",
             category: "performance",
             platform: "pc_steam",
-            extractionProvider: "openrouter",
+            extractionProvider: "deterministic",
           },
           relevance: { keep: true },
         },
@@ -94,7 +94,7 @@ describe("previewAutomationSearch", () => {
         snippet: "Players report FPS drops on Steam.",
         url: "https://example.com/fps",
       },
-      { llmCallsRemaining: 1 },
+      { llmCallsRemaining: 0 },
     );
   });
 
@@ -129,5 +129,47 @@ describe("previewAutomationSearch", () => {
       expect.anything(),
       { llmCallsRemaining: 0 },
     );
+  });
+
+  it("keeps every eligible preview result on deterministic extraction", async () => {
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 FPS drops during combat",
+        url: "https://example.net/stutter",
+        snippet: "Players report FPS drops and stutter after patch 1.13.00.",
+        sourceDomain: "example.net",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    let providerAttempts = 0;
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
+      if (options.llmCallsRemaining > 0) providerAttempts += 1;
+      return {
+        issueTitle: candidate.title,
+        category: "performance",
+        platform: "pc_steam",
+        confidence: "medium",
+        summary: candidate.snippet,
+        extractionProvider: "deterministic",
+        extractionModel: null,
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: 0,
+      };
+    });
+    const { previewAutomationSearch } = await import("@/lib/automation/preview");
+
+    const result = await previewAutomationSearch({ maxQueries: 1 });
+
+    expect(result.previews).toHaveLength(2);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][1].llmCallsRemaining).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[1][1].llmCallsRemaining).toBe(0);
+    expect(providerAttempts).toBe(0);
   });
 });

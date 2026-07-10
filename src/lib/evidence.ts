@@ -1,26 +1,19 @@
-export type EvidenceCluster = {
-  confidence: string;
-  fix_status: string;
+export function hasClusterEvidence(cluster: { directReportCount: number }): boolean {
+  return cluster.directReportCount > 0;
+}
+
+export function needsFullIssueCard(cluster: {
   strengthScore: number;
-};
-
-export function hasClusterEvidence(cluster: EvidenceCluster): boolean {
-  return cluster.strengthScore > 0;
-}
-
-export function isUnverifiedWatchlistCluster(cluster: EvidenceCluster): boolean {
-  return cluster.confidence === "seed_unverified" && !hasClusterEvidence(cluster);
-}
-
-export function countEvidenceBackedPersistentClusters(clusters: EvidenceCluster[]): number {
-  return clusters.filter((cluster) => cluster.fix_status === "persists" && hasClusterEvidence(cluster)).length;
-}
-
-export function countUnverifiedClaimedFixWatchlistClusters(clusters: EvidenceCluster[]): number {
-  return clusters.filter(
-    (cluster) =>
-      (cluster.fix_status === "fix_claimed" || cluster.fix_status === "persists") && isUnverifiedWatchlistCluster(cluster),
-  ).length;
+  directReportCount: number;
+  confirmations: { totalCount: number };
+  readout: { poll: unknown };
+}): boolean {
+  return (
+    hasClusterEvidence(cluster) ||
+    cluster.strengthScore > 0 ||
+    cluster.confirmations.totalCount > 0 ||
+    cluster.readout.poll !== null
+  );
 }
 
 export function splitWatchlistByCandidates<T extends { candidateSignalCount: number }>(
@@ -34,8 +27,4 @@ export function splitWatchlistByCandidates<T extends { candidateSignalCount: num
 
 export function monitoredAreasNote(count: number): string {
   return `Monitoring ${count} more known problem ${count === 1 ? "area" : "areas"} — no player reports or public sources yet.`;
-}
-
-export function unconfirmedMentionsNote(count: number): string {
-  return `${count} unconfirmed ${count === 1 ? "mention" : "mentions"} — not enough separate sources to back it yet`;
 }

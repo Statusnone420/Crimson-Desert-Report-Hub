@@ -38,10 +38,10 @@ export function PatchActivityChart({
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "var(--blue)" }} />
-          Public signals
+          Source leads
         </span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Approved reports and public signals over the last 30 days">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Approved reports and source leads over the last 30 days">
         {ticks.map((tick) => {
           const y = top + chartHeight - (tick / max) * chartHeight;
           return (
@@ -80,7 +80,7 @@ export function PatchActivityChart({
                 rx="2"
                 fill="var(--blue)"
               >
-                <title>{`${labelDate(day.date)}: ${signal} public signals`}</title>
+                <title>{`${labelDate(day.date)}: ${signal} source leads`}</title>
               </rect>
               {showLabel ? (
                 <text x={x} y={height - 10} fill="var(--text-faint)" fontSize="10">

@@ -1,10 +1,11 @@
 import "server-only";
 
+import { MAX_MONTHLY_LLM_USD_CAP } from "@/lib/automation/budget";
 import { createServiceClient } from "@/lib/supabase";
 
 const MIN_INTERVAL_MINUTES = [60, 120, 360, 1440] as const;
 const SCHEDULED_SEARCH_CREDITS_PER_RUN = [1, 2, 3] as const;
-const MODEL_PRESET = "deepseek_qwen_pro";
+const MODEL_PRESET = "deepseek_v4_flash";
 const MAX_MONTHLY_TAVILY_CREDIT_CAP = 1000;
 
 type ScannerMinIntervalMinutes = (typeof MIN_INTERVAL_MINUTES)[number];
@@ -55,7 +56,7 @@ const DEFAULT_SCANNER_POLICY: ScannerPolicy = {
   minIntervalMinutes: 60,
   scheduledSearchCreditsPerRun: 1,
   monthlyTavilyCreditCap: 1000,
-  monthlyLlmUsdCap: 2,
+  monthlyLlmUsdCap: MAX_MONTHLY_LLM_USD_CAP,
   modelPreset: MODEL_PRESET,
 };
 
@@ -87,7 +88,7 @@ function monthlyTavilyCreditCap(value: unknown): number {
 function monthlyLlmUsdCap(value: unknown): number {
   const parsed = numberValue(value);
   if (parsed === null || parsed < 0) return DEFAULT_SCANNER_POLICY.monthlyLlmUsdCap;
-  return Math.min(parsed, 5);
+  return Math.min(parsed, MAX_MONTHLY_LLM_USD_CAP);
 }
 
 export function normalizeScannerPolicy(value: unknown): ScannerPolicy {

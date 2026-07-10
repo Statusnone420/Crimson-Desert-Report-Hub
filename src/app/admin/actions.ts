@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
-import { rescueCandidateSignal } from "@/lib/automation/run";
+import { refreshClusterVisibility, rescueCandidateSignal } from "@/lib/automation/run";
 import {
   scannerPolicyFromFormData,
   setAutomationPaused as setAutomationPausedState,
@@ -17,6 +17,7 @@ import { draftDossierWithAi } from "@/lib/ai";
 import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
+import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { assertProductionWriteAllowed } from "@/lib/previewGuard";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
@@ -109,6 +110,18 @@ export async function moderateReport(formData: FormData): Promise<void> {
   if (!id || !(DECISIONS as readonly string[]).includes(decision)) throw new Error("bad input");
 
   const supabase = createServiceClient();
+  const { data: existingReports, error: existingError } = await supabase
+    .from("bug_reports")
+    .select("moderation_status, cluster_id")
+    .eq("id", id)
+    .limit(1);
+  if (existingError) throw new Error(`report read failed: ${existingError.message}`);
+  const existingReport = ((existingReports ?? []) as {
+    moderation_status: string;
+    cluster_id: string | null;
+  }[])[0];
+  if (!existingReport) throw new Error("report not found");
+
   const { error } = await supabase
     .from("bug_reports")
     .update({ moderation_status: decision, cluster_id: clusterId || null })
@@ -120,6 +133,23 @@ export async function moderateReport(formData: FormData): Promise<void> {
       .from("approved_excerpts")
       .insert({ report_id: id, excerpt_text: excerpt.slice(0, 500) });
     if (excerptError) throw new Error(`approved excerpt insert failed: ${excerptError.message}`);
+  }
+
+  const clustersToRefresh = new Set<string>();
+  if (existingReport.moderation_status === "approved" && existingReport.cluster_id) {
+    clustersToRefresh.add(existingReport.cluster_id);
+  }
+  if (decision === "approved" && clusterId) clustersToRefresh.add(clusterId);
+
+  for (const affectedClusterId of clustersToRefresh) {
+    try {
+      // The report trigger already made core visibility durable. Keep this deep
+      // stats/source refresh best-effort after the excerpt is safely persisted.
+      // Recompute the old destination too when an approval moves or is removed.
+      await refreshClusterVisibility(affectedClusterId);
+    } catch (refreshError) {
+      console.error("cluster visibility refresh failed:", refreshError);
+    }
   }
 
   revalidatePath("/admin");
@@ -134,7 +164,67 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
   if (!clusterId || !(FIX_STATUSES as readonly string[]).includes(fixStatus)) throw new Error("bad input");
 
   const supabase = createServiceClient();
-  const { error } = await supabase.from("issue_clusters").update({ fix_status: fixStatus }).eq("id", clusterId);
+  const label = LIFECYCLE_LABELS[fixStatus as keyof typeof LIFECYCLE_LABELS] ?? fixStatus.replace(/_/g, " ");
+  const claimBearing = fixStatus === "fix_claimed" || fixStatus === "verified_fixed" || fixStatus === "persists";
+  const patch = claimBearing ? await getCurrentPatchMetadata(supabase) : null;
+  const { error } = await supabase
+    .from("issue_clusters")
+    .update({
+      fix_status: fixStatus,
+      fix_claimed_at: claimBearing ? new Date().toISOString() : null,
+      fix_claimed_patch_version: patch?.version ?? null,
+      admin_override: true,
+      lifecycle_reason: `Locked by you. Manual status set to ${label}.`,
+    })
+    .eq("id", clusterId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin");
+  revalidatePublicSurfaces();
+}
+
+const VISIBILITY_OVERRIDES = ["auto", "force_public", "force_hidden"] as const;
+
+/** Writer for the promotion engine's visibility escape hatch (it already reads this column). */
+export async function setClusterVisibilityOverride(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const clusterId = String(formData.get("cluster_id") ?? "");
+  const visibility = String(formData.get("visibility") ?? "");
+  if (!clusterId || !(VISIBILITY_OVERRIDES as readonly string[]).includes(visibility)) throw new Error("bad input");
+
+  const supabase = createServiceClient();
+  const { error } = await supabase.rpc("set_cluster_visibility_override", {
+    p_cluster_id: clusterId,
+    p_visibility: visibility,
+  });
+  if (error) throw new Error(error.message);
+  try {
+    if (visibility !== "force_hidden") await refreshClusterVisibility(clusterId);
+  } finally {
+    revalidatePath("/admin");
+    revalidatePublicSurfaces();
+  }
+}
+
+export async function clearClusterFixStatusOverride(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const clusterId = String(formData.get("cluster_id") ?? "");
+  if (!clusterId) throw new Error("bad input");
+
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("issue_clusters")
+    .update({
+      admin_override: false,
+      lifecycle_reason: null,
+      // Manual claim-bearing locks synthesize this clock. Auto must rebuild it
+      // only from a current, confidently matched Pearl Abyss claim.
+      fix_claimed_at: null,
+      fix_claimed_patch_version: null,
+    })
+    .eq("id", clusterId);
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
@@ -261,7 +351,7 @@ export async function compileDossier(formData: FormData): Promise<void> {
 export async function runRedditMonitor(formData: FormData): Promise<void> {
   await requireAdmin();
   assertProductionWriteAllowed();
-  if (!features().reddit) throw new Error("reddit monitor disabled: keys missing");
+  if (!features().reddit) throw new Error("reddit monitor permanently disabled");
 
   const raw = String(formData.get("subreddits") ?? "");
   const subreddits = raw

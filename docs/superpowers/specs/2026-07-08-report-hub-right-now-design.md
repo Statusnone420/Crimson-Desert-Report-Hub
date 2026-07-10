@@ -1,5 +1,7 @@
 # Crimson Desert Report Hub: Right Now Design
 
+> **HISTORICAL FOUNDATION / PARTIALLY SUPERSEDED (2026-07-09).** Its N=0 and current-situation framing remain useful. The owner-approved [Confirmation Board design](2026-07-09-confirmation-board-design.md) replaces the status dialects, source-signal semantics, and any empty-state copy that depends on waiting for users.
+
 ## Purpose
 
 Crimson Desert Report Hub is not a patch notes site and should not present itself as one. Pearl Abyss already owns official patch notes. The hub exists to answer a different question:

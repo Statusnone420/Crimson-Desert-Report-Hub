@@ -1,10 +1,11 @@
-import { rescueRejectedCandidate, setScannerPolicy } from "@/app/admin/actions";
+import { setScannerPolicy } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
+import { RejectedArchive } from "@/components/scanner/RejectedArchive";
 import { SourceRadar } from "@/components/scanner/SourceRadar";
 import { SubmitButton } from "@/components/SubmitButton";
 import { SignalConfidenceBadge } from "@/components/ui";
 import type { Features, IntegrationStatus } from "@/lib/env";
-import { formatEasternDateTime, plainSkipPhrase, summarizeRunMessages } from "@/lib/automation/runDisplay";
+import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
 import type { AdminSignalRow, AutomationRunRow, PublicScannerData, RejectedCandidateRow } from "@/lib/queries";
@@ -81,7 +82,7 @@ function plainRunLine(run: AutomationRunRow): string {
   const found = run.search_results_seen + run.reddit_posts_seen;
   const kept = run.signals_inserted;
   const parts = [`Found ${found}, kept ${kept}`];
-  if (run.signals_reobserved > 0) parts.push(`re-confirmed ${run.signals_reobserved}`);
+  if (run.signals_reobserved > 0) parts.push(`re-observed ${run.signals_reobserved}`);
   if (run.candidates_rescued > 0) parts.push(`kept for review ${run.candidates_rescued}`);
   if (run.clusters_promoted > 0) parts.push(`published ${run.clusters_promoted}`);
   const line = parts.join(", ");
@@ -116,7 +117,7 @@ function SignalRow({ signal }: { signal: AdminSignalRow }) {
           seen {signal.seen_count ?? 1}x
         </span>
       </div>
-      <h3 className="mt-2 text-sm font-semibold">{signal.title ?? "Untitled source signal"}</h3>
+      <h3 className="mt-2 text-sm font-semibold">{signal.title ?? "Untitled source lead"}</h3>
       <p className="mt-1 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
         {signal.summary}
       </p>
@@ -132,35 +133,6 @@ function SignalRow({ signal }: { signal: AdminSignalRow }) {
         </a>
       </div>
     </article>
-  );
-}
-
-function ReviewCandidate({ candidate }: { candidate: RejectedCandidateRow }) {
-  return (
-    <div className="border-b py-3 last:border-0" style={{ borderColor: "var(--border)" }}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold">{candidate.title}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-            {candidate.source_domain ? (
-              <span className="num" style={{ color: "var(--text-faint)" }}>
-                {candidate.source_domain}
-              </span>
-            ) : null}
-            <span style={{ color: "var(--text-dim)" }}>{plainSkipPhrase(candidate.reason)}</span>
-            <a href={candidate.url} target="_blank" rel="noreferrer noopener" className="link">
-              Open source
-            </a>
-          </div>
-        </div>
-        <form action={rescueRejectedCandidate}>
-          <input type="hidden" name="id" value={candidate.id} />
-          <SubmitButton className="btn btn-ghost btn-sm" pendingText="Keeping...">
-            Keep for review
-          </SubmitButton>
-        </form>
-      </div>
-    </div>
   );
 }
 
@@ -194,9 +166,7 @@ export function AdminScannerView({
   const projectedCredits = projectedMonthlyCredits(control);
   const latestRun = latestRealRun;
   const redditOff = !features.reddit;
-  const reviewQueue = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
-  const visibleQueue = reviewQueue.slice(0, 6);
-  const hiddenQueue = reviewQueue.slice(6);
+  const rejectedArchive = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
   const recentSignals = signals.slice(0, 6);
 
   return (
@@ -206,7 +176,7 @@ export function AdminScannerView({
           <p className="stat-label">Admin · scanner</p>
           <h1 className="h-display">Scanner monitor</h1>
           <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-            Source health, kept signal links, and the small queue that may need a human call.
+            Source health, kept radar leads, and an expiring archive of auto-rejected candidates.
           </p>
         </div>
       </section>
@@ -227,59 +197,44 @@ export function AdminScannerView({
           {latestFind ? (
             <>
               <span style={{ color: "var(--text-faint)" }}>·</span>
-              <span>Most recent kept signal {relativeTime(latestFind.started_at)}</span>
+              <span>Most recent kept lead {relativeTime(latestFind.started_at)}</span>
             </>
           ) : null}
         </div>
-        {redditOff ? <span className="badge badge-amber badge-dot justify-self-start">Reddit source off</span> : null}
+        {redditOff ? <span className="badge badge-amber badge-dot justify-self-start">Reddit API off</span> : null}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2 lg:items-start xl:grid-cols-[1.15fr_1.15fr_0.9fr]">
         <section className="panel space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="h-section">Recent kept signals</h2>
+            <h2 className="h-section">Recent radar leads</h2>
             <span className="badge badge-dim">{signals.length} recent</span>
           </div>
           {recentSignals.length > 0 ? (
             recentSignals.map((signal) => <SignalRow key={signal.id} signal={signal} />)
           ) : (
             <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-              No kept source signals yet.
+              No kept source leads yet.
             </p>
           )}
         </section>
 
         <section className="panel space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="h-section">Review queue</h2>
+            <h2 className="h-section">Rejected archive</h2>
             <span className="badge badge-dim">
-              <span className="num">{reviewQueue.length}</span>
+              <span className="num">{rejectedArchive.length}</span>&nbsp;expiring
             </span>
           </div>
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            Usually noise. Keep anything that is actually a player problem.
+            The 30 most recent auto-rejected candidates, held briefly in case one was real. They expire on their own
+            — rescuing is optional, not homework.
           </p>
-          {visibleQueue.length > 0 ? (
-            <>
-              {visibleQueue.map((candidate) => (
-                <ReviewCandidate key={candidate.id} candidate={candidate} />
-              ))}
-              {hiddenQueue.length > 0 ? (
-                <details className="pt-1">
-                  <summary className="cursor-pointer text-sm" style={{ color: "var(--text-dim)" }}>
-                    Show {hiddenQueue.length} more filtered candidates
-                  </summary>
-                  <div className="mt-2">
-                    {hiddenQueue.map((candidate) => (
-                      <ReviewCandidate key={candidate.id} candidate={candidate} />
-                    ))}
-                  </div>
-                </details>
-              ) : null}
-            </>
+          {rejectedArchive.length > 0 ? (
+            <RejectedArchive candidates={rejectedArchive} />
           ) : (
             <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-              Nothing waiting. The queue is clear.
+              Archive is empty.
             </p>
           )}
         </section>
@@ -296,7 +251,7 @@ export function AdminScannerView({
                   <div className="panel-inset border p-3">
                     <div className="stat-label">Work</div>
                     <p className="mt-1">
-                      {latestRun.search_queries_used} searches · {latestRun.search_results_seen + latestRun.reddit_posts_seen} candidates ·{" "}
+                      {latestRun.search_queries_used} Tavily credits · {latestRun.search_results_seen + latestRun.reddit_posts_seen} candidates ·{" "}
                       {latestRun.llm_calls_used} LLM
                     </p>
                   </div>
@@ -376,11 +331,11 @@ export function AdminScannerView({
               </label>
               <label className="grid gap-1">
                 <span className="stat-label">Monthly LLM cap ($)</span>
-                <input name="monthlyLlmUsdCap" type="number" min="1" max="5" step="0.25" defaultValue={control.monthlyLlmUsdCap} className="num" />
+                <input name="monthlyLlmUsdCap" type="number" min="0" max="2" step="0.25" defaultValue={control.monthlyLlmUsdCap} className="num" />
               </label>
             </div>
             <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-              {`At this setting the scanner spends about ${projectedCredits} of your ${control.monthlyTavilyCreditCap} free monthly credits, then stands down. Cadence is ${cadenceLabel(control.minIntervalMinutes)}. Test scans never touch the public site. Cost is an estimate for budget tracking; on free tiers your real spend is $0.`}
+              {`At this setting the base searches use about ${projectedCredits} monthly Tavily credits; bounded old-Reddit context reads can use some of the remaining allowance, and all discovery stops at ${control.monthlyTavilyCreditCap}. DeepSeek V4 Flash stops at $${control.monthlyLlmUsdCap.toFixed(2)} per month. Cadence is ${cadenceLabel(control.minIntervalMinutes)}. Test scans never touch the public site.`}
             </p>
             <SubmitButton className="btn" pendingText="Saving...">
               Save settings

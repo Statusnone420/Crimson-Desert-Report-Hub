@@ -2,8 +2,7 @@ import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { PublicScannerView } from "@/components/scanner/PublicScannerView";
 import { isAdmin } from "@/lib/adminGuard";
 import { features, integrationStatuses } from "@/lib/env";
-import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { getAutomationAdminData, getPublicScannerData } from "@/lib/queries";
+import { getAutomationAdminData, getIssuesData, getPublicScannerData } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +14,17 @@ export default async function ScannerPage() {
   const scoreboard = await getPublicScannerData();
 
   if (!admin) {
-    const patch = await getCurrentPatchMetadata();
+    const { clusters, currentPatch } = await getIssuesData();
+    const leadQuestions = clusters
+      .filter((cluster) => cluster.candidateSignalCount > 0)
+      .sort((a, b) => b.candidateSignalCount - a.candidateSignalCount);
     return (
-      <PublicScannerView data={scoreboard} integrations={integrationStatuses()} patchVersion={patch.version} />
+      <PublicScannerView
+        data={scoreboard}
+        integrations={integrationStatuses()}
+        patchVersion={currentPatch.version}
+        leadQuestions={leadQuestions}
+      />
     );
   }
 

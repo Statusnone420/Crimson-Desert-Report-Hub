@@ -11,7 +11,7 @@ const clusters: RoutableCluster[] = [
 ];
 
 describe("routeToWatchlistCluster", () => {
-  it("uses the validated LLM slug even when keyword routes would say otherwise", () => {
+  it("rejects a cross-category LLM slug and falls back to same-category keywords", () => {
     const result = routeToWatchlistCluster(
       {
         issueTitle: "FPS drops hard",
@@ -21,7 +21,7 @@ describe("routeToWatchlistCluster", () => {
       },
       clusters,
     );
-    expect(result).toEqual(clusters.find((cluster) => cluster.slug === "boss_rematch_crash_persistent"));
+    expect(result).toEqual(clusters.find((cluster) => cluster.slug === "performance_regression"));
   });
 
   it("routes map-open crash language to map_open_crash_persistent when there is no LLM slug", () => {

@@ -1,5 +1,7 @@
 # Scanner Trust Pipeline Implementation Plan
 
+> **HISTORICAL / SUPERSEDED (2026-07-09). DO NOT EXECUTE.** The owner-approved [Confirmation Board design](../specs/2026-07-09-confirmation-board-design.md) and its [implementation record](2026-07-09-confirmation-board.md) replace this plan wherever they differ. Scanner URLs are leads rather than evidence, Reddit API is permanently off, and the retired evidence-ladder/status dialects must not be restored. The unchecked boxes below preserve the original plan; they are not an active backlog.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the automated scanner cheap-filter before LLM use, route scanner evidence into the seeded watchlist clusters, harden promotion so no single unreviewed source publishes, give the admin a per-run funnel + rescue queue, extract official patch-note claimed fixes into a public checklist, surface an honest four-state evidence ladder on public pages, and make the Evidence Assistant explainable with preview-before-insert.

@@ -26,7 +26,7 @@ const STAGE_LABELS: Record<string, string> = {
   starting: "Warming up",
   searching: "Searching public sources",
   screening: "Screening candidates",
-  persisting: "Saving qualifying signals",
+  persisting: "Saving qualifying leads",
   done: "Finished",
 };
 

@@ -17,7 +17,7 @@ const EASTERN_TIME_ZONE = "America/New_York";
 const SKIP_META: Record<string, MessageMeta> = {
   budget_capped: {
     label: "Budget capped",
-    detail: "Monthly automation budget has been spent, so paid search was skipped.",
+    detail: "The monthly automation budget was reached, so paid DeepSeek work stopped while free maintenance continues.",
     summaryLabel: "budget capped",
   },
   budget_read_failed: {
@@ -27,7 +27,7 @@ const SKIP_META: Record<string, MessageMeta> = {
   },
   budget_zero: {
     label: "Budget is zero",
-    detail: "Paid web search and LLM work are disabled by the monthly budget setting.",
+    detail: "Paid DeepSeek work is disabled by the monthly budget setting.",
     summaryLabel: "budget zero",
   },
   all_candidates_prefiltered: {
@@ -42,7 +42,7 @@ const SKIP_META: Record<string, MessageMeta> = {
   },
   llm_budget_capped: {
     label: "LLM cap reached",
-    detail: "The scheduled scanner reached its monthly LLM budget cap, so this attempt did not start.",
+    detail: "The scanner reached its monthly DeepSeek cap; deterministic scanning and patch maintenance continue.",
     summaryLabel: "LLM cap reached",
   },
   category_other: {
@@ -71,14 +71,34 @@ const SKIP_META: Record<string, MessageMeta> = {
     summaryLabel: "OpenRouter not configured",
   },
   openrouter_paid_model: {
-    label: "OpenRouter paid model blocked",
-    detail: "The configured model was not marked free, so deterministic extraction was used.",
-    summaryLabel: "OpenRouter paid model blocked",
+    label: "OpenRouter model blocked",
+    detail: "The configured automation model was not the approved DeepSeek V4 Flash model, so deterministic extraction was used.",
+    summaryLabel: "OpenRouter model blocked",
+  },
+  openrouter_circuit_open: {
+    label: "OpenRouter safety circuit open",
+    detail: "A prior request had unverifiable or out-of-bounds cost, so OpenRouter stays off for the rest of the month.",
+    summaryLabel: "OpenRouter safety circuit open",
+  },
+  openrouter_cost_unverified: {
+    label: "OpenRouter cost unverified",
+    detail: "OpenRouter did not return trustworthy cost metadata, so the monthly safety circuit opened.",
+    summaryLabel: "OpenRouter cost unverified",
+  },
+  openrouter_budget_exceeded: {
+    label: "OpenRouter request ceiling exceeded",
+    detail: "A response exceeded its reserved request ceiling, so the exact cost was recorded and the monthly circuit opened.",
+    summaryLabel: "OpenRouter request ceiling exceeded",
   },
   openrouter_provider_failure: {
     label: "OpenRouter provider failure",
     detail: "OpenRouter failed or returned an error; deterministic extraction was used as a fallback.",
     summaryLabel: "OpenRouter provider failure",
+  },
+  openrouter_unexpected_charge: {
+    label: "Legacy OpenRouter cost anomaly",
+    detail: "A prior free-only release recorded an unexpected charge marker, so the monthly safety circuit remains open.",
+    summaryLabel: "legacy OpenRouter cost anomaly",
   },
   paused: {
     label: "Scheduled scans paused",
@@ -92,7 +112,7 @@ const SKIP_META: Record<string, MessageMeta> = {
   },
   reddit_disabled: {
     label: "Reddit disabled",
-    detail: "Reddit API credentials are not configured, so this run used web search only.",
+    detail: "The Reddit API is permanently disabled, so this run used web search only.",
     summaryLabel: "Reddit disabled",
   },
   scan_already_running: {
@@ -101,13 +121,13 @@ const SKIP_META: Record<string, MessageMeta> = {
     summaryLabel: "scan already running",
   },
   search_disabled: {
-    label: "Search disabled",
-    detail: "Web search credentials are not configured, so paid search was skipped.",
+    label: "Search unavailable",
+    detail: "Tavily credentials are not configured, so web discovery was skipped while patch maintenance continues.",
     summaryLabel: "search disabled",
   },
   tavily_credit_cap: {
     label: "Search credit cap reached",
-    detail: "The scheduled scanner reached its monthly Tavily credit cap, so this attempt did not start.",
+    detail: "The scanner reached its monthly Tavily credit cap; web discovery stopped while patch maintenance continues.",
     summaryLabel: "search credit cap reached",
   },
   source_not_issue_report: {

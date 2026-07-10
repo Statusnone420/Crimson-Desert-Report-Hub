@@ -1,26 +1,26 @@
 import "server-only";
 
+import {
+  OPENROUTER_FREE_PROVIDER_ROUTING,
+  readOpenRouterUsageCostUsd,
+  rejectPaidOpenRouterModel,
+} from "@/lib/automation/budget";
+
 type Attempt = { name: string; url: string; key: string; model: string };
 
 function attempts(): Attempt[] {
-  const list: Attempt[] = [];
-  if (process.env.GROQ_API_KEY) {
-    list.push({
-      name: "groq",
-      url: "https://api.groq.com/openai/v1/chat/completions",
-      key: process.env.GROQ_API_KEY,
-      model: "llama-3.3-70b-versatile",
-    });
-  }
-  if (process.env.OPENROUTER_API_KEY) {
-    list.push({
+  const key = process.env.OPENROUTER_API_KEY?.trim();
+  if (!key) return [];
+  try {
+    return [{
       name: "openrouter",
       url: "https://openrouter.ai/api/v1/chat/completions",
-      key: process.env.OPENROUTER_API_KEY,
-      model: "meta-llama/llama-3.3-70b-instruct:free",
-    });
+      key,
+      model: rejectPaidOpenRouterModel(process.env.OPENROUTER_FREE_MODEL?.trim() || "openrouter/free"),
+    }];
+  } catch {
+    return [];
   }
-  return list;
 }
 
 const SYSTEM_PROMPT = `You are drafting a community bug-report dossier for the game studio Pearl Abyss.
@@ -43,6 +43,8 @@ export async function draftDossierWithAi(
         body: JSON.stringify({
           model: attempt.model,
           temperature: 0.2,
+          max_tokens: 1200,
+          provider: OPENROUTER_FREE_PROVIDER_ROUTING,
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: deterministicMarkdown },
@@ -51,6 +53,8 @@ export async function draftDossierWithAi(
       });
       if (!res.ok) continue;
       const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const costUsd = readOpenRouterUsageCostUsd(data);
+      if (costUsd === null || costUsd > 0) continue;
       const content = data.choices?.[0]?.message?.content?.trim();
       if (content && content.length > 200) return { markdown: content, provider: attempt.name };
     } catch {

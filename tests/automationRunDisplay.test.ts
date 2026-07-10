@@ -59,6 +59,37 @@ describe("source monitor run display", () => {
     ]);
   });
 
+  it("surfaces a legacy unexpected-charge marker as a provider safety stop", () => {
+    const summary = summarizeRunMessages(["openrouter_unexpected_charge"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({
+        code: "openrouter_unexpected_charge",
+        label: "Legacy OpenRouter cost anomaly",
+      }),
+    ]);
+  });
+
+  it("explains both current OpenRouter circuit triggers", () => {
+    const summary = summarizeRunMessages(["openrouter_cost_unverified", "openrouter_budget_exceeded"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({ code: "openrouter_cost_unverified", label: "OpenRouter cost unverified" }),
+      expect.objectContaining({ code: "openrouter_budget_exceeded", label: "OpenRouter request ceiling exceeded" }),
+    ]);
+  });
+
+  it("explains when a prior charge keeps the monthly OpenRouter circuit open", () => {
+    const summary = summarizeRunMessages(["openrouter_circuit_open"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({
+        code: "openrouter_circuit_open",
+        label: "OpenRouter safety circuit open",
+      }),
+    ]);
+  });
+
   it("maps known error codes to plain-language labels in the error summary", () => {
     expect(summarizeRunMessages([], ["stale_running_run"]).errorSummary).toBe("Crashed run cleaned up");
   });
