@@ -18,6 +18,7 @@ import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
 import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
+import { isValidPatchVersion, OFFICIAL_NOTICE_LIST_URL } from "@/lib/officialPatch";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { assertProductionWriteAllowed } from "@/lib/previewGuard";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
@@ -187,6 +188,45 @@ export async function clearClusterFixStatusOverride(formData: FormData): Promise
     .update({ admin_override: false, lifecycle_reason: null })
     .eq("id", clusterId);
   if (error) throw new Error(error.message);
+
+  revalidatePath("/admin");
+  revalidatePublicSurfaces();
+}
+
+/**
+ * Break-glass writer for when the Pearl Abyss notice scraper stops matching.
+ * The next successful sync reclaims control by flipping is_current to whatever
+ * it scrapes; no fix claims attach to a manual row.
+ */
+export async function setCurrentPatchOverride(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const version = String(formData.get("patch_version") ?? "").trim();
+  if (!isValidPatchVersion(version)) throw new Error("bad input");
+
+  const supabase = createServiceClient();
+  const observedAt = new Date().toISOString();
+
+  const { error: clearError } = await supabase
+    .from("official_patch_notes")
+    .update({ is_current: false })
+    .eq("is_current", true);
+  if (clearError) throw new Error(clearError.message);
+
+  const { error: upsertError } = await supabase.from("official_patch_notes").upsert(
+    {
+      board_no: `manual-${version}`,
+      title: `Manual override: Patch ${version}`,
+      patch_version: version,
+      official_url: OFFICIAL_NOTICE_LIST_URL,
+      published_at: observedAt,
+      summary: null,
+      observed_at: observedAt,
+      is_current: true,
+    },
+    { onConflict: "board_no" },
+  );
+  if (upsertError) throw new Error(upsertError.message);
 
   revalidatePath("/admin");
   revalidatePublicSurfaces();

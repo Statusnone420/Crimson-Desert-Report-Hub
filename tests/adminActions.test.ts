@@ -34,9 +34,10 @@ vi.mock("@/lib/reddit.server", () => ({
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 
 type TableName = "bug_reports" | "approved_excerpts" | "automation_rejected_candidates" | "issue_clusters";
-type AdminTableName = TableName | "automation_settings";
+type AdminTableName = TableName | "automation_settings" | "official_patch_notes";
 
 let insertFailure: { table: TableName; message: string } | null = null;
+let upsertFailure: { table: AdminTableName; message: string } | null = null;
 let seedRows: Partial<Record<AdminTableName, Record<string, unknown>[]>> = {};
 const mutations: { table: AdminTableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
 
@@ -89,6 +90,7 @@ class FakeQuery {
 
   private async execute() {
     if (this.upsertRow) {
+      if (upsertFailure?.table === this.table) return { data: null, error: { message: upsertFailure.message } };
       mutations.push({ table: this.table, type: "upsert", row: this.upsertRow });
       return { data: [this.upsertRow], error: null };
     }
@@ -121,6 +123,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
   insertFailure = null;
+  upsertFailure = null;
   seedRows = {};
   mutations.length = 0;
   mocks.from.mockImplementation((table: AdminTableName) => new FakeQuery(table));
@@ -399,5 +402,69 @@ describe("rescueRejectedCandidate", () => {
 
     await expect(rescueRejectedCandidate(formData)).rejects.toThrow("rejected candidate not found");
     expect(mocks.rescueCandidateSignal).not.toHaveBeenCalled();
+  });
+});
+
+describe("setCurrentPatchOverride", () => {
+  it("rejects a malformed patch version with no writes", async () => {
+    const { setCurrentPatchOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("patch_version", "not-a-version");
+
+    await expect(setCurrentPatchOverride(formData)).rejects.toThrow("bad input");
+    expect(mutations).toEqual([]);
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
+  });
+
+  it("clears the previous current row, upserts a manual row, and refreshes public surfaces", async () => {
+    const { setCurrentPatchOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("patch_version", "1.13.02");
+
+    await setCurrentPatchOverride(formData);
+
+    const clearIndex = mutations.findIndex(
+      (mutation) =>
+        mutation.table === "official_patch_notes" &&
+        mutation.type === "update" &&
+        JSON.stringify(mutation.row) ===
+          JSON.stringify({ patch: { is_current: false }, filters: [{ column: "is_current", value: true }] }),
+    );
+    const upsertIndex = mutations.findIndex(
+      (mutation) => mutation.table === "official_patch_notes" && mutation.type === "upsert",
+    );
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(upsertIndex).toBeGreaterThan(clearIndex);
+    expect(mutations[upsertIndex]?.row).toEqual(
+      expect.objectContaining({
+        board_no: "manual-1.13.02",
+        patch_version: "1.13.02",
+        is_current: true,
+        title: expect.stringContaining("1.13.02"),
+        official_url: expect.stringContaining("pearlabyss.com"),
+      }),
+    );
+    expect(mocks.revalidateTag).toHaveBeenCalledWith("current-patch", "max");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("blocks the override in Vercel preview", async () => {
+    process.env.VERCEL_ENV = "preview";
+    const { setCurrentPatchOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("patch_version", "1.13.02");
+
+    await expect(setCurrentPatchOverride(formData)).rejects.toThrow("preview writes disabled");
+    expect(mutations).toEqual([]);
+  });
+
+  it("surfaces an upsert failure instead of claiming success", async () => {
+    upsertFailure = { table: "official_patch_notes", message: "manual patch upsert failed" };
+    const { setCurrentPatchOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("patch_version", "1.13.02");
+
+    await expect(setCurrentPatchOverride(formData)).rejects.toThrow("manual patch upsert failed");
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
   });
 });
