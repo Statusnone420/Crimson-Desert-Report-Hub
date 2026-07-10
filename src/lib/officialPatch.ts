@@ -56,6 +56,14 @@ export function patchVersionFromTitle(title: string): string | null {
   return title.match(/\bPatch Notes Version\s+(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/i)?.[1] ?? null;
 }
 
+// Must stay the same shape patchVersionFromTitle extracts, so a manual admin
+// override can never store a version the scraper couldn't have produced.
+export const PATCH_VERSION_SHAPE = /^\d+\.\d{1,2}(?:\.\d{1,2})?$/;
+
+export function isValidPatchVersion(value: string): boolean {
+  return PATCH_VERSION_SHAPE.test(value);
+}
+
 export function parseOfficialNoticeList(html: string): Pick<OfficialPatchNote, "boardNo" | "title" | "patchVersion" | "officialUrl"> | null {
   const itemPattern = /<a\s+[^>]*href="([^"]*\/News\/Notice\/Detail\?_boardNo=\d+[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
 

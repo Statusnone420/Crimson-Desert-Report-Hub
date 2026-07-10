@@ -108,6 +108,7 @@ describe("composeIssueReadout", () => {
   it("reports make Confirmed by players", () => {
     const readout = composeIssueReadout(base({ directReportCount: 2 }));
     expect(readout.state).toBe("confirmed");
+    expect(readout.label).toBe("Confirmed by players");
     expect(readout.tone).toBe("crimson");
     expect(readout.sentence).toContain("2");
     expect(readout.ask?.kinds).toEqual(["have_it"]);
@@ -118,6 +119,24 @@ describe("composeIssueReadout", () => {
       base({ confirmations: confirmations({ affectedCount: 4, affectedNetworks: 3 }) }),
     );
     expect(readout.state).toBe("confirmed");
+    expect(readout.label).toBe("Confirmed by players");
+  });
+
+  it("a single report is Player-reported, never plural-confirmed", () => {
+    const readout = composeIssueReadout(base({ directReportCount: 1 }));
+    expect(readout.state).toBe("confirmed");
+    expect(readout.label).toBe("Player-reported");
+    expect(readout.tone).toBe("crimson");
+    expect(readout.sentence).toContain("1");
+    expect(readout.ask?.kinds).toEqual(["have_it"]);
+  });
+
+  it("a report plus one confirming network counts as plural players", () => {
+    const readout = composeIssueReadout(
+      base({ directReportCount: 1, confirmations: confirmations({ affectedCount: 1, affectedNetworks: 1 }) }),
+    );
+    expect(readout.state).toBe("confirmed");
+    expect(readout.label).toBe("Confirmed by players");
   });
 
   it("a single confirming network does not confirm; falls through to signals", () => {

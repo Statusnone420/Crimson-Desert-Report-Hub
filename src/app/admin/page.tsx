@@ -4,6 +4,7 @@ import {
   moderateReport,
   setClusterFixStatus,
   setClusterVisibilityOverride,
+  setCurrentPatchOverride,
   signOutAdmin,
 } from "@/app/admin/actions";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -11,6 +12,8 @@ import { FixStatusBadge, SectionHeader, StatCard } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS, type FixStatus } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
+import { PATCH_VERSION_SHAPE } from "@/lib/officialPatch";
+import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +25,7 @@ export default async function AdminPage() {
   await requireAdmin();
   const supabase = createServiceClient();
 
-  const [{ data: flagged }, { data: clusters }, approved, pending, spam] = await Promise.all([
+  const [{ data: flagged }, { data: clusters }, approved, pending, spam, currentPatch] = await Promise.all([
     supabase
       .from("bug_reports")
       .select("*")
@@ -36,6 +39,7 @@ export default async function AdminPage() {
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
+    getCurrentPatchMetadata(supabase),
   ]);
 
   const flaggedReports = flagged ?? [];
@@ -265,6 +269,36 @@ export default async function AdminPage() {
             </form>
           ))}
         </div>
+      </details>
+
+      <details className="panel">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3">
+          <span className="min-w-0 space-y-1">
+            <span className="stat-label block">Current patch override</span>
+            <span className="block text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              Break-glass only: if the scanner stops finding Pearl Abyss patch notes, set the current patch by hand.
+              The next successful scan takes control back. No fix claims attach until real notes are found.
+            </span>
+          </span>
+          <span className="badge badge-dim">
+            {currentPatch.source === "official" ? `synced ${currentPatch.version}` : `fallback ${currentPatch.version}`}
+          </span>
+        </summary>
+        <form action={setCurrentPatchOverride} className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4 text-sm">
+          <label htmlFor="patch_version_override">New current patch</label>
+          <input
+            id="patch_version_override"
+            name="patch_version"
+            placeholder={currentPatch.version}
+            pattern={PATCH_VERSION_SHAPE.source}
+            title="Version like 1.13.02"
+            required
+            className="w-32"
+          />
+          <SubmitButton className="btn btn-ghost btn-sm" pendingText="Saving...">
+            Set current patch
+          </SubmitButton>
+        </form>
       </details>
     </div>
   );

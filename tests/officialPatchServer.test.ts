@@ -250,3 +250,94 @@ describe("getClaimedFixesForCurrentPatch", () => {
     expect(result).toEqual([]);
   });
 });
+
+describe("patchVersionOptions", () => {
+  it("offers current, one previous, and other", async () => {
+    const { patchVersionOptions } = await import("@/lib/officialPatch.server");
+    expect(patchVersionOptions("1.13.02", "1.13.01")).toEqual(["1.13.02", "1.13.01", "other"]);
+  });
+
+  it("collapses a previous version equal to current", async () => {
+    const { patchVersionOptions } = await import("@/lib/officialPatch.server");
+    expect(patchVersionOptions("1.13.02", "1.13.02")).toEqual(["1.13.02", "other"]);
+  });
+
+  it("offers current and other when no previous patch is known", async () => {
+    const { patchVersionOptions } = await import("@/lib/officialPatch.server");
+    expect(patchVersionOptions("1.13.02", null)).toEqual(["1.13.02", "other"]);
+  });
+});
+
+describe("getReportPatchContext", () => {
+  const officialRow = (overrides: Record<string, unknown>) => ({
+    title: "Patch Notes",
+    official_url: "https://example.com/note",
+    summary: null,
+    ...overrides,
+  });
+
+  it("derives the previous patch from the newest non-current note", async () => {
+    tables.official_patch_notes.push(
+      officialRow({ board_no: "106", patch_version: "1.13.01", published_at: "2026-07-08T05:00:00.000Z", is_current: true }),
+      officialRow({ board_no: "105", patch_version: "1.13.00", published_at: "2026-07-03T03:00:00.000Z", is_current: false }),
+      officialRow({ board_no: "90", patch_version: "1.12.00", published_at: "2026-06-01T03:00:00.000Z", is_current: false }),
+    );
+
+    const { getReportPatchContext } = await import("@/lib/officialPatch.server");
+    const context = await getReportPatchContext(fakeSupabase());
+
+    expect(context.currentPatch.version).toBe("1.13.01");
+    expect(context.currentPatch.source).toBe("official");
+    expect(context.patchVersions).toEqual(["1.13.01", "1.13.00", "other"]);
+  });
+
+  it("skips a non-current row that repeats the current version", async () => {
+    tables.official_patch_notes.push(
+      officialRow({ board_no: "106", patch_version: "1.13.01", published_at: "2026-07-08T05:00:00.000Z", is_current: true }),
+      officialRow({ board_no: "manual-1.13.01", patch_version: "1.13.01", published_at: "2026-07-07T05:00:00.000Z", is_current: false }),
+      officialRow({ board_no: "105", patch_version: "1.13.00", published_at: "2026-07-03T03:00:00.000Z", is_current: false }),
+    );
+
+    const { getReportPatchContext } = await import("@/lib/officialPatch.server");
+    const context = await getReportPatchContext(fakeSupabase());
+
+    expect(context.patchVersions).toEqual(["1.13.01", "1.13.00", "other"]);
+  });
+
+  it("offers only current and other when no prior notes exist", async () => {
+    tables.official_patch_notes.push(
+      officialRow({ board_no: "106", patch_version: "1.13.01", published_at: "2026-07-08T05:00:00.000Z", is_current: true }),
+    );
+
+    const { getReportPatchContext } = await import("@/lib/officialPatch.server");
+    const context = await getReportPatchContext(fakeSupabase());
+
+    expect(context.patchVersions).toEqual(["1.13.01", "other"]);
+  });
+
+  it("falls back to the hardcoded floor when reads fail", async () => {
+    selectFailure = "official_patch_notes";
+
+    const { getReportPatchContext } = await import("@/lib/officialPatch.server");
+    const context = await getReportPatchContext(fakeSupabase());
+
+    expect(context.currentPatch.source).toBe("fallback");
+    expect(context.patchVersions).toEqual(["1.13.01", "other"]);
+  });
+});
+
+describe("isValidPatchVersion", () => {
+  it("accepts scraper-shaped versions", async () => {
+    const { isValidPatchVersion } = await import("@/lib/officialPatch");
+    for (const version of ["1.13.02", "1.14", "12.1.3"]) {
+      expect(isValidPatchVersion(version)).toBe(true);
+    }
+  });
+
+  it("rejects everything else", async () => {
+    const { isValidPatchVersion } = await import("@/lib/officialPatch");
+    for (const version of ["", "other", "1", "1.", "1.13.001", "v1.13", "1.13 ", "1..13"]) {
+      expect(isValidPatchVersion(version)).toBe(false);
+    }
+  });
+});

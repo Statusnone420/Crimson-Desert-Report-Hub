@@ -18,6 +18,7 @@ import { externalIdHash } from "@/lib/crypto";
 import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
 import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
+import { isValidPatchVersion } from "@/lib/officialPatch";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { assertProductionWriteAllowed } from "@/lib/previewGuard";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
@@ -225,6 +226,29 @@ export async function clearClusterFixStatusOverride(formData: FormData): Promise
       fix_claimed_patch_version: null,
     })
     .eq("id", clusterId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin");
+  revalidatePublicSurfaces();
+}
+
+/**
+ * Break-glass writer for when the Pearl Abyss notice scraper stops matching.
+ * The next successful sync reclaims control by flipping is_current to whatever
+ * it scrapes; no fix claims attach to a manual row.
+ */
+export async function setCurrentPatchOverride(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const version = String(formData.get("patch_version") ?? "").trim();
+  if (!isValidPatchVersion(version)) throw new Error("bad input");
+
+  const supabase = createServiceClient();
+  const observedAt = new Date().toISOString();
+  const { error } = await supabase.rpc("set_current_patch_override", {
+    p_patch_version: version,
+    p_observed_at: observedAt,
+  });
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");

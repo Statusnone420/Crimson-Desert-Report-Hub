@@ -36,9 +36,10 @@ vi.mock("@/lib/reddit.server", () => ({
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 
 type TableName = "bug_reports" | "approved_excerpts" | "automation_rejected_candidates" | "issue_clusters";
-type AdminTableName = TableName | "automation_settings";
+type AdminTableName = TableName | "automation_settings" | "official_patch_notes";
 
 let insertFailure: { table: TableName; message: string } | null = null;
+let upsertFailure: { table: AdminTableName; message: string } | null = null;
 let seedRows: Partial<Record<AdminTableName, Record<string, unknown>[]>> = {};
 const mutations: { table: AdminTableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
 
@@ -91,6 +92,7 @@ class FakeQuery {
 
   private async execute() {
     if (this.upsertRow) {
+      if (upsertFailure?.table === this.table) return { data: null, error: { message: upsertFailure.message } };
       mutations.push({ table: this.table, type: "upsert", row: this.upsertRow });
       return { data: [this.upsertRow], error: null };
     }
@@ -125,6 +127,7 @@ beforeEach(() => {
   mocks.refreshClusterVisibility.mockResolvedValue(undefined);
   vi.resetModules();
   insertFailure = null;
+  upsertFailure = null;
   seedRows = {
     bug_reports: [{ id: "report-one", moderation_status: "pending", cluster_id: null }],
   };
@@ -499,5 +502,54 @@ describe("rescueRejectedCandidate", () => {
 
     await expect(rescueRejectedCandidate(formData)).rejects.toThrow("rejected candidate not found");
     expect(mocks.rescueCandidateSignal).not.toHaveBeenCalled();
+  });
+});
+
+describe("setCurrentPatchOverride", () => {
+  it("rejects a malformed patch version with no writes", async () => {
+    const { setCurrentPatchOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("patch_version", "not-a-version");
+
+    await expect(setCurrentPatchOverride(formData)).rejects.toThrow("bad input");
+    expect(mutations).toEqual([]);
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
+  });
+
+  it("writes the manual current patch through one atomic RPC and refreshes public surfaces", async () => {
+    const { setCurrentPatchOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("patch_version", "1.13.02");
+
+    await setCurrentPatchOverride(formData);
+
+    expect(mocks.rpc).toHaveBeenCalledWith("set_current_patch_override", {
+      p_observed_at: expect.any(String),
+      p_patch_version: "1.13.02",
+    });
+    expect(mutations.filter((mutation) => mutation.table === "official_patch_notes")).toEqual([]);
+    expect(mocks.revalidateTag).toHaveBeenCalledWith("current-patch", "max");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("blocks the override in Vercel preview", async () => {
+    process.env.VERCEL_ENV = "preview";
+    const { setCurrentPatchOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("patch_version", "1.13.02");
+
+    await expect(setCurrentPatchOverride(formData)).rejects.toThrow("preview writes disabled");
+    expect(mutations).toEqual([]);
+  });
+
+  it("surfaces an atomic write failure instead of claiming success", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: "manual patch write failed" } });
+    const { setCurrentPatchOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("patch_version", "1.13.02");
+
+    await expect(setCurrentPatchOverride(formData)).rejects.toThrow("manual patch write failed");
+    expect(mutations.filter((mutation) => mutation.table === "official_patch_notes")).toEqual([]);
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
   });
 });
