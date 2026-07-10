@@ -256,7 +256,7 @@ export default async function DashboardPage() {
       ) : null}
 
       <section className="grid gap-3 lg:grid-cols-[1.5fr_0.9fr]">
-        <div className="panel space-y-5">
+        <div className="panel min-w-0 space-y-5">
           <SectionHeader
             title={active.length > 0 ? "Top issues this patch" : "Nothing reported, tapped, or linked yet"}
             description={
@@ -276,7 +276,7 @@ export default async function DashboardPage() {
               {active.slice(0, 6).map((cluster) => (
                 <Link key={cluster.id} href="/issues" className="block space-y-1.5">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                    <span className="flex min-w-0 items-center gap-2">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="truncate font-medium">{cluster.title}</span>
                       <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
                     </span>
@@ -329,7 +329,7 @@ export default async function DashboardPage() {
           </p>
         </div>
 
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <div className="panel space-y-3">
             <div className="stat-label">Platforms</div>
             {platformEntries.length === 0 ? (

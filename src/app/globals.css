@@ -261,7 +261,7 @@ p { text-wrap: pretty; }
 
 /* ---------- Forms ---------- */
 
-input, select, textarea {
+input:not(.sr-only), select, textarea {
   background: var(--surface-inset);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -272,7 +272,7 @@ input, select, textarea {
   font-family: inherit;
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-input, select { min-height: 44px; line-height: 1.25; }
+input:not(.sr-only), select { min-height: 44px; line-height: 1.25; }
 textarea { line-height: 1.55; resize: vertical; }
 select {
   appearance: none;
@@ -285,8 +285,8 @@ select {
   padding-right: 2.25rem;
   cursor: pointer;
 }
-input[type="file"] { color: var(--text-dim); padding: 0.5rem; }
-input[type="file"]::file-selector-button {
+input[type="file"]:not(.sr-only) { color: var(--text-dim); padding: 0.5rem; }
+input[type="file"]:not(.sr-only)::file-selector-button {
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
@@ -297,10 +297,10 @@ input[type="file"]::file-selector-button {
   padding: 0.45rem 0.8rem;
   transition: background var(--dur) var(--ease);
 }
-input[type="file"]::file-selector-button:hover { background: var(--surface); }
+input[type="file"]:not(.sr-only)::file-selector-button:hover { background: var(--surface); }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--crimson); min-height: 1rem; width: auto; }
 input::placeholder, textarea::placeholder { color: #8c887d; opacity: 1; }
-input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible {
+input:not(.sr-only):focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible {
   outline: none;
   border-color: var(--crimson-edge);
   box-shadow: 0 0 0 3px var(--crimson-tint);

@@ -10,6 +10,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   applicationName: SITE_NAME,
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black",
+    title: "CD Report Hub",
+  },
   title: {
     default: `${SITE_NAME} - current situation hub`,
     template: `%s | ${SITE_NAME}`,
