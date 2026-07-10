@@ -45,10 +45,13 @@ After explicit production authorization, run every SQL file in `supabase/migrati
 17. `20260709210222_issue_confirmations.sql`
 18. `20260709210229_visibility_override_guards.sql`
 19. `20260709212531_visibility_write_lock_order.sql`
+20. `20260709234750_visibility_override_baseline.sql`
+21. `20260710001212_visibility_refresh_revision.sql`
+22. `20260710005327_visibility_restore_recompute.sql`
 
-The confirmation migration adds exact claimed-patch provenance, `issue_confirmations`, the private hashed-attempt ledger, and the `record_issue_confirmation` RPC. That RPC atomically rechecks public issue visibility, enforces the 20-writes-per-network/hour limit, and returns `recorded`, `rate_limited`, or `unknown_issue`. The visibility-guard migration makes force-public/force-hidden cluster state durable and adds the service-role override RPC. The lock-order follow-up serializes confirmation and cluster/source visibility writes before row locks, closing the concurrent scan/admin deadlock path. Do not deploy code that queries those objects before the authorized migrations are verified.
+The confirmation migration adds exact claimed-patch provenance, `issue_confirmations`, the private hashed-attempt ledger, and the `record_issue_confirmation` RPC. That RPC atomically rechecks public issue visibility, enforces the 20-writes-per-network/hour limit, and returns `recorded`, `rate_limited`, or `unknown_issue`. The visibility-guard migration makes force-public/force-hidden cluster state durable and adds the service-role override RPC. The lock-order follow-up serializes confirmation and cluster/source visibility writes before row locks, closing the concurrent scan/admin deadlock path. The visibility-baseline follow-up preserves engine-owned state across forced overrides. The visibility-revision follow-up keeps that automatic baseline current, makes approved-report promotion transactional, and applies each cluster/source refresh atomically only when its input revision is still current. The visibility-recompute correction replaces any legacy forced-value restore baseline with the engine-owned evidence state and invalidates in-flight refreshes. Do not deploy code that queries those objects before the authorized migrations are verified.
 
-Recovery status (2026-07-09): all three recovery migrations above were explicitly authorized, applied successfully to the remote Supabase project, and aligned locally to the assigned versions shown in this list. This recorded success does not authorize any future migration or direct SQL operation.
+Recovery status (2026-07-09): all six recovery migrations above were explicitly authorized, applied successfully to the remote Supabase project, and aligned locally to the assigned versions shown in this list. This recorded success does not authorize any future migration or direct SQL operation.
 
 Copy these values into Vercel environment variables:
 
@@ -186,7 +189,7 @@ curl -H "Authorization: Bearer <CRON_SECRET>" \
 - Keep `AUTOMATION_BUDGET_USD_MONTHLY=2`, Tavily at or below 1,000 monthly credits, automation pinned to `deepseek/deepseek-v4-flash`, and routine AI on `openrouter/free`/`:free` or deterministic fallback. Confirm the dedicated OpenRouter key still has a provider-side monthly reset limit of $2 or lower; this is a manual dashboard check.
 - Use `/admin` to approve/reject direct player reports.
 - Use `/admin` exceptions to lock/clear lifecycle state only when needed.
-- Use `Force public` or `Force hidden` for an immediate atomic visibility change; the service-role RPC and database guards preserve that choice across concurrent scanner writes. `Auto` only clears the override; normal promotion re-evaluates effective visibility on the next scan. Public pages revalidate after the action.
+- Use `Force public` or `Force hidden` for an immediate atomic visibility change; the service-role RPC and database guards preserve that choice across concurrent scanner writes. `Auto` clears the override and immediately re-runs the shared promotion engine for that cluster and its source rows. Public pages revalidate after the action.
 - Use `/admin/compile` to generate a Pearl Abyss-ready dossier.
 
 ## Confirmation Board Checks

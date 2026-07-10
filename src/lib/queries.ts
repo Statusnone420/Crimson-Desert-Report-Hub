@@ -232,7 +232,10 @@ export function filterExactPatchReports<T extends { patch_version: string | null
   rows: T[],
   currentPatchVersion: string,
 ): T[] {
-  return rows.filter((row) => row.patch_version === currentPatchVersion);
+  // Intake accepts any trimmed spelling, so exact-patch evidence must compare
+  // normalized version keys ("1.13.1" counts against "1.13.01"), matching the
+  // family filters above.
+  return rows.filter((row) => matchesPatchVersion(row.patch_version, currentPatchVersion));
 }
 
 export function latestReportAtFromRows<T extends { created_at: string }>(rows: T[]): string | null {

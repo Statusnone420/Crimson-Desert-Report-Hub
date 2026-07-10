@@ -458,6 +458,12 @@ function readBody(req) {
 
 function filterRows(table, url) {
   let rows = [...table];
+  const id = url.searchParams.get("id");
+  if (id?.startsWith("eq.")) rows = rows.filter((row) => row.id === id.slice(3));
+
+  const clusterId = url.searchParams.get("cluster_id");
+  if (clusterId?.startsWith("eq.")) rows = rows.filter((row) => row.cluster_id === clusterId.slice(3));
+
   const status = url.searchParams.get("moderation_status");
   if (status?.startsWith("eq.")) rows = rows.filter((row) => row.moderation_status === status.slice(3));
   if (status?.startsWith("in.")) {
@@ -555,6 +561,15 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/rest/v1/issue_clusters" && req.method === "PATCH") {
+    const raw = await readBody(req);
+    const patch = raw ? JSON.parse(raw) : {};
+    const rows = filterRows(clusters, url);
+    for (const row of rows) Object.assign(row, patch);
+    sendJson(res, req.method, 200, rows);
+    return;
+  }
+
   if (url.pathname === "/rest/v1/bug_reports" && req.method === "HEAD") {
     const rows = filterRows(bugReports, url);
     sendJson(res, req.method, 200, [], { "content-range": `0-${Math.max(rows.length - 1, 0)}/${rows.length}` });
@@ -575,6 +590,16 @@ const server = createServer(async (req, res) => {
       ...parsed,
     };
     bugReports.push(row);
+    if (row.moderation_status === "approved" && row.cluster_id) {
+      const cluster = clusters.find((item) => item.id === row.cluster_id);
+      if (cluster) {
+        cluster.auto_public = true;
+        cluster.is_public = cluster.admin_visibility_override === "force_hidden" ? false : true;
+        cluster.visibility_restore_auto_public = cluster.admin_visibility_override ? true : null;
+        cluster.visibility_restore_is_public = cluster.admin_visibility_override ? true : null;
+        cluster.visibility_revision = Number(cluster.visibility_revision ?? 0) + 1;
+      }
+    }
     // .single() requests ask PostgREST for a bare object, not an array.
     const wantsObject = (req.headers.accept ?? "").includes("vnd.pgrst.object");
     sendJson(res, req.method, 201, wantsObject ? row : [row]);
@@ -625,6 +650,38 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/rest/v1/rpc/apply_cluster_visibility_refresh" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const cluster = clusters.find((item) => item.id === parsed.p_cluster_id);
+    if (!cluster) {
+      sendJson(res, req.method, 404, { message: "issue cluster not found" });
+      return;
+    }
+    if (Number(cluster.visibility_revision ?? 0) !== Number(parsed.p_expected_revision)) {
+      sendJson(res, req.method, 200, false);
+      return;
+    }
+    for (const signalPatch of parsed.p_signal_patches ?? []) {
+      const signal = signals.find((item) => item.id === signalPatch.id && item.cluster_id === parsed.p_cluster_id);
+      if (signal) Object.assign(signal, signalPatch);
+    }
+    const automaticPatch = parsed.p_cluster_patch ?? {};
+    Object.assign(cluster, automaticPatch, {
+      is_public:
+        cluster.admin_visibility_override === "force_public"
+          ? true
+          : cluster.admin_visibility_override === "force_hidden"
+            ? false
+            : automaticPatch.is_public,
+      visibility_restore_auto_public: cluster.admin_visibility_override ? automaticPatch.auto_public : null,
+      visibility_restore_is_public: cluster.admin_visibility_override ? automaticPatch.is_public : null,
+      visibility_revision: Number(cluster.visibility_revision ?? 0) + 1,
+    });
+    sendJson(res, req.method, 200, true);
+    return;
+  }
+
   if (url.pathname === "/rest/v1/automation_settings" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(automationSettings, url));
     return;
@@ -641,11 +698,11 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/rest/v1/source_signals" && req.method === "PATCH") {
-    for (const signal of signals) {
-      signal.raw_text = null;
-      signal.raw_expires_at = null;
-    }
-    sendJson(res, req.method, 200, signals);
+    const raw = await readBody(req);
+    const patch = raw ? JSON.parse(raw) : {};
+    const rows = filterRows(signals, url);
+    for (const row of rows) Object.assign(row, patch);
+    sendJson(res, req.method, 200, rows);
     return;
   }
 

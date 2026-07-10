@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getRedditToken: vi.fn(),
   rpc: vi.fn(),
   redirect: vi.fn(),
+  refreshClusterVisibility: vi.fn(),
   requireAdmin: vi.fn(),
   rescueCandidateSignal: vi.fn(),
   revalidatePath: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("next/cache", () => ({
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/automation/run", () => ({
+  refreshClusterVisibility: mocks.refreshClusterVisibility,
   rescueCandidateSignal: mocks.rescueCandidateSignal,
 }));
 vi.mock("@/lib/officialPatch.server", () => ({
@@ -119,9 +121,13 @@ class FakeQuery {
 beforeEach(() => {
   delete process.env.VERCEL_ENV;
   vi.clearAllMocks();
+  mocks.refreshClusterVisibility.mockReset();
+  mocks.refreshClusterVisibility.mockResolvedValue(undefined);
   vi.resetModules();
   insertFailure = null;
-  seedRows = {};
+  seedRows = {
+    bug_reports: [{ id: "report-one", moderation_status: "pending", cluster_id: null }],
+  };
   mutations.length = 0;
   mocks.from.mockImplementation((table: AdminTableName) => new FakeQuery(table));
   mocks.rpc.mockResolvedValue({ data: null, error: null });
@@ -149,6 +155,46 @@ describe("runRedditMonitor", () => {
 });
 
 describe("moderateReport", () => {
+  it("refreshes automatic visibility after approving a clustered report", async () => {
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "approved");
+    formData.set("cluster_id", "cluster-one");
+
+    await moderateReport(formData);
+
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-one");
+  });
+
+  it("keeps the approved excerpt when the best-effort visibility refresh fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.refreshClusterVisibility.mockImplementationOnce(async () => {
+      expect(mutations.some((mutation) => mutation.table === "approved_excerpts")).toBe(true);
+      throw new Error("refresh failed");
+    });
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "approved");
+    formData.set("cluster_id", "cluster-one");
+    formData.set("excerpt", "Frame rate drops after the patch.");
+
+    await moderateReport(formData);
+
+    expect(mutations).toContainEqual({
+      table: "bug_reports",
+      type: "update",
+      row: {
+        patch: { moderation_status: "approved", cluster_id: "cluster-one" },
+        filters: [{ column: "id", value: "report-one" }],
+      },
+    });
+    expect(mutations.some((mutation) => mutation.table === "approved_excerpts")).toBe(true);
+    expect(consoleError).toHaveBeenCalledWith("cluster visibility refresh failed:", expect.any(Error));
+    consoleError.mockRestore();
+  });
+
   it("fails approved moderation when the public excerpt cannot be saved", async () => {
     insertFailure = { table: "approved_excerpts", message: "excerpt insert failed" };
     const { moderateReport } = await import("@/app/admin/actions");
@@ -170,6 +216,38 @@ describe("moderateReport", () => {
     });
     expect(mutations.some((mutation) => mutation.table === "approved_excerpts")).toBe(false);
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the old cluster when an approved report is rejected", async () => {
+    seedRows = {
+      bug_reports: [{ id: "report-one", moderation_status: "approved", cluster_id: "cluster-old" }],
+    };
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "rejected");
+
+    await moderateReport(formData);
+
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledTimes(1);
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-old");
+  });
+
+  it("refreshes both clusters when an approved report moves", async () => {
+    seedRows = {
+      bug_reports: [{ id: "report-one", moderation_status: "approved", cluster_id: "cluster-old" }],
+    };
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "approved");
+    formData.set("cluster_id", "cluster-new");
+
+    await moderateReport(formData);
+
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledTimes(2);
+    expect(mocks.refreshClusterVisibility).toHaveBeenNthCalledWith(1, "cluster-old");
+    expect(mocks.refreshClusterVisibility).toHaveBeenNthCalledWith(2, "cluster-new");
   });
 });
 
@@ -200,7 +278,7 @@ describe("setClusterFixStatus", () => {
 });
 
 describe("clearClusterFixStatusOverride", () => {
-  it("clears only the override fields so automation can re-derive status", async () => {
+  it("clears the override and its synthetic claim clock so automation can re-derive status", async () => {
     const { clearClusterFixStatusOverride } = await import("@/app/admin/actions");
     const formData = new FormData();
     formData.set("cluster_id", "cluster-one");
@@ -211,7 +289,12 @@ describe("clearClusterFixStatusOverride", () => {
       table: "issue_clusters",
       type: "update",
       row: {
-        patch: { admin_override: false, lifecycle_reason: null },
+        patch: {
+          admin_override: false,
+          lifecycle_reason: null,
+          fix_claimed_at: null,
+          fix_claimed_patch_version: null,
+        },
         filters: [{ column: "id", value: "cluster-one" }],
       },
     });
@@ -231,6 +314,7 @@ describe("setClusterVisibilityOverride", () => {
       p_cluster_id: "cluster-one",
       p_visibility: "force_public",
     });
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-one");
   });
 
   it("force_hidden removes a quiet cluster from public reads before the deeper refresh", async () => {
@@ -245,6 +329,7 @@ describe("setClusterVisibilityOverride", () => {
       p_cluster_id: "cluster-one",
       p_visibility: "force_hidden",
     });
+    expect(mocks.refreshClusterVisibility).not.toHaveBeenCalled();
   });
 
   it("auto clears the override back to engine control", async () => {
@@ -259,6 +344,21 @@ describe("setClusterVisibilityOverride", () => {
       p_cluster_id: "cluster-one",
       p_visibility: "auto",
     });
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-one");
+  });
+
+  it("revalidates the applied override when the immediate refresh fails", async () => {
+    mocks.refreshClusterVisibility.mockRejectedValueOnce(new Error("refresh failed"));
+    const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("visibility", "auto");
+
+    await expect(setClusterVisibilityOverride(formData)).rejects.toThrow("refresh failed");
+
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith("public-dashboard", "max");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith("public-issues", "max");
   });
 
   it("rejects unknown visibility values", async () => {

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
-import { rescueCandidateSignal } from "@/lib/automation/run";
+import { refreshClusterVisibility, rescueCandidateSignal } from "@/lib/automation/run";
 import {
   scannerPolicyFromFormData,
   setAutomationPaused as setAutomationPausedState,
@@ -110,6 +110,18 @@ export async function moderateReport(formData: FormData): Promise<void> {
   if (!id || !(DECISIONS as readonly string[]).includes(decision)) throw new Error("bad input");
 
   const supabase = createServiceClient();
+  const { data: existingReports, error: existingError } = await supabase
+    .from("bug_reports")
+    .select("moderation_status, cluster_id")
+    .eq("id", id)
+    .limit(1);
+  if (existingError) throw new Error(`report read failed: ${existingError.message}`);
+  const existingReport = ((existingReports ?? []) as {
+    moderation_status: string;
+    cluster_id: string | null;
+  }[])[0];
+  if (!existingReport) throw new Error("report not found");
+
   const { error } = await supabase
     .from("bug_reports")
     .update({ moderation_status: decision, cluster_id: clusterId || null })
@@ -121,6 +133,23 @@ export async function moderateReport(formData: FormData): Promise<void> {
       .from("approved_excerpts")
       .insert({ report_id: id, excerpt_text: excerpt.slice(0, 500) });
     if (excerptError) throw new Error(`approved excerpt insert failed: ${excerptError.message}`);
+  }
+
+  const clustersToRefresh = new Set<string>();
+  if (existingReport.moderation_status === "approved" && existingReport.cluster_id) {
+    clustersToRefresh.add(existingReport.cluster_id);
+  }
+  if (decision === "approved" && clusterId) clustersToRefresh.add(clusterId);
+
+  for (const affectedClusterId of clustersToRefresh) {
+    try {
+      // The report trigger already made core visibility durable. Keep this deep
+      // stats/source refresh best-effort after the excerpt is safely persisted.
+      // Recompute the old destination too when an approval moves or is removed.
+      await refreshClusterVisibility(affectedClusterId);
+    } catch (refreshError) {
+      console.error("cluster visibility refresh failed:", refreshError);
+    }
   }
 
   revalidatePath("/admin");
@@ -170,9 +199,12 @@ export async function setClusterVisibilityOverride(formData: FormData): Promise<
     p_visibility: visibility,
   });
   if (error) throw new Error(error.message);
-
-  revalidatePath("/admin");
-  revalidatePublicSurfaces();
+  try {
+    if (visibility !== "force_hidden") await refreshClusterVisibility(clusterId);
+  } finally {
+    revalidatePath("/admin");
+    revalidatePublicSurfaces();
+  }
 }
 
 export async function clearClusterFixStatusOverride(formData: FormData): Promise<void> {
@@ -184,7 +216,14 @@ export async function clearClusterFixStatusOverride(formData: FormData): Promise
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("issue_clusters")
-    .update({ admin_override: false, lifecycle_reason: null })
+    .update({
+      admin_override: false,
+      lifecycle_reason: null,
+      // Manual claim-bearing locks synthesize this clock. Auto must rebuild it
+      // only from a current, confidently matched Pearl Abyss claim.
+      fix_claimed_at: null,
+      fix_claimed_patch_version: null,
+    })
     .eq("id", clusterId);
   if (error) throw new Error(error.message);
 

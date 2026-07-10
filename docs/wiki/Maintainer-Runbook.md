@@ -34,7 +34,7 @@ This page is the short operating checklist for maintainers.
 ## Overrides
 
 - Use lifecycle locks only for real exceptions; clear them to return control to automation.
-- Use `Force public` or `Force hidden` for an immediate atomic visibility change. `Auto` only clears the override; normal promotion re-evaluates effective visibility on the next scan. Database guards preserve forced state across concurrent scanner writes; public pages revalidate after the action.
+- Use `Force public` or `Force hidden` for an immediate atomic visibility change. `Auto` clears the override and immediately re-runs a revision-checked, atomic promotion refresh for that cluster and its source rows. Database guards preserve forced state and its live automatic baseline across concurrent scanner writes; public pages revalidate after the action.
 - Scanner links remain leads even when a visibility override makes a cluster public.
 
 ## Before Release
