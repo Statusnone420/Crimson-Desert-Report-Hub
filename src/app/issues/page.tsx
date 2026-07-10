@@ -237,7 +237,7 @@ export default async function IssuesPage() {
             <section className="panel space-y-3">
               <div className="space-y-1">
                 <h2 className="stat-label">Watchlist</h2>
-                <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+                <p className="max-w-prose text-xs leading-5" style={{ color: "var(--text-faint)" }}>
                   Nothing here has a player report or confirmation tap yet. Mapped source links remain leads, not
                   evidence.
                 </p>

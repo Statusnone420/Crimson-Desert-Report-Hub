@@ -60,8 +60,7 @@ export function applyLlmCircuitToStatuses(statuses: IntegrationStatus[], llmPaus
       ? {
           ...status,
           paused: true,
-          detail:
-            "Paused — the cost-safety circuit is open, so scans run without LLM extraction until it clears.",
+          detail: "The cost-safety circuit is open, so scans run without LLM extraction until it clears.",
         }
       : status,
   );

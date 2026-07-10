@@ -76,7 +76,7 @@ export function SectionHeader({
         {label ? <div className="stat-label">{label}</div> : null}
         <Heading className="h-section">{title}</Heading>
         {description ? (
-          <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             {description}
           </p>
         ) : null}
