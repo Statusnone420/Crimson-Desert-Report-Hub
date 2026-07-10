@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { circuitReadStartIso, openRouterCircuitOpenFromRuns } from "@/lib/automation/circuit";
+import { circuitReadStartIso, llmPausedFromCircuitRead, openRouterCircuitOpenFromRuns } from "@/lib/automation/circuit";
 
 const NOW = new Date("2026-07-05T12:00:00.000Z");
 
@@ -48,6 +48,27 @@ describe("openRouterCircuitOpenFromRuns", () => {
       {},
     ];
     expect(openRouterCircuitOpenFromRuns(rows, NOW)).toBe(false);
+  });
+});
+
+describe("llmPausedFromCircuitRead", () => {
+  it("fails closed when the run-history read errored, matching the engine", () => {
+    expect(llmPausedFromCircuitRead(null, { message: "read outage" }, NOW)).toBe(true);
+    expect(llmPausedFromCircuitRead([], { message: "read outage" }, NOW)).toBe(true);
+  });
+
+  it("evaluates the circuit normally on a successful read", () => {
+    expect(llmPausedFromCircuitRead([blip("2026-07-05T09:00:00.000Z")], null, NOW)).toBe(false);
+    const tripped = [
+      blip("2026-07-05T02:00:00.000Z"),
+      blip("2026-07-04T20:00:00.000Z"),
+      blip("2026-07-04T14:00:00.000Z"),
+    ];
+    expect(llmPausedFromCircuitRead(tripped, null, NOW)).toBe(true);
+  });
+
+  it("treats a null row set without an error as an empty history", () => {
+    expect(llmPausedFromCircuitRead(null, null, NOW)).toBe(false);
   });
 });
 

@@ -36,6 +36,17 @@ export function circuitReadStartIso(now: Date): string {
  * a money anomaly latches for the rest of the UTC month; cost-unverified runs
  * only trip when COST_UNVERIFIED_TRIP_COUNT of them land inside the rolling window.
  */
+/**
+ * Badge-side circuit evaluation over a raw history read. When the read itself
+ * errored, the engine fails closed before provider work (loadMonthSpend /
+ * startAutomationScan), so the status display must report paused too rather
+ * than optimistically claiming the LLM lane is active.
+ */
+export function llmPausedFromCircuitRead(rows: CircuitRunRow[] | null, error: unknown, now: Date): boolean {
+  if (error) return true;
+  return openRouterCircuitOpenFromRuns(rows ?? [], now);
+}
+
 export function openRouterCircuitOpenFromRuns(rows: CircuitRunRow[], now: Date): boolean {
   const monthStart = monthStartMs(now);
   const moneyAnomaly = rows.some(
