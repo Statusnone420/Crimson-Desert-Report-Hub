@@ -278,7 +278,7 @@ describe("setClusterFixStatus", () => {
 });
 
 describe("clearClusterFixStatusOverride", () => {
-  it("clears only the override fields so automation can re-derive status", async () => {
+  it("clears the override and its synthetic claim clock so automation can re-derive status", async () => {
     const { clearClusterFixStatusOverride } = await import("@/app/admin/actions");
     const formData = new FormData();
     formData.set("cluster_id", "cluster-one");
@@ -289,7 +289,12 @@ describe("clearClusterFixStatusOverride", () => {
       table: "issue_clusters",
       type: "update",
       row: {
-        patch: { admin_override: false, lifecycle_reason: null },
+        patch: {
+          admin_override: false,
+          lifecycle_reason: null,
+          fix_claimed_at: null,
+          fix_claimed_patch_version: null,
+        },
         filters: [{ column: "id", value: "cluster-one" }],
       },
     });

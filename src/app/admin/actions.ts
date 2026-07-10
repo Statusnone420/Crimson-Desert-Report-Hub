@@ -216,7 +216,14 @@ export async function clearClusterFixStatusOverride(formData: FormData): Promise
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("issue_clusters")
-    .update({ admin_override: false, lifecycle_reason: null })
+    .update({
+      admin_override: false,
+      lifecycle_reason: null,
+      // Manual claim-bearing locks synthesize this clock. Auto must rebuild it
+      // only from a current, confidently matched Pearl Abyss claim.
+      fix_claimed_at: null,
+      fix_claimed_patch_version: null,
+    })
     .eq("id", clusterId);
   if (error) throw new Error(error.message);
 
