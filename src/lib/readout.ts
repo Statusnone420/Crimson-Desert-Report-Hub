@@ -134,9 +134,12 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   }
 
   if (input.directReportCount > 0 || c.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS) {
+    // The plural label may never claim more players than counted voices: one
+    // report alone is evidence, but it is one player, not "players".
+    const pluralVoices = input.directReportCount + c.affectedNetworks >= 2;
     return {
       state: "confirmed",
-      label: "Confirmed by players",
+      label: pluralVoices ? "Confirmed by players" : "Player-reported",
       tone: "crimson",
       sentence: evidenceSentence(input),
       ask: haveItAsk(),

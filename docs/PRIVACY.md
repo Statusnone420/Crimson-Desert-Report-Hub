@@ -17,7 +17,7 @@ Public pages may show:
 - Issue titles and neutral summaries.
 - Aggregate structured-report counts and platform/category counts.
 - Aggregate confirmation counts by stance and platform.
-- Count-backed labels such as `Confirmed by players`, `Fix claimed — unverified`, or `Players say fixed` when their documented thresholds are met.
+- Count-backed labels such as `Player-reported` (one counted voice), `Confirmed by players` (two or more counted voices), `Fix claimed — unverified`, or `Players say fixed` when their documented thresholds are met.
 - Public scanner lead links and mapped lead questions.
 - Moderator-approved excerpts from direct reports.
 
