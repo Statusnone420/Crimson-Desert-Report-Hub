@@ -474,19 +474,26 @@ async function loadScanMemory(
   };
 }
 
+// A lone unverified-cost response is almost always a transport blip; its worst-case
+// cost is already debited against the month, so it must not mute the LLM lane. Only a
+// repeating pattern inside this window means cost verification itself is broken.
+const COST_UNVERIFIED_TRIP_COUNT = 3;
+const COST_UNVERIFIED_TRIP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 async function loadMonthSpend(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
 ): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number; openRouterCircuitOpen: boolean }> {
   const { data, error } = await supabase
     .from("automation_runs")
-    .select("estimated_cost_usd, search_queries_used, skips")
+    .select("estimated_cost_usd, search_queries_used, skips, started_at")
     .gte("started_at", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString());
   if (error) throw new Error(`automation spend read failed: ${error.message}`);
   const rows = (data ?? []) as {
     estimated_cost_usd?: number | string | null;
     search_queries_used?: number | string | null;
     skips?: unknown;
+    started_at?: string | null;
   }[];
   const usage = rows.reduce(
     (sum, row) => ({
@@ -495,16 +502,22 @@ async function loadMonthSpend(
     }),
     { estimatedCostUsd: 0, tavilyCredits: 0 },
   );
+  const hasSkip = (row: { skips?: unknown }, reason: string) =>
+    Array.isArray(row.skips) && row.skips.includes(reason);
+  const moneyAnomaly = rows.some(
+    (row) => hasSkip(row, "openrouter_unexpected_charge") || hasSkip(row, "openrouter_budget_exceeded"),
+  );
+  const unverifiedWindowStart = now.getTime() - COST_UNVERIFIED_TRIP_WINDOW_MS;
+  const recentUnverifiedRuns = rows.filter(
+    (row) =>
+      hasSkip(row, "openrouter_cost_unverified") &&
+      typeof row.started_at === "string" &&
+      new Date(row.started_at).getTime() >= unverifiedWindowStart,
+  ).length;
   return {
     ...usage,
     llmCostUsd: Math.max(0, usage.estimatedCostUsd - usage.tavilyCredits * SEARCH_QUERY_COST_USD),
-    openRouterCircuitOpen: rows.some((row) => {
-      if (!Array.isArray(row.skips)) return false;
-      const skips = row.skips;
-      return ["openrouter_unexpected_charge", "openrouter_cost_unverified", "openrouter_budget_exceeded"].some(
-        (reason) => skips.includes(reason),
-      );
-    }),
+    openRouterCircuitOpen: moneyAnomaly || recentUnverifiedRuns >= COST_UNVERIFIED_TRIP_COUNT,
   };
 }
 

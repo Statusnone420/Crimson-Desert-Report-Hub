@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { automationBudgetUsd, automationSubreddits, computeFeatures, integrationStatuses, requiredEnv } from "@/lib/env";
+import {
+  applyLlmCircuitToStatuses,
+  automationBudgetUsd,
+  automationSubreddits,
+  computeFeatures,
+  integrationStatuses,
+  requiredEnv,
+} from "@/lib/env";
 
 describe("computeFeatures", () => {
   it("everything off with no keys", () => {
@@ -217,5 +224,30 @@ describe("requiredEnv", () => {
     expect(() => requiredEnv("SESSION_SECRET")).toThrow("Missing required env var: SESSION_SECRET");
     process.env.SESSION_SECRET = "\"\"";
     expect(() => requiredEnv("SESSION_SECRET")).toThrow("Missing required env var: SESSION_SECRET");
+  });
+});
+
+describe("applyLlmCircuitToStatuses", () => {
+  it("marks a connected AI extraction status as paused when the circuit is open", () => {
+    const statuses = integrationStatuses({ OPENROUTER_API_KEY: "o", TAVILY_API_KEY: "t" });
+    const adjusted = applyLlmCircuitToStatuses(statuses, true);
+
+    const ai = adjusted.find((status) => status.key === "ai_extraction");
+    expect(ai?.paused).toBe(true);
+    expect(ai?.detail).toContain("cost-safety circuit");
+
+    const web = adjusted.find((status) => status.key === "web_search");
+    expect(web?.paused).toBeUndefined();
+  });
+
+  it("leaves statuses untouched when the circuit is closed", () => {
+    const statuses = integrationStatuses({ OPENROUTER_API_KEY: "o", TAVILY_API_KEY: "t" });
+    expect(applyLlmCircuitToStatuses(statuses, false)).toEqual(statuses);
+  });
+
+  it("does not mark an unconfigured AI extraction status as paused", () => {
+    const statuses = integrationStatuses({ TAVILY_API_KEY: "t" });
+    const adjusted = applyLlmCircuitToStatuses(statuses, true);
+    expect(adjusted.find((status) => status.key === "ai_extraction")?.paused).toBeUndefined();
   });
 });

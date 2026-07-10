@@ -352,7 +352,10 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.extractionModel).toBeNull();
-    expect(result.llmCostUsd).toBe(0);
+    // Unverifiable cost is charged at the request's worst-case ceiling so the
+    // monthly books stay conservative without muting the LLM lane.
+    expect(result.llmCostUsd).toBeGreaterThan(0);
+    expect(result.llmCostUsd).toBeLessThan(0.01);
     expect(result.fallbackReason).toBe("openrouter_cost_unverified");
   });
 
@@ -397,6 +400,7 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(1);
+    expect(result.llmCostUsd).toBeGreaterThan(0);
     expect(result.fallbackReason).toBe("openrouter_cost_unverified");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
@@ -471,7 +475,7 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(2);
-    expect(result.llmCostUsd).toBe(0);
+    expect(result.llmCostUsd).toBeGreaterThan(0);
     expect(result.fallbackReason).toBe("openrouter_cost_unverified");
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
@@ -573,6 +577,7 @@ describe("automation extraction", () => {
 
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.llmCallsUsed).toBe(1);
+    expect(result.llmCostUsd).toBeGreaterThan(0);
     expect(result.fallbackReason).toBe("openrouter_cost_unverified");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });

@@ -77,12 +77,14 @@ const SKIP_META: Record<string, MessageMeta> = {
   },
   openrouter_circuit_open: {
     label: "OpenRouter safety circuit open",
-    detail: "A prior request had unverifiable or out-of-bounds cost, so OpenRouter stays off for the rest of the month.",
+    detail:
+      "OpenRouter is paused for safety: an out-of-bounds cost keeps it off for the month, and repeated unverifiable costs keep it off until those failures age out of the last 24 hours.",
     summaryLabel: "OpenRouter safety circuit open",
   },
   openrouter_cost_unverified: {
     label: "OpenRouter cost unverified",
-    detail: "OpenRouter did not return trustworthy cost metadata, so the monthly safety circuit opened.",
+    detail:
+      "OpenRouter did not return trustworthy cost metadata; the request's worst-case cost was charged against the monthly budget. Repeated failures within 24 hours open the safety circuit.",
     summaryLabel: "OpenRouter cost unverified",
   },
   openrouter_budget_exceeded: {
@@ -242,6 +244,19 @@ export type PlainScan = {
   dropped: number;
   droppedBreakdown: { label: string; count: number }[];
 };
+
+// Skips that mean the LLM lane was actually off for the scan, as opposed to a
+// single cost_unverified blip, which debits worst-case cost but keeps the lane on.
+const LLM_LANE_PAUSED_SKIPS = [
+  "openrouter_circuit_open",
+  "openrouter_unexpected_charge",
+  "openrouter_budget_exceeded",
+] as const;
+
+/** Whether a run's skip codes say LLM extraction was paused by the safety circuit. */
+export function llmLanePausedFromSkips(skips: unknown): boolean {
+  return Array.isArray(skips) && LLM_LANE_PAUSED_SKIPS.some((reason) => skips.includes(reason));
+}
 
 const DROP_CODES = ["wrong_patch", "source_not_issue_report", "category_other"] as const;
 

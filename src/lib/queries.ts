@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
+import { llmLanePausedFromSkips } from "@/lib/automation/runDisplay";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
@@ -814,6 +815,8 @@ export type PublicScannerData = {
   lastCheckedAt: string | null;
   scannerActive: boolean;
   scannerConnected: boolean;
+  /** As of the last real scan, LLM extraction was paused by the cost-safety circuit. */
+  llmPaused: boolean;
 };
 
 /**
@@ -831,6 +834,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     lastCheckedAt: null,
     scannerActive: false,
     scannerConnected: false,
+    llmPaused: false,
   };
   if (!hasSupabaseServiceConfig()) return empty;
 
@@ -869,13 +873,16 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     // erase the real "last checked" time when older runs exist. Unbounded latest lookup.
     const { data: latestRows } = await supabase
       .from("automation_runs")
-      .select("finished_at, started_at")
+      .select("finished_at, started_at, skips")
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])
       .order("started_at", { ascending: false })
       .limit(1);
-    const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
+    const latest = (latestRows ?? [])[0] as
+      | { finished_at: string | null; started_at: string; skips?: unknown }
+      | undefined;
     const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
+    const llmPaused = llmLanePausedFromSkips(latest?.skips);
 
     const currentPatch = await getCurrentPatchMetadata(supabase);
     const { data: publicSignalData } = await supabase
@@ -924,6 +931,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       lastCheckedAt,
       scannerActive: !control.paused,
       scannerConnected: true,
+      llmPaused,
     };
   } catch {
     return empty;

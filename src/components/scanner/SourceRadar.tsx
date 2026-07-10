@@ -145,8 +145,8 @@ export function SourceRadar({
           <div key={integration.key} className="panel-inset border p-3 text-sm">
             <div className="flex items-center justify-between gap-2">
               <span className="font-semibold">{integration.label}</span>
-              <span className={integration.connected ? "badge badge-green" : "badge badge-amber"}>
-                {integration.connected ? "Connected" : "Off"}
+              <span className={integration.connected && !integration.paused ? "badge badge-green" : "badge badge-amber"}>
+                {integration.paused ? "Paused" : integration.connected ? "Connected" : "Off"}
               </span>
             </div>
             <p className="mt-2 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
