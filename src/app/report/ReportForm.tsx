@@ -384,12 +384,20 @@ export function ReportForm({
               </ol>
             </div>
             <div className="panel-inset flex flex-wrap items-center gap-2 border p-2">
-              <label htmlFor="save_import" className="btn btn-ghost btn-sm mb-0 w-auto cursor-pointer">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm w-auto"
+                onClick={() => saveImportFileInputRef.current?.click()}
+              >
                 Choose settings file
-              </label>
-              <label htmlFor="save_import_folder" className="btn btn-ghost btn-sm mb-0 w-auto cursor-pointer">
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm w-auto"
+                onClick={() => saveImportFolderInputRef.current?.click()}
+              >
                 Choose folder
-              </label>
+              </button>
               <span className="basis-full text-sm sm:basis-auto" style={{ color: "var(--text-faint)" }} aria-live="polite">
                 {saveImportMessage || "Nothing selected yet"}
               </span>
@@ -402,6 +410,8 @@ export function ReportForm({
               onChange={onSaveImport}
               ref={saveImportFileInputRef}
               className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
             />
             <input
               id="save_import_folder"
@@ -411,6 +421,8 @@ export function ReportForm({
               onChange={onSaveImport}
               ref={saveImportFolderInputRef}
               className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
               {...DIRECTORY_INPUT_PROPS}
             />
             <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>

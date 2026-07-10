@@ -23,8 +23,44 @@ async function expectHealthyPage(page: Page, problems: string[]) {
   await expect(page.getByText(/Application error|Unhandled Runtime Error|Failed to compile/i)).toHaveCount(0);
   expect(problems).toEqual([]);
   // The page body must never scroll sideways — wide content scrolls in its own container.
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflow, "page has horizontal overflow").toBeLessThanOrEqual(1);
+  const layout = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const scrollWidth = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
+    const offenders = [...document.querySelectorAll("body *")]
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        if (rect.width === 0 || (rect.left >= -1 && rect.right <= viewportWidth + 1)) return false;
+
+        let parent = element.parentElement;
+        while (parent && parent !== document.body) {
+          const overflowX = getComputedStyle(parent).overflowX;
+          if (["auto", "scroll", "hidden", "clip"].includes(overflowX)) return false;
+          parent = parent.parentElement;
+        }
+        return true;
+      })
+      .slice(0, 8)
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          element: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${
+            element.getAttribute("class")
+              ? `.${element.getAttribute("class")?.trim().replace(/\s+/g, ".")}`
+              : ""
+          }`,
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          text: element.textContent?.trim().replace(/\s+/g, " ").slice(0, 80) ?? "",
+          width: Math.round(rect.width),
+        };
+      });
+
+    return { offenders, scrollWidth, viewportWidth };
+  });
+  expect(
+    layout.scrollWidth,
+    `page has horizontal overflow:\n${JSON.stringify(layout, null, 2)}`,
+  ).toBeLessThanOrEqual(layout.viewportWidth + 1);
 }
 
 async function signInAsAdmin(page: Page) {
@@ -375,6 +411,81 @@ test.describe("public surface visual regression", () => {
     }
   });
 
+  test("dashboard stays within mobile viewports with production-length readouts", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile-chromium", "Mobile layout regression");
+    const problems = collectConsoleProblems(page);
+
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto("/");
+
+      const topIssues = page.locator(".panel", {
+        has: page.getByRole("heading", { name: "Top issues this patch" }),
+      });
+      const firstIssue = topIssues.locator("a.block").first();
+      await expect(firstIssue).toBeVisible();
+      await firstIssue.locator(".truncate").evaluate((element) => {
+        element.textContent = "FPS / performance regression since 1.13.00";
+      });
+      await firstIssue.locator(".badge").evaluate((element) => {
+        element.textContent = "Marked fixed by maintainer";
+      });
+
+      await expectHealthyPage(page, problems);
+    }
+  });
+
+  test("web app manifest keeps public navigation inside one standalone scope", async ({ page }) => {
+    await page.goto("/issues");
+
+    const manifestLink = page.locator('link[rel="manifest"]');
+    await expect(manifestLink).toHaveAttribute("href", "/manifest.webmanifest");
+    const response = await page.request.get("/manifest.webmanifest");
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toContain("application/manifest+json");
+    const manifest = (await response.json()) as {
+      display: string;
+      icons?: Array<{ sizes?: string; src?: string; type?: string }>;
+      id: string;
+      scope: string;
+      start_url: string;
+    };
+    expect(manifest).toMatchObject({
+      display: "standalone",
+      id: "/",
+      scope: "/",
+      start_url: "/",
+    });
+    expect(manifest.icons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sizes: "192x192",
+          src: "/brand/warrior-app-icon-192.png",
+          type: "image/png",
+        }),
+        expect.objectContaining({ sizes: "512x512", src: "/icon.png", type: "image/png" }),
+      ]),
+    );
+    const installIcon = await page.request.get("/brand/warrior-app-icon-192.png");
+    expect(installIcon.status()).toBe(200);
+    expect(installIcon.headers()["content-type"]).toContain("image/png");
+    await expect(page.locator('meta[name="mobile-web-app-capable"]')).toHaveAttribute("content", "yes");
+    await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute(
+      "content",
+      "CD Report Hub",
+    );
+    await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute(
+      "content",
+      "black",
+    );
+
+    const dashboardLink = page.getByRole("navigation", { name: "Primary" }).getByRole("link", {
+      name: "Dashboard",
+    });
+    await expect(dashboardLink).toHaveAttribute("href", "/");
+    await expect(dashboardLink).not.toHaveAttribute("target", "_blank");
+  });
+
   test("dashboard audit-critical text meets AA contrast", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
@@ -601,6 +712,37 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("checked and sorted into the right issue automatically")).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("report-success.png", { fullPage: true });
+  });
+
+  test("report file pickers stay contained and visibly focusable on mobile", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile-chromium", "Mobile form regression");
+    const problems = collectConsoleProblems(page);
+
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto("/report");
+
+      const fileInput = page.locator("#save_import");
+      const folderInput = page.locator("#save_import_folder");
+      for (const input of [fileInput, folderInput]) {
+        await expect(input).toHaveAttribute("tabindex", "-1");
+        const bounds = await input.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return { height: rect.height, width: rect.width };
+        });
+        expect(bounds).toEqual({ height: 1, width: 1 });
+      }
+
+      for (const name of ["Choose settings file", "Choose folder"]) {
+        const picker = page.getByRole("button", { name });
+        await picker.focus();
+        await expect(picker).toBeFocused();
+        const boxShadow = await picker.evaluate((element) => getComputedStyle(element).boxShadow);
+        expect(boxShadow).not.toBe("none");
+      }
+
+      await expectHealthyPage(page, problems);
+    }
   });
 
   test("local save import fills visible technical fields without uploading raw files", async ({ page }, testInfo) => {
