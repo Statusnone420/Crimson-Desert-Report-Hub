@@ -189,6 +189,9 @@ type ClusterRow = {
   admin_visibility_override?: "force_public" | "force_hidden" | null;
   auto_public?: boolean | null;
   is_public?: boolean | null;
+  visibility_restore_auto_public?: boolean | null;
+  visibility_restore_is_public?: boolean | null;
+  visibility_revision?: number | string | null;
 };
 
 type SourceSignalRow = {
@@ -1118,7 +1121,9 @@ async function upsertSignal(
 async function loadCluster(supabase: ReturnType<typeof createServiceClient>, clusterId: string): Promise<ClusterRow> {
   const { data, error } = await supabase
     .from("issue_clusters")
-    .select("id, category, admin_visibility_override, auto_public, is_public")
+    .select(
+      "id, category, admin_visibility_override, auto_public, is_public, visibility_restore_auto_public, visibility_restore_is_public, visibility_revision",
+    )
     .eq("id", clusterId)
     .limit(1);
   if (error) throw new Error(`automation cluster read failed: ${error.message}`);
@@ -1144,111 +1149,134 @@ async function loadClusterSignals(
 async function refreshClusterStats(
   supabase: ReturnType<typeof createServiceClient>,
   clusterId: string,
-  reports: ApprovedReportRow[],
-  excerpts: ApprovedExcerptRow[],
   now: Date,
-  currentPatch: CurrentPatchContext,
 ): Promise<boolean> {
-  const [cluster, signals] = await Promise.all([loadCluster(supabase, clusterId), loadClusterSignals(supabase, clusterId)]);
-  const clusterReports = reports.filter((report) => report.cluster_id === clusterId);
-  const reportIds = new Set(clusterReports.map((report) => report.id));
-  const verifiedReportCount = new Set(
-    excerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
-  ).size;
-  const publishableSignals = signals.filter(
-    (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, currentPatch).canPublish,
-  );
-  const { independentDomainCount, trustedDomainCount } = domainCounts(publishableSignals, now);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    // Read the revision before every input it protects. If a report/override
+    // changes afterward, its database trigger bumps the revision and the RPC
+    // rejects this entire snapshot before any visibility row is written.
+    const cluster = await loadCluster(supabase, clusterId);
+    const [signals, activeReports, activeExcerpts, activeCurrentPatch] = await Promise.all([
+      loadClusterSignals(supabase, clusterId),
+      loadApprovedReports(supabase),
+      loadApprovedExcerpts(supabase),
+      getCurrentPatchMetadata(supabase),
+    ]);
+    const clusterReports = activeReports.filter((report) => report.cluster_id === clusterId);
+    const reportIds = new Set(clusterReports.map((report) => report.id));
+    const verifiedReportCount = new Set(
+      activeExcerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
+    ).size;
+    const publishableSignals = signals.filter(
+      (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, activeCurrentPatch).canPublish,
+    );
+    const { independentDomainCount, trustedDomainCount } = domainCounts(publishableSignals, now);
 
-  const decision = shouldPromoteSignalCluster({
-    independentDomainCount,
-    trustedDomainCount,
-    directReportCount: clusterReports.length,
-    hasAdminForcePublic: cluster.admin_visibility_override === "force_public",
-    hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",
-  });
+    const automaticDecision = shouldPromoteSignalCluster({
+      independentDomainCount,
+      trustedDomainCount,
+      directReportCount: clusterReports.length,
+      hasAdminForcePublic: false,
+      hasAdminForceHidden: false,
+    });
+    const decision = cluster.admin_visibility_override
+      ? shouldPromoteSignalCluster({
+          independentDomainCount,
+          trustedDomainCount,
+          directReportCount: clusterReports.length,
+          hasAdminForcePublic: cluster.admin_visibility_override === "force_public",
+          hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",
+        })
+      : automaticDecision;
 
-  // A cluster's approved report makes the CLUSTER public (direct_report_match), but
-  // an individual scanner signal only counts as standalone public evidence if the
-  // cluster is independently corroborated by domains. This mirrors the domain-count
-  // thresholds in shouldPromoteSignalCluster so an untrusted single-domain signal
-  // riding a direct report is not published on its own.
-  const corroboratedByDomains =
-    (independentDomainCount >= 2 && trustedDomainCount >= 1) || independentDomainCount >= 3;
-  let publicSignalCount = 0;
-  for (const signal of signals) {
-    if (!signal.id) continue;
-    const unsupported = isUnsupportedStoredSignal(signal);
-    const eligibility = sourceSignalEligibility(signal, currentPatch);
-    const shouldHideStale =
-      unsupported ||
-      (!eligibility.canPublish &&
-        (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source"));
-    let publicStatus: "public" | "private" | "hidden";
-    let promotionReason: string;
-    if (!unsupported && eligibility.canPublish) {
-      const resolved = resolveSignalPublicStatus({
-        decision,
-        signalTrusted: domainTier(signalDomain(signal)) === "trusted",
-        corroboratedByDomains,
-      });
-      publicStatus = resolved.publicStatus;
-      promotionReason = resolved.reason;
-    } else {
-      publicStatus = shouldHideStale ? "hidden" : "private";
-      promotionReason = shouldHideStale
-        ? stalePromotionReason(unsupported ? "source_not_issue_report" : eligibility.reason)
-        : "below_threshold";
-    }
-    if (publicStatus === "public") publicSignalCount += 1;
-    const { error: signalUpdateError } = await supabase
-      .from("source_signals")
-      .update({
+    // A cluster's approved report makes the CLUSTER public (direct_report_match), but
+    // an individual scanner signal only counts as standalone public evidence if the
+    // cluster is independently corroborated by domains. This mirrors the domain-count
+    // thresholds in shouldPromoteSignalCluster so an untrusted single-domain signal
+    // riding a direct report is not published on its own.
+    const corroboratedByDomains =
+      (independentDomainCount >= 2 && trustedDomainCount >= 1) || independentDomainCount >= 3;
+    let publicSignalCount = 0;
+    const signalPatches = signals.map((signal) => {
+      if (!signal.id) throw new Error(`cluster signal is missing an id: ${clusterId}`);
+      const unsupported = isUnsupportedStoredSignal(signal);
+      const eligibility = sourceSignalEligibility(signal, activeCurrentPatch);
+      const shouldHideStale =
+        unsupported ||
+        (!eligibility.canPublish &&
+          (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source"));
+      let publicStatus: "public" | "private" | "hidden";
+      let promotionReason: string;
+      if (!unsupported && eligibility.canPublish) {
+        const resolved = resolveSignalPublicStatus({
+          decision,
+          signalTrusted: domainTier(signalDomain(signal)) === "trusted",
+          corroboratedByDomains,
+        });
+        publicStatus = resolved.publicStatus;
+        promotionReason = resolved.reason;
+      } else {
+        publicStatus = shouldHideStale ? "hidden" : "private";
+        promotionReason = shouldHideStale
+          ? stalePromotionReason(unsupported ? "source_not_issue_report" : eligibility.reason)
+          : "below_threshold";
+      }
+      if (publicStatus === "public") publicSignalCount += 1;
+      return {
+        id: signal.id,
         public_status: publicStatus,
         promoted_at: publicStatus === "public" ? now.toISOString() : null,
         promotion_reason: promotionReason,
-      })
-      .eq("id", signal.id);
-    if (signalUpdateError) throw new Error(`source signal promotion update failed: ${signalUpdateError.message}`);
+      };
+    });
+
+    // Forced visibility is only the effective presentation state. Retention and
+    // demotion must be calculated from the engine-owned baseline kept underneath it.
+    const priorAutomaticIsPublic = cluster.admin_visibility_override
+      ? (cluster.visibility_restore_is_public ?? cluster.is_public ?? false)
+      : (cluster.is_public ?? false);
+    const priorAutomaticOwner = cluster.admin_visibility_override
+      ? (cluster.visibility_restore_auto_public ?? cluster.auto_public ?? false)
+      : (cluster.auto_public ?? false);
+    const hasPublicEvidence = publicSignalCount > 0 || clusterReports.length > 0;
+    const hasLiveCandidates = signals.some(
+      (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, activeCurrentPatch).canStore,
+    );
+    const automaticIsPublic =
+      automaticDecision.publicStatus === "public"
+        ? true
+        : priorAutomaticIsPublic && hasLiveCandidates
+          ? true
+          : priorAutomaticOwner && !hasPublicEvidence
+            ? false
+            : priorAutomaticIsPublic;
+
+    const { data: applied, error: applyError } = await supabase.rpc("apply_cluster_visibility_refresh", {
+      p_cluster_id: clusterId,
+      p_expected_revision: Number(cluster.visibility_revision ?? 0),
+      p_signal_patches: signalPatches,
+      p_cluster_patch: {
+        signal_count: signals.length,
+        direct_report_count: clusterReports.length,
+        verified_report_count: verifiedReportCount,
+        public_signal_count: publicSignalCount,
+        last_signal_at: lastObservedAt(signals),
+        auto_public: automaticDecision.publicStatus === "public",
+        // The RPC derives override-effective visibility from this automatic baseline.
+        is_public: automaticIsPublic,
+      },
+    });
+    if (applyError) throw new Error(`cluster visibility refresh apply failed: ${applyError.message}`);
+    if (applied === true) return automaticDecision.publicStatus === "public" && !priorAutomaticOwner;
+    if (attempt === 2) throw new Error(`cluster visibility refresh conflicted repeatedly: ${clusterId}`);
   }
 
-  // Promotion can turn a cluster public or (via admin force-hidden) hide it, but a
-  // below-threshold decision must NOT hide a cluster that is already public — that
-  // would make a seeded watchlist item vanish the moment a private scanner signal
-  // routes into it. Below threshold, keep the cluster's existing visibility.
-  const hasPublicEvidence = publicSignalCount > 0 || clusterReports.length > 0;
-  // An already-visible cluster that drops below threshold but still holds a live
-  // current-patch candidate signal stays VISIBLE as an "Unconfirmed" watchlist row
-  // rather than being hidden. This does NOT publish anything — the candidate stays
-  // private; only the cluster's visibility flag is preserved.
-  const hasLiveCandidates = signals.some(
-    (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, currentPatch).canStore,
-  );
-  const isPublic =
-    decision.publicStatus === "public"
-      ? true
-      : decision.publicStatus === "hidden"
-        ? false
-        : cluster.is_public && hasLiveCandidates
-          ? true
-          : cluster.auto_public && !hasPublicEvidence
-            ? false
-            : (cluster.is_public ?? false);
-  const { error: clusterUpdateError } = await supabase
-    .from("issue_clusters")
-    .update({
-      signal_count: signals.length,
-      direct_report_count: clusterReports.length,
-      verified_report_count: verifiedReportCount,
-      public_signal_count: publicSignalCount,
-      last_signal_at: lastObservedAt(signals),
-      auto_public: decision.publicStatus === "public",
-      is_public: isPublic,
-    })
-    .eq("id", clusterId);
-  if (clusterUpdateError) throw new Error(`issue cluster promotion update failed: ${clusterUpdateError.message}`);
+  throw new Error(`cluster visibility refresh did not complete: ${clusterId}`);
+}
 
-  return decision.publicStatus === "public" && !cluster.auto_public;
+export async function refreshClusterVisibility(clusterId: string, now = new Date()): Promise<void> {
+  const supabase = createServiceClient();
+  await refreshClusterStats(supabase, clusterId, now);
 }
 
 /**
@@ -1260,16 +1288,14 @@ async function persistOneSignal(
   supabase: ReturnType<typeof createServiceClient>,
   signal: PreparedSignal,
   reports: ApprovedReportRow[],
-  excerpts: ApprovedExcerptRow[],
   clusterBySemantic: Map<string, string>,
   routableClusters: RoutableCluster[],
   now: Date,
   runId: string | null,
-  currentPatch: CurrentPatchContext,
 ): Promise<{ clusterId: string; promoted: boolean; reobserved: boolean }> {
   const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
   const persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
-  const promoted = await refreshClusterStats(supabase, clusterId, reports, excerpts, now, currentPatch);
+  const promoted = await refreshClusterStats(supabase, clusterId, now);
   return { clusterId, promoted, reobserved: persistence === "reobserved" };
 }
 
@@ -1280,10 +1306,8 @@ async function persistSignals(
   now: Date,
   routableClusters: RoutableCluster[],
   runId: string,
-  currentPatch: CurrentPatchContext,
 ) {
   const reports = await loadApprovedReports(supabase);
-  const excerpts = await loadApprovedExcerpts(supabase);
   const clusterBySemantic = new Map<string, string>();
   const touchedClusters = new Set<string>();
 
@@ -1295,7 +1319,7 @@ async function persistSignals(
   }
 
   for (const clusterId of touchedClusters) {
-    if (await refreshClusterStats(supabase, clusterId, reports, excerpts, now, currentPatch)) {
+    if (await refreshClusterStats(supabase, clusterId, now)) {
       result.clustersPromoted += 1;
     }
   }
@@ -1332,10 +1356,8 @@ async function quarantineStalePublicSignals(
   }
 
   if (touchedClusters.size === 0) return;
-  const reports = await loadApprovedReports(supabase);
-  const excerpts = await loadApprovedExcerpts(supabase);
   for (const clusterId of touchedClusters) {
-    await refreshClusterStats(supabase, clusterId, reports, excerpts, now, currentPatch);
+    await refreshClusterStats(supabase, clusterId, now);
   }
 }
 
@@ -1562,7 +1584,7 @@ async function executeAutomationRun(
     if (mode !== "dry_run") {
       await report("persisting");
       try {
-        await persistSignals(supabase, prepared.prepared, result, now, routableClusters, runId, currentPatch);
+        await persistSignals(supabase, prepared.prepared, result, now, routableClusters, runId);
       } catch (error) {
         result.status = "failed";
         result.errors.push(toErrorMessage(error, "automation persistence failed"));
@@ -1744,8 +1766,6 @@ export async function rescueCandidateSignal(
   };
 
   const reports = await loadApprovedReports(supabase);
-  const excerpts = await loadApprovedExcerpts(supabase);
   const clusterBySemantic = new Map<string, string>();
-  const currentPatch = await getCurrentPatchMetadata(supabase);
-  await persistOneSignal(supabase, prepared, reports, excerpts, clusterBySemantic, routableClusters, now, null, currentPatch);
+  await persistOneSignal(supabase, prepared, reports, clusterBySemantic, routableClusters, now, null);
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
-import { rescueCandidateSignal } from "@/lib/automation/run";
+import { refreshClusterVisibility, rescueCandidateSignal } from "@/lib/automation/run";
 import {
   scannerPolicyFromFormData,
   setAutomationPaused as setAutomationPausedState,
@@ -123,6 +123,16 @@ export async function moderateReport(formData: FormData): Promise<void> {
     if (excerptError) throw new Error(`approved excerpt insert failed: ${excerptError.message}`);
   }
 
+  if (decision === "approved" && clusterId) {
+    try {
+      // The report trigger already made core visibility durable. Keep this deep
+      // stats/source refresh best-effort after the excerpt is safely persisted.
+      await refreshClusterVisibility(clusterId);
+    } catch (refreshError) {
+      console.error("cluster visibility refresh failed:", refreshError);
+    }
+  }
+
   revalidatePath("/admin");
   revalidatePublicSurfaces();
 }
@@ -170,9 +180,12 @@ export async function setClusterVisibilityOverride(formData: FormData): Promise<
     p_visibility: visibility,
   });
   if (error) throw new Error(error.message);
-
-  revalidatePath("/admin");
-  revalidatePublicSurfaces();
+  try {
+    if (visibility !== "force_hidden") await refreshClusterVisibility(clusterId);
+  } finally {
+    revalidatePath("/admin");
+    revalidatePublicSurfaces();
+  }
 }
 
 export async function clearClusterFixStatusOverride(formData: FormData): Promise<void> {

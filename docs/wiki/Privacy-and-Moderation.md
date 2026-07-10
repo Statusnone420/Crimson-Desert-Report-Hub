@@ -54,7 +54,7 @@ The report page can inspect selected local Crimson Desert files in the browser t
 
 Admins review pending direct reports before approving public excerpts. Claim-mapping exceptions and explicit lifecycle locks appear in the admin exceptions view.
 
-Maintainers can set cluster visibility to `Auto`, `Force public`, or `Force hidden`. Forced visibility takes effect atomically through a service-role RPC, and database triggers preserve it across concurrent scanner writes. `Auto` only clears the override; normal promotion re-evaluates effective visibility on the next scan. Public pages refresh after the action. An override does not change the meaning of reports, confirmations, or scanner leads.
+Maintainers can set cluster visibility to `Auto`, `Force public`, or `Force hidden`. Forced visibility takes effect atomically through a service-role RPC, and database triggers preserve it across concurrent scanner writes. The automatic baseline stays current while forced; `Auto` restores it and immediately re-runs a revision-checked, atomic promotion refresh for current reports and source rows. Public pages refresh after the action. An override does not change the meaning of reports, confirmations, or scanner leads.
 
 ## Provider Boundaries
 

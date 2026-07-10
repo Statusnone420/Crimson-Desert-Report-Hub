@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentPatchMetadata: vi.fn(),
   getRedditToken: vi.fn(),
   mapClaimToClusterWithOpenRouter: vi.fn(),
+  rpc: vi.fn(),
   getAutomationControlState: vi.fn(),
   runAutomationMonitor: vi.fn(),
   insertSkippedScheduledRun: vi.fn(),
@@ -19,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 
 vi.mock("@/lib/supabase", () => ({
-  createServiceClient: () => ({ from: mocks.from }),
+  createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }),
 }));
 
 vi.mock("@/lib/reddit.server", () => ({
@@ -97,6 +98,9 @@ let selectFailure: { table: TableName; message: string; columns?: string } | nul
 let updateFailure: { table: TableName; message: string } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
 let beforeUpdate: ((table: TableName, patch: Row, filters: Filter[]) => void) | null = null;
+let beforeSelect: ((table: TableName) => void) | null = null;
+let beforeVisibilityRefreshRpc: ((args: Record<string, unknown>) => void) | null = null;
+let visibilityRefreshFailure: string | null = null;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -118,6 +122,9 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   updateFailure = null;
   deleteFailure = null;
   beforeUpdate = null;
+  beforeSelect = null;
+  beforeVisibilityRefreshRpc = null;
+  visibilityRefreshFailure = null;
 }
 
 function nextId(table: TableName) {
@@ -313,6 +320,7 @@ class FakeQuery {
   }
 
   private executeSelect() {
+    beforeSelect?.(this.table);
     // A failure with `columns` set targets only queries whose select string
     // contains it (e.g. loadMonthSpend's "estimated_cost_usd"). Substring match,
     // not equality, so adding a column to the production select can't silently
@@ -360,6 +368,45 @@ async function importRunner() {
 
 function configureProviders() {
   mocks.from.mockImplementation((table: TableName) => new FakeQuery(table));
+  mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+    if (name !== "apply_cluster_visibility_refresh") throw new Error(`unexpected rpc ${name}`);
+    if (visibilityRefreshFailure) return { data: null, error: { message: visibilityRefreshFailure } };
+    beforeVisibilityRefreshRpc?.(args);
+
+    const cluster = tables.issue_clusters.find((row) => row.id === args.p_cluster_id);
+    if (!cluster) return { data: null, error: { message: "issue cluster not found" } };
+    if (Number(cluster.visibility_revision ?? 0) !== Number(args.p_expected_revision)) {
+      return { data: false, error: null };
+    }
+
+    const signalPatches = (args.p_signal_patches ?? []) as Row[];
+    for (const signalPatch of signalPatches) {
+      const signal = tables.source_signals.find(
+        (row) => row.id === signalPatch.id && row.cluster_id === args.p_cluster_id,
+      );
+      if (!signal) return { data: null, error: { message: "source signal not found in cluster" } };
+      Object.assign(signal, signalPatch);
+    }
+
+    const clusterPatch = args.p_cluster_patch as Row;
+    if (cluster.admin_visibility_override) {
+      // A forced state controls only the effective flag. The atomic refresh still
+      // advances the engine-owned baseline that Auto will restore later.
+      cluster.visibility_restore_auto_public = clusterPatch.auto_public;
+      cluster.visibility_restore_is_public = clusterPatch.is_public;
+    }
+    const effectiveIsPublic =
+      cluster.admin_visibility_override === "force_hidden"
+        ? false
+        : cluster.admin_visibility_override === "force_public"
+          ? true
+          : clusterPatch.is_public;
+    Object.assign(cluster, clusterPatch, {
+      is_public: effectiveIsPublic,
+      visibility_revision: Number(cluster.visibility_revision ?? 0) + 1,
+    });
+    return { data: true, error: null };
+  });
   mocks.getCurrentPatchMetadata.mockResolvedValue(officialPatchFixture);
   mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: officialPatchFixture });
   mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
@@ -450,6 +497,265 @@ afterEach(() => {
 });
 
 describe("runAutomationMonitor", () => {
+  it("immediately restores automatic cluster and signal visibility after force-hidden is cleared", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          admin_visibility_override: null,
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-fps",
+          cluster_id: "cluster-fps",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Frame-rate drops after patch 1.13.00",
+          moderation_status: "approved",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-fps",
+          cluster_id: "cluster-fps",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://old.reddit.com/r/CrimsonDesert/comments/fps/report",
+          canonical_url: "https://old.reddit.com/r/CrimsonDesert/comments/fps/report",
+          source_domain: "reddit.com",
+          title: "Crimson Desert 1.13.00 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          source_published_at: "2026-07-05T11:00:00.000Z",
+          public_status: "hidden",
+          promotion_reason: "admin_force_hidden",
+          extracted_facts: {},
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-fps", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      id: "cluster-fps",
+      admin_visibility_override: null,
+      auto_public: true,
+      is_public: true,
+    });
+    expect(tables.source_signals[0]).toMatchObject({
+      id: "signal-fps",
+      public_status: "public",
+      promotion_reason: "direct_report_match",
+    });
+  });
+
+  it("keeps report-backed automatic eligibility while a force-hidden override is active", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          admin_visibility_override: "force_hidden",
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-fps",
+          cluster_id: "cluster-fps",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Frame-rate drops after patch 1.13.00",
+          moderation_status: "approved",
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-fps", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: true, is_public: false });
+  });
+
+  it("advances the Auto baseline when evidence expires during a force-hidden period", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-expired",
+          category: "performance",
+          admin_visibility_override: "force_hidden",
+          visibility_revision: 1,
+          visibility_restore_is_public: true,
+          visibility_restore_auto_public: true,
+          auto_public: true,
+          is_public: false,
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-expired", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: "force_hidden",
+      visibility_revision: 2,
+      visibility_restore_is_public: false,
+      visibility_restore_auto_public: false,
+      auto_public: false,
+      is_public: false,
+    });
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "apply_cluster_visibility_refresh",
+      expect.objectContaining({ p_cluster_id: "cluster-expired", p_expected_revision: 1 }),
+    );
+  });
+
+  it("does not mistake force-public for automatic eligibility", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-private",
+          slug: "private_watchlist",
+          title: "Private watchlist",
+          category: "performance",
+          description: "Below-threshold private watchlist.",
+          admin_visibility_override: "force_public",
+          auto_public: false,
+          is_public: true,
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-private", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: true });
+  });
+
+  it("retries a stale force-public refresh after Auto changes the visibility revision", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-race",
+          category: "performance",
+          admin_visibility_override: "force_public",
+          visibility_revision: 1,
+          auto_public: false,
+          is_public: true,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-race",
+          cluster_id: "cluster-race",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://facebook.com/groups/crimsondesert/posts/fps-race",
+          canonical_url: "https://facebook.com/groups/crimsondesert/posts/fps-race",
+          source_domain: "facebook.com",
+          title: "Crimson Desert 1.13.00 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          source_published_at: "2026-07-05T11:00:00.000Z",
+          public_status: "private",
+          promotion_reason: "below_threshold",
+          extracted_facts: {},
+        },
+      ],
+    });
+    let transitionedToAuto = false;
+    const transitionToAuto = () => {
+      if (transitionedToAuto) return;
+      transitionedToAuto = true;
+      Object.assign(tables.issue_clusters[0], {
+        admin_visibility_override: null,
+        visibility_revision: 2,
+        is_public: false,
+      });
+    };
+    // Current direct writes reach the update hook; the fixed atomic implementation
+    // reaches the RPC hook. Either way, Auto wins between the stale read and write.
+    beforeUpdate = (table) => {
+      if (table === "source_signals") transitionToAuto();
+    };
+    beforeVisibilityRefreshRpc = transitionToAuto;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-race", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(transitionedToAuto).toBe(true);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: null,
+      visibility_revision: expect.any(Number),
+      auto_public: false,
+      is_public: false,
+    });
+    expect(tables.source_signals[0]).toMatchObject({
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+    expect(mocks.rpc.mock.calls.map(([, args]) => args.p_expected_revision)).toEqual([1, 2]);
+  });
+
+  it("does not overwrite transactional report promotion with a pre-revision report snapshot", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-report-race",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+    });
+    beforeSelect = (table) => {
+      if (table !== "issue_clusters") return;
+      beforeSelect = null;
+      tables.bug_reports.push({
+        id: "report-race",
+        cluster_id: "cluster-report-race",
+        category: "performance",
+        platform: "pc_steam",
+        issue_title: "Approved while a refresh starts",
+        moderation_status: "approved",
+      });
+      Object.assign(tables.issue_clusters[0], {
+        visibility_revision: 1,
+        auto_public: true,
+        is_public: true,
+      });
+    };
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-report-race", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      visibility_revision: 2,
+      direct_report_count: 1,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
   it("never calls the Reddit API when legacy credentials remain", async () => {
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
@@ -1149,7 +1455,7 @@ describe("runAutomationMonitor", () => {
     });
     expect(tables.issue_clusters[0]).toMatchObject({
       public_signal_count: 0,
-      auto_public: false,
+      auto_public: true,
       is_public: false,
     });
   });
@@ -2228,7 +2534,7 @@ describe("runAutomationMonitor", () => {
     const { rescueCandidateSignal } = await importRunner();
 
     await rescueCandidateSignal(
-      { from: mocks.from } as never,
+      { from: mocks.from, rpc: mocks.rpc } as never,
       {
         title: "Thin player report",
         url: "https://reddit.com/r/CrimsonDesert/comments/thin/report/",
@@ -2470,7 +2776,7 @@ describe("runAutomationMonitor", () => {
   });
 
   it("records promotion update failures without incrementing promoted clusters", async () => {
-    updateFailure = { table: "source_signals", message: "source signal status update failed" };
+    visibilityRefreshFailure = "source signal status update failed";
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });

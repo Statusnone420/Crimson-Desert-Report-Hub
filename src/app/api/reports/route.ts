@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
+import { refreshClusterVisibility } from "@/lib/automation/run";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { reportFingerprint, hashIp } from "@/lib/crypto";
 import { requiredEnv } from "@/lib/env";
@@ -90,6 +91,17 @@ export async function POST(req: Request) {
       if (excerptError) console.error(`approved excerpt insert failed: ${excerptError.message}`);
     } catch (excerptError) {
       console.error("approved excerpt insert failed:", excerptError);
+    }
+  }
+
+  if (decision.status === "approved" && decision.clusterId) {
+    try {
+      // Run after the excerpt insert so verified-report stats include it. Core
+      // cluster visibility is already durable through the report trigger.
+      await refreshClusterVisibility(decision.clusterId);
+    } catch (refreshError) {
+      // The report already exists; returning an error would invite a duplicate submission.
+      console.error("cluster visibility refresh failed:", refreshError);
     }
   }
 
