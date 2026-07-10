@@ -1,21 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatEasternDateTime, llmLanePausedFromSkips, summarizeRunMessages } from "@/lib/automation/runDisplay";
-
-describe("llmLanePausedFromSkips", () => {
-  it("reports the LLM lane paused when the last real run carried a circuit or money-anomaly skip", () => {
-    expect(llmLanePausedFromSkips(["reddit_disabled", "openrouter_circuit_open"])).toBe(true);
-    expect(llmLanePausedFromSkips(["openrouter_unexpected_charge"])).toBe(true);
-    expect(llmLanePausedFromSkips(["openrouter_budget_exceeded"])).toBe(true);
-  });
-
-  it("does not report a pause for a lone cost-unverified blip or unrelated skips", () => {
-    expect(llmLanePausedFromSkips(["openrouter_cost_unverified"])).toBe(false);
-    expect(llmLanePausedFromSkips(["reddit_disabled", "source_not_issue_report"])).toBe(false);
-    expect(llmLanePausedFromSkips([])).toBe(false);
-    expect(llmLanePausedFromSkips(null)).toBe(false);
-    expect(llmLanePausedFromSkips("not-an-array")).toBe(false);
-  });
-});
+import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 
 describe("source monitor run display", () => {
   it("formats persisted UTC run times as explicit Eastern time", () => {

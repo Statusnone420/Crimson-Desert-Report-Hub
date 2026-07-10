@@ -3,8 +3,8 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
+import { circuitReadStartIso, openRouterCircuitOpenFromRuns, type CircuitRunRow } from "@/lib/automation/circuit";
 import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
-import { llmLanePausedFromSkips } from "@/lib/automation/runDisplay";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
@@ -815,7 +815,7 @@ export type PublicScannerData = {
   lastCheckedAt: string | null;
   scannerActive: boolean;
   scannerConnected: boolean;
-  /** As of the last real scan, LLM extraction was paused by the cost-safety circuit. */
+  /** The cost-safety circuit is open right now — the same evaluation the next scan will make. */
   llmPaused: boolean;
 };
 
@@ -873,16 +873,22 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     // erase the real "last checked" time when older runs exist. Unbounded latest lookup.
     const { data: latestRows } = await supabase
       .from("automation_runs")
-      .select("finished_at, started_at, skips")
+      .select("finished_at, started_at")
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])
       .order("started_at", { ascending: false })
       .limit(1);
-    const latest = (latestRows ?? [])[0] as
-      | { finished_at: string | null; started_at: string; skips?: unknown }
-      | undefined;
+    const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
     const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
-    const llmPaused = llmLanePausedFromSkips(latest?.skips);
+
+    // Same rolling-history evaluation the automation engine uses, so the badge
+    // can never disagree with whether the next scan will actually call the LLM.
+    const now = new Date();
+    const { data: circuitData } = await supabase
+      .from("automation_runs")
+      .select("skips, started_at")
+      .gte("started_at", circuitReadStartIso(now));
+    const llmPaused = openRouterCircuitOpenFromRuns((circuitData ?? []) as CircuitRunRow[], now);
 
     const currentPatch = await getCurrentPatchMetadata(supabase);
     const { data: publicSignalData } = await supabase

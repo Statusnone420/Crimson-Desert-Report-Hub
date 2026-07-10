@@ -245,19 +245,6 @@ export type PlainScan = {
   droppedBreakdown: { label: string; count: number }[];
 };
 
-// Skips that mean the LLM lane was actually off for the scan, as opposed to a
-// single cost_unverified blip, which debits worst-case cost but keeps the lane on.
-const LLM_LANE_PAUSED_SKIPS = [
-  "openrouter_circuit_open",
-  "openrouter_unexpected_charge",
-  "openrouter_budget_exceeded",
-] as const;
-
-/** Whether a run's skip codes say LLM extraction was paused by the safety circuit. */
-export function llmLanePausedFromSkips(skips: unknown): boolean {
-  return Array.isArray(skips) && LLM_LANE_PAUSED_SKIPS.some((reason) => skips.includes(reason));
-}
-
 const DROP_CODES = ["wrong_patch", "source_not_issue_report", "category_other"] as const;
 
 /** Turn a run row into plain-language counts for the "last scan, in plain English" panel. */
