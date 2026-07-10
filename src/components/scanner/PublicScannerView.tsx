@@ -36,7 +36,7 @@ export function PublicScannerView({
         <div className="space-y-1">
           <p className="stat-label">Public source radar</p>
           <h1 className="h-display">Scanner</h1>
-          <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             {`Crimson Desert ${patchVersion} web chatter, filtered into source health, mapped leads, and published links. A lead is a rumor with a link — players can add a confirmation signal on the issue board.`}
           </p>
         </div>
@@ -49,7 +49,7 @@ export function PublicScannerView({
         <div className="space-y-1">
           <p className="stat-label">Mapped leads</p>
           <h2 className="h-section">Questions from the radar</h2>
-          <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             Do any of these match your game? These are mapped leads, not evidence. A tap adds a counted player signal
             without publishing the private candidate link.
           </p>
@@ -100,9 +100,11 @@ export function PublicScannerView({
       ) : null}
 
       <p className="panel-inset border px-4 py-3 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-        Source links display only after an approved player report plus source trust, or corroboration across
-        independent sources (with stricter thresholds for untrusted sites). The link still remains a lead, not player
-        evidence.
+        <span className="block max-w-prose">
+          Source links display only after an approved player report plus source trust, or corroboration across
+          independent sources (with stricter thresholds for untrusted sites). The link still remains a lead, not
+          player evidence.
+        </span>
       </p>
 
       <section className="grid gap-4 md:grid-cols-3">

@@ -82,7 +82,7 @@ export function SourceRadar({
             <span className={scannerBadgeClass}>{scannerLabel}</span>
             <span className="badge badge-dim">{lastCheckedLabel(data.lastCheckedAt)}</span>
           </div>
-          <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             {description}
           </p>
         </div>

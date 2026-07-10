@@ -168,7 +168,7 @@ export default async function IssuesPage() {
           <div className="space-y-2 border-t pt-3">
             <div className="stat-label">Approved excerpts</div>
             {excerpts.slice(0, 3).map((excerpt, index) => (
-              <blockquote key={`${cluster.id}-${index}`} className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              <blockquote key={`${cluster.id}-${index}`} className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
                 &ldquo;{excerpt.text}&rdquo; &mdash;{" "}
                 {PLATFORM_LABELS[excerpt.platform as keyof typeof PLATFORM_LABELS] ?? excerpt.platform} player
               </blockquote>
