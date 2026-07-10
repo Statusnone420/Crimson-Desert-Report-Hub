@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const BASELINE_MIGRATION = "20260709234750_visibility_override_baseline.sql";
+const RESTORE_RECOMPUTE_MIGRATION = "20260710005327_visibility_restore_recompute.sql";
 const migrationDirectory = join(process.cwd(), "supabase", "migrations");
 
 function visibilityFollowUpSql(): string {
@@ -45,5 +46,17 @@ describe("visibility recovery migration contract", () => {
     expect(sql).toMatch(/update\s+public\.source_signals/);
     expect(sql).toMatch(/update\s+public\.issue_clusters/);
     expect(sql).toMatch(/visibility_revision\s*=\s*visibility_revision\s*\+\s*1/);
+  });
+
+  it("recomputes legacy restore state from engine-owned evidence", () => {
+    const sql = readFileSync(join(migrationDirectory, RESTORE_RECOMPUTE_MIGRATION), "utf8").toLowerCase();
+
+    expect(sql).toMatch(/update\s+public\.issue_clusters/);
+    expect(sql).toMatch(/visibility_restore_is_public\s*=\s*\(/);
+    expect(sql).toContain("c.auto_public");
+    expect(sql).toMatch(/r\.moderation_status\s*=\s*'approved'/);
+    expect(sql).toMatch(/s\.public_status\s*=\s*'public'/);
+    expect(sql).toMatch(/visibility_revision\s*=\s*c\.visibility_revision\s*\+\s*1/);
+    expect(sql).toMatch(/where\s+c\.admin_visibility_override\s+is\s+not\s+null/);
   });
 });
