@@ -232,7 +232,7 @@ export function ReportForm({
           <div className="stat-label">The basics</div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div>
-              <label htmlFor="patch_version">Patch version</label>
+              <label htmlFor="patch_version">Patch you&apos;re playing on</label>
               <select id="patch_version" name="patch_version" defaultValue={currentPatch.version}>
                 {patchVersions.map((patch) => (
                   <option key={patch} value={patch}>

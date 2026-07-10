@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { unstable_cache } from "next/cache";
 import { CURRENT_PATCH_TAG } from "@/lib/cacheTags";
-import { CURRENT_PATCH, PATCH_VERSIONS } from "@/lib/constants";
+import { CURRENT_PATCH } from "@/lib/constants";
 import {
   fetchLatestOfficialPatchNote,
   OFFICIAL_NOTICE_DETAIL_URL,
@@ -98,8 +98,55 @@ export function getCurrentPatchMetadata(supabase?: SupabaseClient): Promise<Curr
   return supabase ? readCurrentPatchUncached(supabase) : getCachedCurrentPatchMetadata();
 }
 
-export function patchVersionOptions(currentVersion: string): string[] {
-  return [currentVersion, ...PATCH_VERSIONS].filter((patch, index, all) => all.indexOf(patch) === index);
+export function patchVersionOptions(currentVersion: string, previousVersion: string | null): string[] {
+  return [currentVersion, previousVersion, "other"]
+    .filter((patch): patch is string => patch !== null)
+    .filter((patch, index, all) => all.indexOf(patch) === index);
+}
+
+async function readPreviousPatchVersionUncached(
+  supabase: SupabaseClient,
+  currentVersion: string,
+): Promise<string | null> {
+  try {
+    // limit(5): manual-override remnants can repeat the current version, so a
+    // single-row read could land on a duplicate instead of the real previous.
+    const { data, error } = await supabase
+      .from("official_patch_notes")
+      .select("patch_version, published_at")
+      .eq("is_current", false)
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .limit(5);
+    if (error) return null;
+    const previous = ((data ?? []) as { patch_version: string }[]).find((row) => row.patch_version !== currentVersion);
+    return previous?.patch_version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type ReportPatchContext = { currentPatch: CurrentPatchMetadata; patchVersions: string[] };
+
+function fallbackReportPatchContext(): ReportPatchContext {
+  const currentPatch = fallbackCurrentPatchMetadata();
+  return { currentPatch, patchVersions: patchVersionOptions(currentPatch.version, null) };
+}
+
+async function readReportPatchContextUncached(supabase: SupabaseClient): Promise<ReportPatchContext> {
+  const currentPatch = await readCurrentPatchUncached(supabase);
+  const previousVersion = await readPreviousPatchVersionUncached(supabase, currentPatch.version);
+  return { currentPatch, patchVersions: patchVersionOptions(currentPatch.version, previousVersion) };
+}
+
+const getCachedReportPatchContext = unstable_cache(
+  async () =>
+    hasSupabaseServiceConfig() ? readReportPatchContextUncached(createServiceClient()) : fallbackReportPatchContext(),
+  ["report-patch-context"],
+  { revalidate: 300, tags: [CURRENT_PATCH_TAG] },
+);
+
+export function getReportPatchContext(supabase?: SupabaseClient): Promise<ReportPatchContext> {
+  return supabase ? readReportPatchContextUncached(supabase) : getCachedReportPatchContext();
 }
 
 export async function syncOfficialPatchNote(
