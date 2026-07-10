@@ -1,6 +1,7 @@
 import "server-only";
 
 import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation/budget";
+import { circuitReadStartIso, openRouterCircuitOpenFromRuns } from "@/lib/automation/circuit";
 import {
   mapClaimToClusterWithOpenRouter,
   type ClaimMappingCluster,
@@ -478,17 +479,24 @@ async function loadMonthSpend(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
 ): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number; openRouterCircuitOpen: boolean }> {
+  const monthStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  // circuitReadStartIso reaches into the previous month during a month's first
+  // 24h (rolling blip window); spend accounting stays month-scoped below.
   const { data, error } = await supabase
     .from("automation_runs")
-    .select("estimated_cost_usd, search_queries_used, skips")
-    .gte("started_at", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString());
+    .select("estimated_cost_usd, search_queries_used, skips, started_at")
+    .gte("started_at", circuitReadStartIso(now));
   if (error) throw new Error(`automation spend read failed: ${error.message}`);
   const rows = (data ?? []) as {
     estimated_cost_usd?: number | string | null;
     search_queries_used?: number | string | null;
     skips?: unknown;
+    started_at?: string | null;
   }[];
-  const usage = rows.reduce(
+  const monthRows = rows.filter(
+    (row) => typeof row.started_at === "string" && new Date(row.started_at).getTime() >= monthStartMs,
+  );
+  const usage = monthRows.reduce(
     (sum, row) => ({
       estimatedCostUsd: sum.estimatedCostUsd + Number(row.estimated_cost_usd ?? 0),
       tavilyCredits: sum.tavilyCredits + Number(row.search_queries_used ?? 0),
@@ -498,13 +506,7 @@ async function loadMonthSpend(
   return {
     ...usage,
     llmCostUsd: Math.max(0, usage.estimatedCostUsd - usage.tavilyCredits * SEARCH_QUERY_COST_USD),
-    openRouterCircuitOpen: rows.some((row) => {
-      if (!Array.isArray(row.skips)) return false;
-      const skips = row.skips;
-      return ["openrouter_unexpected_charge", "openrouter_cost_unverified", "openrouter_budget_exceeded"].some(
-        (reason) => skips.includes(reason),
-      );
-    }),
+    openRouterCircuitOpen: openRouterCircuitOpenFromRuns(rows, now),
   };
 }
 

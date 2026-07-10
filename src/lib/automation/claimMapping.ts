@@ -258,7 +258,7 @@ export async function mapClaimToClusterWithOpenRouter(
     return {
       ...fallback("Needs review: OpenRouter cost could not be verified."),
       llmCallsUsed: 1,
-      llmCostUsd: 0,
+      llmCostUsd: requestCostCeiling,
       extractionModel: model,
       circuitReason: "openrouter_cost_unverified",
     };
@@ -286,7 +286,7 @@ export async function mapClaimToClusterWithOpenRouter(
     return {
       ...fallback("Needs review: OpenRouter cost could not be verified."),
       llmCallsUsed: 1,
-      llmCostUsd: 0,
+      llmCostUsd: requestCostCeiling,
       extractionModel: model,
       circuitReason: "openrouter_cost_unverified",
     };
@@ -299,7 +299,7 @@ export async function mapClaimToClusterWithOpenRouter(
     return {
       ...fallback("Needs review: OpenRouter cost could not be verified."),
       llmCallsUsed: 1,
-      llmCostUsd: 0,
+      llmCostUsd: requestCostCeiling,
       extractionModel: model,
       circuitReason: "openrouter_cost_unverified",
     };
@@ -310,7 +310,7 @@ export async function mapClaimToClusterWithOpenRouter(
     return {
       ...fallback("Needs review: OpenRouter cost could not be verified."),
       llmCallsUsed: 1,
-      llmCostUsd: 0,
+      llmCostUsd: requestCostCeiling,
       extractionModel: model,
       circuitReason: "openrouter_cost_unverified",
     };

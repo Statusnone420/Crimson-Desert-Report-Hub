@@ -82,7 +82,7 @@ export function SourceRadar({
             <span className={scannerBadgeClass}>{scannerLabel}</span>
             <span className="badge badge-dim">{lastCheckedLabel(data.lastCheckedAt)}</span>
           </div>
-          <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             {description}
           </p>
         </div>
@@ -145,8 +145,8 @@ export function SourceRadar({
           <div key={integration.key} className="panel-inset border p-3 text-sm">
             <div className="flex items-center justify-between gap-2">
               <span className="font-semibold">{integration.label}</span>
-              <span className={integration.connected ? "badge badge-green" : "badge badge-amber"}>
-                {integration.connected ? "Connected" : "Off"}
+              <span className={integration.connected && !integration.paused ? "badge badge-green" : "badge badge-amber"}>
+                {integration.paused ? "Paused" : integration.connected ? "Connected" : "Off"}
               </span>
             </div>
             <p className="mt-2 text-xs leading-5" style={{ color: "var(--text-faint)" }}>

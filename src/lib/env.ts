@@ -45,7 +45,26 @@ export type IntegrationStatus = {
   connected: boolean;
   missingEnv: string[];
   detail: string;
+  /** Configured but temporarily off — e.g. the OpenRouter cost-safety circuit is open. */
+  paused?: boolean;
 };
+
+/**
+ * Env vars only say what is configured; the safety circuit says what is running.
+ * When the circuit is open, the AI extraction card must not claim to be extracting.
+ */
+export function applyLlmCircuitToStatuses(statuses: IntegrationStatus[], llmPaused: boolean): IntegrationStatus[] {
+  if (!llmPaused) return statuses;
+  return statuses.map((status) =>
+    status.key === "ai_extraction" && status.connected
+      ? {
+          ...status,
+          paused: true,
+          detail: "The cost-safety circuit is open, so scans run without LLM extraction until it clears.",
+        }
+      : status,
+  );
+}
 
 export function integrationStatuses(env: EnvLike = process.env): IntegrationStatus[] {
   const webSearchConnected = hasEnvValue(env.TAVILY_API_KEY);

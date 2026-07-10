@@ -61,19 +61,22 @@ export function SectionHeader({
   title,
   description,
   action,
+  as: Heading = "h2",
 }: {
   label?: string;
   title: string;
   description?: string;
   action?: ReactNode;
+  /** Pages whose top heading is a SectionHeader pass "h1" so every page keeps exactly one h1. */
+  as?: "h1" | "h2";
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0 space-y-1">
         {label ? <div className="stat-label">{label}</div> : null}
-        <h2 className="h-section">{title}</h2>
+        <Heading className="h-section">{title}</Heading>
         {description ? (
-          <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             {description}
           </p>
         ) : null}

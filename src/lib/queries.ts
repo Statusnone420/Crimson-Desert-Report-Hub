@@ -3,6 +3,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
+import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
 import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
@@ -814,6 +815,8 @@ export type PublicScannerData = {
   lastCheckedAt: string | null;
   scannerActive: boolean;
   scannerConnected: boolean;
+  /** The cost-safety circuit is open right now — the same evaluation the next scan will make. */
+  llmPaused: boolean;
 };
 
 /**
@@ -831,6 +834,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     lastCheckedAt: null,
     scannerActive: false,
     scannerConnected: false,
+    llmPaused: false,
   };
   if (!hasSupabaseServiceConfig()) return empty;
 
@@ -876,6 +880,16 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       .limit(1);
     const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
     const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
+
+    // Same rolling-history evaluation the automation engine uses, so the badge
+    // can never disagree with whether the next scan will actually call the LLM.
+    // A failed read fails closed here for the same reason it does in the engine.
+    const now = new Date();
+    const { data: circuitData, error: circuitError } = await supabase
+      .from("automation_runs")
+      .select("skips, started_at")
+      .gte("started_at", circuitReadStartIso(now));
+    const llmPaused = llmPausedFromCircuitRead(circuitData as CircuitRunRow[] | null, circuitError, now);
 
     const currentPatch = await getCurrentPatchMetadata(supabase);
     const { data: publicSignalData } = await supabase
@@ -924,6 +938,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       lastCheckedAt,
       scannerActive: !control.paused,
       scannerConnected: true,
+      llmPaused,
     };
   } catch {
     return empty;

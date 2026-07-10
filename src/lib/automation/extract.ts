@@ -327,7 +327,9 @@ export async function extractSignalWithOpenRouter(
     callsUsed += 1;
     const outcome = await attemptOpenRouterExtraction(candidate, fetcher, apiKey, model, clusterOptions);
     if (outcome.costUsd === null) {
-      return deterministicResult(candidate, "openrouter_cost_unverified", callsUsed, costUsd);
+      // Cost could not be verified, so the books assume the request cost its
+      // worst-case ceiling. The run stops calling the LLM; the month does not.
+      return deterministicResult(candidate, "openrouter_cost_unverified", callsUsed, costUsd + requestCostCeiling);
     }
     costUsd += outcome.costUsd;
     if (outcome.costUsd > requestCostCeiling + Number.EPSILON || costUsd > budgetRemainingUsd + Number.EPSILON) {

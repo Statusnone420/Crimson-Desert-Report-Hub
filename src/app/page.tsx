@@ -112,7 +112,7 @@ export default async function DashboardPage() {
       <section className="rise grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <div className="min-w-0 space-y-2.5">
           <h1 className="h-display max-w-3xl">Crimson Desert Report Hub</h1>
-          <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+          <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             Current situation for Crimson Desert: player reports, confirmation signals, source leads, and what looks
             worth checking.
           </p>
@@ -185,7 +185,7 @@ export default async function DashboardPage() {
             <span className="badge badge-blue">Right now</span>
             <span>{readout.snapshotLine}</span>
           </div>
-          <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+          <p className="max-w-prose text-xs leading-5" style={{ color: "var(--text-faint)" }}>
             {currentIssueReadout
               ? `Current issue readout — ${currentIssueReadout.title}: ${currentIssueReadout.detail}`
               : readout.emptyWorthCheckingCopy}
@@ -323,7 +323,7 @@ export default async function DashboardPage() {
             </div>
           ) : null}
 
-          <p className="border-t pt-3 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+          <p className="max-w-prose border-t pt-3 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
             Watchlist clusters start at zero. Player reports are evidence; one-tap confirmations are signals; scanner
             links remain leads. The tracker never invents counts — and quiet never means fixed.
           </p>

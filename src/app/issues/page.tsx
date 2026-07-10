@@ -137,7 +137,7 @@ export default async function IssuesPage() {
           {cluster.readout.sentence}
         </div>
 
-        <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+        <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
           {cluster.description}
         </p>
 
@@ -153,7 +153,7 @@ export default async function IssuesPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="badge badge-dim">{sourceHost(signal.source_url, signal.source)}</span>
                 </div>
-                <p className="leading-6" style={{ color: "var(--text-dim)" }}>
+                <p className="max-w-prose leading-6" style={{ color: "var(--text-dim)" }}>
                   {signal.summary}
                 </p>
                 <a href={signal.source_url} target="_blank" rel="noreferrer noopener" className="link text-xs">
@@ -168,7 +168,7 @@ export default async function IssuesPage() {
           <div className="space-y-2 border-t pt-3">
             <div className="stat-label">Approved excerpts</div>
             {excerpts.slice(0, 3).map((excerpt, index) => (
-              <blockquote key={`${cluster.id}-${index}`} className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              <blockquote key={`${cluster.id}-${index}`} className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
                 &ldquo;{excerpt.text}&rdquo; &mdash;{" "}
                 {PLATFORM_LABELS[excerpt.platform as keyof typeof PLATFORM_LABELS] ?? excerpt.platform} player
               </blockquote>
@@ -182,6 +182,7 @@ export default async function IssuesPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
+        as="h1"
         label="Current patch watch"
         title="What players are reporting"
         description="Player-reported issues first. Every player count is a report or confirmation tap someone actually sent — the site never fills in blanks."
@@ -236,7 +237,7 @@ export default async function IssuesPage() {
             <section className="panel space-y-3">
               <div className="space-y-1">
                 <h2 className="stat-label">Watchlist</h2>
-                <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+                <p className="max-w-prose text-xs leading-5" style={{ color: "var(--text-faint)" }}>
                   Nothing here has a player report or confirmation tap yet. Mapped source links remain leads, not
                   evidence.
                 </p>

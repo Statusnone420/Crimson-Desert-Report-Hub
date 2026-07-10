@@ -275,9 +275,11 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     expect(result).toMatchObject({
       matchKind: "keyword_proposal",
       llmCallsUsed: 1,
-      llmCostUsd: 0,
       circuitReason: "openrouter_cost_unverified",
     });
+    // Unverifiable cost is charged at the request's worst-case ceiling.
+    expect(result.llmCostUsd).toBeGreaterThan(0);
+    expect(result.llmCostUsd).toBeLessThan(0.01);
   });
 
   it("falls back to keyword proposal only when OpenRouter is unavailable", async () => {

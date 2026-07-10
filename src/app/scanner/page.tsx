@@ -1,7 +1,7 @@
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { PublicScannerView } from "@/components/scanner/PublicScannerView";
 import { isAdmin } from "@/lib/adminGuard";
-import { features, integrationStatuses } from "@/lib/env";
+import { applyLlmCircuitToStatuses, features, integrationStatuses } from "@/lib/env";
 import { getAutomationAdminData, getIssuesData, getPublicScannerData } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function ScannerPage() {
   const admin = await isAdmin();
   const scoreboard = await getPublicScannerData();
+  const integrations = applyLlmCircuitToStatuses(integrationStatuses(), scoreboard.llmPaused);
 
   if (!admin) {
     const { clusters, currentPatch } = await getIssuesData();
@@ -21,7 +22,7 @@ export default async function ScannerPage() {
     return (
       <PublicScannerView
         data={scoreboard}
-        integrations={integrationStatuses()}
+        integrations={integrations}
         patchVersion={currentPatch.version}
         leadQuestions={leadQuestions}
       />
@@ -40,7 +41,7 @@ export default async function ScannerPage() {
       latestFind={adminData.latestFind}
       scoreboard={scoreboard}
       features={features()}
-      integrations={integrationStatuses()}
+      integrations={integrations}
     />
   );
 }
