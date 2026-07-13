@@ -39,6 +39,7 @@ export type AutomationResult = {
   llmCallsUsed: number;
   candidatesSeen: number;
   prefilterRejected: number;
+  signalsPrepared: number;
   signalsInserted: number;
   signalsDeduped: number;
   clustersPromoted: number;
@@ -96,7 +97,7 @@ function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult,
     candidatesSeen: result.candidatesSeen,
     prefilterRejected: result.prefilterRejected,
     llmCallsUsed: result.llmCallsUsed,
-    kept: result.signalsInserted,
+    kept: result.signalsPrepared,
     promoted: result.clustersPromoted,
   };
 }
@@ -720,7 +721,7 @@ async function prepareSignals(
             semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
             extraction,
           });
-          result.signalsInserted += 1;
+          result.signalsPrepared += 1;
           await report?.();
           continue;
         }
@@ -788,13 +789,13 @@ async function prepareSignals(
       semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
       extraction,
     });
-    result.signalsInserted += 1;
+    result.signalsPrepared += 1;
     await report?.();
   }
 
   if (
     result.candidatesSeen > 0 &&
-    result.signalsInserted === 0 &&
+    result.signalsPrepared === 0 &&
     result.llmCallsUsed === 0 &&
     result.prefilterRejected > 0 &&
     !result.skips.includes("all_candidates_prefiltered")
@@ -1001,11 +1002,26 @@ async function findExistingSignalCluster(
   return rows[0]?.cluster_id ?? null;
 }
 
+async function findAutoClusterBySlug(
+  supabase: ReturnType<typeof createServiceClient>,
+  slug: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("issue_clusters")
+    .select("id")
+    .eq("slug", slug)
+    .limit(1);
+  if (error) throw new Error(`auto-cluster slug read failed: ${error.message}`);
+  const rows = (data ?? []) as { id?: string | null }[];
+  return rows[0]?.id ?? null;
+}
+
 async function createCluster(supabase: ReturnType<typeof createServiceClient>, signal: PreparedSignal): Promise<string> {
+  const slug = clusterSlug(signal.semantic);
   const { data, error } = await supabase
     .from("issue_clusters")
     .insert({
-      slug: clusterSlug(signal.semantic),
+      slug,
       title: signal.extraction.issueTitle,
       category: signal.extraction.category,
       description: signal.extraction.summary,
@@ -1020,7 +1036,17 @@ async function createCluster(supabase: ReturnType<typeof createServiceClient>, s
     })
     .select("id")
     .single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    const errorConstraint = (error as typeof error & { constraint?: unknown }).constraint;
+    const isSlugConflict =
+      error.code === "23505" &&
+      (errorConstraint === "issue_clusters_slug_key" || error.message.includes("issue_clusters_slug_key"));
+    if (isSlugConflict) {
+      const existingId = await findAutoClusterBySlug(supabase, slug);
+      if (existingId) return existingId;
+    }
+    throw new Error(error.message);
+  }
   const id = (data as { id?: string } | null)?.id;
   if (!id) throw new Error("automation cluster insert returned no id");
   return id;
@@ -1046,11 +1072,21 @@ async function resolveClusterId(
     },
     routableClusters,
   );
+  const reportCluster = matchingReportCluster(signal, reports);
+  const existingAutoCluster =
+    existingSignalCluster || routedCluster?.id || reportCluster
+      ? null
+      : await findAutoClusterBySlug(supabase, clusterSlug(signal.semantic));
   const clusterId =
-    existingSignalCluster ?? routedCluster?.id ?? matchingReportCluster(signal, reports) ?? (await createCluster(supabase, signal));
+    existingSignalCluster ?? routedCluster?.id ?? reportCluster ?? existingAutoCluster ?? (await createCluster(supabase, signal));
   clusterBySemantic.set(signal.semantic, clusterId);
   return clusterId;
 }
+
+type SignalPersistence = {
+  kind: "inserted" | "reobserved";
+  previousClusterId: string | null;
+};
 
 async function upsertSignal(
   supabase: ReturnType<typeof createServiceClient>,
@@ -1058,7 +1094,7 @@ async function upsertSignal(
   clusterId: string,
   now: Date,
   runId: string | null,
-): Promise<"inserted" | "reobserved"> {
+): Promise<SignalPersistence> {
   const rawExpiresAt = signal.body ? new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString() : null;
   const baseRow = {
     source: signal.source,
@@ -1089,7 +1125,7 @@ async function upsertSignal(
 
   const { data: existingRows, error: existingError } = await supabase
     .from("source_signals")
-    .select("id, seen_count, first_seen_at")
+    .select("id, seen_count, first_seen_at, cluster_id")
     .eq("external_id_hash", signal.externalHash)
     .limit(1);
   if (existingError) throw new Error(`source signal memory read failed: ${existingError.message}`);
@@ -1107,7 +1143,7 @@ async function upsertSignal(
       })
       .eq("id", existing.id);
     if (error) throw new Error(error.message);
-    return "reobserved";
+    return { kind: "reobserved", previousClusterId: existing.cluster_id ?? null };
   }
 
   const { error } = await supabase.from("source_signals").insert({
@@ -1118,7 +1154,7 @@ async function upsertSignal(
     last_seen_run_id: runId,
   });
   if (error) throw new Error(error.message);
-  return "inserted";
+  return { kind: "inserted", previousClusterId: null };
 }
 
 async function loadCluster(supabase: ReturnType<typeof createServiceClient>, clusterId: string): Promise<ClusterRow> {
@@ -1297,9 +1333,31 @@ async function persistOneSignal(
   runId: string | null,
 ): Promise<{ clusterId: string; promoted: boolean; reobserved: boolean }> {
   const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
-  const persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
-  const promoted = await refreshClusterStats(supabase, clusterId, now);
-  return { clusterId, promoted, reobserved: persistence === "reobserved" };
+  const touchedClusters = new Set([clusterId]);
+  let persistence: SignalPersistence | null = null;
+  let persistenceError: unknown = null;
+  let promoted = false;
+
+  try {
+    persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
+    if (persistence.previousClusterId && persistence.previousClusterId !== clusterId) {
+      touchedClusters.add(persistence.previousClusterId);
+    }
+  } catch (error) {
+    persistenceError = error;
+  } finally {
+    for (const touchedClusterId of touchedClusters) {
+      try {
+        if (await refreshClusterStats(supabase, touchedClusterId, now)) promoted = true;
+      } catch (error) {
+        if (persistenceError === null) persistenceError = error;
+      }
+    }
+  }
+
+  if (persistenceError !== null) throw persistenceError;
+  if (!persistence) throw new Error("automation signal persistence returned no result");
+  return { clusterId, promoted, reobserved: persistence.kind === "reobserved" };
 }
 
 async function persistSignals(
@@ -1313,19 +1371,32 @@ async function persistSignals(
   const reports = await loadApprovedReports(supabase);
   const clusterBySemantic = new Map<string, string>();
   const touchedClusters = new Set<string>();
+  let persistenceError: unknown = null;
 
-  for (const signal of signals) {
-    const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
-    const persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
-    if (persistence === "reobserved") result.signalsReobserved += 1;
-    touchedClusters.add(clusterId);
-  }
-
-  for (const clusterId of touchedClusters) {
-    if (await refreshClusterStats(supabase, clusterId, now)) {
-      result.clustersPromoted += 1;
+  try {
+    for (const signal of signals) {
+      const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
+      touchedClusters.add(clusterId);
+      const persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
+      if (persistence.kind === "reobserved") result.signalsReobserved += 1;
+      else result.signalsInserted += 1;
+      if (persistence.previousClusterId && persistence.previousClusterId !== clusterId) {
+        touchedClusters.add(persistence.previousClusterId);
+      }
+    }
+  } catch (error) {
+    persistenceError = error;
+  } finally {
+    for (const clusterId of touchedClusters) {
+      try {
+        if (await refreshClusterStats(supabase, clusterId, now)) result.clustersPromoted += 1;
+      } catch (error) {
+        if (persistenceError === null) persistenceError = error;
+      }
     }
   }
+
+  if (persistenceError !== null) throw persistenceError;
 }
 
 async function quarantineStalePublicSignals(
@@ -1428,7 +1499,9 @@ async function finalizeRunLedger(
         prefilterRejected: result.prefilterRejected,
         llmEligible: Math.max(0, result.candidatesSeen - result.signalsDeduped - result.prefilterRejected),
         llmCalls: result.llmCallsUsed,
-        kept: result.signalsInserted,
+        prepared: result.signalsPrepared,
+        persisted: result.signalsInserted,
+        kept: result.signalsPrepared,
         promoted: result.clustersPromoted,
       },
       progress: snapshotProgress("done", result, result.searchQueriesUsed),
@@ -1512,6 +1585,7 @@ async function executeAutomationRun(
     llmCallsUsed: 0,
     candidatesSeen: 0,
     prefilterRejected: 0,
+    signalsPrepared: 0,
     signalsInserted: 0,
     signalsDeduped: 0,
     clustersPromoted: 0,
@@ -1589,7 +1663,9 @@ async function executeAutomationRun(
       try {
         await persistSignals(supabase, prepared.prepared, result, now, routableClusters, runId);
       } catch (error) {
-        result.status = "failed";
+        // A later write can fail after an earlier signal was committed. Mark the
+        // ledger partial so admin/public find queries include the landed writes.
+        result.status = result.signalsInserted > 0 || result.signalsReobserved > 0 ? "partial" : "failed";
         result.errors.push(toErrorMessage(error, "automation persistence failed"));
       }
     }
@@ -1673,6 +1749,7 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
       llmCallsUsed: 0,
       candidatesSeen: 0,
       prefilterRejected: 0,
+      signalsPrepared: 0,
       signalsInserted: 0,
       signalsDeduped: 0,
       clustersPromoted: 0,
@@ -1722,6 +1799,8 @@ export async function insertSkippedScheduledRun(
         prefilterRejected: 0,
         llmEligible: 0,
         llmCalls: 0,
+        prepared: 0,
+        persisted: 0,
         kept: 0,
         promoted: 0,
       },
@@ -1793,6 +1872,7 @@ export async function rescueCandidateSignal(
     llmCallsUsed: 0,
     candidatesSeen: 1,
     prefilterRejected: 0,
+    signalsPrepared: 0,
     signalsInserted: 0,
     signalsDeduped: 0,
     clustersPromoted: 0,
@@ -1836,6 +1916,7 @@ export async function rescueCandidateSignal(
       semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
       extraction,
     };
+    result.signalsPrepared = 1;
 
     const reports = await loadApprovedReports(supabase);
     const clusterBySemantic = new Map<string, string>();

@@ -2,8 +2,9 @@ import { CATEGORIES, PLATFORMS, type Category, type Platform } from "@/lib/const
 import {
   maxOpenRouterRequestCostUsd,
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
-  readOpenRouterUsageCostUsd,
+  resolveOpenRouterCostUsd,
   resolveAutomationOpenRouterModel,
+  type OpenRouterGenerationFetcher,
 } from "@/lib/automation/budget";
 import { classifySignal, summarize } from "@/lib/reddit";
 
@@ -263,7 +264,11 @@ async function attemptOpenRouterExtraction(
   if (!response.ok) {
     try {
       const errorData = await response.json();
-      const errorCostUsd = readOpenRouterUsageCostUsd(errorData);
+      const errorCostUsd = await resolveOpenRouterCostUsd(
+        errorData,
+        apiKey,
+        fetcher as unknown as OpenRouterGenerationFetcher,
+      );
       return errorCostUsd === null
         ? { ok: false, reason: "openrouter_cost_unverified", costUsd: null }
         : { ok: false, reason: "openrouter_provider_failure", costUsd: errorCostUsd };
@@ -279,7 +284,11 @@ async function attemptOpenRouterExtraction(
     return { ok: false, reason: "openrouter_cost_unverified", costUsd: null };
   }
 
-  const costUsd = readOpenRouterUsageCostUsd(data);
+  const costUsd = await resolveOpenRouterCostUsd(
+    data,
+    apiKey,
+    fetcher as unknown as OpenRouterGenerationFetcher,
+  );
   if (costUsd === null) return { ok: false, reason: "openrouter_cost_unverified", costUsd: null };
   const content = readOpenRouterContent(data);
   if (!content) return { ok: false, reason: "openrouter_invalid_json", costUsd };
