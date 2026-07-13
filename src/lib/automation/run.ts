@@ -1663,7 +1663,9 @@ async function executeAutomationRun(
       try {
         await persistSignals(supabase, prepared.prepared, result, now, routableClusters, runId);
       } catch (error) {
-        result.status = "failed";
+        // A later write can fail after an earlier signal was committed. Mark the
+        // ledger partial so admin/public find queries include the landed writes.
+        result.status = result.signalsInserted > 0 || result.signalsReobserved > 0 ? "partial" : "failed";
         result.errors.push(toErrorMessage(error, "automation persistence failed"));
       }
     }

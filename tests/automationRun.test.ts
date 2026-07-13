@@ -1599,13 +1599,13 @@ describe("runAutomationMonitor", () => {
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
     const ledger = tables.automation_runs[0];
 
-    expect(result.status).toBe("failed");
+    expect(result.status).toBe("partial");
     expect(result.signalsPrepared).toBe(2);
     expect(result.signalsInserted).toBe(1);
     expect(sourceSignalRows()).toHaveLength(1);
     expect(tables.issue_clusters[0]).toMatchObject({ signal_count: 1 });
     expect(ledger).toMatchObject({
-      status: "failed",
+      status: "partial",
       signals_inserted: 1,
       funnel: expect.objectContaining({ kept: 2, prepared: 2, persisted: 1 }),
     });
@@ -3276,11 +3276,11 @@ describe("runAutomationMonitor", () => {
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
-    expect(result.status).toBe("failed");
+    expect(result.status).toBe("partial");
     expect(result.errors[0]).toContain("source signal status update failed");
     expect(result.clustersPromoted).toBe(0);
     expect(tables.automation_runs[0]).toMatchObject({
-      status: "failed",
+      status: "partial",
       clusters_promoted: 0,
       errors: [expect.stringContaining("source signal status update failed")],
     });
