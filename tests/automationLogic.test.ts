@@ -319,6 +319,91 @@ describe("automation extraction", () => {
     expect(request.messages[1].content).toContain("clusterSlug");
   });
 
+  it("audits a missing immediate cost through the OpenRouter generation endpoint", async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "https://openrouter.ai/api/v1/chat/completions") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "gen-extraction-123",
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    issueTitle: "Map crash after patch",
+                    category: "crash_startup",
+                    platform: "ps5",
+                    confidence: "medium",
+                    summary: "Players report map-open crashes after the patch.",
+                    clusterSlug: null,
+                  }),
+                },
+              },
+            ],
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { total_cost: 0.00002 } }),
+      };
+    });
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: { OPENROUTER_API_KEY: "key" },
+      fetcher,
+      llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
+    });
+
+    expect(result.extractionProvider).toBe("openrouter");
+    expect(result.llmCostUsd).toBe(0.00002);
+    expect(result.fallbackReason).toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1][0]).toBe("https://openrouter.ai/api/v1/generation?id=gen-extraction-123");
+    expect(fetcher.mock.calls[1][1]).toMatchObject({
+      method: "GET",
+      headers: { authorization: "Bearer key" },
+    });
+  });
+
+  it("records an unverified cost only when the generation audit also fails", async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "https://openrouter.ai/api/v1/chat/completions") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "gen-extraction-missing",
+            choices: [{ message: { content: JSON.stringify({
+              issueTitle: "Map crash after patch",
+              category: "crash_startup",
+              platform: "ps5",
+              confidence: "medium",
+              summary: "Players report map-open crashes after the patch.",
+              clusterSlug: null,
+            }) } }],
+          }),
+        };
+      }
+      return { ok: false, status: 503, json: async () => ({}) };
+    });
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: { OPENROUTER_API_KEY: "key" },
+      fetcher,
+      llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.fallbackReason).toBe("openrouter_cost_unverified");
+    expect(result.llmCostUsd).toBeGreaterThan(0);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("fails closed when a paid response omits usage cost metadata", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,

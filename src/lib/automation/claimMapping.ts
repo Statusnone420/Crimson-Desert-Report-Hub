@@ -1,8 +1,9 @@
 import {
   maxOpenRouterRequestCostUsd,
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
-  readOpenRouterUsageCostUsd,
+  resolveOpenRouterCostUsd,
   resolveAutomationOpenRouterModel,
+  type OpenRouterGenerationFetcher,
 } from "@/lib/automation/budget";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import type { Category } from "@/lib/constants";
@@ -267,7 +268,11 @@ export async function mapClaimToClusterWithOpenRouter(
   if (!response.ok) {
     try {
       const errorData = await response.json();
-      const errorCostUsd = readOpenRouterUsageCostUsd(errorData);
+      const errorCostUsd = await resolveOpenRouterCostUsd(
+        errorData,
+        apiKey,
+        fetcher as unknown as OpenRouterGenerationFetcher,
+      );
       if (errorCostUsd !== null) {
         if (errorCostUsd > requestCostCeiling + Number.EPSILON || errorCostUsd > budgetRemainingUsd + Number.EPSILON) {
           return {
@@ -305,7 +310,11 @@ export async function mapClaimToClusterWithOpenRouter(
     };
   }
 
-  const costUsd = readOpenRouterUsageCostUsd(data);
+  const costUsd = await resolveOpenRouterCostUsd(
+    data,
+    apiKey,
+    fetcher as unknown as OpenRouterGenerationFetcher,
+  );
   if (costUsd === null) {
     return {
       ...fallback("Needs review: OpenRouter cost could not be verified."),

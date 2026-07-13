@@ -98,6 +98,72 @@ export function readOpenRouterUsageCostUsd(data: unknown): number | null {
   );
 }
 
+export type OpenRouterGenerationFetcher = (
+  url: string,
+  init: {
+    method: "GET";
+    headers: Record<string, string>;
+    signal?: AbortSignal;
+  },
+) => Promise<{
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+}>;
+
+const OPENROUTER_GENERATION_URL = "https://openrouter.ai/api/v1/generation";
+const OPENROUTER_GENERATION_TIMEOUT_MS = 2_000;
+
+function readOpenRouterResponseId(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const id = (data as { id?: unknown }).id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function readOpenRouterGenerationCostUsd(data: unknown): number | null {
+  const generation = data && typeof data === "object" ? (data as { data?: unknown }).data : null;
+  if (!generation || typeof generation !== "object") return null;
+  return (
+    nonnegativeNumber((generation as { total_cost?: unknown }).total_cost) ??
+    nonnegativeNumber((generation as { usage?: unknown }).usage)
+  );
+}
+
+/**
+ * Resolve a request's cost from the immediate response, then OpenRouter's
+ * generation audit endpoint when the immediate usage block is incomplete.
+ */
+export async function resolveOpenRouterCostUsd(
+  data: unknown,
+  apiKey: string,
+  fetcher: OpenRouterGenerationFetcher,
+): Promise<number | null> {
+  const immediateCost = readOpenRouterUsageCostUsd(data);
+  if (immediateCost !== null) return immediateCost;
+
+  const responseId = readOpenRouterResponseId(data);
+  if (!responseId) return null;
+
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), OPENROUTER_GENERATION_TIMEOUT_MS) : null;
+  try {
+    const response = await fetcher(
+      `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(responseId)}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${apiKey}` },
+        ...(controller ? { signal: controller.signal } : {}),
+      },
+    );
+    if (!response.ok) return null;
+    return readOpenRouterGenerationCostUsd(await response.json());
+  } catch {
+    return null;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
   const usesScannerPolicy = input.scannerPolicy !== undefined;
   const monthlyBudgetUsd = Math.max(0, input.monthlyBudgetUsd);

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
+import { externalIdHash } from "@/lib/crypto";
 
 const mocks = vi.hoisted(() => ({
   extractSignalWithOpenRouter: vi.fn(),
@@ -101,6 +103,8 @@ let beforeUpdate: ((table: TableName, patch: Row, filters: Filter[]) => void) | 
 let beforeSelect: ((table: TableName) => void) | null = null;
 let beforeVisibilityRefreshRpc: ((args: Record<string, unknown>) => void) | null = null;
 let visibilityRefreshFailure: string | null = null;
+let issueClusterInsertRace: { slug: string; row: Row } | null = null;
+let sourceSignalInsertFailure: { title: string; message: string } | null = null;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -125,6 +129,8 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   beforeSelect = null;
   beforeVisibilityRefreshRpc = null;
   visibilityRefreshFailure = null;
+  issueClusterInsertRace = null;
+  sourceSignalInsertFailure = null;
 }
 
 function nextId(table: TableName) {
@@ -274,6 +280,33 @@ class FakeQuery {
   }
 
   private executeInsert() {
+    if (this.table === "issue_clusters" && issueClusterInsertRace) {
+      const row = this.insertRows![0];
+      if (row?.slug === issueClusterInsertRace.slug) {
+        const race = issueClusterInsertRace;
+        issueClusterInsertRace = null;
+        tables.issue_clusters.push({
+          id: race.row.id ?? nextId(this.table),
+          created_at: race.row.created_at ?? "2026-07-05T12:00:00.000Z",
+          ...race.row,
+        });
+        return {
+          data: null,
+          error: {
+            code: "23505",
+            constraint: "issue_clusters_slug_key",
+            message: `duplicate key value violates unique constraint "issue_clusters_slug_key"`,
+          },
+        };
+      }
+    }
+    if (
+      this.table === "source_signals" &&
+      sourceSignalInsertFailure &&
+      this.insertRows!.some((row) => row.title === sourceSignalInsertFailure!.title)
+    ) {
+      return { data: null, error: { message: sourceSignalInsertFailure.message } };
+    }
     const inserted = this.insertRows!.map((row) => {
       const next = {
         id: row.id ?? nextId(this.table),
@@ -1128,7 +1161,8 @@ describe("runAutomationMonitor", () => {
     expect(tables.automation_runs).toHaveLength(1);
     expect(tables.automation_runs[0]).toMatchObject({
       mode: "dry_run",
-      signals_inserted: 2,
+      signals_inserted: 0,
+      funnel: expect.objectContaining({ kept: 2, prepared: 2, persisted: 0 }),
       search_results_seen: 5,
       llm_calls_used: 2,
     });
@@ -1371,6 +1405,209 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0]).toMatchObject({
       extraction_provider: "openrouter",
       extraction_model: "deepseek/deepseek-v4-flash",
+    });
+  });
+
+  it("reuses an orphan deterministic auto-cluster without overwriting its metadata", async () => {
+    const semantic = semanticFingerprint("FPS regression since 1.13", "performance");
+    const slug = `auto-${hashValue(semantic).slice(0, 12)}`;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "orphan-auto",
+          slug,
+          title: "Operator-curated orphan title",
+          category: "performance",
+          description: "Operator-curated orphan description.",
+          fix_status: "fix_claimed",
+          confidence: "high",
+          is_public: true,
+          auto_public: true,
+          admin_visibility_override: "force_hidden",
+          visibility_revision: 4,
+          signal_count: 0,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "FPS drops since 1.13",
+        url: "https://example.com/orphan-fps",
+        snippet: "Players report FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.issue_clusters).toHaveLength(1);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      id: "orphan-auto",
+      slug,
+      title: "Operator-curated orphan title",
+      description: "Operator-curated orphan description.",
+      fix_status: "fix_claimed",
+      admin_visibility_override: "force_hidden",
+      signal_count: 1,
+    });
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "orphan-auto" });
+  });
+
+  it("recovers from a concurrent deterministic auto-cluster slug conflict", async () => {
+    const semantic = semanticFingerprint("FPS regression since 1.13", "performance");
+    const slug = `auto-${hashValue(semantic).slice(0, 12)}`;
+    issueClusterInsertRace = {
+      slug,
+      row: {
+        id: "raced-auto",
+        slug,
+        title: "Concurrent winner",
+        category: "performance",
+        description: "Created by the competing scan.",
+        fix_status: "reported",
+        confidence: "medium",
+        is_public: false,
+        auto_public: false,
+        visibility_revision: 0,
+      },
+    };
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "FPS drops since 1.13",
+        url: "https://example.com/raced-fps",
+        snippet: "Players report FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.issue_clusters).toHaveLength(1);
+    expect(tables.issue_clusters[0]).toMatchObject({ id: "raced-auto", slug, title: "Concurrent winner" });
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "raced-auto" });
+  });
+
+  it("refreshes both clusters when an existing signal is reclassified", async () => {
+    const url = "https://example.com/reclassified-fps";
+    resetDb({
+      issue_clusters: [
+        {
+          id: "old-cluster",
+          slug: "manual-old-cluster",
+          title: "Old cluster",
+          category: "other",
+          description: "The signal used to live here.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: false,
+          auto_public: false,
+          signal_count: 1,
+          visibility_revision: 0,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-to-reclassify",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: url,
+          canonical_url: url,
+          external_id_hash: externalIdHash("web_search", url),
+          title: "Earlier classification",
+          summary: "Players report a current-patch performance problem.",
+          source_domain: "example.com",
+          source_published_at: "2026-07-04T12:00:00.000Z",
+          semantic_fingerprint: "old-semantic",
+          cluster_id: "old-cluster",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          public_status: "private",
+          seen_count: 1,
+          first_seen_at: "2026-07-05T11:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "FPS drops since 1.13",
+        url,
+        snippet: "Players report FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const newCluster = tables.issue_clusters.find((row) => row.id !== "old-cluster");
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(0);
+    expect(result.signalsReobserved).toBe(1);
+    expect(newCluster).toBeDefined();
+    expect(tables.issue_clusters.find((row) => row.id === "old-cluster")).toMatchObject({ signal_count: 0 });
+    expect(newCluster).toMatchObject({ signal_count: 1 });
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: newCluster!.id });
+  });
+
+  it("reports only successfully persisted signals after a partial batch failure", async () => {
+    sourceSignalInsertFailure = { title: "FPS drops second", message: "source signal write failed" };
+    configureProviders();
+    mocks.fetchNewPosts.mockResolvedValue([]);
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "FPS drops first",
+        url: "https://example.com/partial-first",
+        snippet: "Players report FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+      {
+        title: "FPS drops second",
+        url: "https://example.com/partial-second",
+        snippet: "Players report FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const ledger = tables.automation_runs[0];
+
+    expect(result.status).toBe("failed");
+    expect(result.signalsPrepared).toBe(2);
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(tables.issue_clusters[0]).toMatchObject({ signal_count: 1 });
+    expect(ledger).toMatchObject({
+      status: "failed",
+      signals_inserted: 1,
+      funnel: expect.objectContaining({ kept: 2, prepared: 2, persisted: 1 }),
     });
   });
 

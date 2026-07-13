@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mapClaimToClusterWithOpenRouter, parseOpenRouterClaimMapping, type ClaimMappingCluster } from "@/lib/automation/claimMapping";
 
 const clusters: ClaimMappingCluster[] = [
@@ -180,6 +180,59 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       llmCallsUsed: 1,
       extractionModel: "deepseek/deepseek-v4-flash",
       llmCostUsd: 0.00002,
+    });
+  });
+
+  it("audits missing immediate cost through the OpenRouter generation endpoint", async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "https://openrouter.ai/api/v1/chat/completions") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "gen-claim-123",
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    matchKind: "sure",
+                    clusterSlug: "performance_regression",
+                    reason: "The claim names frame-rate drops.",
+                  }),
+                },
+              },
+            ],
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { total_cost: 0.00002 } }),
+      };
+    });
+
+    const result = await mapClaimToClusterWithOpenRouter(
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+      clusters,
+      {
+        env: { OPENROUTER_API_KEY: "key" },
+        fetcher,
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 1,
+      },
+    );
+
+    expect(result).toMatchObject({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      llmCostUsd: 0.00002,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1][0]).toBe("https://openrouter.ai/api/v1/generation?id=gen-claim-123");
+    expect(fetcher.mock.calls[1][1]).toMatchObject({
+      method: "GET",
+      headers: { authorization: "Bearer key" },
     });
   });
 
