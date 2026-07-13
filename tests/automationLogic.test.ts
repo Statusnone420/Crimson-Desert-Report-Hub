@@ -320,7 +320,8 @@ describe("automation extraction", () => {
   });
 
   it("audits a missing immediate cost through the OpenRouter generation endpoint", async () => {
-    const fetcher = vi.fn(async (url: string) => {
+    const fetcher = vi.fn(async (url: string, _init: unknown) => {
+      void _init;
       if (url === "https://openrouter.ai/api/v1/chat/completions") {
         return {
           ok: true,
@@ -369,8 +370,55 @@ describe("automation extraction", () => {
     });
   });
 
+  it("retries a temporarily unavailable generation audit before reporting an unverified cost", async () => {
+    let generationAttempts = 0;
+    const fetcher = vi.fn(async (url: string, _init: unknown) => {
+      void _init;
+      if (url === "https://openrouter.ai/api/v1/chat/completions") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "gen-extraction-eventual",
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    issueTitle: "Map crash after patch",
+                    category: "crash_startup",
+                    platform: "ps5",
+                    confidence: "medium",
+                    summary: "Players report map-open crashes after the patch.",
+                    clusterSlug: null,
+                  }),
+                },
+              },
+            ],
+          }),
+        };
+      }
+      generationAttempts += 1;
+      if (generationAttempts === 1) return { ok: true, status: 200, json: async () => ({ data: {} }) };
+      if (generationAttempts < 3) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ data: { total_cost: 0.00002 } }) };
+    });
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: { OPENROUTER_API_KEY: "key" },
+      fetcher,
+      llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
+    });
+
+    expect(result.extractionProvider).toBe("openrouter");
+    expect(result.llmCostUsd).toBe(0.00002);
+    expect(result.fallbackReason).toBeUndefined();
+    expect(generationAttempts).toBe(3);
+  });
+
   it("records an unverified cost only when the generation audit also fails", async () => {
-    const fetcher = vi.fn(async (url: string) => {
+    const fetcher = vi.fn(async (url: string, _init: unknown) => {
+      void _init;
       if (url === "https://openrouter.ai/api/v1/chat/completions") {
         return {
           ok: true,
@@ -401,7 +449,7 @@ describe("automation extraction", () => {
     expect(result.extractionProvider).toBe("deterministic");
     expect(result.fallbackReason).toBe("openrouter_cost_unverified");
     expect(result.llmCostUsd).toBeGreaterThan(0);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it("fails closed when a paid response omits usage cost metadata", async () => {

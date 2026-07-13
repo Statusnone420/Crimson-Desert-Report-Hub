@@ -184,7 +184,8 @@ describe("mapClaimToClusterWithOpenRouter", () => {
   });
 
   it("audits missing immediate cost through the OpenRouter generation endpoint", async () => {
-    const fetcher = vi.fn(async (url: string) => {
+    const fetcher = vi.fn(async (url: string, _init: unknown) => {
+      void _init;
       if (url === "https://openrouter.ai/api/v1/chat/completions") {
         return {
           ok: true,

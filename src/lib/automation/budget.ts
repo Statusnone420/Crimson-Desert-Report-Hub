@@ -113,6 +113,7 @@ export type OpenRouterGenerationFetcher = (
 
 const OPENROUTER_GENERATION_URL = "https://openrouter.ai/api/v1/generation";
 const OPENROUTER_GENERATION_TIMEOUT_MS = 2_000;
+const OPENROUTER_GENERATION_RETRY_DELAYS_MS = [100, 250] as const;
 
 function readOpenRouterResponseId(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
@@ -127,6 +128,10 @@ function readOpenRouterGenerationCostUsd(data: unknown): number | null {
     nonnegativeNumber((generation as { total_cost?: unknown }).total_cost) ??
     nonnegativeNumber((generation as { usage?: unknown }).usage)
   );
+}
+
+function shouldRetryOpenRouterGeneration(status: number): boolean {
+  return status === 404 || status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 /**
@@ -144,24 +149,36 @@ export async function resolveOpenRouterCostUsd(
   const responseId = readOpenRouterResponseId(data);
   if (!responseId) return null;
 
-  const controller = typeof AbortController === "function" ? new AbortController() : null;
-  const timeout = controller ? setTimeout(() => controller.abort(), OPENROUTER_GENERATION_TIMEOUT_MS) : null;
-  try {
-    const response = await fetcher(
-      `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(responseId)}`,
-      {
-        method: "GET",
-        headers: { authorization: `Bearer ${apiKey}` },
-        ...(controller ? { signal: controller.signal } : {}),
-      },
-    );
-    if (!response.ok) return null;
-    return readOpenRouterGenerationCostUsd(await response.json());
-  } catch {
-    return null;
-  } finally {
-    if (timeout) clearTimeout(timeout);
+  for (let attempt = 0; attempt <= OPENROUTER_GENERATION_RETRY_DELAYS_MS.length; attempt += 1) {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), OPENROUTER_GENERATION_TIMEOUT_MS) : null;
+    try {
+      const response = await fetcher(
+        `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(responseId)}`,
+        {
+          method: "GET",
+          headers: { authorization: `Bearer ${apiKey}` },
+          ...(controller ? { signal: controller.signal } : {}),
+        },
+      );
+      if (response.ok) {
+        const costUsd = readOpenRouterGenerationCostUsd(await response.json());
+        if (costUsd !== null || attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length) return costUsd;
+      }
+      if (
+        !response.ok &&
+        (!shouldRetryOpenRouterGeneration(response.status) || attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length)
+      ) {
+        return null;
+      }
+    } catch {
+      if (attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length) return null;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+    await new Promise((resolve) => setTimeout(resolve, OPENROUTER_GENERATION_RETRY_DELAYS_MS[attempt]));
   }
+  return null;
 }
 
 export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
