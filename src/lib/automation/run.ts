@@ -682,10 +682,10 @@ async function prepareSignals(
         // trusted current-patch candidate whose Tavily snippet is too thin. Bounded
         // by the per-run Tavily credit budget shared with search
         // (searchQueriesUsed < budget.maxTavilyCreditsPerRun) and capped at
-        // MAX_RECON_FETCHES_PER_RUN — so recon cannot spend credits on top of the
-        // configured search allowance. A recon miss (budget/cap/failure) falls
-        // straight through to today's snippet-only borderline behavior — strict
-        // enhancement, never a regression.
+        // MAX_RECON_FETCHES_PER_RUN. Scheduled budgets reserve this credit before
+        // search allocation, while burst budgets remain capped at three total.
+        // A recon miss (budget/cap/failure) falls straight through to today's
+        // snippet-only borderline behavior — strict enhancement, never a regression.
         let reconText: string | null = null;
         if (
           webSearchEnabled &&

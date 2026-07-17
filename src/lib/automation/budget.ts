@@ -37,6 +37,7 @@ const DEFAULT_MONTHLY_TAVILY_CREDIT_CAP = 1000;
 const MAX_MONTHLY_TAVILY_CREDIT_CAP = 1000;
 export const MAX_MONTHLY_LLM_USD_CAP = 2;
 const SEARCH_QUERY_COST_USD = 0.008;
+const SCHEDULED_RECON_CREDIT_RESERVE = 1;
 const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
 export const OPENROUTER_AUTOMATION_MODEL = "deepseek/deepseek-v4-flash";
 
@@ -215,9 +216,25 @@ export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
         ? 3
         : Math.max(0, Math.min(3, Math.floor(input.scannerPolicy?.scheduledSearchCreditsPerRun ?? 1)))
       : 5;
-  const maxSearchQueries = canSpendSearch ? Math.max(0, Math.min(requestedQueries, remainingTavilyCredits)) : 0;
+  const reconReserve =
+    input.mode === "scheduled" && requestedQueries > 0 && remainingTavilyCredits > SCHEDULED_RECON_CREDIT_RESERVE
+      ? SCHEDULED_RECON_CREDIT_RESERVE
+      : 0;
+  const requestedSearchQueries =
+    input.mode === "scheduled" && input.patchBurstActive
+      ? Math.max(0, requestedQueries - reconReserve)
+      : requestedQueries;
+  const requestedTavilyCredits =
+    input.mode === "scheduled" ? requestedQueries + (input.patchBurstActive ? 0 : reconReserve) : requestedQueries;
+  const searchCreditsAvailable = Math.max(0, remainingTavilyCredits - reconReserve);
+  const maxSearchQueries = canSpendSearch ? Math.max(0, Math.min(requestedSearchQueries, searchCreditsAvailable)) : 0;
   const allowPaidSearch = maxSearchQueries > 0;
-  const maxTavilyCreditsPerRun = input.mode === "scheduled" ? maxSearchQueries : remainingTavilyCredits;
+  const maxTavilyCreditsPerRun =
+    input.mode === "scheduled"
+      ? canSpendSearch
+        ? Math.max(0, Math.min(requestedTavilyCredits, remainingTavilyCredits))
+        : 0
+      : remainingTavilyCredits;
 
   return {
     monthlyBudgetUsd,

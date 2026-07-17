@@ -50,6 +50,7 @@ describe("automation budget", () => {
     expect(budget.monthlyTavilyCreditCap).toBe(1000);
     expect(budget.remainingTavilyCredits).toBe(1000);
     expect(budget.maxSearchQueries).toBe(1);
+    expect(budget.maxTavilyCreditsPerRun).toBe(2);
     expect(budget.maxLlmCalls).toBe(4);
     expect(budget.estimatedRunAllowanceUsd).toBeGreaterThan(0);
   });
@@ -71,7 +72,7 @@ describe("automation budget", () => {
     expect(budget.maxLlmCalls).toBe(12);
   });
 
-  it("uses three scheduled search credits during a patch burst and the stored setting outside it", () => {
+  it("reserves one Tavily credit for recon during a patch burst and honors the stored setting outside it", () => {
     const burstBudget = computeAutomationBudget({
       monthlyBudgetUsd: 5,
       spentMonthToDateUsd: 0,
@@ -97,12 +98,12 @@ describe("automation budget", () => {
       },
     });
 
-    expect(burstBudget.maxSearchQueries).toBe(3);
+    expect(burstBudget.maxSearchQueries).toBe(2);
     expect(burstBudget.maxTavilyCreditsPerRun).toBe(3);
-    expect(burstBudget.maxSearchResults).toBe(15);
-    expect(burstBudget.maxLlmCalls).toBe(12);
+    expect(burstBudget.maxSearchResults).toBe(10);
+    expect(burstBudget.maxLlmCalls).toBe(8);
     expect(quietBudget.maxSearchQueries).toBe(2);
-    expect(quietBudget.maxTavilyCreditsPerRun).toBe(2);
+    expect(quietBudget.maxTavilyCreditsPerRun).toBe(3);
     expect(quietBudget.maxSearchResults).toBe(10);
   });
 
@@ -117,6 +118,20 @@ describe("automation budget", () => {
     expect(budget.allowPaidSearch).toBe(false);
     expect(budget.maxSearchQueries).toBe(0);
     expect(budget.skipReasons).toContain("tavily_credit_cap");
+  });
+
+  it("uses the final monthly Tavily credit for search instead of reserving an unusable recon slot", () => {
+    const budget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      tavilyCreditsMonthToDate: 999,
+      mode: "scheduled",
+      now: new Date("2026-07-20T12:00:00Z"),
+    });
+
+    expect(budget.remainingTavilyCredits).toBe(1);
+    expect(budget.maxSearchQueries).toBe(1);
+    expect(budget.maxTavilyCreditsPerRun).toBe(1);
   });
 
   it("caps configured Tavily credits to the free-tier scanner guardrail", () => {
