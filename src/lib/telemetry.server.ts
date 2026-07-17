@@ -90,27 +90,27 @@ type RunRow = {
   reddit_posts_seen: number | null;
   signals_inserted: number | null;
   signals_reobserved: number | null;
-  candidates_rescued: number | null;
+  funnel: { candidatesSeen: number | null } | null;
   llm_calls_used: number | null;
   estimated_cost_usd: number | null;
 };
 
 /**
- * Admin rescues create manual rescue-candidate runs that successfully rescue a
- * candidate while both source counters stay zero — counting them as intake
- * would report kept > reviewed and distort the filter rate. Query count alone
- * cannot discriminate: a normal manual rescue-candidate scan can have zero
- * paid-search queries while still ingesting Reddit posts. Intake telemetry
- * (reviewed/kept/daily/cadence) drops only the zero-source rescue operation;
- * spend and model-call totals still count every run.
+ * Admin rescue ledger rows record one candidate in the funnel even when the
+ * rescue fails, while both source counters stay zero. Counting those rows as
+ * intake inflates scanner count/cadence and can show a daily intake event even
+ * though no source was scanned. Query count alone cannot discriminate: a
+ * normal manual rescue-candidate scan can have zero paid-search queries while
+ * still ingesting Reddit posts. Spend and model-call totals still count every
+ * run.
  */
 export function isIntakeRun(run: RunRow): boolean {
   return !(
     run.mode === "manual" &&
     run.intent === "rescue_candidate" &&
-    (run.candidates_rescued ?? 0) > 0 &&
     (run.search_results_seen ?? 0) === 0 &&
-    (run.reddit_posts_seen ?? 0) === 0
+    (run.reddit_posts_seen ?? 0) === 0 &&
+    run.funnel?.candidatesSeen === 1
   );
 }
 
@@ -200,7 +200,7 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
         supabase
           .from("automation_runs")
           .select(
-            "started_at, status, mode, intent, search_queries_used, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, candidates_rescued, llm_calls_used, estimated_cost_usd",
+            "started_at, status, mode, intent, search_queries_used, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, funnel, llm_calls_used, estimated_cost_usd",
           )
           .neq("mode", "dry_run")
           .in("status", ["success", "partial", "failed"])

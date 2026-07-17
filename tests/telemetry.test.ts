@@ -18,7 +18,7 @@ const baseRun: IntakeRun = {
   reddit_posts_seen: 0,
   signals_inserted: 1,
   signals_reobserved: 0,
-  candidates_rescued: 1,
+  funnel: { candidatesSeen: 1 },
   llm_calls_used: 1,
   estimated_cost_usd: 0.0002,
 };
@@ -37,12 +37,23 @@ describe("isIntakeRun", () => {
     ).toBe(true);
   });
 
-  it("keeps a rescue-candidate run with no successful rescue", () => {
+  it("excludes a failed zero-source admin rescue even without a successful rescue", () => {
     expect(
       isIntakeRun({
         ...baseRun,
-        candidates_rescued: 0,
+        status: "failed",
         signals_inserted: 0,
+        funnel: { candidatesSeen: 1 },
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a zero-source run without the admin-rescue funnel signature", () => {
+    expect(
+      isIntakeRun({
+        ...baseRun,
+        signals_inserted: 0,
+        funnel: { candidatesSeen: 0 },
       }),
     ).toBe(true);
   });
