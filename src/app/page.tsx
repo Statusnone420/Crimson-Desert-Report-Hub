@@ -1,15 +1,12 @@
 import Link from "next/link";
+import { ObservatoryWorkspace, type ObservatoryPlayerEvidence } from "@/components/ObservatoryWorkspace";
 import { PatchTimeline } from "@/components/PatchTimeline";
-import { RadarFunnel } from "@/components/RadarFunnel";
-import { ScannerActivityChart } from "@/components/ScannerActivityChart";
-import { CategorySplit, ConfidenceMix, DomainLanes } from "@/components/SourceLandscape";
-import { TelemetryBand } from "@/components/TelemetryBand";
 import { ReadoutMark } from "@/components/ui";
 import { buildFixScoreboard } from "@/lib/fixScoreboard";
 import { getDashboardData, getPublicScannerData } from "@/lib/queries";
 import { getObservatoryData } from "@/lib/telemetry.server";
 import { buildRightNowReadout } from "@/lib/rightNow";
-import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
+import { CATEGORY_LABELS } from "@/lib/constants";
 import { hasClusterEvidence } from "@/lib/evidence";
 import { PEARL_ABYSS_SUPPORT_URL, SOURCE_URL } from "@/lib/site";
 
@@ -98,10 +95,12 @@ export default async function DashboardPage() {
     : "var(--text-faint)";
   const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
   const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
-  const maxPlatform = Math.max(...platformEntries.map(([, count]) => count), 1);
-  const maxCategory = Math.max(...categoryEntries.map(([, count]) => count), 1);
-  const maxRejectionReason = Math.max(...observatory.rejectionReasons.map((reason) => reason.count), 1);
-  const hasTelemetry = observatory.totals.scans > 0;
+  const gpuEntries = Object.entries(d.gpus).sort((a, b) => b[1] - a[1]);
+  const playerEvidence: ObservatoryPlayerEvidence = {
+    platforms: platformEntries,
+    categories: categoryEntries,
+    gpus: gpuEntries,
+  };
   const scoreboard = buildFixScoreboard({
     claims: d.claimedFixes,
     clusters: d.topClusters,
@@ -169,12 +168,6 @@ export default async function DashboardPage() {
           </a>
         </aside>
       </section>
-
-      {hasTelemetry ? (
-        <section className="brief-section brief-section--band" aria-label="Scanner telemetry across all patches">
-          <TelemetryBand data={observatory} />
-        </section>
-      ) : null}
 
       <section className="signal-rail" aria-labelledby="right-now-title">
         <div className="signal-rail__label">
@@ -269,7 +262,7 @@ export default async function DashboardPage() {
       </section>
 
       {scoreboard ? (
-        <section className="brief-section" aria-labelledby="scoreboard-title">
+        <section className="brief-section comparison-section" aria-labelledby="scoreboard-title">
           <div className="section-intro">
             <div>
               <div className="eyebrow">The scoreboard</div>
@@ -277,85 +270,83 @@ export default async function DashboardPage() {
             </div>
             <p>Pearl Abyss says fixed. Players confirm, contest, or stay quiet — the board never decides for them.</p>
           </div>
-          <div className="content-grid content-grid--wide">
-            <article className="chart-card chart-card--wide">
-              <div className="chart-card__header">
-                <div>
-                  <h3>What {d.currentPatch.version} claims to fix</h3>
-                  <p>
-                    Official wording, counted literally — <span className="num">{scoreboard.totalClaims}</span>{" "}
-                    {scoreboard.totalClaims === 1 ? "claimed fix" : "claimed fixes"} in the patch notes.
-                  </p>
+          <div className="comparison-module">
+            <div className="comparison-module__definition">
+              <span className="eyebrow">One patch claim, two kinds of record</span>
+              <p>Official wording is counted literally. Player verdicts only exist where someone has actually tapped an issue.</p>
+            </div>
+            <div className="comparison-module__grid">
+              <article className="comparison-module__claims">
+                <div className="comparison-module__heading">
+                  <div>
+                    <span className="comparison-module__index num">01</span>
+                    <h3>What {d.currentPatch.version} claims to fix</h3>
+                  </div>
+                  <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="link text-xs">
+                    Official notes ↗
+                  </a>
                 </div>
-                <a
-                  href={d.currentPatch.officialUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="link text-xs"
-                >
-                  Official notes ↗
-                </a>
-              </div>
-              {scoreboard.totalClaims === 0 ? (
-                <p className="chart-empty chart-empty--short">No claimed fixes parsed from this patch yet.</p>
-              ) : (
-                <>
-                  <div className="mt-3 divide-y">
+                <p className="comparison-module__summary">
+                  <span className="num">{scoreboard.totalClaims}</span>{" "}
+                  {scoreboard.totalClaims === 1 ? "claimed fix" : "claimed fixes"} in the official patch notes.
+                </p>
+                {scoreboard.totalClaims === 0 ? (
+                  <p className="comparison-module__empty">No claimed fixes parsed from this patch yet.</p>
+                ) : (
+                  <div className="comparison-module__list">
                     {visibleClaims.map((claim, index) => (
-                      <div key={index} className="py-2.5 first:pt-0">
+                      <div key={index} className="comparison-module__claim">
                         <div className="stat-label">
                           {CATEGORY_LABELS[claim.category as keyof typeof CATEGORY_LABELS] ?? "General"}
                         </div>
-                        <p className="mt-1 max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-                          {claim.fixText}
+                        <p>{claim.fixText}</p>
+                      </div>
+                    ))}
+                    {d.claimedFixes.length > visibleClaims.length ? (
+                      <p className="muted-note">+{d.claimedFixes.length - visibleClaims.length} more in the official notes.</p>
+                    ) : null}
+                  </div>
+                )}
+              </article>
+              <div className="comparison-module__divider" aria-hidden="true"><span>versus</span></div>
+              <article className="comparison-module__verdicts">
+                <div className="comparison-module__heading">
+                  <div>
+                    <span className="comparison-module__index num">02</span>
+                    <h3>What players say</h3>
+                  </div>
+                  <span className="readout-mark readout-mark--dim">player taps only</span>
+                </div>
+                <p className="comparison-module__summary">A verdict is current player input, not an automatic confirmation of the claim.</p>
+                {scoreboard.verifying.length === 0 ? (
+                  <p className="comparison-module__empty">No claim maps to a watched issue yet. Quiet can mean fixed — or just quiet.</p>
+                ) : (
+                  <div className="comparison-module__list">
+                    {scoreboard.verifying.map((row) => (
+                      <div key={row.slug} className="comparison-module__verdict">
+                        <div className="comparison-module__verdict-topline">
+                          <p>{row.title}</p>
+                          <ReadoutMark label={row.label} tone={row.tone} />
+                        </div>
+                        <p className="num">
+                          {row.fixedCount + row.stillCount > 0
+                            ? `${row.fixedCount} say fixed · ${row.stillCount} say still happening`
+                            : "awaiting player taps"}
                         </p>
                       </div>
                     ))}
                   </div>
-                  {d.claimedFixes.length > visibleClaims.length ? (
-                    <p className="muted-note">
-                      +{d.claimedFixes.length - visibleClaims.length} more in the official notes.
-                    </p>
-                  ) : null}
-                </>
-              )}
-            </article>
-            <article className="chart-card">
-              <div className="chart-card__header">
-                <div>
-                  <h3>What players say</h3>
-                  <p>Verdicts come only from player taps on watched issues that carry this patch&rsquo;s fix claim.</p>
-                </div>
-              </div>
-              {scoreboard.verifying.length === 0 ? (
-                <p className="chart-empty chart-empty--short">
-                  No claim maps to a watched issue yet. Quiet can mean fixed — or just quiet.
-                </p>
-              ) : (
-                <div className="mt-3 divide-y">
-                  {scoreboard.verifying.map((row) => (
-                    <div key={row.slug} className="py-3 first:pt-0">
-                      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                        <p className="min-w-0 text-sm font-semibold">{row.title}</p>
-                        <ReadoutMark label={row.label} tone={row.tone} />
-                      </div>
-                      <p className="num mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-                        {row.fixedCount + row.stillCount > 0
-                          ? `${row.fixedCount} say fixed · ${row.stillCount} say still happening`
-                          : "awaiting player taps"}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="card-rule" />
-              <Link href="/issues" className="link text-xs">
-                Add your verdict on the issue board ↗
-              </Link>
-            </article>
+                )}
+                <Link href="/issues" className="link text-xs comparison-module__link">
+                  Add your verdict on the issue board ↗
+                </Link>
+              </article>
+            </div>
           </div>
         </section>
       ) : null}
+
+      <ObservatoryWorkspace data={observatory} radar={radar} playerEvidence={playerEvidence} />
 
       {coverageObservations.length > 0 ? (
         <section className="brief-section" aria-labelledby="observations-title">
@@ -441,124 +432,16 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      <section className="brief-section" aria-labelledby="highlights-title">
-        <div className="section-intro">
-          <div>
-            <div className="eyebrow">The machine at work</div>
-            <h2 id="highlights-title">What the scanner did</h2>
-          </div>
-          <p>
-            Daily intake across every patch — the muted bars are everything reviewed, the blue bars are what survived
-            screening, whether newly kept or re-observed. Sparse days look sparse on purpose.
-          </p>
-        </div>
-        <div className="highlight-grid">
-          <article className="chart-card chart-card--wide">
-            <div className="chart-card__header">
-              <div>
-                <h3>Scanner activity</h3>
-                <p>Sources reviewed and signals surviving screening per day, last 30 days.</p>
-              </div>
-              <span className="badge badge-dim">All patches</span>
-            </div>
-            {hasTelemetry ? (
-              <ScannerActivityChart daily={observatory.daily} />
-            ) : (
-              <div className="chart-empty">Activity appears once the scanner has run.</div>
-            )}
-          </article>
-          <article className="chart-card">
-            <div className="chart-card__header">
-              <div>
-                <h3>Source radar funnel</h3>
-                <p>How public chatter becomes inspectable context.</p>
-              </div>
-              <Link href="/scanner" className="link text-xs">
-                Open radar ↗
-              </Link>
-            </div>
-            <RadarFunnel data={radar} />
-            {observatory.rejectionReasons.length > 0 ? (
-              <>
-                <div className="card-rule" />
-                <div className="eyebrow">Why sources get filtered</div>
-                <div className="bar-list bar-list--tight">
-                  {observatory.rejectionReasons.map((reason) => (
-                    <div key={reason.reason} className="bar-list__row">
-                      <div className="bar-list__label">
-                        <span>{reason.label}</span>
-                        <span className="num">{reason.count}</span>
-                      </div>
-                      <div className="bar-list__track" aria-hidden="true">
-                        <span
-                          style={{
-                            width: `${Math.max(2, Math.round((reason.count / maxRejectionReason) * 100))}%`,
-                            background: "var(--border-strong)",
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="muted-note">
-                  Rolling rescue window (about a week) — aggregate counts only, no titles or links.
-                </p>
-                <p className="muted-note">
-                  Patch notes, press, and community asks can still be useful context; trusted examples move to the
-                  observation lane instead of touching issue evidence.
-                </p>
-              </>
-            ) : null}
-          </article>
-        </div>
-      </section>
-
-      <section className="brief-section" aria-labelledby="landscape-title">
-        <div className="section-intro">
-          <div>
-            <div className="eyebrow">Source landscape</div>
-            <h2 id="landscape-title">Where signals live</h2>
-          </div>
-          <p>
-            Every domain the radar has touched, and how the screen treated it. Kept means tracked as a lead — still not
-            evidence.
-          </p>
-        </div>
-        <div className="content-grid content-grid--wide">
-          <article className="chart-card chart-card--wide">
-            <div className="chart-card__header">
-              <div>
-                <h3>Domains: kept vs filtered</h3>
-                <p>Signals kept all-time; filtered counts cover the scanner&rsquo;s rolling rescue window.</p>
-              </div>
-            </div>
-            <DomainLanes domains={observatory.domains} />
-          </article>
-          <article className="chart-card">
-            <div className="chart-card__header">
-              <div>
-                <h3>What signals are about</h3>
-                <p>Category mix across tracked signals.</p>
-              </div>
-            </div>
-            <CategorySplit categories={observatory.signalCategories} />
-            <div className="card-rule" />
-            <div className="eyebrow">Extraction confidence</div>
-            <ConfidenceMix mix={observatory.confidenceMix} />
-          </article>
-        </div>
-      </section>
-
-      <section className="brief-section" aria-labelledby="activity-title">
+      <section className="brief-section patch-record-section" aria-labelledby="activity-title">
         <div className="section-intro">
           <div>
             <div className="eyebrow">The record</div>
-            <h2 id="activity-title">Activity and context</h2>
+            <h2 id="activity-title">Patch record, source document</h2>
           </div>
-          <p>Player evidence and official notes belong in the same brief, but they are never the same thing.</p>
+          <p>The ledger keeps patch cadence and verdict state visible; the elevated source stays official context.</p>
         </div>
-        <div className="content-grid content-grid--wide">
-          <article className="chart-card chart-card--wide">
+        <div className="patch-record-grid">
+          <article className="chart-card patch-record__ledger">
             <div className="chart-card__header">
               <div>
                 <h3>Patch ledger</h3>
@@ -582,111 +465,6 @@ export default async function DashboardPage() {
                 "Official notes provide patch context. The board itself is driven by player reports, confirmation signals, and corroborated source leads."}
             </p>
             <div className="source-card__date">{publishedDate(d.currentPatch.publishedAt)}</div>
-          </article>
-        </div>
-      </section>
-
-      <section className="brief-section" aria-labelledby="coverage-title">
-        <div className="section-intro">
-          <div>
-            <div className="eyebrow">Coverage</div>
-            <h2 id="coverage-title">Where the signal is coming from</h2>
-          </div>
-          <p>These breakdowns stay intentionally small until reports give them something honest to say.</p>
-        </div>
-        <div className="content-grid">
-          <article className="chart-card">
-            <div className="chart-card__header">
-              <div>
-                <h3>Player evidence</h3>
-                <p>Approved reports for this patch — counted literally, never padded.</p>
-              </div>
-            </div>
-            {platformEntries.length === 0 && categoryEntries.length === 0 ? (
-              <p className="chart-empty chart-empty--short">
-                No approved reports for {currentPatchLabel} yet. When they land, platform and category splits appear
-                here — until then, zero stays zero.
-              </p>
-            ) : (
-              <>
-                {platformEntries.length > 0 ? (
-                  <div className="bar-list">
-                    {platformEntries.map(([platform, count]) => (
-                      <div key={platform} className="bar-list__row">
-                        <div className="bar-list__label">
-                          <span>{PLATFORM_LABELS[platform as keyof typeof PLATFORM_LABELS] ?? platform}</span>
-                          <span className="num">{count}</span>
-                        </div>
-                        <div className="bar-list__track" aria-hidden="true">
-                          <span style={{ width: `${Math.round((count / maxPlatform) * 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {categoryEntries.length > 0 ? (
-                  <div className="bar-list">
-                    {categoryEntries.map(([category, count]) => (
-                      <div key={category} className="bar-list__row">
-                        <div className="bar-list__label">
-                          <span>{CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? category}</span>
-                          <span className="num">{count}</span>
-                        </div>
-                        <div className="bar-list__track" aria-hidden="true">
-                          <span className="bar-list__track--amber" style={{ width: `${Math.round((count / maxCategory) * 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            )}
-            <div className="card-rule" />
-            <div className="eyebrow">Most-cited GPUs</div>
-            {Object.entries(d.gpus).length === 0 ? (
-              <p className="muted-note">Appears once reports include hardware.</p>
-            ) : (
-              <div className="chip-list">
-                {Object.entries(d.gpus)
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 5)
-                  .map(([gpu, count]) => (
-                    <span key={gpu} className="chip">
-                      {gpu} <span className="num">{count}</span>
-                    </span>
-                  ))}
-              </div>
-            )}
-            <div className="card-rule" />
-            <p className="muted-note">Reports capture category, severity, frequency, hardware, repro steps, and optional evidence links.</p>
-          </article>
-
-          <article className="chart-card feed-card">
-            <div className="chart-card__header">
-              <div>
-                <h3>Latest public signals</h3>
-                <p>Reviewed links currently visible on the board.</p>
-              </div>
-              <Link href="/issues" className="link text-xs">
-                View issues ↗
-              </Link>
-            </div>
-            {d.publicFindings.length === 0 ? (
-              <p className="chart-empty chart-empty--short">No public source links are displayed for this patch yet.</p>
-            ) : (
-              <div className="feed-list">
-                {d.publicFindings.slice(0, 4).map((finding) => (
-                  <a key={finding.id} href={finding.sourceUrl} target="_blank" rel="noreferrer noopener" className="feed-item">
-                    <div className="feed-item__meta">
-                      <span>{finding.sourceHost}</span>
-                      <span>{timeAgo(finding.observedAt)}</span>
-                    </div>
-                    <strong>{finding.title}</strong>
-                    <p>{finding.summary}</p>
-                  </a>
-                ))}
-              </div>
-            )}
           </article>
         </div>
       </section>

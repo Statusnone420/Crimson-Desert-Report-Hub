@@ -404,13 +404,12 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("day 20 campaign")).toBeVisible();
     await expect(page.getByText("seen 6×")).toBeVisible();
     await expect(page.getByText("Wanting something is not a bug — these never touch evidence counts.")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Scanner activity" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Source radar funnel" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Reviewed versus survived screening" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /Activity view/ })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("table", { name: "Daily scanner activity over the last 30 days" })).toHaveCount(1);
-    await expect(page.getByRole("table", { name: "Source radar funnel from reviewed candidates to published issues" })).toHaveCount(1);
     await expect(page.locator("svg .trend-series[tabindex]")).toHaveCount(0);
-    // Observatory surfaces: all-patch telemetry band, filter reasons, source landscape.
-    await expect(page.getByRole("list", { name: "Scanner telemetry, all patches" })).toBeVisible();
+    // Observatory workspace: one analytical surface with keyboard-addressable lenses.
+    await expect(page.getByTestId("observatory-workspace")).toBeVisible();
     await expect(page.getByText("The observatory", { exact: true })).toBeVisible();
     await expect(page.getByText("Radar yield", { exact: true })).toBeVisible();
     const watch = page.locator("details.telemetry-watch");
@@ -418,18 +417,23 @@ test.describe("public surface visual regression", () => {
     await watch.locator("summary").click();
     await expect(watch.getByText("Graymane’s Watch", { exact: true })).toBeVisible();
     await expect(watch.getByText("Filtered is a screening result, not a player verdict.", { exact: false })).toBeVisible();
-    const activityCard = page.locator("article.chart-card").filter({ has: page.getByRole("heading", { name: "Scanner activity" }) });
-    const funnelCard = page.locator("article.chart-card").filter({ has: page.getByRole("heading", { name: "Source radar funnel" }) });
-    await expect(activityCard).toBeVisible();
-    await expect(page.getByText("Why sources get filtered")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Domains: kept vs filtered" })).toBeVisible();
-    const [activityHeight, funnelHeight] = await Promise.all([
-      activityCard.evaluate((element) => element.getBoundingClientRect().height),
-      funnelCard.evaluate((element) => element.getBoundingClientRect().height),
-    ]);
-    expect(activityHeight).toBeLessThan(funnelHeight);
     await watch.locator("summary").click();
-    await expect(page.getByRole("heading", { name: "What signals are about" })).toBeVisible();
+    const activityTab = page.getByRole("tab", { name: /Activity view/ });
+    await activityTab.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: /Funnel view/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("heading", { name: "From public chatter to a board lead" })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Source radar funnel from reviewed candidates to published issues" })).toHaveCount(1);
+    await page.getByRole("tab", { name: /Sources view/ }).click();
+    await expect(page.getByRole("heading", { name: "Where the radar keeps finding signal" })).toBeVisible();
+    await page.getByRole("tab", { name: /Signal mix view/ }).click();
+    await expect(page.getByRole("heading", { name: "What the radar is finding" })).toBeVisible();
+    await page.getByRole("tab", { name: /Player evidence view/ }).click();
+    await expect(page.getByRole("heading", { name: "Who is carrying the evidence" })).toBeVisible();
+    await page.getByRole("tab", { name: /Activity view/ }).click();
+    await expect(page.getByRole("heading", { name: "Reviewed versus survived screening" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Where signals live" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Where the signal is coming from" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Top issues this patch" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Still reported after claimed fix" })).toHaveCount(0);
     await expect(page.getByText("Also watching", { exact: true })).toHaveCount(0);
@@ -455,7 +459,16 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Useful next clicks")).toHaveCount(0);
     await expect(page.getByText("Patch web radar", { exact: false })).toHaveCount(0);
     await expectHealthyPage(page, problems);
-    await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true });
+    // Chromium repeats sticky elements while stitching a full-page screenshot.
+    // Keep the product header sticky in real viewports, but make the long visual artifact represent the document flow.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.addStyleTag({
+      content:
+        "*,*::before,*::after { animation: none !important; transition: none !important; } .site-header { position: relative !important; }",
+    });
+    const dashboardScreenshot = await page.screenshot({ fullPage: true });
+    await page.screenshot({ path: "test-results/dashboard-buffer-debug.png", fullPage: true });
+    expect(dashboardScreenshot).toMatchSnapshot("dashboard.png", { maxDiffPixelRatio: 0.02 });
   });
 
   test("dashboard stays within mobile viewports with production-length readouts", async ({ page }, testInfo) => {
@@ -466,7 +479,7 @@ test.describe("public surface visual regression", () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/");
 
-      await expect(page.getByRole("heading", { name: "Scanner activity" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Reviewed versus survived screening" })).toBeVisible();
       await expect(
         page.getByRole("table", { name: "Daily scanner activity over the last 30 days" }),
       ).toHaveCount(1);

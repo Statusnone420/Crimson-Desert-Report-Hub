@@ -31,7 +31,7 @@ export function ScannerActivityChart({ daily }: { daily: ObservatoryDailyPoint[]
   const lastActive = [...daily].reverse().find((point) => point.reviewed > 0);
 
   return (
-    <div className="space-y-3">
+    <div className="scanner-activity-chart space-y-3">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full" aria-hidden="true">
         {ticks.map((tick) => {
           const y = yFor(tick);
