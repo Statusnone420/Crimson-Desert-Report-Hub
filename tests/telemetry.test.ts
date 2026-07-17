@@ -7,6 +7,7 @@ vi.mock("next/cache", () => ({
 import {
   buildObservatoryDaily,
   isIntakeRun,
+  officialPatchNotesFromResult,
   screenedCandidatesForRun,
   screenedOutCandidatesForRun,
 } from "@/lib/telemetry.server";
@@ -91,6 +92,31 @@ describe("isIntakeRun", () => {
         funnel: {},
       }),
     ).toBe(0);
+  });
+
+  it("does not chart survivors without a persisted intake count", () => {
+    const point = buildObservatoryDaily(
+      [
+        {
+          ...baseRun,
+          mode: "scheduled",
+          intent: "broad_discovery",
+          signals_inserted: 2,
+          signals_reobserved: 1,
+          funnel: {},
+        },
+      ],
+      new Date("2026-07-17T12:00:00.000Z"),
+    ).find((dailyPoint) => dailyPoint.date === "2026-07-17");
+
+    expect(point).toEqual({ date: "2026-07-17", reviewed: 0, kept: 0, reobserved: 0, llmCalls: 1 });
+  });
+
+  it("fails official patch-note reads instead of treating errors as an empty ledger", () => {
+    expect(() =>
+      officialPatchNotesFromResult({ data: null, error: { message: "permission denied" } }),
+    ).toThrow("official patch notes read failed: permission denied");
+    expect(officialPatchNotesFromResult({ data: null, error: null })).toEqual([]);
   });
 
   it("does not count within-run duplicates as screened out", () => {

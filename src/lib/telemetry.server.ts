@@ -120,9 +120,15 @@ export function isIntakeRun(run: RunRow): boolean {
  * only honest count of candidates that entered screening. Older rows without
  * that count remain unknown instead of being reconstructed from fetch totals.
  */
-export function screenedCandidatesForRun(run: RunRow): number {
+function persistedCandidatesSeenForRun(run: RunRow): number | null {
   const candidatesSeen = run.funnel?.candidatesSeen;
-  return typeof candidatesSeen === "number" && Number.isFinite(candidatesSeen) ? Math.max(0, candidatesSeen) : 0;
+  return typeof candidatesSeen === "number" && Number.isFinite(candidatesSeen) && candidatesSeen >= 0
+    ? candidatesSeen
+    : null;
+}
+
+export function screenedCandidatesForRun(run: RunRow): number {
+  return persistedCandidatesSeenForRun(run) ?? 0;
 }
 
 /**
@@ -179,11 +185,13 @@ export function buildObservatoryDaily(rows: RunRow[], today: Date): ObservatoryD
   for (const row of rows) {
     const key = dayKey(row.started_at);
     const point = (byDay[key] ??= { date: key, reviewed: 0, kept: 0, reobserved: 0, llmCalls: 0 });
-    point.reviewed += screenedCandidatesForRun(row);
+    const candidatesSeen = persistedCandidatesSeenForRun(row);
+    point.reviewed += candidatesSeen ?? 0;
     point.llmCalls += row.llm_calls_used ?? 0;
     // Failed runs can carry phantom insert counts from screening that never
-    // persisted — same rule the scanner tab applies.
-    if (row.status !== "failed") {
+    // persisted — same rule the scanner tab applies. Rows without a persisted
+    // intake count cannot establish a reviewed denominator for survivors.
+    if (candidatesSeen !== null && row.status !== "failed") {
       point.kept += row.signals_inserted ?? 0;
       point.reobserved += row.signals_reobserved ?? 0;
     }
@@ -210,6 +218,18 @@ async function fetchAllRows<T>(label: string, page: (from: number, to: number) =
     rows.push(...batch);
     if (batch.length < PAGE_SIZE) return rows;
   }
+}
+
+type OfficialPatchNoteRow = {
+  board_no: string;
+  patch_version: string;
+  published_at: string | null;
+  is_current: boolean;
+};
+
+export function officialPatchNotesFromResult(result: PageResult<OfficialPatchNoteRow>): OfficialPatchNoteRow[] {
+  if (result.error) throw new Error(`official patch notes read failed: ${result.error.message}`);
+  return result.data ?? [];
 }
 
 type SignalRow = {
@@ -269,20 +289,23 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
       ),
     ]);
 
-    const notes = (notesRes.data ?? []) as {
-      board_no: string;
-      patch_version: string;
-      published_at: string | null;
-      is_current: boolean;
-    }[];
+    const notes = officialPatchNotesFromResult(notesRes);
 
     const intakeRuns = runs.filter(isIntakeRun);
     const reviewed = intakeRuns.reduce(
       (sum, run) => sum + screenedCandidatesForRun(run),
       0,
     );
-    // Failed runs can carry phantom insert counts from screening that never persisted.
-    const kept = intakeRuns.reduce((sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)), 0);
+    // Failed runs can carry phantom insert counts from screening that never
+    // persisted. Legacy rows without a screened-candidate denominator cannot
+    // establish a coherent kept-versus-reviewed total, so omit them too.
+    const kept = intakeRuns.reduce(
+      (sum, run) =>
+        run.status === "failed" || persistedCandidatesSeenForRun(run) === null
+          ? sum
+          : sum + (run.signals_inserted ?? 0),
+      0,
+    );
     const llmCalls = runs.reduce((sum, run) => sum + (run.llm_calls_used ?? 0), 0);
     const costUsd = runs.reduce((sum, run) => sum + (run.estimated_cost_usd ?? 0), 0);
     const tracked = signals.length;
