@@ -85,12 +85,14 @@ export function appendUniqueObservation(
   return true;
 }
 
-type ObservationClient = Pick<SupabaseClient, "from">;
+type ObservationClient = Pick<SupabaseClient, "rpc">;
 
 /**
  * Best-effort persistence: the observation lane must never fail a scan run or
  * block signal persistence. Errors are reported into the run ledger only.
- * Missing table (migration not applied yet) degrades to a no-op with a note.
+ * The database RPC owns the patch cap and serializes overlapping writers.
+ * Missing table/function (migration not applied yet) degrades to a no-op with
+ * a note.
  */
 export async function persistObservations(
   supabase: ObservationClient,
@@ -105,63 +107,7 @@ export async function persistObservations(
       const hash = observationConflictHash(observation);
       if (!byHash.has(hash)) byHash.set(hash, observation);
     }
-    const hashes = [...byHash.keys()];
-
-    const { data: existingRows, error: existingError } = await supabase
-      .from("patch_observations")
-      .select("id, url_hash, patch_version, seen_count")
-      .in("url_hash", hashes)
-      .eq("patch_version", patchVersion);
-    if (existingError) {
-      report.errors.push(`observation read failed: ${existingError.message}`);
-      return;
-    }
-    const existing = new Map(
-      (
-        (existingRows ?? []) as {
-          id: string;
-          url_hash: string;
-          patch_version: string;
-          seen_count: number;
-        }[]
-      ).map((row) => [row.url_hash, row]),
-    );
-
-    // Re-observations: bump seen_count (the momentum tracker) and point the row
-    // at the latest post in the series so "Day 21" replaces "Day 20".
-    for (const [hash, observation] of byHash) {
-      const existingRow = existing.get(hash);
-      if (existingRow === undefined) continue;
-      const { error: updateError } = await supabase
-        .from("patch_observations")
-        .update({
-          seen_count: existingRow.seen_count + 1,
-          observed_at: observation.observedAt,
-          last_seen_at: observation.observedAt,
-          title: observation.title.slice(0, 240),
-          url: observation.url,
-          snippet: observation.snippet.slice(0, 500),
-        })
-        .eq("id", existingRow.id);
-      if (updateError) report.errors.push(`observation update failed: ${updateError.message}`);
-    }
-
-    const fresh = [...byHash.entries()].filter(([hash]) => !existing.has(hash));
-    if (fresh.length === 0) return;
-
-    const { count, error: countError } = await supabase
-      .from("patch_observations")
-      .select("id", { count: "exact", head: true })
-      .eq("patch_version", patchVersion);
-    if (countError) {
-      report.errors.push(`observation count read failed: ${countError.message}`);
-      return;
-    }
-    const room = Math.max(0, MAX_OBSERVATIONS_PER_PATCH - (count ?? 0));
-    if (room === 0) return;
-
-    const rows = fresh.slice(0, room).map(([hash, observation]) => ({
-      patch_version: patchVersion,
+    const rows = [...byHash.entries()].map(([hash, observation]) => ({
       kind: observation.kind,
       title: observation.title.slice(0, 240),
       url: observation.url,
@@ -171,14 +117,16 @@ export async function persistObservations(
       source_published_at: observation.sourcePublishedAt,
       observed_at: observation.observedAt,
     }));
-    const { error } = await supabase
-      .from("patch_observations")
-      .upsert(rows, { onConflict: "url_hash,patch_version", ignoreDuplicates: true });
+
+    const { data, error } = await supabase.rpc("persist_patch_observations", {
+      p_patch_version: patchVersion,
+      p_observations: rows,
+    });
     if (error) {
-      report.errors.push(`observation insert failed: ${error.message}`);
+      report.errors.push(`observation persistence failed: ${error.message}`);
       return;
     }
-    report.observationsKept += rows.length;
+    report.observationsKept += Number(data ?? 0);
   } catch (error) {
     report.errors.push(
       `observation persistence failed: ${error instanceof Error ? error.message : String(error)}`,

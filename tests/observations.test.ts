@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   appendUniqueObservation,
-  MAX_OBSERVATIONS_PER_PATCH,
   MAX_OBSERVATIONS_PER_RUN,
   normalizeAskSeriesTitle,
   observationConflictHash,
@@ -195,67 +194,19 @@ describe("appendUniqueObservation", () => {
   });
 });
 
-type UpsertCall = { rows: Record<string, unknown>[]; options: Record<string, unknown> };
-type ExistingObservationRow = { id?: string; url_hash: string; patch_version?: string; seen_count: number };
-type UpdateCall = { patch: Record<string, unknown>; column: string; value: string };
+type RpcCall = { name: string; params: Record<string, unknown> };
+type RpcResult = { data: number | null; error: { message: string } | null };
 
 function stubClient({
-  patchCount = 0,
-  existingRows = [] as ExistingObservationRow[],
-  upserts = [] as UpsertCall[],
-  updates = [] as UpdateCall[],
-  failCount = false,
-} = {}) {
+  rpcCalls = [],
+  rpcResult = { data: 1, error: null },
+}: { rpcCalls?: RpcCall[]; rpcResult?: RpcResult } = {}) {
   return {
-    from: () => ({
-      select: (_columns: string, options?: { count?: string }) =>
-        options?.count
-          ? {
-              eq: () =>
-                Promise.resolve(
-                  failCount
-                    ? { count: null, error: { message: "table missing" } }
-                    : { count: patchCount, error: null },
-                ),
-            }
-          : (() => {
-              const filters: { hashes?: string[]; patchVersion?: string } = {};
-              const query = {
-                in: (_column: string, hashes: string[]) => {
-                  filters.hashes = hashes;
-                  return query;
-                },
-                eq: (column: string, value: string) => {
-                  if (column === "patch_version") filters.patchVersion = value;
-                  return query;
-                },
-                then: <TResult1 = unknown, TResult2 = never>(
-                  onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
-                  onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-                ) =>
-                  Promise.resolve({
-                    data: existingRows.filter(
-                      (row) =>
-                        (!filters.hashes || filters.hashes.includes(row.url_hash)) &&
-                        (!filters.patchVersion || row.patch_version === filters.patchVersion),
-                    ),
-                    error: null,
-                  }).then(onfulfilled, onrejected),
-              };
-              return query;
-            })(),
-      update: (patch: Record<string, unknown>) => ({
-        eq: (column: string, value: string) => {
-          updates.push({ patch, column, value });
-          return Promise.resolve({ error: null });
-        },
-      }),
-      upsert: (rows: Record<string, unknown>[], options: Record<string, unknown>) => {
-        upserts.push({ rows, options });
-        return Promise.resolve({ error: null });
-      },
-    }),
-  } as unknown as Pick<SupabaseClient, "from">;
+    rpc: (name: string, params: Record<string, unknown>) => {
+      rpcCalls.push({ name, params });
+      return Promise.resolve(rpcResult);
+    },
+  } as unknown as Pick<SupabaseClient, "rpc">;
 }
 
 describe("ask series fingerprinting", () => {
@@ -285,105 +236,124 @@ describe("ask series fingerprinting", () => {
 });
 
 describe("persistObservations", () => {
-  it("writes observations under the per-patch cap and counts them", async () => {
-    const upserts: UpsertCall[] = [];
+  it("delegates persistence to the atomic RPC and counts inserted rows", async () => {
+    const rpcCalls: RpcCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
-    await persistObservations(stubClient({ upserts }), [candidate()], "1.13.01", report);
+    await persistObservations(stubClient({ rpcCalls }), [candidate()], "1.13.01", report);
     expect(report.errors).toEqual([]);
     expect(report.observationsKept).toBe(1);
-    expect(upserts).toHaveLength(1);
-    expect(upserts[0].rows[0]).toMatchObject({
-      patch_version: "1.13.01",
-      kind: "press_reception",
-      source_domain: "dsogaming.com",
-      url_hash: observationUrlHash(candidate().url),
-    });
-    expect(upserts[0].options).toMatchObject({ onConflict: "url_hash,patch_version", ignoreDuplicates: true });
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0].name).toBe("persist_patch_observations");
+    expect(rpcCalls[0].params).toMatchObject({ p_patch_version: "1.13.01" });
+    expect(rpcCalls[0].params.p_observations).toEqual([
+      expect.objectContaining({
+        kind: "press_reception",
+        source_domain: "dsogaming.com",
+        url_hash: observationUrlHash(candidate().url),
+      }),
+    ]);
   });
 
-  it("re-observes an existing row: bumps seen_count and points at the latest post", async () => {
+  it("sends the latest fields needed to re-observe an existing row", async () => {
     const day21 = candidate({
       kind: "community_ask",
       title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
       url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
       sourceDomain: "reddit.com",
     });
-    const upserts: UpsertCall[] = [];
-    const updates: UpdateCall[] = [];
+    const rpcCalls: RpcCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
     await persistObservations(
-      stubClient({
-        existingRows: [{ id: "observation-1", url_hash: observationConflictHash(day21), patch_version: "1.13.01", seen_count: 5 }],
-        upserts,
-        updates,
-      }),
+      stubClient({ rpcCalls, rpcResult: { data: 0, error: null } }),
       [day21],
       "1.13.01",
       report,
     );
-    expect(updates).toHaveLength(1);
-    expect(updates[0]).toMatchObject({ column: "id", value: "observation-1" });
-    expect(updates[0].patch).toMatchObject({
-      seen_count: 6,
-      observed_at: day21.observedAt,
-      last_seen_at: day21.observedAt,
-      url: day21.url,
-    });
-    expect(upserts).toHaveLength(0);
+    expect(rpcCalls[0].params.p_observations).toEqual([
+      expect.objectContaining({
+        url_hash: observationConflictHash(day21),
+        observed_at: day21.observedAt,
+        title: day21.title,
+        url: day21.url,
+        snippet: day21.snippet,
+      }),
+    ]);
     expect(report.observationsKept).toBe(0);
     expect(report.errors).toEqual([]);
   });
 
-  it("stores the same source again under a later patch instead of updating the old patch row", async () => {
-    const upserts: UpsertCall[] = [];
-    const updates: UpdateCall[] = [];
+  it("keeps a repeated source scoped to the requested patch", async () => {
+    const rpcCalls: RpcCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
     const observation = candidate({ observedAt: "2026-07-20T12:00:00.000Z" });
 
-    await persistObservations(
-      stubClient({
-        existingRows: [
-          {
-            id: "old-patch-observation",
-            url_hash: observationConflictHash(observation),
-            patch_version: "1.13.00",
-            seen_count: 7,
-          },
-        ],
-        upserts,
-        updates,
-      }),
-      [observation],
-      "1.13.01",
-      report,
-    );
+    await persistObservations(stubClient({ rpcCalls }), [observation], "1.13.01", report);
 
-    expect(updates).toHaveLength(0);
-    expect(upserts[0].rows[0]).toMatchObject({ patch_version: "1.13.01", url_hash: observationConflictHash(observation) });
+    expect(rpcCalls[0].params).toMatchObject({ p_patch_version: "1.13.01" });
+    expect(rpcCalls[0].params.p_observations).toEqual([
+      expect.objectContaining({ url_hash: observationConflictHash(observation) }),
+    ]);
     expect(report.observationsKept).toBe(1);
   });
 
-  it("stops writing at the per-patch cap", async () => {
-    const upserts: UpsertCall[] = [];
+  it("lets the database report zero inserts when the atomic patch cap is full", async () => {
+    const rpcCalls: RpcCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
     await persistObservations(
-      stubClient({ patchCount: MAX_OBSERVATIONS_PER_PATCH, upserts }),
+      stubClient({ rpcCalls, rpcResult: { data: 0, error: null } }),
       [candidate()],
       "1.13.01",
       report,
     );
-    expect(upserts).toHaveLength(0);
+    expect(rpcCalls).toHaveLength(1);
     expect(report.observationsKept).toBe(0);
     expect(report.errors).toEqual([]);
   });
 
-  it("degrades to an error note when the table is unreadable, never throws", async () => {
-    const upserts: UpsertCall[] = [];
+  it("deduplicates repeated candidates before calling the database", async () => {
+    const rpcCalls: RpcCall[] = [];
+    const day20 = candidate({
+      kind: "community_ask",
+      title: "Day 20 of asking to add caracals to the desert : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/aaa/day_20/",
+      sourceDomain: "reddit.com",
+    });
+    const day21 = candidate({
+      kind: "community_ask",
+      title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+      sourceDomain: "reddit.com",
+    });
     const report = { errors: [] as string[], observationsKept: 0 };
-    await persistObservations(stubClient({ upserts, failCount: true }), [candidate()], "1.13.01", report);
-    expect(upserts).toHaveLength(0);
+
+    await persistObservations(stubClient({ rpcCalls }), [day20, day21], "1.13.01", report);
+
+    expect(rpcCalls[0].params.p_observations).toHaveLength(1);
+    expect(rpcCalls[0].params.p_observations).toEqual([
+      expect.objectContaining({ title: day20.title, url_hash: observationConflictHash(day20) }),
+    ]);
+  });
+
+  it("degrades to an error note when the persistence function is unavailable, never throws", async () => {
+    const rpcCalls: RpcCall[] = [];
+    const report = { errors: [] as string[], observationsKept: 0 };
+    await persistObservations(
+      stubClient({ rpcCalls, rpcResult: { data: null, error: { message: "function does not exist" } } }),
+      [candidate()],
+      "1.13.01",
+      report,
+    );
+    expect(rpcCalls).toHaveLength(1);
     expect(report.observationsKept).toBe(0);
-    expect(report.errors).toHaveLength(1);
+    expect(report.errors).toEqual(["observation persistence failed: function does not exist"]);
+  });
+
+  it("does not call the database for an empty observation batch", async () => {
+    const rpcCalls: RpcCall[] = [];
+    const report = { errors: [] as string[], observationsKept: 0 };
+    await persistObservations(stubClient({ rpcCalls }), [], "1.13.01", report);
+    expect(rpcCalls).toHaveLength(0);
+    expect(report).toEqual({ errors: [], observationsKept: 0 });
   });
 });
 
