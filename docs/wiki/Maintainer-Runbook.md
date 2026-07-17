@@ -49,8 +49,8 @@ Also inspect the final diff, git status --short, the hosting checks, and the tar
 
 ## Useful links
 
-- [Operations Guide](../OPERATIONS.md)
-- [Launch Checklist](../LAUNCH_CHECKLIST.md)
-- [Privacy](../PRIVACY.md)
-- [Security Policy](../../SECURITY.md)
-- [Public Architecture](../ARCHITECTURE.md)
+- [Operations Guide](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/OPERATIONS.md)
+- [Launch Checklist](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/LAUNCH_CHECKLIST.md)
+- [Privacy](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/PRIVACY.md)
+- [Security Policy](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/SECURITY.md)
+- [Public Architecture](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/ARCHITECTURE.md)
