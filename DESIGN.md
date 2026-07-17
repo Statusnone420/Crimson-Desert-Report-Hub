@@ -28,6 +28,18 @@ Every public surface must also feel complete at N=0. Empty states describe what 
 - Forms should be compact but clear.
 - Text must stay readable on mobile and desktop.
 
+## Current Reading Path
+
+The public experience is an editorial instrument panel rather than a landing-page funnel:
+
+1. **Patch Brief** establishes the current patch and the right-now context.
+2. **At a glance** gives literal counts without turning them into a score.
+3. **Scoreboard** separates official fix claims from player responses.
+4. **Community pulse and source coverage** show what public observations add around the patch.
+5. **Issue board and report actions** give the reader a clear next step without making participation a prerequisite for a useful page.
+
+Badge art, screenshots, and decorative elements should support wayfinding. They should not delay the product explanation or compete with the evidence hierarchy.
+
 ## Accessibility
 
 - Target WCAG AA contrast.

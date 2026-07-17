@@ -93,11 +93,11 @@ The server receives only the final form submission text.
 
 ## Source Radar And AI Providers
 
-The scanner may read public Pearl Abyss patch-note metadata and public web-search results through Tavily. Search packs may find public `reddit.com` pages, but the project does not use Reddit API credentials or direct subreddit monitoring. For a small number of promising Reddit results whose search snippets are too thin, the scanner may ask Tavily for bounded basic extraction after normalizing the public URL to `old.reddit.com`.
+The scanner may read public Pearl Abyss patch-note metadata and public web-search results through Tavily. Public-web queries may find `reddit.com` pages, but the project does not use Reddit API credentials or direct subreddit monitoring. For a small number of promising Reddit results whose search snippets are too thin, the scanner may ask Tavily for bounded basic extraction after normalizing the public URL to `old.reddit.com`.
 
 Scanner links remain leads. The app may store structured summaries and source URLs; raw source text retained for maintainer review is temporary and is purged by scheduled maintenance.
 
-High-value scanner extraction and official fix-claim mapping use only `deepseek/deepseek-v4-flash`, with a hard $2 UTC-month software cap and per-request price ceilings. Routine report moderation and dossier prose use `openrouter/free`, an explicit `:free` model, or deterministic fallback. Confirmations do not call Tavily, an LLM, or a captcha service on the happy path.
+High-value scanner enrichment and official fix-claim mapping use bounded server-side provider calls with a hard $2 UTC-month software cap and per-request price ceilings. Exact model routing and fallback recipes are maintainer configuration. Confirmations do not call Tavily, an LLM, or a captcha service on the happy path.
 
 The deployment should use a dedicated OpenRouter key with a provider-side monthly limit of $2 or lower that resets monthly. That dashboard setting is a maintainer setup and verification step; the repository cannot inspect it and does not claim it is already configured.
 
@@ -115,7 +115,7 @@ Depending on configured environment variables, the deployment may use:
 - Vercel for hosting and scheduled routes.
 - Cloudflare for DNS, the scheduled Worker, and optional Turnstile protection on the full report form.
 - Tavily within its 1,000-credit monthly ceiling for public discovery and bounded context extraction.
-- OpenRouter for the $2-capped DeepSeek automation lane and free/deterministic routine AI lane described above.
+- Server-side provider calls for the bounded enrichment lane and low-cost/deterministic routine paths described above.
 
 Provider keys are server-side only. The confirmation endpoint does not use Turnstile; it accepts enum-only input and relies on same-origin checks, network-hash deduplication, the atomic rate ledger, and display thresholds.
 

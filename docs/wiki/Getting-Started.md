@@ -1,60 +1,36 @@
 # Getting Started
 
-## For Players
+## For players
 
-Open the live issue board when you want a quick, anonymous way to answer an existing issue question:
+Open the [issue board](https://crimsonreporthub.com/issues) to inspect current-patch issues and answer a question with *I have this too*, *Still happening*, or *Fixed for me*. Choose a platform. One network has one current stance per issue and patch family, so answering again changes your current response instead of creating another voter.
 
-[https://crimsonreporthub.com/issues](https://crimsonreporthub.com/issues)
+Use the [report form](https://crimsonreporthub.com/report) when you have a specific problem to document. A useful report includes the platform, patch, category, severity, frequency, short title, what happened, and reproduction steps when available. Evidence links and hardware details are optional.
 
-Choose *I have this too*, *Still happening*, or *Fixed for me*, then choose your platform. One network gets one current stance per issue per patch family, so tapping again changes your answer instead of adding another voter. After success, your selected stance is remembered locally, while public totals refresh from the server.
+No account or email is required. Raw report text is not published automatically, and raw IP addresses are not stored in the application database.
 
-Use the report form when you have a specific Crimson Desert issue to document in detail:
+## For contributors
 
-[https://crimsonreporthub.com/report](https://crimsonreporthub.com/report)
+Start with:
 
-Helpful reports usually include:
-
-- Platform.
-- Patch version.
-- Issue category.
-- Severity and frequency.
-- A short title.
-- What happened.
-- Repro steps, if you have them.
-- Optional evidence URL.
-
-You do not need an account or email address. Raw report text is not published automatically, and the application does not store raw IP addresses.
-
-## For Contributors
-
-Start with the repository docs:
-
-- [README](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/README.md)
-- [Contributing](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/CONTRIBUTING.md)
+- [Repository README](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/README.md)
 - [Product Notes](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/PRODUCT.md)
-- [Design Notes](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/DESIGN.md)
+- [Architecture](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/ARCHITECTURE.md)
+- [Contributing](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/CONTRIBUTING.md)
 
-Local verification commands:
+From the repository root:
 
-```bash
+~~~powershell
+npm install
 npm run lint
 npm test
 npm exec tsc -- --noEmit
 npm run build
-```
-
-Run Playwright when UI behavior changes:
-
-```bash
 npm run test:e2e
-```
+npm run test:e2e:n0
+~~~
 
-## For Maintainers
+Public docs explain product guarantees and privacy boundaries. They intentionally do not try to teach private discovery, ranking, prompt, or moderation recipes.
 
-Start with:
+## For maintainers
 
-- [Launch Checklist](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/LAUNCH_CHECKLIST.md)
-- [Operations Guide](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/OPERATIONS.md)
-- [Security Policy](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/SECURITY.md)
-
-Before enabling automation, confirm the app works at N=0 with reports and confirmations empty, `AUTOMATION_BUDGET_USD_MONTHLY=2`, Tavily capped at 1,000 monthly credits, automation pinned to `deepseek/deepseek-v4-flash`, routine AI on `openrouter/free`/`:free` or deterministic fallback, and no Reddit API credentials. Create a dedicated OpenRouter key with a provider-side monthly reset limit of $2 or lower and verify that setting manually; the repository cannot verify the provider dashboard. Use the authenticated `/scanner` view for operator controls.
+Use the [Launch Checklist](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/LAUNCH_CHECKLIST.md) for first setup and the [Operations Guide](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/OPERATIONS.md) for live work. Before enabling automation, confirm provider caps, the linked migration list, the protected scheduler, and an honest N=0 public view.

@@ -1,26 +1,51 @@
-# State of Play & Next Steps
+# State of Play and Next Steps
 
-Owner note-to-self. Last updated **2026-07-10** after merging PR #25. Read this first when returning to the project cold.
+This is the maintainer's resume-cold note. It records the current product shape and the next operational decisions without pretending that a historical PR number is a permanent project status page.
 
-## Where things stand right now
+## Current posture
 
-- **PR #25 merged to main** (merge commit `ad07754`): the OpenRouter cost-safety circuit no longer mutes the whole month on a single transport blip. One unverified-cost response charges its worst-case ceiling and keeps going; the circuit opens only for 3+ blips in a rolling 24 hours (self-heals) or a real money anomaly (month latch). Circuit logic lives in one place — `src/lib/automation/circuit.ts` — used by both the scan engine and the scanner-page badge, so the display can never lie about what the scanner does.
-- **The July 10 incident is self-healed by this deploy.** A single dropped request at 02:00 UTC had muted LLM extraction all day; the first scan after deploy re-reads history and closes the circuit. Verify: OpenRouter Activity page should show DeepSeek V4 Flash calls again, and the scanner card should read green "Connected".
-- **Also shipped in PR #25:** honest amber "Paused" badge, `/issues` h1, all prose capped at 65ch (`max-w-prose`), stronger focus ring, screen-reader labels on confirm chips, taller touch targets on coarse pointers, refreshed Playwright visual baselines.
-- **Quality snapshot:** impeccable audit scored the site **19/20**; 541 unit tests; Playwright visual suite green.
-- **Review setup:** Codex (paid, auto-reviews every PR) caught three real bugs on PR #25 — the layer works. It reads a "Review guidelines" section in `AGENTS.md` if one exists; **none exists yet** (see backlog).
+- The live product is the **Patch Brief**: a patch-aware public readout with a right-now rail, literal metric cards, a claimed-fix scoreboard, community pulse, source coverage, and links to the issue board.
+- `/issues` is the evidence surface: structured reports, confirmation signals, reviewed source links, and exact-patch fix-claim polls remain visibly separate.
+- `/scanner` is a public source radar with authenticated maintainer controls. It maps public links into questions; it does not publish raw candidates or turn links into evidence.
+- `/report` is anonymous structured intake. `/about` explains the method and privacy posture.
+- The app is designed for N=0. Empty reports, empty confirmations, and a quiet radar must render as honest states, not marketing failure states.
+- The production schema includes the patch observation lane and patch-scoped observation identity. Keep local migration filenames aligned with the remote history.
+- The hourly wake-up is the Cloudflare Worker in `cloudflare/scanner-cron`; the application owns scheduling decisions, budget accounting, and publishing rules.
 
-## Backlog, ranked by leverage per unit of energy
+## First checks after a release
 
-- [ ] **Push alert when the circuit opens or a scan fails** (small, ~20 lines). Free Discord webhook fired from the scan finalizer when skips include `openrouter_circuit_open` / a money anomaly / status `failed`. Turns "notice it a day later on a dashboard" into "phone buzzes within the hour".
-- [ ] **Add a "Review guidelines" section to `AGENTS.md`** (10 min). Codex applies it to every PR review. Encode the house rules: truthful copy over marketing language; never invent counts; every error path states whether it fails open or closed; derived state has exactly one source function; prose capped at readable measure.
-- [ ] **PR definition-of-done checklist** (tiny). PR template: tests green · preview walked with production data · admin + public surfaces eyeballed · desktop AND mobile. The "live data" rule caught three defects on PR #25 alone.
-- [ ] **Fire-drill the money-anomaly latch** (small). The month latch for `openrouter_unexpected_charge` / `budget_exceeded` has never fired in production. Seed a fake anomaly row on a Supabase preview branch and confirm the circuit opens and the badge shows Paused.
-- [ ] **Reddit Responsible Builder application** (slow burn, biggest data ceiling). Tavily-as-Reddit-proxy works but is thin. One evening to file; approval would be the largest evidence-quality jump available.
-- [ ] **Align the key limit note** (trivial). The OpenRouter key is hard-limited at **$1/month** provider-side; OPERATIONS.md prescribes "$2 or lower", so it is compliant — just remember $1 is the real backstop when reasoning about budgets.
+1. Open `/`, `/issues`, `/report`, `/scanner`, and `/about` on the production domain.
+2. Confirm the Patch Brief identifies the current official patch and links to the official source.
+3. Confirm N=0 copy remains honest when there are no public reports or observations.
+4. Open `/scanner` anonymously and authenticated; verify the public and operator views show the same integration truth.
+5. Review the latest scheduled run and confirm Tavily credits, extraction work, and any skips are accounted for.
+6. Submit one controlled test report only when you intend to exercise production intake; moderate or remove it according to the current owner workflow.
+7. Check that a confirmation refreshes from server totals and does not claim an optimistic count.
 
-## How to check the scanner is healthy (60 seconds)
+## Ranked follow-up
 
-1. Open `/scanner` while signed in: operator readout should have no `openrouter_circuit_open`, scan history should show hourly runs.
-2. Public scanner card "AI extraction (OpenRouter)" should be green "Connected"; amber "Paused" means the circuit is open — see the Maintainer Runbook section "If AI extraction shows Paused" before touching anything.
-3. OpenRouter dashboard → Activity: DeepSeek V4 Flash requests appearing over the day, $0.00–pennies spend.
+### Keep observing
+
+- Watch the first real patch-aware scan windows after a new official patch and compare provider ledger entries with the published budget policy.
+- Compare source-radar leads with actual approved reports. The important signal is whether leads produce useful questions, not how many links the scanner finds.
+- Keep an eye on the N=0 experience. Empty pages should continue to explain what is known and what still needs evidence.
+
+### Improve when evidence justifies it
+
+- Add operational alerting only when the current run ledger and scanner page are insufficient to catch a failed or paused scan in time.
+- Revisit cadence or provider allocation only with a fresh budget review; do not solve a discovery concern by silently raising the Tavily or OpenRouter caps.
+- Consider a formal contributor/admin identity model only if shared-password operations become a real bottleneck.
+
+### Do not reopen casually
+
+- Reddit API access, direct subreddit monitoring, raw public complaint feeds, analytics trackers, and verdict language are outside the product contract.
+- A quiet board is not evidence that a bug is fixed.
+- Private planning notes and agent handoffs are not part of the public release contract.
+
+## Fast health check
+
+```text
+live pages -> admin scanner -> latest run ledger -> provider caps -> Supabase migration list
+```
+
+For the detailed procedure, use [Operations Guide](OPERATIONS.md), [Launch Checklist](LAUNCH_CHECKLIST.md), and the [Maintainer Runbook](wiki/Maintainer-Runbook.md).
