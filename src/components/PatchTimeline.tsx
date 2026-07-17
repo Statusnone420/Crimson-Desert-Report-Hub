@@ -19,8 +19,8 @@ function categoryLabel(category: string | null): string {
 
 /**
  * Every patch the hub has covered, oldest first: cadence, claimed-fix volume,
- * and what players actually confirmed. This strip is cross-patch on purpose —
- * it is the one part of the brief that grows instead of resetting.
+ * and players' current verdicts. This strip is cross-patch on purpose — it is
+ * the one part of the brief that grows instead of resetting.
  */
 export function PatchTimeline({ patches }: { patches: ObservatoryPatch[] }) {
   if (patches.length === 0) {
@@ -47,12 +47,12 @@ export function PatchTimeline({ patches }: { patches: ObservatoryPatch[] }) {
                 <span>
                   <span className="num">{patch.claimedFixes}</span> claimed {patch.claimedFixes === 1 ? "fix" : "fixes"}
                 </span>
-                {patch.playerConfirmed > 0 ? (
+                {patch.currentFixedVerdicts > 0 ? (
                   <span className="num" style={{ color: "var(--green-bright)" }}>
-                    {patch.playerConfirmed} player-confirmed
+                    {patch.currentFixedVerdicts} current {patch.currentFixedVerdicts === 1 ? "verdict" : "verdicts"}: fixed
                   </span>
                 ) : (
-                  <span style={{ color: "var(--text-quiet)" }}>no player verdicts yet</span>
+                  <span style={{ color: "var(--text-quiet)" }}>no current verdicts</span>
                 )}
               </div>
               <div className="bar-list__track" aria-hidden="true">
@@ -72,15 +72,19 @@ export function PatchTimeline({ patches }: { patches: ObservatoryPatch[] }) {
           </div>
         );
       })}
+      <p className="muted-note">
+        Verdicts are each player&rsquo;s latest tap in a patch family — updating on a newer hotfix moves the verdict
+        there. Current state, not per-patch history.
+      </p>
       <div className="chart-accessible-data">
         <table>
-          <caption>Patches covered by the hub with claimed fixes and player confirmations</caption>
+          <caption>Patches covered by the hub with claimed fixes and current player verdicts</caption>
           <thead>
             <tr>
               <th scope="col">Patch</th>
               <th scope="col">Published</th>
               <th scope="col">Claimed fixes</th>
-              <th scope="col">Player-confirmed</th>
+              <th scope="col">Current fixed verdicts</th>
             </tr>
           </thead>
           <tbody>
@@ -89,7 +93,7 @@ export function PatchTimeline({ patches }: { patches: ObservatoryPatch[] }) {
                 <th scope="row">{patch.version}</th>
                 <td>{labelDate(patch.publishedAt)}</td>
                 <td>{patch.claimedFixes}</td>
-                <td>{patch.playerConfirmed}</td>
+                <td>{patch.currentFixedVerdicts}</td>
               </tr>
             ))}
           </tbody>

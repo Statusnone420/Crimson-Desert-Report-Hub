@@ -34,7 +34,13 @@ export type ObservatoryPatch = {
   isCurrent: boolean;
   claimedFixes: number;
   fixCategories: { category: string | null; count: number }[];
-  playerConfirmed: number;
+  /**
+   * Confirmations are one mutable row per (cluster, patch family, voter) whose
+   * patch_version is overwritten when a player re-taps on a later hotfix. This
+   * is each player's CURRENT verdict attributed to their latest tap — never an
+   * immutable per-patch history. UI copy must say "current", not "confirmed on".
+   */
+  currentFixedVerdicts: number;
 };
 
 export type ObservatoryData = {
@@ -77,6 +83,7 @@ function rejectionReasonLabel(reason: string): string {
 type RunRow = {
   started_at: string;
   status: string;
+  intent: string | null;
   search_results_seen: number | null;
   reddit_posts_seen: number | null;
   signals_inserted: number | null;
@@ -84,6 +91,16 @@ type RunRow = {
   llm_calls_used: number | null;
   estimated_cost_usd: number | null;
 };
+
+/**
+ * Admin rescues create manual runs that insert a signal while both source
+ * counters stay zero — counting them as intake would report kept > reviewed
+ * and distort the filter rate. Intake telemetry (reviewed/kept/daily/cadence)
+ * uses scan runs only; spend and model-call totals still count every run.
+ */
+function isIntakeRun(run: RunRow): boolean {
+  return run.intent !== "rescue_candidate";
+}
 
 const DAILY_WINDOW_DAYS = 30;
 
@@ -171,7 +188,7 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
         supabase
           .from("automation_runs")
           .select(
-            "started_at, status, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, llm_calls_used, estimated_cost_usd",
+            "started_at, status, intent, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, llm_calls_used, estimated_cost_usd",
           )
           .neq("mode", "dry_run")
           .in("status", ["success", "partial", "failed"])
@@ -217,9 +234,13 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
       is_current: boolean;
     }[];
 
-    const reviewed = runs.reduce((sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0), 0);
+    const intakeRuns = runs.filter(isIntakeRun);
+    const reviewed = intakeRuns.reduce(
+      (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
+      0,
+    );
     // Failed runs can carry phantom insert counts from screening that never persisted.
-    const kept = runs.reduce((sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)), 0);
+    const kept = intakeRuns.reduce((sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)), 0);
     const llmCalls = runs.reduce((sum, run) => sum + (run.llm_calls_used ?? 0), 0);
     const costUsd = runs.reduce((sum, run) => sum + (run.estimated_cost_usd ?? 0), 0);
     const tracked = signals.length;
@@ -229,7 +250,7 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
     const filtered = Math.max(0, reviewed - kept);
     // seen_count includes the first sighting; only repeats count as re-observations.
     const reobservations = signals.reduce((sum, signal) => sum + Math.max(0, (signal.seen_count ?? 0) - 1), 0);
-    const firstRunAt = runs[0]?.started_at ?? null;
+    const firstRunAt = intakeRuns[0]?.started_at ?? null;
     const activeDays = firstRunAt
       ? Math.max(1, Math.ceil((Date.now() - new Date(firstRunAt).getTime()) / (24 * 60 * 60 * 1000)))
       : 1;
@@ -279,13 +300,13 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
           fixCategories: Object.entries(categoryCounts)
             .map(([category, count]) => ({ category: category === "general" ? null : category, count }))
             .sort((a, b) => b.count - a.count),
-          playerConfirmed: confirmedByPatch[note.patch_version] ?? 0,
+          currentFixedVerdicts: confirmedByPatch[note.patch_version] ?? 0,
         };
       });
 
     return {
       totals: {
-        scans: runs.length,
+        scans: intakeRuns.length,
         reviewed,
         kept,
         tracked,
@@ -295,9 +316,9 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
         llmCalls,
         costUsd,
         firstRunAt,
-        scansPerDay: Math.round((runs.length / activeDays) * 10) / 10,
+        scansPerDay: Math.round((intakeRuns.length / activeDays) * 10) / 10,
       },
-      daily: buildObservatoryDaily(runs, new Date()),
+      daily: buildObservatoryDaily(intakeRuns, new Date()),
       rejectionReasons,
       domains,
       signalCategories: countBy(signals, (row) => row.category),
