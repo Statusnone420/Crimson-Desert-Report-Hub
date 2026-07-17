@@ -83,7 +83,9 @@ function rejectionReasonLabel(reason: string): string {
 type RunRow = {
   started_at: string;
   status: string;
+  mode: string;
   intent: string | null;
+  search_queries_used: number | null;
   search_results_seen: number | null;
   reddit_posts_seen: number | null;
   signals_inserted: number | null;
@@ -95,11 +97,15 @@ type RunRow = {
 /**
  * Admin rescues create manual runs that insert a signal while both source
  * counters stay zero — counting them as intake would report kept > reviewed
- * and distort the filter rate. Intake telemetry (reviewed/kept/daily/cadence)
- * uses scan runs only; spend and model-call totals still count every run.
+ * and distort the filter rate. Intent alone cannot discriminate: scheduled and
+ * manual scans legitimately rotate into the rescue_candidate LANE and still
+ * search and review sources. The admin rescue op is the manual rescue-intent
+ * run whose search budget is hard-zeroed, so it never used a query. Intake
+ * telemetry (reviewed/kept/daily/cadence) drops only that operation; spend and
+ * model-call totals still count every run.
  */
 function isIntakeRun(run: RunRow): boolean {
-  return run.intent !== "rescue_candidate";
+  return !(run.mode === "manual" && run.intent === "rescue_candidate" && (run.search_queries_used ?? 0) === 0);
 }
 
 const DAILY_WINDOW_DAYS = 30;
@@ -188,7 +194,7 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
         supabase
           .from("automation_runs")
           .select(
-            "started_at, status, intent, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, llm_calls_used, estimated_cost_usd",
+            "started_at, status, mode, intent, search_queries_used, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, llm_calls_used, estimated_cost_usd",
           )
           .neq("mode", "dry_run")
           .in("status", ["success", "partial", "failed"])
