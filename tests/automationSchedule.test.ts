@@ -195,4 +195,32 @@ describe("resolveBurstState", () => {
       ),
     ).toBe(false);
   });
+
+  it("fails closed when patch metadata has no exact official source", () => {
+    expect(resolveBurstState({ observedAt: "2026-07-05T11:00:00.000Z", publishedAt: null }, now)).toBe(false);
+  });
+
+  it("rejects future, malformed, and out-of-window timestamps", () => {
+    expect(
+      resolveBurstState(
+        { source: "official", observedAt: "2026-07-05T13:00:00.000Z", publishedAt: "2026-07-05T14:00:00.000Z" },
+        now,
+      ),
+    ).toBe(false);
+    expect(resolveBurstState({ source: "official", observedAt: "not-a-date", publishedAt: null }, now)).toBe(false);
+    expect(resolveBurstState({ source: "official", observedAt: "2026-07-05T11:00:00.000Z", publishedAt: "not-a-date" }, now)).toBe(false);
+  });
+
+  it("keeps both burst windows inclusive at their exact boundaries", () => {
+    expect(
+      resolveBurstState(
+        {
+          source: "official",
+          observedAt: "2026-07-02T12:00:00.000Z",
+          publishedAt: "2026-06-28T12:00:00.000Z",
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
 });

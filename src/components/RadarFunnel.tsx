@@ -49,8 +49,7 @@ export function RadarFunnel({ data }: { data: PublicScannerData }) {
       <div
         className="radar-funnel mt-1 grid gap-y-2.5"
         style={{ gridTemplateColumns: "6rem minmax(0, 1fr) auto" }}
-        role="img"
-        aria-label="Source radar funnel from reviewed candidates to published issues"
+        aria-hidden="true"
       >
         {steps.map((step) => (
           <div key={step.key} className="contents">
@@ -79,6 +78,27 @@ export function RadarFunnel({ data }: { data: PublicScannerData }) {
             <span style={{ color: "var(--text-dim)" }}>{step.label}</span> — {step.description}
           </p>
         ))}
+      </div>
+      <div className="chart-accessible-data">
+        <table>
+          <caption>Source radar funnel from reviewed candidates to published issues</caption>
+          <thead>
+            <tr>
+              <th scope="col">Stage</th>
+              <th scope="col">Count</th>
+              <th scope="col">Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            {steps.map((step) => (
+              <tr key={step.key}>
+                <th scope="row">{step.label}</th>
+                <td>{step.value}</td>
+                <td>{step.description}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
       <p className="border-t pt-3 text-xs leading-5" style={{ borderColor: "var(--ink-rule)", color: "var(--text-faint)" }}>
         {data.lastCheckedAt

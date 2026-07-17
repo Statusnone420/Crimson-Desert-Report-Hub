@@ -98,9 +98,11 @@ describe("automation budget", () => {
     });
 
     expect(burstBudget.maxSearchQueries).toBe(3);
+    expect(burstBudget.maxTavilyCreditsPerRun).toBe(3);
     expect(burstBudget.maxSearchResults).toBe(15);
     expect(burstBudget.maxLlmCalls).toBe(12);
     expect(quietBudget.maxSearchQueries).toBe(2);
+    expect(quietBudget.maxTavilyCreditsPerRun).toBe(2);
     expect(quietBudget.maxSearchResults).toBe(10);
   });
 

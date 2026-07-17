@@ -63,8 +63,7 @@ export function SignalTrendChart({ reports, signals }: { reports: ActivityPoint[
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="trend-chart w-full"
-        role="img"
-        aria-label="Cumulative reports and source leads over the last 30 days"
+        aria-hidden="true"
       >
         {ticks.map((tick) => {
           const y = yFor(tick);
@@ -77,7 +76,7 @@ export function SignalTrendChart({ reports, signals }: { reports: ActivityPoint[
             </g>
           );
         })}
-        <g className="trend-series" tabIndex={0} aria-label="Cumulative approved reports">
+        <g className="trend-series">
           <path
             className="trend-line"
             d={pathFor(reportSeries, max, plotWidth, plotHeight, left, top)}
@@ -100,7 +99,7 @@ export function SignalTrendChart({ reports, signals }: { reports: ActivityPoint[
             </circle>
           ))}
         </g>
-        <g className="trend-series" tabIndex={0} aria-label="Cumulative source leads">
+        <g className="trend-series">
           <path
             className="trend-line"
             d={pathFor(signalSeries, max, plotWidth, plotHeight, left, top)}
@@ -144,6 +143,27 @@ export function SignalTrendChart({ reports, signals }: { reports: ActivityPoint[
           ) : null;
         })}
       </svg>
+      <div className="chart-accessible-data">
+        <table>
+          <caption>Cumulative reports and source leads over the last 30 days</caption>
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Approved reports</th>
+              <th scope="col">Source leads</th>
+            </tr>
+          </thead>
+          <tbody>
+            {days.map((day, index) => (
+              <tr key={day.date}>
+                <th scope="row">{labelDate(day.date)}</th>
+                <td>{reportSeries[index]?.count ?? 0}</td>
+                <td>{signalSeries[index]?.count ?? 0}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

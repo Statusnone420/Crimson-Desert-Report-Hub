@@ -2722,6 +2722,59 @@ describe("runAutomationMonitor", () => {
     expect(tables.automation_runs[0].skips).toContain("patch_burst_active");
   });
 
+  it("keeps burst search and recon candidates inside the three-credit Tavily cap", async () => {
+    const burstPatch = {
+      ...officialPatchFixture,
+      observedAt: "2026-07-05T13:00:00.000Z",
+    };
+    mocks.getCurrentPatchMetadata.mockResolvedValue(burstPatch);
+    mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: burstPatch });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://reddit.com/r/CrimsonDesert/comments/recon-burst-1/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T14:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T13:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://reddit.com/r/CrimsonDesert/comments/recon-burst-2/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T14:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T13:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T14:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_v4_flash",
+      },
+    });
+
+    // The community-pulse pack has two search queries, leaving one of the
+    // burst's three Tavily credits for exactly one recon fetch.
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(2);
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(1);
+    expect(result.searchQueriesUsed).toBe(3);
+    expect(result.estimatedCostUsd).toBeCloseTo(3 * 0.008 + result.llmCostUsd, 10);
+    expect(tables.automation_runs[0].search_queries_used).toBe(3);
+  });
+
   it("targets corroboration when private weak source signals exist", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;

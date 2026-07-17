@@ -25,6 +25,8 @@ export type AutomationBudget = {
   remainingLlmUsd: number;
   allowPaidSearch: boolean;
   maxSearchQueries: number;
+  /** Total Tavily credits available to this run, including search and extract. */
+  maxTavilyCreditsPerRun: number;
   maxSearchResults: number;
   maxLlmCalls: number;
   skipReasons: string[];
@@ -215,6 +217,7 @@ export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
       : 5;
   const maxSearchQueries = canSpendSearch ? Math.max(0, Math.min(requestedQueries, remainingTavilyCredits)) : 0;
   const allowPaidSearch = maxSearchQueries > 0;
+  const maxTavilyCreditsPerRun = input.mode === "scheduled" ? maxSearchQueries : remainingTavilyCredits;
 
   return {
     monthlyBudgetUsd,
@@ -227,6 +230,7 @@ export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
     remainingLlmUsd,
     allowPaidSearch,
     maxSearchQueries,
+    maxTavilyCreditsPerRun,
     maxSearchResults: maxSearchQueries * 5,
     maxLlmCalls: remainingLlmUsd > 0 ? (allowPaidSearch ? Math.min(20, maxSearchQueries * 4) : 4) : 0,
     skipReasons,

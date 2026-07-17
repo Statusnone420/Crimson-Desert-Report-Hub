@@ -396,6 +396,7 @@ test.describe("public surface visual regression", () => {
     ).toBeVisible();
     await expect(page.getByText("seen 3×")).toBeVisible();
     await expect(page.getByText("they never count as evidence and never touch issue numbers.")).toBeVisible();
+    await expect(page.getByText("Older patch observation should never appear in the current brief")).toHaveCount(0);
     // Community pulse lane: requests are not bugs, campaigns show momentum.
     await expect(page.getByRole("heading", { name: "What players are asking for" })).toBeVisible();
     await expect(page.getByText("Day 20 of asking to add caracals to the desert : r/CrimsonDesert")).toBeVisible();
@@ -404,7 +405,9 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Wanting something is not a bug — these never touch evidence counts.")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Signal trend" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Source radar funnel" })).toBeVisible();
-    await expect(page.getByRole("img", { name: "Cumulative reports and source leads over the last 30 days" })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Cumulative reports and source leads over the last 30 days" })).toHaveCount(1);
+    await expect(page.getByRole("table", { name: "Source radar funnel from reviewed candidates to published issues" })).toHaveCount(1);
+    await expect(page.locator("svg .trend-series[tabindex]")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Top issues this patch" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Still reported after claimed fix" })).toHaveCount(0);
     await expect(page.getByText("Also watching", { exact: true })).toHaveCount(0);
@@ -442,7 +445,9 @@ test.describe("public surface visual regression", () => {
       await page.goto("/");
 
       await expect(page.getByRole("heading", { name: "Signal trend" })).toBeVisible();
-      await expect(page.getByRole("img", { name: "Cumulative reports and source leads over the last 30 days" })).toBeVisible();
+      await expect(
+        page.getByRole("table", { name: "Cumulative reports and source leads over the last 30 days" }),
+      ).toHaveCount(1);
 
       await expectHealthyPage(page, problems);
     }

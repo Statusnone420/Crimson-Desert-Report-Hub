@@ -514,33 +514,54 @@ type PatchObservationRow = {
   seen_count: number;
 };
 
+const PUBLIC_OBSERVATIONS_PER_LANE = 8;
+const COVERAGE_OBSERVATION_KINDS: PublicObservation["kind"][] = [
+  "patch_release",
+  "press_reception",
+  "fix_announcement",
+];
+
 /**
  * Observation lane read. Never throws: a missing table (migration not applied
  * yet) or any read error renders as an empty lane, not a broken brief.
  */
-async function getPublicObservations(
+export async function getPublicObservations(
   supabase: ReturnType<typeof createServiceClient>,
   patchVersion: string,
 ): Promise<PublicObservation[]> {
   try {
-    const { data, error } = await supabase
-      .from("patch_observations")
-      .select("id, kind, title, url, source_domain, snippet, observed_at, seen_count")
-      .eq("patch_version", patchVersion)
-      .eq("is_public", true)
-      .order("observed_at", { ascending: false })
-      .limit(8);
-    if (error) return [];
-    return ((data ?? []) as PatchObservationRow[]).map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      title: row.title,
-      url: row.url,
-      sourceDomain: row.source_domain,
-      snippet: row.snippet,
-      observedAt: row.observed_at,
-      seenCount: row.seen_count,
-    }));
+    const selectColumns = "id, kind, title, url, source_domain, snippet, observed_at, seen_count";
+    const [coverage, asks] = await Promise.all([
+      supabase
+        .from("patch_observations")
+        .select(selectColumns)
+        .eq("patch_version", patchVersion)
+        .eq("is_public", true)
+        .in("kind", COVERAGE_OBSERVATION_KINDS)
+        .order("observed_at", { ascending: false })
+        .limit(PUBLIC_OBSERVATIONS_PER_LANE),
+      supabase
+        .from("patch_observations")
+        .select(selectColumns)
+        .eq("patch_version", patchVersion)
+        .eq("is_public", true)
+        .eq("kind", "community_ask")
+        .order("observed_at", { ascending: false })
+        .limit(PUBLIC_OBSERVATIONS_PER_LANE),
+    ]);
+    if (coverage.error || asks.error) return [];
+    return ([...(coverage.data ?? []), ...(asks.data ?? [])] as PatchObservationRow[])
+      .sort((left, right) => new Date(right.observed_at).getTime() - new Date(left.observed_at).getTime())
+      .map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        url: row.url,
+        sourceDomain: row.source_domain,
+        snippet: row.snippet,
+        observedAt: row.observed_at,
+        seenCount: row.seen_count,
+      }));
   } catch {
     return [];
   }

@@ -681,17 +681,18 @@ async function prepareSignals(
       if (preScreen.reason === "source_not_issue_report" && isBorderlineRescueCandidate(signal, currentPatch)) {
         // Recon lane: read the real page ONCE before rejecting a promising
         // trusted current-patch candidate whose Tavily snippet is too thin. Bounded
-        // by the MONTHLY Tavily credit budget (searchQueriesUsed < remainingTavilyCredits)
-        // and capped at MAX_RECON_FETCHES_PER_RUN per run — so a run adds at most that
-        // many /extract calls ON TOP OF its per-run search allowance (it is not bounded
-        // by the per-run search cap). A recon miss (budget/cap/failure) falls straight
-        // through to today's snippet-only borderline behavior — strict enhancement, never a regression.
+        // by the per-run Tavily credit budget shared with search
+        // (searchQueriesUsed < budget.maxTavilyCreditsPerRun) and capped at
+        // MAX_RECON_FETCHES_PER_RUN — so recon cannot spend credits on top of the
+        // configured search allowance. A recon miss (budget/cap/failure) falls
+        // straight through to today's snippet-only borderline behavior — strict
+        // enhancement, never a regression.
         let reconText: string | null = null;
         if (
           webSearchEnabled &&
           budget.allowPaidSearch &&
           reconFetchesUsed < MAX_RECON_FETCHES_PER_RUN &&
-          result.searchQueriesUsed < budget.remainingTavilyCredits
+          result.searchQueriesUsed < budget.maxTavilyCreditsPerRun
         ) {
           reconFetchesUsed += 1;
           result.searchQueriesUsed += 1;

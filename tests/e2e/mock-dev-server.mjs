@@ -439,6 +439,22 @@ const officialPatchClaimedFixes = [
 
 const patchObservations = [
   {
+    id: "observation-old-patch",
+    created_at: isoMinutesAgo(10),
+    patch_version: "1.13.00",
+    kind: "community_ask",
+    title: "Older patch observation should never appear in the current brief",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/old-patch-observation/",
+    url_hash: "mock-observation-hash-old-patch",
+    source_domain: "reddit.com",
+    snippet: "This belongs to the previous patch.",
+    source_published_at: isoMinutesAgo(15),
+    observed_at: isoMinutesAgo(10),
+    last_seen_at: isoMinutesAgo(10),
+    seen_count: 4,
+    is_public: true,
+  },
+  {
     id: "observation-1",
     created_at: isoMinutesAgo(30),
     patch_version: "1.13.01",
@@ -573,6 +589,20 @@ function filterRows(table, url) {
 
   const isCurrent = url.searchParams.get("is_current");
   if (isCurrent === "eq.true") rows = rows.filter((row) => row.is_current === true);
+
+  const patchVersion = url.searchParams.get("patch_version");
+  if (patchVersion?.startsWith("eq.")) rows = rows.filter((row) => row.patch_version === patchVersion.slice(3));
+
+  const kind = url.searchParams.get("kind");
+  if (kind?.startsWith("eq.")) rows = rows.filter((row) => row.kind === kind.slice(3));
+  if (kind?.startsWith("in.")) {
+    const allowed = kind
+      .slice(3)
+      .replace(/^\(|\)$/g, "")
+      .split(",")
+      .map((value) => value.replace(/^"|"$/g, ""));
+    rows = rows.filter((row) => allowed.includes(row.kind));
+  }
 
   const publicStatus = url.searchParams.get("public_status");
   if (publicStatus?.startsWith("eq.")) rows = rows.filter((row) => row.public_status === publicStatus.slice(3));

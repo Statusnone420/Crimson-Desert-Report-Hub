@@ -28,7 +28,7 @@ function isWithinWindow(value: string | null | undefined, now: Date, windowMs: n
 }
 
 export function resolveBurstState(currentPatch: PatchBurstMetadata | null, now: Date): boolean {
-  if (!currentPatch || currentPatch.source === "fallback") return false;
+  if (!currentPatch || currentPatch.source !== "official") return false;
   if (!isWithinWindow(currentPatch.observedAt, now, PATCH_BURST_WINDOW_MS)) return false;
   return !currentPatch.publishedAt || isWithinWindow(currentPatch.publishedAt, now, PATCH_PUBLICATION_WINDOW_MS);
 }
