@@ -132,6 +132,12 @@ export function screenedCandidatesForRun(run: RunRow): number {
 }
 
 /**
+ * Share of screened candidates that became a unique tracked lead. This is a
+ * selectivity metric, not an accuracy or evidence score.
+ */
+export { radarYieldPct } from "@/lib/observatoryMetrics";
+
+/**
  * A duplicate entered the processing slice but never reached relevance
  * screening. Only the remaining candidates are screened out. The persisted
  * funnel's `kept` count records screening survivors even when a later write

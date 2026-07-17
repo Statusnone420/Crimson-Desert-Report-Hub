@@ -1048,3 +1048,35 @@ export const getPublicScannerData = unstable_cache(getPublicScannerDataUncached,
   revalidate: 300,
   tags: [PUBLIC_DASHBOARD_TAG],
 });
+
+export type DailySignalDay = { day: string; reports: number; taps: number; keptLeads: number };
+
+/**
+ * Aggregate-only read of the daily_signal_rollup view (Patch Pulse chart).
+ * Returns null when the view is unreadable (missing config or migration not
+ * applied) so the page can say "series unavailable" instead of faking zeros.
+ */
+async function getDailySignalRollupUncached(): Promise<DailySignalDay[] | null> {
+  if (!hasSupabaseServiceConfig()) return null;
+  try {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("daily_signal_rollup")
+      .select("day, reports, taps, kept_leads")
+      .order("day", { ascending: true });
+    if (error) return null;
+    return ((data ?? []) as { day: string; reports: number; taps: number; kept_leads: number }[]).map((row) => ({
+      day: row.day,
+      reports: row.reports ?? 0,
+      taps: row.taps ?? 0,
+      keptLeads: row.kept_leads ?? 0,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export const getDailySignalRollup = unstable_cache(getDailySignalRollupUncached, ["daily-signal-rollup"], {
+  revalidate: 300,
+  tags: [PUBLIC_DASHBOARD_TAG],
+});

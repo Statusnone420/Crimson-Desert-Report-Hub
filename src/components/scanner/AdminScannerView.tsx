@@ -1,13 +1,12 @@
 import { setScannerPolicy } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
 import { RejectedArchive } from "@/components/scanner/RejectedArchive";
-import { SourceRadar } from "@/components/scanner/SourceRadar";
 import { SubmitButton } from "@/components/SubmitButton";
-import { SignalConfidenceBadge } from "@/components/ui";
 import type { Features, IntegrationStatus } from "@/lib/env";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
+import { radarYieldPct } from "@/lib/observatoryMetrics";
 import type { AdminSignalRow, AutomationRunRow, PublicScannerData, RejectedCandidateRow } from "@/lib/queries";
 
 function cadenceLabel(minutes: number): string {
@@ -33,11 +32,11 @@ function scannerStatus(
   control: AutomationControlState,
   activeRun: { id: string } | null,
   lastScheduled: { status: string; skips: string[] } | null,
-): { label: string; className: string } {
-  if (activeRun) return { label: "Running", className: "badge badge-amber badge-dot" };
-  if (control.paused) return { label: "Paused", className: "badge badge-amber badge-dot" };
-  if (runHasCapSkip(lastScheduled)) return { label: "Capped", className: "badge badge-crimson badge-dot" };
-  return { label: "Active", className: "badge badge-green badge-dot" };
+): { label: string; toneClass: string } {
+  if (activeRun) return { label: "RUNNING", toneClass: "is-amber" };
+  if (control.paused) return { label: "PAUSED", toneClass: "is-amber" };
+  if (runHasCapSkip(lastScheduled)) return { label: "CAPPED", toneClass: "is-crimson" };
+  return { label: "ACTIVE", toneClass: "is-green" };
 }
 
 function formatUsd(value: number): string {
@@ -99,36 +98,33 @@ function sourceHost(signal: AdminSignalRow): string {
 }
 
 function publicStatusLabel(status: AdminSignalRow["public_status"]): string {
-  if (status === "public") return "Public";
-  if (status === "hidden") return "Hidden";
-  return "Private";
+  if (status === "public") return "PUBLIC";
+  if (status === "hidden") return "HIDDEN";
+  return "PRIVATE";
 }
 
-function SignalRow({ signal }: { signal: AdminSignalRow }) {
+function confidenceTone(confidence: AdminSignalRow["confidence"]): string {
+  if (confidence === "high") return "is-green";
+  if (confidence === "medium") return "is-amber";
+  return "";
+}
+
+function signalRow(signal: AdminSignalRow) {
   return (
-    <article className="border-b py-3 last:border-0" style={{ borderColor: "var(--border)" }}>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className={signal.public_status === "public" ? "badge badge-green" : "badge badge-dim"}>
+    <article key={signal.id} className="lead-item">
+      <div className="lead-item__status">
+        <span className={signal.public_status === "public" ? "is-green" : undefined}>
           {publicStatusLabel(signal.public_status)}
-        </span>
-        <span className="badge badge-dim">{signal.source_type ?? signal.source}</span>
-        <SignalConfidenceBadge confidence={signal.confidence} />
-        <span className="num" style={{ color: "var(--text-faint)" }}>
-          seen {signal.seen_count ?? 1}x
-        </span>
+        </span>{" "}
+        · {(signal.source_type ?? signal.source).toUpperCase()} ·{" "}
+        <span className={confidenceTone(signal.confidence)}>{signal.confidence.toUpperCase()} CONFIDENCE</span> · SEEN{" "}
+        {signal.seen_count ?? 1}×
       </div>
-      <h3 className="mt-2 text-sm font-semibold">{signal.title ?? "Untitled source lead"}</h3>
-      <p className="mt-1 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-        {signal.summary}
-      </p>
-      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-        <span className="num" style={{ color: "var(--text-faint)" }}>
-          {sourceHost(signal)}
-        </span>
-        <span className="num" style={{ color: "var(--text-faint)" }}>
-          last seen {relativeTime(signal.observed_at)}
-        </span>
-        <a href={signal.source_url} target="_blank" rel="noreferrer noopener" className="link">
+      <h3 className="lead-item__title">{signal.title ?? "Untitled source lead"}</h3>
+      <p className="lead-item__summary">{signal.summary}</p>
+      <div className="lead-item__meta">
+        {sourceHost(signal)} · LAST SEEN {relativeTime(signal.observed_at)} ·{" "}
+        <a href={signal.source_url} target="_blank" rel="noreferrer noopener" className="dispatch-link">
           Open source
         </a>
       </div>
@@ -168,183 +164,240 @@ export function AdminScannerView({
   const redditOff = !features.reddit;
   const rejectedArchive = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
   const recentSignals = signals.slice(0, 6);
+  const pausedIntegrations = integrations.filter((integration) => integration.paused);
+  const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
 
   return (
-    <div className="space-y-5">
-      <section className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <p className="stat-label">Admin · scanner</p>
-          <h1 className="h-display">Scanner monitor</h1>
-          <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+    <>
+      <header className="dispatch-pagehead" style={{ paddingBottom: 30 }}>
+        <div className="dispatch-pagehead__copy">
+          <p className="dispatch-kicker dispatch-kicker--amber">Operator · The Observatory</p>
+          <h1 className="dispatch-pagehead__title" style={{ fontSize: 44 }}>
+            Scanner monitor
+          </h1>
+          <p className="dispatch-pagehead__dek" style={{ maxWidth: "54ch" }}>
             Source health, kept radar leads, and an expiring archive of auto-rejected candidates.
           </p>
         </div>
-      </section>
-
-      <SourceRadar
-        data={scoreboard}
-        integrations={integrations}
-        description="Same aggregate funnel visitors can see, plus admin controls for preview and capped scans."
-        actions={<ScanControls activeRunId={activeRun?.id ?? null} />}
-      />
-
-      <section className="panel-inset grid gap-2 border px-4 py-3 text-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={status.className}>{status.label}</span>
-          {latestRun ? <span>Last scan {relativeTime(latestRun.started_at)}</span> : <span>No completed scan yet</span>}
-          <span style={{ color: "var(--text-faint)" }}>·</span>
-          <span>Next check {control.paused ? "paused" : relativeTime(nextEligible.toISOString())}</span>
-          {latestFind ? (
-            <>
-              <span style={{ color: "var(--text-faint)" }}>·</span>
-              <span>Most recent kept lead {relativeTime(latestFind.started_at)}</span>
-            </>
-          ) : null}
+        <div className="op-actions">
+          <ScanControls activeRunId={activeRun?.id ?? null} />
         </div>
-        {redditOff ? <span className="badge badge-amber badge-dot justify-self-start">Reddit API off</span> : null}
-      </section>
+      </header>
 
-      <section className="grid gap-4 lg:grid-cols-2 lg:items-start xl:grid-cols-[1.15fr_1.15fr_0.9fr]">
-        <section className="panel space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="h-section">Recent radar leads</h2>
-            <span className="badge badge-dim">{signals.length} recent</span>
+      <div className="op-status-line">
+        <span className={status.toneClass}>● {status.label}</span>
+        {" · "}
+        {latestRun ? `LAST SCAN ${relativeTime(latestRun.started_at)}` : "NO COMPLETED SCAN YET"}
+        {" · "}
+        {control.paused ? "NEXT CHECK PAUSED" : `NEXT CHECK ${relativeTime(nextEligible.toISOString())}`}
+        {latestFind ? ` · MOST RECENT KEPT LEAD ${relativeTime(latestFind.started_at)}` : ""}
+        {redditOff ? (
+          <>
+            {" · "}
+            <span className="is-amber">REDDIT API OFF</span>
+          </>
+        ) : null}
+        {pausedIntegrations.map((integration) => (
+          <span key={integration.key}>
+            {" · "}
+            <span className="is-amber">{integration.label.toUpperCase()} PAUSED</span>
+          </span>
+        ))}
+      </div>
+
+      <div className="stat-band" aria-label="Source radar funnel">
+        <div className="stat-band__cell">
+          <div className="stat-band__label">Reviewed · 7d</div>
+          <div className="stat-band__value">{scoreboard.reviewedThisWeek}</div>
+        </div>
+        <div className="stat-band__cell">
+          <div className="stat-band__label">Filtered</div>
+          <div className="stat-band__value">{scoreboard.filteredThisWeek}</div>
+        </div>
+        <div className="stat-band__cell">
+          <div className="stat-band__label">Awaiting corroboration</div>
+          <div className="stat-band__value stat-band__value--blue">{scoreboard.awaiting}</div>
+        </div>
+        <div className="stat-band__cell">
+          <div className="stat-band__label">Published issues</div>
+          <div className="stat-band__value stat-band__value--crimson">{scoreboard.published}</div>
+        </div>
+        <div className="stat-band__cell">
+          <div className="stat-band__label">
+            Live {scoreboard.published} · Watching {scoreboard.awaiting} · Kept {scoreboard.keptThisWeek}
+          </div>
+          <div className="stat-band__value">{scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}</div>
+          <div className="stat-band__caption">radar yield</div>
+        </div>
+      </div>
+
+      <div className="monitor-grid">
+        <section className="monitor-col" aria-label="Recent radar leads">
+          <div className="monitor-col__header">
+            <h2 className="mono-label">Recent radar leads</h2>
+            <span className="mono-label">{signals.length} recent</span>
           </div>
           {recentSignals.length > 0 ? (
-            recentSignals.map((signal) => <SignalRow key={signal.id} signal={signal} />)
+            recentSignals.map((signal) => signalRow(signal))
           ) : (
-            <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-              No kept source leads yet.
-            </p>
+            <p className="op-note">No kept source leads yet.</p>
           )}
         </section>
 
-        <section className="panel space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="h-section">Rejected archive</h2>
-            <span className="badge badge-dim">
-              <span className="num">{rejectedArchive.length}</span>&nbsp;expiring
+        <section className="monitor-col" aria-label="Rejected archive">
+          <div className="monitor-col__header">
+            <h2 className="mono-label">Rejected archive</h2>
+            <span className={rejectedArchive.length > 0 ? "mono-label mono-label--amber" : "mono-label"}>
+              {rejectedArchive.length} expiring
             </span>
           </div>
-          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            The 30 most recent auto-rejected candidates, held briefly in case one was real. They expire on their own
-            — rescuing is optional, not homework.
+          <p className="op-note" style={{ marginBottom: 14 }}>
+            The 30 most recent auto-rejected candidates, held briefly in case one was real. They expire on their
+            own — rescuing is optional, not homework.
           </p>
           {rejectedArchive.length > 0 ? (
             <RejectedArchive candidates={rejectedArchive} />
           ) : (
-            <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-              Archive is empty.
-            </p>
+            <p className="op-note">Nothing rejected recently — the filter had a quiet week.</p>
           )}
         </section>
 
-        <aside className="space-y-4 lg:col-span-2 xl:col-span-1">
-          <section className="panel space-y-3">
-            <h2 className="h-section">Latest run</h2>
+        <aside className="monitor-col" aria-label="Latest run">
+          <div className="op-rail-block">
+            <h2 className="mono-label" style={{ display: "block", marginBottom: 14 }}>
+              Latest run
+            </h2>
             {latestRun ? (
-              <>
-                <p className="text-sm" style={{ color: latestRun.status === "failed" ? "var(--crimson-bright)" : "var(--text-dim)" }}>
-                  {plainRunLine(latestRun)}
-                </p>
-                <div className="grid gap-2 text-sm">
-                  <div className="panel-inset border p-3">
-                    <div className="stat-label">Work</div>
-                    <p className="mt-1">
-                      {latestRun.search_queries_used} Tavily credits · {latestRun.search_results_seen + latestRun.reddit_posts_seen} candidates ·{" "}
-                      {latestRun.llm_calls_used} LLM
-                    </p>
-                  </div>
-                  <div className="panel-inset border p-3">
-                    <div className="stat-label">Operator readout</div>
-                    <p className="mt-1">{summarizeRunMessages(latestRun.skips, latestRun.errors).operatorSummary}</p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                No completed scan yet.
+              <p
+                className="op-rail__sentence"
+                style={latestRun.status === "failed" ? { color: "var(--crimson)" } : undefined}
+              >
+                {plainRunLine(latestRun)}.
               </p>
+            ) : (
+              <p className="op-rail__sentence">No completed scan yet.</p>
             )}
-          </section>
-
-          <details className="panel-inset border">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">Scan history</summary>
-            <div className="border-t px-4 py-3" style={{ borderColor: "var(--border)" }}>
-          {runs.slice(0, 8).map((run) => (
-            <div key={run.id} className="grid gap-2 border-b py-2 text-sm last:border-0 md:grid-cols-[auto_1fr_auto]" style={{ borderColor: "var(--border)" }}>
-              <span className="num" style={{ color: "var(--text-dim)" }}>
-                {formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}
-              </span>
-              <span style={{ color: run.search_results_seen > 0 && run.status !== "skipped" ? "var(--text)" : "var(--text-faint)" }}>
-                {plainRunLine(run)}
-              </span>
-              <span className="num" style={{ color: "var(--text-faint)" }}>
-                {formatUsd(run.estimated_cost_usd)}
-              </span>
-            </div>
-          ))}
-          <details className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
-            <summary className="cursor-pointer">Show raw scanner codes (funnel, skips, errors)</summary>
-            <div className="mt-2 space-y-2">
-              {runs.slice(0, 8).map((run) => (
-                <div key={run.id} className="break-words">
-                  <span className="num">{formatEasternDateTime(run.started_at)}</span>
-                  {funnelSummary(run.funnel) ? <span> · {funnelSummary(run.funnel)}</span> : null}
-                  {run.skips.length > 0 ? <span> · skips: {run.skips.join(", ")}</span> : null}
-                  {run.errors.length > 0 ? <span> · errors: {run.errors.join(", ")}</span> : null}
+          </div>
+          {latestRun ? (
+            <>
+              <div className="op-rail-block">
+                <div className="mono-label" style={{ marginBottom: 6 }}>
+                  Work
                 </div>
-              ))}
-            </div>
-          </details>
-            </div>
-          </details>
-
-          <details className="panel-inset border">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">Scanner settings &amp; budget</summary>
-            <div className="border-t px-4 py-4" style={{ borderColor: "var(--border)" }}>
-          <form action={setScannerPolicy} className="space-y-3 text-sm">
-            <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
-            <input type="hidden" name="modelPreset" value={control.modelPreset} />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1">
-                <span className="stat-label">How often</span>
-                <select name="cadence" defaultValue={control.paused ? "paused" : String(control.minIntervalMinutes)}>
-                  <option value="60">Hourly</option>
-                  <option value="120">Every 2 hours</option>
-                  <option value="360">Every 6 hours</option>
-                  <option value="1440">Daily</option>
-                  <option value="paused">Paused</option>
-                </select>
-              </label>
-              <label className="grid gap-1">
-                <span className="stat-label">Search depth</span>
-                <select name="scheduledSearchCreditsPerRun" defaultValue={String(control.scheduledSearchCreditsPerRun)}>
-                  <option value="1">1 search / run</option>
-                  <option value="2">2 searches / run</option>
-                  <option value="3">3 searches / run</option>
-                </select>
-              </label>
-              <label className="grid gap-1">
-                <span className="stat-label">Monthly search cap</span>
-                <input name="monthlyTavilyCreditCap" type="number" min="0" max="1000" step="1" defaultValue={control.monthlyTavilyCreditCap} className="num" />
-              </label>
-              <label className="grid gap-1">
-                <span className="stat-label">Monthly LLM cap ($)</span>
-                <input name="monthlyLlmUsdCap" type="number" min="0" max="2" step="0.25" defaultValue={control.monthlyLlmUsdCap} className="num" />
-              </label>
-            </div>
-            <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-              {`At this setting the base searches use about ${projectedCredits} monthly Tavily credits; bounded old-Reddit context reads can use some of the remaining allowance, and all discovery stops at ${control.monthlyTavilyCreditCap}. DeepSeek V4 Flash stops at $${control.monthlyLlmUsdCap.toFixed(2)} per month. Cadence is ${cadenceLabel(control.minIntervalMinutes)}. Test scans never touch the public site.`}
-            </p>
-            <SubmitButton className="btn" pendingText="Saving...">
-              Save settings
-            </SubmitButton>
-          </form>
-            </div>
-          </details>
+                <p className="op-rail__mono">
+                  {latestRun.search_queries_used} Tavily credits ·{" "}
+                  {latestRun.search_results_seen + latestRun.reddit_posts_seen} candidates · {latestRun.llm_calls_used}{" "}
+                  LLM
+                </p>
+              </div>
+              <div className="op-rail-block">
+                <div className="mono-label" style={{ marginBottom: 6 }}>
+                  Operator readout
+                </div>
+                <p className="op-rail__readout">
+                  {summarizeRunMessages(latestRun.skips, latestRun.errors).operatorSummary}
+                </p>
+              </div>
+            </>
+          ) : null}
+          <div className="op-rail-block op-rail__links">
+            <details>
+              <summary>Scan history →</summary>
+              <div style={{ marginTop: 10 }}>
+                {runs.slice(0, 8).map((run) => (
+                  <div key={run.id} className="op-history-row">
+                    <span className="num-quiet">
+                      {formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}
+                    </span>
+                    <span
+                      style={{
+                        color:
+                          run.search_results_seen > 0 && run.status !== "skipped"
+                            ? "var(--dispatch-ink)"
+                            : "var(--dispatch-faint)",
+                      }}
+                    >
+                      {plainRunLine(run)}
+                    </span>
+                    <span className="num-quiet">{formatUsd(run.estimated_cost_usd)}</span>
+                  </div>
+                ))}
+                <details className="mt-2 text-xs" style={{ color: "var(--dispatch-faint)" }}>
+                  <summary className="cursor-pointer">Show raw scanner codes (funnel, skips, errors)</summary>
+                  <div className="mt-2 space-y-2">
+                    {runs.slice(0, 8).map((run) => (
+                      <div key={run.id} className="break-words">
+                        <span style={{ fontFamily: "var(--font-mono)" }}>{formatEasternDateTime(run.started_at)}</span>
+                        {funnelSummary(run.funnel) ? <span> · {funnelSummary(run.funnel)}</span> : null}
+                        {run.skips.length > 0 ? <span> · skips: {run.skips.join(", ")}</span> : null}
+                        {run.errors.length > 0 ? <span> · errors: {run.errors.join(", ")}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            </details>
+            <details>
+              <summary>Scanner settings &amp; budget →</summary>
+              <form action={setScannerPolicy} className="space-y-3 text-sm" style={{ marginTop: 12 }}>
+                <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
+                <input type="hidden" name="modelPreset" value={control.modelPreset} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="dispatch-field grid gap-1">
+                    <span className="mono-label">How often</span>
+                    <select name="cadence" defaultValue={control.paused ? "paused" : String(control.minIntervalMinutes)}>
+                      <option value="60">Hourly</option>
+                      <option value="120">Every 2 hours</option>
+                      <option value="360">Every 6 hours</option>
+                      <option value="1440">Daily</option>
+                      <option value="paused">Paused</option>
+                    </select>
+                  </label>
+                  <label className="dispatch-field grid gap-1">
+                    <span className="mono-label">Search depth</span>
+                    <select
+                      name="scheduledSearchCreditsPerRun"
+                      defaultValue={String(control.scheduledSearchCreditsPerRun)}
+                    >
+                      <option value="1">1 search / run</option>
+                      <option value="2">2 searches / run</option>
+                      <option value="3">3 searches / run</option>
+                    </select>
+                  </label>
+                  <label className="dispatch-field grid gap-1">
+                    <span className="mono-label">Monthly search cap</span>
+                    <input
+                      name="monthlyTavilyCreditCap"
+                      type="number"
+                      min="0"
+                      max="1000"
+                      step="1"
+                      defaultValue={control.monthlyTavilyCreditCap}
+                    />
+                  </label>
+                  <label className="dispatch-field grid gap-1">
+                    <span className="mono-label">Monthly LLM cap ($)</span>
+                    <input
+                      name="monthlyLlmUsdCap"
+                      type="number"
+                      min="0"
+                      max="2"
+                      step="0.25"
+                      defaultValue={control.monthlyLlmUsdCap}
+                    />
+                  </label>
+                </div>
+                <p className="op-note">
+                  {`At this setting the base searches use about ${projectedCredits} monthly Tavily credits; bounded old-Reddit context reads can use some of the remaining allowance, and all discovery stops at ${control.monthlyTavilyCreditCap}. DeepSeek V4 Flash stops at $${control.monthlyLlmUsdCap.toFixed(2)} per month. Cadence is ${cadenceLabel(control.minIntervalMinutes)}. Test scans never touch the public site.`}
+                </p>
+                <SubmitButton className="dispatch-btn" pendingText="Saving...">
+                  Save settings
+                </SubmitButton>
+              </form>
+            </details>
+          </div>
         </aside>
-      </section>
-    </div>
+      </div>
+    </>
   );
 }

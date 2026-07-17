@@ -1,7 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import Script from "next/script";
-import { useRef, useState, type ChangeEvent, type FormEvent, type InputHTMLAttributes } from "react";
+import {
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+  type FormEvent,
+  type InputHTMLAttributes,
+} from "react";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -15,19 +23,6 @@ import { analyzeSaveImport, type SaveImportAnalysis, type SaveImportFile } from 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 const MAX_IMPORT_FILES = 18;
 const MAX_TEXT_FILE_BYTES = 250_000;
-
-const OPTIONAL_FIELDS: { name: string; label: string; textarea?: boolean; placeholder?: string }[] = [
-  { name: "repro_steps", label: "Steps to reproduce", textarea: true, placeholder: "1. Open world map during combat\n2. ..." },
-  { name: "expected_behavior", label: "Expected behavior" },
-  { name: "actual_behavior", label: "Actual behavior" },
-  { name: "location_quest", label: "Location / quest" },
-  { name: "hardware_specs", label: "Hardware (GPU, CPU, RAM)", placeholder: "RTX 4060 8GB, i5-13600K, 32GB" },
-  { name: "graphics_mode", label: "Graphics mode / FPS setting", textarea: true, placeholder: "Performance mode / FSR on" },
-  { name: "driver_os", label: "Driver / OS version", placeholder: "NVIDIA 566.14, Windows 11 24H2" },
-  { name: "troubleshooting_tried", label: "Troubleshooting you tried", textarea: true },
-  { name: "pers_id", label: "Pearl Abyss PERS ID (if you filed one)" },
-  { name: "evidence_url", label: "Evidence link (YouTube, Reddit, X, etc.)", placeholder: "https://..." },
-];
 
 const SEVERITY_LABELS: Record<(typeof SEVERITIES)[number], string> = {
   low: "Low",
@@ -57,10 +52,24 @@ type ReportPatchMetadata = {
   officialUrl: string;
 };
 
+// Viewport as an external store: below 900px the assistant rail starts
+// collapsed behind its disclosure; the desktop rail renders expanded.
+const MOBILE_QUERY = "(max-width: 899px)";
+
+function subscribeToViewport(listener: () => void): () => void {
+  const media = window.matchMedia(MOBILE_QUERY);
+  media.addEventListener("change", listener);
+  return () => media.removeEventListener("change", listener);
+}
+
+function isMobileViewport(): boolean {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
 function FieldError({ messages }: { messages?: string[] }) {
   if (!messages?.length) return null;
   return (
-    <p className="mt-1 text-xs" style={{ color: "var(--crimson-bright)" }}>
+    <p className="mt-1 text-xs" style={{ color: "var(--crimson)" }} role="alert">
       {messages[0]}
     </p>
   );
@@ -79,6 +88,11 @@ export function ReportForm({
   const [saveImport, setSaveImport] = useState<SaveImportAnalysis | null>(null);
   const [pendingImport, setPendingImport] = useState<SaveImportAnalysis | null>(null);
   const [saveImportMessage, setSaveImportMessage] = useState("");
+  // Desktop shows the assistant rail expanded; below 900px it starts collapsed
+  // behind the disclosure summary. A user toggle wins over the derived default.
+  const [assistantToggled, setAssistantToggled] = useState<boolean | null>(null);
+  const mobileViewport = useSyncExternalStore(subscribeToViewport, isMobileViewport, () => false);
+  const assistantOpen = assistantToggled ?? !mobileViewport;
   const graphicsModeRef = useRef<HTMLTextAreaElement>(null);
   const troubleshootingRef = useRef<HTMLTextAreaElement>(null);
   const saveImportFileInputRef = useRef<HTMLInputElement>(null);
@@ -178,61 +192,56 @@ export function ReportForm({
 
   if (status === "done") {
     return (
-      <div className="mx-auto max-w-xl report-page report-success">
-        <div className="panel space-y-4 py-10 text-center">
-          <div
-            className="mx-auto flex h-12 w-12 items-center justify-center rounded-full"
-            style={{ background: "var(--green-tint)", border: "1px solid var(--green-edge)" }}
-            aria-hidden="true"
-          >
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="var(--green-bright)" strokeWidth="2.5">
-              <path d="M20 6 9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <div className="space-y-1.5">
-            <h1 className="h-display">Report received</h1>
-            <p className="mx-auto max-w-md text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              It&rsquo;s checked and sorted into the right issue automatically &mdash; no queue, no waiting. Your raw words
-              stay private; only counts and a neutral summary ever go public. Crash logs? File through Pearl Abyss support
-              too.
-            </p>
-          </div>
-          <button className="btn btn-ghost" type="button" onClick={() => setStatus("idle")}>
-            Submit another report
+      <div className="report-success">
+        <p className="report-success__mark">✓ Report received</p>
+        <h1 className="report-success__title">Filed.</h1>
+        <p className="report-success__copy">
+          It&rsquo;s checked and sorted into the right issue automatically — no queue, no waiting. Your raw words
+          stay private; only counts and a neutral summary ever go public. Crash logs? File through Pearl Abyss
+          support too.
+        </p>
+        <div className="report-success__actions">
+          <button className="dispatch-btn dispatch-btn--secondary" type="button" onClick={() => setStatus("idle")}>
+            File another report
           </button>
+          <Link href="/issues" className="dispatch-link" style={{ fontSize: 13.5 }}>
+            See the Issue Board →
+          </Link>
         </div>
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="page-stack editorial-page report-page">
-      <section className="editorial-page__hero flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0 space-y-2">
-          <div className="eyebrow">Anonymous structured report</div>
-          <h1 className="h-section">Submit a report</h1>
-          <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            No account, no email. Your report helps separate isolated bugs from patch-wide patterns. Add only what you
-            know; the site sorts it into the public issue counts after checks.
+    <form onSubmit={onSubmit}>
+      <header className="dispatch-pagehead">
+        <div className="dispatch-pagehead__copy">
+          <p className="dispatch-kicker">Anonymous structured report</p>
+          <h1 className="dispatch-pagehead__title">File a report</h1>
+          <p className="dispatch-pagehead__dek">
+            No account, no email. Your report helps separate isolated bugs from patch-wide patterns. Add only what
+            you know; the board sorts it into public issue counts after checks.
           </p>
         </div>
-        <a
-          href={currentPatch.officialUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="link num text-xs uppercase tracking-wide"
-          aria-label={`Open official Patch ${currentPatch.version} notes`}
-        >
-          Patch {currentPatch.version} ↗
-        </a>
-      </section>
+        <div className="dispatch-pagehead__status">
+          FILING AGAINST{" "}
+          <a
+            href={currentPatch.officialUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="dispatch-link"
+            aria-label={`Open official Patch ${currentPatch.version} notes`}
+          >
+            PATCH {currentPatch.version} ↗
+          </a>
+        </div>
+      </header>
 
-      <div className="grid gap-3 lg:grid-cols-[1.4fr_0.85fr] lg:items-start">
-        <div className="space-y-3 min-w-0">
-        <section className="panel space-y-5">
-          <div className="stat-label">The basics</div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <div>
+      <div className="report-grid">
+        <div className="report-form-col">
+          <div className="report-section-label">The basics</div>
+          <div className="report-row-3">
+            <div className="dispatch-field">
               <label htmlFor="patch_version">Patch you&apos;re playing on</label>
               <select id="patch_version" name="patch_version" defaultValue={currentPatch.version}>
                 {patchVersions.map((patch) => (
@@ -242,7 +251,7 @@ export function ReportForm({
                 ))}
               </select>
             </div>
-            <div>
+            <div className="dispatch-field">
               <label htmlFor="platform">Platform</label>
               <select id="platform" name="platform" required defaultValue="">
                 <option value="" disabled>
@@ -255,7 +264,7 @@ export function ReportForm({
                 ))}
               </select>
             </div>
-            <div>
+            <div className="dispatch-field">
               <label htmlFor="category">Category</label>
               <select id="category" name="category" required defaultValue="">
                 <option value="" disabled>
@@ -268,7 +277,9 @@ export function ReportForm({
                 ))}
               </select>
             </div>
-            <div>
+          </div>
+          <div className="report-row-3">
+            <div className="dispatch-field">
               <label htmlFor="severity">Severity</label>
               <select id="severity" name="severity" required defaultValue="medium">
                 {SEVERITIES.map((severity) => (
@@ -278,7 +289,7 @@ export function ReportForm({
                 ))}
               </select>
             </div>
-            <div>
+            <div className="dispatch-field">
               <label htmlFor="frequency">How often?</label>
               <select id="frequency" name="frequency" required defaultValue="sometimes">
                 {FREQUENCIES.map((frequency) => (
@@ -290,7 +301,7 @@ export function ReportForm({
             </div>
           </div>
 
-          <div>
+          <div className="dispatch-field">
             <label htmlFor="issue_title">One-line summary</label>
             <input
               id="issue_title"
@@ -303,7 +314,7 @@ export function ReportForm({
             <FieldError messages={errors.issue_title} />
           </div>
 
-          <div>
+          <div className="dispatch-field">
             <label htmlFor="description">What happened?</label>
             <textarea
               id="description"
@@ -311,123 +322,148 @@ export function ReportForm({
               required
               minLength={20}
               maxLength={4000}
-              rows={6}
-              placeholder="What were you doing, what went wrong, and how does it compare to before the patch?"
+              rows={4}
+              placeholder="Describe the problem in your own words — raw text stays private."
             />
             <FieldError messages={errors.description} />
           </div>
 
-          <details className="panel-inset group border px-4 py-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold">
-              <span>Add technical detail Pearl Abyss can use</span>
-              <span className="text-xs font-normal" style={{ color: "var(--text-faint)" }}>
-                optional · stronger evidence
-              </span>
-            </summary>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {OPTIONAL_FIELDS.map((field) => (
-                <div key={field.name} className={field.textarea ? "md:col-span-2" : undefined}>
-                  <label htmlFor={field.name}>{field.label}</label>
-                  {field.textarea ? (
-                    <textarea
-                      id={field.name}
-                      name={field.name}
-                      rows={field.name === "troubleshooting_tried" ? 4 : 3}
-                      placeholder={field.placeholder}
-                      ref={
-                        field.name === "troubleshooting_tried"
-                          ? troubleshootingRef
-                          : field.name === "graphics_mode"
-                            ? graphicsModeRef
-                            : undefined
-                      }
-                    />
-                  ) : (
-                    <input id={field.name} name={field.name} placeholder={field.placeholder} />
-                  )}
-                  <FieldError messages={errors[field.name]} />
-                </div>
-              ))}
-              <label className="flex items-center gap-2 text-sm md:col-span-2" style={{ color: "var(--text-dim)" }}>
-                <input type="checkbox" name="official_report_submitted" className="w-auto" />
-                I also filed this through Pearl Abyss&apos;s official report tool
-              </label>
-            </div>
-          </details>
-        </section>
+          <div className="report-section-rule">
+            <div className="report-section-label">Technical detail Pearl Abyss can use</div>
+            <div className="report-section-rule__note">optional · stronger evidence</div>
+          </div>
 
-        <div className="method-note" aria-label="What happens next">
-          <div className="eyebrow">What happens next</div>
-          <p>
-            Checked and sorted into the right issue automatically. Your raw words stay private — only counts and a
-            neutral summary go public. Duplicates merge, so one real patch problem reads as one moderated issue
-            cluster.
-          </p>
+          <div className="dispatch-field">
+            <label htmlFor="repro_steps">Steps to reproduce</label>
+            <textarea
+              id="repro_steps"
+              name="repro_steps"
+              rows={3}
+              placeholder={"1. Open world map during combat\n2. ..."}
+            />
+            <FieldError messages={errors.repro_steps} />
+          </div>
+          <div className="report-row-2">
+            <div className="dispatch-field">
+              <label htmlFor="expected_behavior">Expected behavior</label>
+              <input id="expected_behavior" name="expected_behavior" />
+              <FieldError messages={errors.expected_behavior} />
+            </div>
+            <div className="dispatch-field">
+              <label htmlFor="actual_behavior">Actual behavior</label>
+              <input id="actual_behavior" name="actual_behavior" />
+              <FieldError messages={errors.actual_behavior} />
+            </div>
+          </div>
+          <div className="report-row-2">
+            <div className="dispatch-field">
+              <label htmlFor="location_quest">Location / quest</label>
+              <input id="location_quest" name="location_quest" />
+              <FieldError messages={errors.location_quest} />
+            </div>
+            <div className="dispatch-field">
+              <label htmlFor="hardware_specs">Hardware (GPU, CPU, RAM)</label>
+              <input id="hardware_specs" name="hardware_specs" placeholder="RTX 4060 8GB, i5-13600K, 32GB" />
+              <FieldError messages={errors.hardware_specs} />
+            </div>
+          </div>
+          <div className="report-row-2">
+            <div className="dispatch-field">
+              <label htmlFor="graphics_mode">Graphics mode / FPS setting</label>
+              <textarea
+                id="graphics_mode"
+                name="graphics_mode"
+                rows={2}
+                placeholder="Performance mode / FSR on"
+                ref={graphicsModeRef}
+              />
+              <FieldError messages={errors.graphics_mode} />
+            </div>
+            <div className="dispatch-field">
+              <label htmlFor="driver_os">Driver / OS version</label>
+              <input id="driver_os" name="driver_os" placeholder="NVIDIA 566.14, Windows 11 24H2" />
+              <FieldError messages={errors.driver_os} />
+            </div>
+          </div>
+          <div className="dispatch-field">
+            <label htmlFor="troubleshooting_tried">Troubleshooting you tried</label>
+            <textarea id="troubleshooting_tried" name="troubleshooting_tried" rows={3} ref={troubleshootingRef} />
+            <FieldError messages={errors.troubleshooting_tried} />
+          </div>
+          <div className="report-row-2">
+            <div className="dispatch-field">
+              <label htmlFor="pers_id">Pearl Abyss PERS ID (if you filed one)</label>
+              <input id="pers_id" name="pers_id" />
+              <FieldError messages={errors.pers_id} />
+            </div>
+            <div className="dispatch-field">
+              <label htmlFor="evidence_url">Evidence link (YouTube, Reddit, X, etc.)</label>
+              <input id="evidence_url" name="evidence_url" placeholder="https://..." />
+              <FieldError messages={errors.evidence_url} />
+            </div>
+          </div>
+
+          <label className="report-check">
+            <input type="checkbox" name="official_report_submitted" className="w-auto" />
+            I also filed this through Pearl Abyss&apos;s official report tool
+          </label>
+
+          {status === "error" ? (
+            <p className="text-sm" style={{ color: "var(--crimson)" }} role="alert">
+              {message}
+            </p>
+          ) : null}
+
+          <div className="report-submit-row">
+            <button className="dispatch-btn" type="submit" disabled={status === "sending"}>
+              {status === "sending" ? "Submitting…" : "Submit report"}
+            </button>
+            <p className="report-submit-row__caption">Public pages show sorted counts and neutral summaries only.</p>
+          </div>
         </div>
 
-        {status === "error" ? (
-          <p className="text-sm" style={{ color: "var(--crimson-bright)" }} role="alert">
-            {message}
-          </p>
-        ) : null}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button className="btn" type="submit" disabled={status === "sending"}>
-            {status === "sending" ? "Submitting…" : "Submit report"}
-          </button>
-          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            Public pages show sorted counts and neutral summaries only.
-          </p>
-        </div>
-        </div>
-
-        <aside className="space-y-3">
-          <div className="panel space-y-4">
-            <div className="stat-label">Evidence assistant</div>
-            <div className="space-y-2">
-              <h2 className="text-base font-semibold">Auto-fill from local PC files</h2>
-              <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-                Your browser cannot scan your PC. It can only read files or folders you choose here.
-              </p>
-              <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-                Raw files are not uploaded. You review the generated note before it touches your report.
-              </p>
-            </div>
-            <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--ink-rule)" }}>
-              <div className="text-sm font-semibold">Best file to choose</div>
-              <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-                <span className="num">user_engine_option_save.xml</span> can fill graphics settings like upscale mode,
-                frame generation, VSync, and HDR.
-              </p>
-            </div>
-            <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--ink-rule)" }}>
-              <div className="text-sm font-semibold">Find it on Windows</div>
-              <ol className="space-y-1 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-                <li>1. Open File Explorer and search This PC for user_engine_option_save.xml.</li>
-                <li>2. Right-click the result and choose Open file location.</li>
-                <li>3. Select that file here, or select the folder that contains it.</li>
-                <li>4. If search finds nothing, skip this helper.</li>
-              </ol>
-            </div>
-            <div className="panel-inset flex flex-wrap items-center gap-2 border p-2">
+        <details
+          className="assistant-rail"
+          open={assistantOpen}
+          onToggle={(event) => setAssistantToggled((event.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary>
+            <span>Auto-fill from local PC files</span>
+            <span aria-hidden="true">▾</span>
+          </summary>
+          <div className="assistant-rail__header">Evidence assistant</div>
+          <div className="assistant-rail__block">
+            <div className="assistant-rail__title">Auto-fill from local PC files</div>
+            <p className="assistant-rail__copy">
+              Your browser cannot scan your PC. It can only read files or folders you choose here. Raw files are
+              not uploaded; you review the generated note before it touches your report.
+            </p>
+          </div>
+          <div className="assistant-rail__block">
+            <div className="assistant-rail__title assistant-rail__title--sm">Best file to choose</div>
+            <p className="assistant-rail__copy">
+              <span className="mono-ink">user_engine_option_save.xml</span> can fill graphics settings like upscale
+              mode, frame generation, VSync, and HDR.
+            </p>
+            <div className="assistant-rail__buttons">
               <button
                 type="button"
-                className="btn btn-ghost btn-sm w-auto"
+                className="tap-btn"
                 onClick={() => saveImportFileInputRef.current?.click()}
               >
                 Choose settings file
               </button>
               <button
                 type="button"
-                className="btn btn-ghost btn-sm w-auto"
+                className="tap-btn"
                 onClick={() => saveImportFolderInputRef.current?.click()}
               >
                 Choose folder
               </button>
-              <span className="basis-full text-sm sm:basis-auto" style={{ color: "var(--text-faint)" }} aria-live="polite">
-                {saveImportMessage || "Nothing selected yet"}
-              </span>
             </div>
+            <p className="assistant-rail__status" aria-live="polite">
+              {saveImportMessage || "Nothing selected yet"}
+            </p>
             <input
               id="save_import"
               type="file"
@@ -451,40 +487,59 @@ export function ReportForm({
               aria-hidden="true"
               {...DIRECTORY_INPUT_PROPS}
             />
-            <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+          </div>
+          <div className="assistant-rail__block">
+            <div className="assistant-rail__title assistant-rail__title--sm">Find it on Windows</div>
+            <ol className="assistant-rail__copy" style={{ display: "grid", gap: 4 }}>
+              <li>1. Open File Explorer and search This PC for user_engine_option_save.xml.</li>
+              <li>2. Right-click the result and choose Open file location.</li>
+              <li>3. Select that file here, or select the folder that contains it.</li>
+              <li>4. If search finds nothing, skip this helper.</li>
+            </ol>
+            <p className="assistant-rail__copy" style={{ marginTop: 8 }}>
               Inspects at most {MAX_IMPORT_FILES} selected files, reads only small XML/log/text files.
             </p>
-            {pendingImport ? (
-              <div className="space-y-2 border-t pt-3">
-                <div className="stat-label">Preview &mdash; nothing added yet</div>
-                <div className="panel-inset border p-2 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-                  {pendingImport.evidenceNote}
-                </div>
-                {pendingImport.graphicsMode ? (
-                  <div className="panel-inset border p-2 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-                    {pendingImport.graphicsMode}
-                  </div>
-                ) : null}
-                <div className="flex flex-wrap gap-2">
-                  <button className="btn btn-sm" type="button" onClick={onAddSaveImport}>
-                    Add to report
-                  </button>
-                  <button className="btn btn-ghost btn-sm" type="button" onClick={onDiscardSaveImport}>
-                    Discard
-                  </button>
-                </div>
+          </div>
+          {pendingImport ? (
+            <div className="assistant-rail__block">
+              <div className="report-section-label">Preview — nothing added yet</div>
+              <div className="assistant-rail__preview">{pendingImport.evidenceNote}</div>
+              {pendingImport.graphicsMode ? (
+                <div className="assistant-rail__preview">{pendingImport.graphicsMode}</div>
+              ) : null}
+              <div className="assistant-rail__buttons">
+                <button className="dispatch-btn" type="button" onClick={onAddSaveImport}>
+                  Add to report
+                </button>
+                <button className="tap-btn" type="button" onClick={onDiscardSaveImport}>
+                  Discard
+                </button>
               </div>
-            ) : null}
+            </div>
+          ) : null}
+          <div className="assistant-rail__block">
+            <p className="assistant-rail__copy">Only the sanitized summary can be included with the report.</p>
             {saveImport ? (
-              <div className="space-y-2 border-t pt-3 text-xs leading-5">
-                <p style={{ color: "var(--text-dim)" }}>{saveImport.privacyNote}</p>
-                <p style={{ color: "var(--text-faint)" }}>{saveImport.evidenceNote}</p>
-                <span className="badge badge-green">Added to Troubleshooting field</span>
-              </div>
+              <>
+                <p className="assistant-rail__copy" style={{ marginTop: 8 }}>
+                  {saveImport.privacyNote}
+                </p>
+                <p className="assistant-rail__copy" style={{ marginTop: 8 }}>
+                  {saveImport.evidenceNote}
+                </p>
+                <p className="assistant-rail__confirm">✓ Added to Troubleshooting field</p>
+              </>
             ) : null}
           </div>
-
-        </aside>
+          <div className="assistant-rail__next">
+            <span className="report-section-label">What happens next</span>
+            <p className="assistant-rail__copy">
+              Checked and sorted into the right issue automatically. Raw words stay private — only counts and a
+              neutral summary go public. Duplicates merge, so one real patch problem reads as one moderated issue
+              cluster.
+            </p>
+          </div>
+        </details>
       </div>
 
       {SITE_KEY ? (

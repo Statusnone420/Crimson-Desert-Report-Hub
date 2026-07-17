@@ -1,10 +1,26 @@
 import { compileDossier } from "@/app/admin/actions";
-import { DossierOutput } from "@/components/DossierOutput";
+import { OperatorShell } from "@/components/dispatch/Chrome";
+import { CopyDossierButton, DossierOutput } from "@/components/DossierOutput";
 import { requireAdmin } from "@/lib/adminGuard";
 import { features } from "@/lib/env";
 import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
+
+function runDateLabel(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/New_York",
+  });
+}
+
+function modeLabel(provider: string): string {
+  return provider === "deterministic" ? "DETERMINISTIC" : `AI DRAFT · ${provider.toUpperCase()}`;
+}
 
 export default async function CompilePage({ searchParams }: { searchParams: Promise<{ run?: string }> }) {
   await requireAdmin();
@@ -25,51 +41,61 @@ export default async function CompilePage({ searchParams }: { searchParams: Prom
   }
 
   return (
-    <div className="space-y-6">
-      <section>
-        <p className="stat-label">Admin controls</p>
-        <h1 className="text-3xl font-semibold">Compile Pearl Abyss dossier</h1>
-      </section>
+    <OperatorShell active="compile">
+      <div className="dispatch-container">
+        <header className="dispatch-pagehead" style={{ paddingBottom: 32 }}>
+          <div className="dispatch-pagehead__copy">
+            <p className="dispatch-kicker dispatch-kicker--amber">Operator · Admin controls</p>
+            <h1 className="dispatch-pagehead__title" style={{ fontSize: 44 }}>
+              Compile Pearl Abyss dossier
+            </h1>
+            <p className="dispatch-pagehead__dek">
+              Bundle the current patch&apos;s evidence — counts, verdicts, approved excerpts, reviewed links — into
+              a document you can hand to official support.
+            </p>
+          </div>
+        </header>
 
-      <form action={compileDossier} className="panel flex flex-wrap items-center gap-4">
-        <label
-          className="flex w-auto items-center gap-2 text-sm"
-          style={{ color: aiAvailable ? "var(--text)" : "var(--text-dim)" }}
-        >
-          <input type="checkbox" name="use_ai" className="w-auto" disabled={!aiAvailable} />
-          Draft with AI {aiAvailable ? "(free OpenRouter prose model)" : ": disabled, no AI key configured"}
-        </label>
-        <button className="btn">Compile now</button>
-        <span className="text-xs" style={{ color: "var(--text-dim)" }}>
-          Aggregates are deterministic. AI only rewrites prose and falls back cleanly.
-        </span>
-      </form>
+        <form action={compileDossier} className="compile-band">
+          <label
+            className="report-check"
+            style={{ color: aiAvailable ? undefined : "var(--dispatch-faint)" }}
+          >
+            <input type="checkbox" name="use_ai" className="w-auto" disabled={!aiAvailable} />
+            Draft with AI {aiAvailable ? "(free OpenRouter prose model)" : ": disabled, no AI key configured"}
+          </label>
+          <button className="dispatch-btn">Compile now</button>
+          <span className="op-note">Aggregates are deterministic. AI only rewrites prose and falls back cleanly.</span>
+        </form>
 
-      {current ? (
-        <div className="panel space-y-3">
-          <span className="stat-label">
-            Generated {new Date(current.created_at).toLocaleString()} · provider: {current.provider}
-          </span>
-          <DossierOutput markdown={current.markdown} />
-          <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-            Focus the box to select all.
-          </p>
-        </div>
-      ) : null}
-
-      <div className="panel">
-        <div className="stat-label mb-2">Previous runs</div>
-        {(runs ?? []).map((item) => (
-          <a key={item.id} href={`/admin/compile?run=${item.id}`} className="block py-1 text-sm" style={{ color: "var(--blue)" }}>
-            {new Date(item.created_at).toLocaleString()} - {item.provider}
-          </a>
-        ))}
-        {(runs ?? []).length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-            No runs yet.
-          </p>
+        {current ? (
+          <div className="compile-output">
+            <div className="mono-label">
+              Generated {runDateLabel(current.created_at)} · {modeLabel(current.provider)}
+            </div>
+            <DossierOutput markdown={current.markdown} />
+            <div className="flex flex-wrap items-center gap-4">
+              <CopyDossierButton markdown={current.markdown} />
+              <span className="op-note">Focus the box to select all.</span>
+            </div>
+          </div>
         ) : null}
+
+        <div className="compile-runs">
+          <div className="mono-label" style={{ display: "block", marginBottom: 8 }}>
+            Previous runs
+          </div>
+          {(runs ?? []).map((item) => (
+            <div key={item.id} className="compile-run-row">
+              <a href={`/admin/compile?run=${item.id}`} className="dispatch-link">
+                {runDateLabel(item.created_at)}
+              </a>
+              <span className="compile-run-row__mode">{modeLabel(item.provider)}</span>
+            </div>
+          ))}
+          {(runs ?? []).length === 0 ? <p className="op-note">No runs yet.</p> : null}
+        </div>
       </div>
-    </div>
+    </OperatorShell>
   );
 }

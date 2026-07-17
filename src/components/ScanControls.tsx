@@ -136,10 +136,10 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          className="btn btn-ghost w-full sm:w-auto"
+          className="dispatch-btn dispatch-btn--secondary"
           disabled={scanning || starting !== null}
           onClick={() => start("dry_run")}
         >
@@ -147,7 +147,7 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
         </button>
         <button
           type="button"
-          className="btn w-full sm:w-auto"
+          className="dispatch-btn"
           disabled={scanning || starting !== null}
           onClick={() => start("manual")}
         >
@@ -156,33 +156,42 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
       </div>
 
       {error ? (
-        <p className="text-xs" style={{ color: "var(--crimson-bright)" }}>
+        <p className="text-xs" style={{ color: "var(--crimson)" }} role="alert">
           {error}
         </p>
       ) : null}
 
       {scanning || finished ? (
-        <div className="fade-rise panel-inset space-y-2 border p-3 text-sm" aria-live="polite">
+        <div className="fade-rise dispatch-inset-box" style={{ padding: "12px 16px", flexDirection: "column", alignItems: "stretch", gap: 8 }} aria-live="polite">
           <div className="flex items-center justify-between gap-2">
-            <span className={finished ? "badge badge-green badge-dot" : "badge badge-amber badge-dot"}>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 11.5,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: finished ? (run?.status === "failed" ? "var(--crimson)" : "var(--green)") : "var(--amber)",
+              }}
+            >
+              ●{" "}
               {finished
                 ? (RUN_STATUS_LABELS[run?.status ?? ""] ?? "Scan finished")
                 : (STAGE_LABELS[progress?.stage ?? "starting"] ?? "Scanning")}
             </span>
             {!finished ? (
-              <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+              <span className="text-xs" style={{ color: "var(--dispatch-faint)" }}>
                 Updates live while the scan runs.
               </span>
             ) : null}
           </div>
           {progress ? (
-            <p className="num text-xs" style={{ color: "var(--text-dim)" }}>
+            <p className="text-xs" style={{ fontFamily: "var(--font-mono)", color: "var(--dispatch-dim)" }}>
               {progress.searchesDone}/{progress.searchTotal} searches · {progress.candidatesSeen} candidates ·{" "}
               {progress.prefilterRejected} pre-filtered · {progress.llmCallsUsed} LLM · {progress.kept} kept ·{" "}
               {progress.promoted} promoted
             </p>
           ) : (
-            <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+            <p className="text-xs" style={{ color: "var(--dispatch-faint)" }}>
               Starting the pipeline…
             </p>
           )}
