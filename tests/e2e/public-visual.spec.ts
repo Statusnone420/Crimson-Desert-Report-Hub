@@ -411,6 +411,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.locator("svg .trend-series[tabindex]")).toHaveCount(0);
     // Observatory surfaces: all-patch telemetry band, filter reasons, source landscape.
     await expect(page.getByRole("list", { name: "Scanner telemetry, all patches" })).toBeVisible();
+    await expect(page.getByText("completed scans + rescues; test runs excluded", { exact: true })).toBeVisible();
     await expect(page.getByText("Why sources get filtered")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Domains: kept vs filtered" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "What signals are about" })).toBeVisible();

@@ -104,4 +104,30 @@ describe("isIntakeRun", () => {
       }),
     ).toBe(2);
   });
+
+  it("does not count screened survivors as filtered when persistence fails", () => {
+    expect(
+      screenedOutCandidatesForRun({
+        ...baseRun,
+        status: "failed",
+        mode: "scheduled",
+        intent: "broad_discovery",
+        signals_inserted: 0,
+        funnel: { candidatesSeen: 5, deduped: 1, kept: 4 },
+      }),
+    ).toBe(0);
+  });
+
+  it("does not count screened survivors as filtered after partial persistence", () => {
+    expect(
+      screenedOutCandidatesForRun({
+        ...baseRun,
+        status: "partial",
+        mode: "scheduled",
+        intent: "broad_discovery",
+        signals_inserted: 1,
+        funnel: { candidatesSeen: 5, deduped: 1, kept: 4 },
+      }),
+    ).toBe(0);
+  });
 });

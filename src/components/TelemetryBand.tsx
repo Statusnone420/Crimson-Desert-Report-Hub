@@ -61,12 +61,12 @@ export function TelemetryBand({ data }: { data: ObservatoryData }) {
     {
       label: "Model calls",
       value: totals.llmCalls.toLocaleString("en-US"),
-      note: "free-model relevance screening",
+      note: "completed scans + rescues; test runs excluded",
     },
     {
       label: "Scan spend",
       value: formatCost(totals.costUsd),
-      note: `across ${totals.scans.toLocaleString("en-US")} ${totals.scans === 1 ? "scan" : "scans"}`,
+      note: "completed scanner spend; test runs excluded",
     },
     {
       label: "Patches covered",

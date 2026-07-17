@@ -90,7 +90,7 @@ type RunRow = {
   reddit_posts_seen: number | null;
   signals_inserted: number | null;
   signals_reobserved: number | null;
-  funnel: { candidatesSeen?: number | null; deduped?: number | null } | null;
+  funnel: { candidatesSeen?: number | null; deduped?: number | null; kept?: number | null } | null;
   llm_calls_used: number | null;
   estimated_cost_usd: number | null;
 };
@@ -127,15 +127,21 @@ export function screenedCandidatesForRun(run: RunRow): number {
 
 /**
  * A duplicate entered the processing slice but never reached relevance
- * screening. Only the remaining candidates are screened out; persisted
- * survivors include both new signals and re-observations.
+ * screening. Only the remaining candidates are screened out. The persisted
+ * funnel's `kept` count records screening survivors even when a later write
+ * fails; older rows fall back to the signals that actually persisted.
  */
 export function screenedOutCandidatesForRun(run: RunRow): number {
   const deduped = run.funnel?.deduped;
   const duplicateCount = typeof deduped === "number" && Number.isFinite(deduped) ? Math.max(0, deduped) : 0;
-  const kept = run.status === "failed" ? 0 : (run.signals_inserted ?? 0);
-  const reobserved = run.status === "failed" ? 0 : (run.signals_reobserved ?? 0);
-  return Math.max(0, screenedCandidatesForRun(run) - duplicateCount - kept - reobserved);
+  const funnelKept = run.funnel?.kept;
+  const screeningSurvivors =
+    typeof funnelKept === "number" && Number.isFinite(funnelKept)
+      ? Math.max(0, funnelKept)
+      : run.status === "failed"
+        ? 0
+        : Math.max(0, run.signals_inserted ?? 0) + Math.max(0, run.signals_reobserved ?? 0);
+  return Math.max(0, screenedCandidatesForRun(run) - duplicateCount - screeningSurvivors);
 }
 
 const DAILY_WINDOW_DAYS = 30;
