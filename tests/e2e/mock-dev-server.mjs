@@ -437,6 +437,42 @@ const officialPatchClaimedFixes = [
   },
 ];
 
+const patchObservations = [
+  {
+    id: "observation-1",
+    created_at: isoMinutesAgo(30),
+    patch_version: "1.13.01",
+    kind: "press_reception",
+    title: "Crimson Desert 1.13.01 hotfix tested: smoother, but not settled",
+    url: "https://www.dsogaming.com/articles/crimson-desert-1-13-01-tested/",
+    url_hash: "mock-observation-hash-1",
+    source_domain: "dsogaming.com",
+    snippet:
+      "Frame rate and controller issues persist for some players, despite the hotfix addressing several crashes and glitches.",
+    source_published_at: isoMinutesAgo(90),
+    observed_at: isoMinutesAgo(30),
+    last_seen_at: isoMinutesAgo(30),
+    seen_count: 3,
+    is_public: true,
+  },
+  {
+    id: "observation-2",
+    created_at: isoMinutesAgo(55),
+    patch_version: "1.13.01",
+    kind: "patch_release",
+    title: "Crimson Desert hotfix 1.13.01 rolling out on all platforms",
+    url: "https://www.pcgamer.com/crimson-desert-hotfix-1-13-01/",
+    url_hash: "mock-observation-hash-2",
+    source_domain: "pcgamer.com",
+    snippet: "Pearl Abyss says the hotfix targets map crashes and frame rate drops reported since 1.13.00.",
+    source_published_at: isoMinutesAgo(120),
+    observed_at: isoMinutesAgo(55),
+    last_seen_at: isoMinutesAgo(55),
+    seen_count: 1,
+    is_public: true,
+  },
+];
+
 function sendJson(res, method, status, data, headers = {}) {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -694,6 +730,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/official_patch_claimed_fixes" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(officialPatchClaimedFixes, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/patch_observations" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(patchObservations, url));
     return;
   }
 

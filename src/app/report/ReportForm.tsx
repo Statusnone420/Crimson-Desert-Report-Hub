@@ -178,7 +178,7 @@ export function ReportForm({
 
   if (status === "done") {
     return (
-      <div className="mx-auto max-w-xl">
+      <div className="mx-auto max-w-xl report-page report-success">
         <div className="panel space-y-4 py-10 text-center">
           <div
             className="mx-auto flex h-12 w-12 items-center justify-center rounded-full"
@@ -206,11 +206,11 @@ export function ReportForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-6">
-      <section className="flex flex-wrap items-end justify-between gap-4">
+    <form onSubmit={onSubmit} className="page-stack editorial-page report-page">
+      <section className="editorial-page__hero flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0 space-y-2">
-          <div className="stat-label">Anonymous structured report</div>
-          <h1 className="h-display">Submit a report</h1>
+          <div className="eyebrow">Anonymous structured report</div>
+          <h1 className="h-section">Submit a report</h1>
           <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--text-dim)" }}>
             No account, no email. Your report helps separate isolated bugs from patch-wide patterns. Add only what you
             know; the site sorts it into the public issue counts after checks.
@@ -220,14 +220,15 @@ export function ReportForm({
           href={currentPatch.officialUrl}
           target="_blank"
           rel="noreferrer noopener"
-          className="badge badge-crimson"
+          className="link num text-xs uppercase tracking-wide"
           aria-label={`Open official Patch ${currentPatch.version} notes`}
         >
-          Patch {currentPatch.version}
+          Patch {currentPatch.version} ↗
         </a>
       </section>
 
       <div className="grid gap-3 lg:grid-cols-[1.4fr_0.85fr] lg:items-start">
+        <div className="space-y-3 min-w-0">
         <section className="panel space-y-5">
           <div className="stat-label">The basics</div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -355,6 +356,31 @@ export function ReportForm({
           </details>
         </section>
 
+        <div className="method-note" aria-label="What happens next">
+          <div className="eyebrow">What happens next</div>
+          <p>
+            Checked and sorted into the right issue automatically. Your raw words stay private — only counts and a
+            neutral summary go public. Duplicates merge, so one real patch problem reads as one moderated issue
+            cluster.
+          </p>
+        </div>
+
+        {status === "error" ? (
+          <p className="text-sm" style={{ color: "var(--crimson-bright)" }} role="alert">
+            {message}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button className="btn" type="submit" disabled={status === "sending"}>
+            {status === "sending" ? "Submitting…" : "Submit report"}
+          </button>
+          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+            Public pages show sorted counts and neutral summaries only.
+          </p>
+        </div>
+        </div>
+
         <aside className="space-y-3">
           <div className="panel space-y-4">
             <div className="stat-label">Evidence assistant</div>
@@ -367,14 +393,14 @@ export function ReportForm({
                 Raw files are not uploaded. You review the generated note before it touches your report.
               </p>
             </div>
-            <div className="panel-inset space-y-2 border p-3">
+            <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--ink-rule)" }}>
               <div className="text-sm font-semibold">Best file to choose</div>
               <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
                 <span className="num">user_engine_option_save.xml</span> can fill graphics settings like upscale mode,
                 frame generation, VSync, and HDR.
               </p>
             </div>
-            <div className="panel-inset space-y-2 border p-3">
+            <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--ink-rule)" }}>
               <div className="text-sm font-semibold">Find it on Windows</div>
               <ol className="space-y-1 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
                 <li>1. Open File Explorer and search This PC for user_engine_option_save.xml.</li>
@@ -458,14 +484,6 @@ export function ReportForm({
             ) : null}
           </div>
 
-          <div className="panel space-y-2">
-            <div className="stat-label">What happens next</div>
-            <ul className="space-y-2 text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-              <li>Checked and sorted into the right issue automatically.</li>
-              <li>Your raw words stay private. Only counts and a neutral summary go public.</li>
-              <li>Duplicates merge, so one real patch problem reads as one moderated issue cluster.</li>
-            </ul>
-          </div>
         </aside>
       </div>
 
@@ -475,21 +493,6 @@ export function ReportForm({
           <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="lazyOnload" />
         </>
       ) : null}
-
-      {status === "error" ? (
-        <p className="text-sm" style={{ color: "var(--crimson-bright)" }} role="alert">
-          {message}
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-3">
-        <button className="btn" type="submit" disabled={status === "sending"}>
-          {status === "sending" ? "Submitting…" : "Submit report"}
-        </button>
-        <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-          Public pages show sorted counts and neutral summaries only.
-        </p>
-      </div>
     </form>
   );
 }

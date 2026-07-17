@@ -1192,7 +1192,7 @@ describe("automation relevance", () => {
           snippet: "Official update notes and balance changes.",
           sourceDomain: "example.com",
         }),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("rejects third-party patch-note reposts even when they quote claimed fixes", () => {
@@ -1207,7 +1207,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
         ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("keeps patch-release titles when they contain complaint language", () => {
@@ -1234,7 +1234,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00" },
         ),
-      ).toEqual({ keep: false, reason: "wrong_patch" });
+      ).toMatchObject({ keep: false, reason: "wrong_patch" });
     });
 
     it("rejects titles and snippets with no symptom language", () => {
@@ -1244,7 +1244,7 @@ describe("automation relevance", () => {
           snippet: "beautiful vistas",
           sourceDomain: "example.com",
         }),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("keeps candidates with clear symptom language for the current patch", () => {
@@ -1277,7 +1277,7 @@ describe("automation relevance", () => {
           snippet: "runs without issues",
           sourceDomain: "example.com",
         }),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("rejects SEO fix guides framed as troubleshooting content", () => {
@@ -1287,7 +1287,7 @@ describe("automation relevance", () => {
           snippet: "A troubleshooting guide for Windows settings.",
           sourceDomain: "youtube.com",
         }),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("rejects piracy and bypass discussions as bug evidence", () => {
@@ -1302,7 +1302,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
         ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("rejects issue reports pinned to a different explicit patch version", () => {
@@ -1312,7 +1312,7 @@ describe("automation relevance", () => {
           snippet: "Steam discussion about patch 1.04.",
           sourceDomain: "steamcommunity.com",
         }),
-      ).toEqual({ keep: false, reason: "wrong_patch" });
+      ).toMatchObject({ keep: false, reason: "wrong_patch" });
     });
 
     it("rejects after-version complaints for old patch numbers", () => {
@@ -1325,7 +1325,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00" },
         ),
-      ).toEqual({ keep: false, reason: "wrong_patch" });
+      ).toMatchObject({ keep: false, reason: "wrong_patch" });
     });
 
     it("rejects known stale source dates before the current patch", () => {
@@ -1339,7 +1339,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: "2026-07-03T03:00:00.000Z" },
         ),
-      ).toEqual({ keep: false, reason: "stale_source" });
+      ).toMatchObject({ keep: false, reason: "stale_source" });
     });
 
     it("rejects dated old Steam discussions that only say today's update", () => {
@@ -1353,7 +1353,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
         ),
-      ).toEqual({ keep: false, reason: "stale_source" });
+      ).toMatchObject({ keep: false, reason: "stale_source" });
     });
 
     it("rejects an official patch-note claimed-fix line even when it mentions a symptom word", () => {
@@ -1368,7 +1368,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("rejects official claimed-fix lines that mention back controls or navigation", () => {
@@ -1390,7 +1390,7 @@ describe("automation relevance", () => {
             },
             { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
           ),
-        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
       }
     });
 
@@ -1461,7 +1461,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("rejects a fix-announcement even when it names a symptom keyword", () => {
@@ -1475,7 +1475,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("rejects positive crash-fix announcement copy", () => {
@@ -1498,7 +1498,7 @@ describe("automation relevance", () => {
             },
             { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
           ),
-        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
       }
     });
 
@@ -1519,7 +1519,7 @@ describe("automation relevance", () => {
             },
             { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
           ),
-        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
       }
     });
 
@@ -1760,7 +1760,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("keeps quest and NPC progression complaints before extraction", () => {
@@ -1915,7 +1915,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     it("keeps crash and freeze complaints around fix-list copy", () => {
@@ -1993,7 +1993,7 @@ describe("automation relevance", () => {
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
         ),
-      ).toEqual({ keep: false, reason: "source_not_issue_report" });
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
     // Precision guard for the announcement gate, across EVERY symptom family. A patch note
@@ -2023,7 +2023,7 @@ describe("automation relevance", () => {
             },
             { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
           ),
-        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
       }
     });
 
@@ -2119,7 +2119,7 @@ describe("automation relevance", () => {
             },
             { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
           ),
-        ).toEqual({ keep: false, reason: "source_not_issue_report" });
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
       }
     });
   });
@@ -2139,7 +2139,7 @@ describe("automation relevance", () => {
           llmCallsUsed: 1,
           llmCostUsd: 0,
         }),
-      ).toEqual({ keep: false, reason: "category_other" });
+      ).toMatchObject({ keep: false, reason: "category_other" });
     });
 
     it("keeps an extraction classified with a real category", () => {

@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { PatchActivityChart } from "@/components/PatchActivityChart";
-import { MeterBar, ReadoutBadge, SectionHeader, StatCard } from "@/components/ui";
-import { assessClaims } from "@/lib/claims";
-import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
-import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
+import { RadarFunnel } from "@/components/RadarFunnel";
+import { SignalTrendChart } from "@/components/SignalTrendChart";
+import { ReadoutMark } from "@/components/ui";
+import { buildFixScoreboard } from "@/lib/fixScoreboard";
 import { getDashboardData, getPublicScannerData } from "@/lib/queries";
 import { buildRightNowReadout } from "@/lib/rightNow";
+import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
+import { hasClusterEvidence } from "@/lib/evidence";
 import { PEARL_ABYSS_SUPPORT_URL, SOURCE_URL } from "@/lib/site";
 
 export const revalidate = 300;
@@ -37,45 +39,26 @@ function latestScanWorkSummary(run: {
       : persisted
         ? "no new published links"
         : "no persisted links";
-  const parts = [
-    `${run.status}`,
-    `${reviewed} sources reviewed`,
-    keptCopy,
-  ];
+  const parts = [`${run.status}`, `${reviewed} sources reviewed`, keptCopy];
   if (persisted && (run.signals_reobserved ?? 0) > 0) parts.push(`${run.signals_reobserved} re-observed`);
   if (persisted && (run.stale_signals_hidden ?? 0) > 0) parts.push(`${run.stale_signals_hidden} stale hidden`);
   if (run.search_queries_used === 0) parts.push("search skipped this run");
   return parts.join(" · ");
 }
 
+function publishedDate(iso: string | null): string {
+  if (!iso) return "Publish time not stored yet.";
+  return `Published ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(
+    new Date(iso),
+  )}`;
+}
+
 export default async function DashboardPage() {
   const [d, radar] = await Promise.all([getDashboardData(), getPublicScannerData()]);
-  const claimPollCount = d.topClusters.filter((cluster) => cluster.readout.poll !== null).length;
+  const reportedIssues = d.topClusters.filter(hasClusterEvidence).length;
   const playerTaps = d.topClusters.reduce((sum, cluster) => sum + cluster.confirmations.totalCount, 0);
-  const evidenceBacked = d.topClusters.filter(hasClusterEvidence);
   const radarLeadCount = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
-  const active = d.topClusters.filter(needsFullIssueCard);
-  const watchlist = d.topClusters.filter((cluster) => !needsFullIssueCard(cluster));
-  const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
-  const maxStrength = Math.max(...active.map((cluster) => cluster.strengthScore), 1);
-  const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
-  const gpuEntries = Object.entries(d.gpus).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
-  const maxPlatform = Math.max(...platformEntries.map(([, n]) => n), 1);
-  const patchLabel = `Patch ${d.currentPatch.version}`;
-  const claims = assessClaims(d.claimedFixes, d.topClusters);
-  const stillHappeningClusterIds = new Set(
-    d.topClusters.filter((cluster) => cluster.readout.state === "still_happening").map((cluster) => cluster.id),
-  );
-  const disputedClaims = d.topClusters
-    .filter((cluster) => stillHappeningClusterIds.has(cluster.id))
-    .map((cluster) => ({
-      cluster,
-      fixText:
-        claims.all.find((claim) => claim.cluster?.id === cluster.id)?.fixText ??
-        "Claim recorded from the current official patch notes.",
-    }));
-  const hasActivity = d.series.some((point) => point.count > 0) || d.signalSeries.some((point) => point.count > 0);
+  const currentPatchLabel = `Patch ${d.currentPatch.version}`;
   const readout = buildRightNowReadout({
     currentPatch: d.currentPatch,
     scanner: radar,
@@ -106,350 +89,502 @@ export default async function DashboardPage() {
       ? "var(--green)"
       : "var(--amber)"
     : "var(--text-faint)";
+  const platformEntries = Object.entries(d.platforms).sort((a, b) => b[1] - a[1]);
+  const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
+  const maxPlatform = Math.max(...platformEntries.map(([, count]) => count), 1);
+  const maxCategory = Math.max(...categoryEntries.map(([, count]) => count), 1);
+  const hasActivity = d.series.some((point) => point.count > 0) || d.signalSeries.some((point) => point.count > 0);
+  const scoreboard = buildFixScoreboard({
+    claims: d.claimedFixes,
+    clusters: d.topClusters,
+    patchVersion: d.currentPatch.version,
+  });
+  const visibleClaims = d.claimedFixes.slice(0, 8);
+  const OBSERVATION_KIND_LABELS: Record<(typeof d.observations)[number]["kind"], string> = {
+    patch_release: "Patch coverage",
+    press_reception: "Press",
+    fix_announcement: "Fix talk",
+  };
 
   return (
-    <div className="space-y-6">
-      <section className="rise grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-        <div className="min-w-0 space-y-2.5">
-          <h1 className="h-display max-w-3xl">Crimson Desert Report Hub</h1>
-          <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            Current situation for Crimson Desert: player reports, confirmation signals, source leads, and what looks
-            worth checking.
+    <div className="page-stack patch-brief-page">
+      <section className="brief-hero rise">
+        <div className="brief-hero__copy">
+          <div className="eyebrow-row">
+            <span className="eyebrow">Independent player intelligence</span>
+            <span className="status-inline" style={{ color: scannerStatusTone }}>
+              <span aria-hidden="true" className="status-inline__dot" style={{ background: scannerStatusDot }} />
+              {scannerStatusText}
+            </span>
+          </div>
+          <h1 className="editorial-title">Crimson Desert Report Hub</h1>
+          <h2 className="brief-hero__title">Patch Brief</h2>
+          <p className="brief-hero__description">
+            A clear read on what players are reporting, what public sources are saying, and what still needs proof.
+            No ads, no invented counts, no clickbait.
           </p>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs" style={{ color: "var(--text-faint)" }}>
-            <span className="num" style={{ color: "var(--text-dim)" }}>{evidenceBacked.length}</span> reported issues
-            <span aria-hidden="true">·</span>
-            <span className="num" style={{ color: "var(--text-dim)" }}>{d.directReports}</span> reports
-            <span aria-hidden="true">·</span>
-            <span className="num" style={{ color: "var(--text-dim)" }}>{playerTaps}</span> player taps
-            <span aria-hidden="true">·</span>
-            <span className="num" style={{ color: "var(--text-dim)" }}>{d.communitySignals}</span> source leads
-            <span aria-hidden="true">·</span>
-            {d.latestReportAt ? `latest player report ${timeAgo(d.latestReportAt)}` : "no player reports yet"}
+          <div className="brief-facts" aria-label="Current patch summary">
+            <span>
+              <strong className="num">{currentPatchLabel}</strong>
+            </span>
+            <span>
+              <strong className="num">{d.directReports}</strong> player reports
+            </span>
+            <span>
+              <strong className="num">{d.communitySignals}</strong> public source leads
+            </span>
+            <span>
+              <strong className="num">{playerTaps}</strong> player taps
+            </span>
+            <span>{d.latestReportAt ? `latest player report ${timeAgo(d.latestReportAt)}` : "no player reports yet"}</span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5 md:justify-end">
+
+        <aside className="brief-index" aria-label="Current patch edition">
+          <div className="eyebrow">Current edition</div>
+          <div className="brief-index__version num">{d.currentPatch.version}</div>
+          <p>{d.currentPatch.title}</p>
+          <p className="brief-index__date">{publishedDate(d.currentPatch.publishedAt)}</p>
           <a
             href={d.currentPatch.officialUrl}
             target="_blank"
             rel="noreferrer noopener"
-            className="badge badge-crimson"
-            aria-label={`Open official ${patchLabel} notes`}
+            className="link brief-index__link"
+            aria-label="Official notes"
           >
-            {patchLabel}
+            Official notes ↗
           </a>
-          <Link href="/report" className="btn">
-            Submit a report
-          </Link>
-        </div>
+        </aside>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rise" style={{ animationDelay: "40ms" }}>
-          <StatCard
-            label="Player-reported issues"
-            value={evidenceBacked.length}
-            note={d.directReports === 0 ? "No structured reports this patch" : `${d.directReports} structured reports`}
-            tone={evidenceBacked.length > 0 ? "crimson" : undefined}
-          />
+      <section className="signal-rail" aria-labelledby="right-now-title">
+        <div className="signal-rail__label">
+          <span className="signal-rail__index num">01</span>
+          <span className="eyebrow">Live brief</span>
+          <span className="signal-rail__pulse" aria-hidden="true" />
+          <span className="signal-rail__label-name">Right now</span>
         </div>
-        <div className="rise" style={{ animationDelay: "80ms" }}>
-          <StatCard
-            label="Player reports"
-            value={d.directReports}
-            note={d.directReports === 0 ? "No reports this patch" : `+${d.weekDelta} this week`}
-            tone="crimson"
-          />
-        </div>
-        <div className="rise" style={{ animationDelay: "120ms" }}>
-          <StatCard
-            label="Fix claims — players verify"
-            value={claimPollCount}
-            note={claimPollCount === 0 ? "No open fix claims" : "PA says fixed; taps decide"}
-            tone="amber"
-          />
-        </div>
-        <div className="rise" style={{ animationDelay: "160ms" }}>
-          <StatCard
-            label="Radar leads"
-            value={radarLeadCount}
-            note="Rumors with links — not evidence"
-            tone="blue"
-          />
-        </div>
-      </section>
-
-      <section className="panel-inset flex flex-wrap items-center justify-between gap-3 border px-4 py-3 text-sm">
-        <div className="min-w-0 space-y-1.5" style={{ color: "var(--text-dim)" }}>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="badge badge-blue">Right now</span>
-            <span>{readout.snapshotLine}</span>
+        <div className="signal-rail__body">
+          <div className="signal-rail__bodyline">
+            <span style={{ color: "var(--text-dim)" }}>Current patch</span>
+            <span aria-hidden="true">·</span>
+            <span>{d.latestReportAt ? `Updated ${timeAgo(d.latestReportAt)}` : "Awaiting first report"}</span>
           </div>
-          <p className="max-w-prose text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+          <h2 id="right-now-title">{readout.snapshotLine}</h2>
+          <p>
             {currentIssueReadout
               ? `Current issue readout — ${currentIssueReadout.title}: ${currentIssueReadout.detail}`
-              : readout.emptyWorthCheckingCopy}
+              : `Current issue readout — ${readout.emptyWorthCheckingCopy}`}
           </p>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" style={{ color: "var(--text-faint)" }}>
-            <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: scannerStatusTone }}>
-              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: scannerStatusDot }} />
-              {scannerStatusText}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>
-              {d.latestAutomationRun
-                ? `Last scan ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
-                : "No scheduled scan recorded yet."}
-            </span>
+        </div>
+        <div className="signal-rail__context" aria-label="Current signal context">
+          <div className="signal-context-cell">
+            <span className="eyebrow">Reports</span>
+            <strong className="num">{d.directReports}</strong>
+            <span>player evidence</span>
+          </div>
+          <div className="signal-context-cell">
+            <span className="eyebrow">Links</span>
+            <strong className="num">{d.communitySignals}</strong>
+            <span>public source leads</span>
+          </div>
+          <div className="signal-context-cell">
+            <span className="eyebrow">Radar</span>
+            <strong className="num">{radar.awaiting}</strong>
+            <span>awaiting corroboration</span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="btn btn-ghost btn-sm">
-            Official notes
-          </a>
-          <a href={PEARL_ABYSS_SUPPORT_URL} target="_blank" rel="noreferrer noopener" className="btn btn-ghost btn-sm">
-            Pearl Abyss support
-          </a>
-          <Link href="/scanner" className="btn btn-ghost btn-sm">
-            Source Radar
-          </Link>
+        <div className="signal-rail__actions">
+          <span className="signal-rail__scan-status">
+            {/* The hero already carries the colored status light; here it reads as telemetry. */}
+            <span className="signal-rail__meta-copy">
+              {d.latestAutomationRun
+                ? `${scannerStatusText} · Last scan ${timeAgo(d.latestAutomationRun.finished_at)} · ${latestScanWorkSummary(d.latestAutomationRun)}`
+                : `${scannerStatusText} · No scheduled scan recorded yet.`}
+            </span>
+          </span>
+          <div className="signal-rail__links">
+            <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="link">
+              Official notes
+            </a>
+            <a href={PEARL_ABYSS_SUPPORT_URL} target="_blank" rel="noreferrer noopener" className="link">
+              Pearl Abyss support
+            </a>
+            <Link href="/scanner" className="link">
+              Source Radar
+            </Link>
+          </div>
         </div>
       </section>
 
-      {disputedClaims.length > 0 ? (
-        <section className="panel space-y-4">
-          <SectionHeader
-            label={`${patchLabel} context`}
-            title="Still reported after claimed fix"
-            description="Official notes are context. This section appears only when a current-version player report or enough distinct networks say a claimed fix did not take."
-            action={
-              <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="link text-xs">
-                Official notes ↗
-              </a>
-            }
-          />
-          <div className="grid gap-3 md:grid-cols-2">
-            {disputedClaims.slice(0, 4).map((claim, index) => (
-              <article
-                key={index}
-                className="panel-inset space-y-2 border p-3"
-                style={{ borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" }}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="badge badge-crimson">Still-happening readout</span>
-                  <Link href="/issues" className="link text-xs">
-                    View evidence
-                  </Link>
+      <section className="brief-section" aria-labelledby="at-a-glance-title">
+        <div className="section-intro">
+          <div>
+            <div className="eyebrow">At a glance</div>
+            <h2 id="at-a-glance-title">The patch in four signals</h2>
+          </div>
+          <p>Counts stay literal. A quiet board is still a real result.</p>
+        </div>
+        <div className="metric-strip">
+          <article className="metric-card metric-card--crimson">
+            <div className="eyebrow">Player-reported issues</div>
+            <div className="metric-card__value num">{reportedIssues}</div>
+            <p>{d.directReports === 0 ? "No structured reports this patch" : `${d.directReports} structured reports`}</p>
+          </article>
+          <article className="metric-card metric-card--crimson">
+            <div className="eyebrow">Player reports</div>
+            <div className="metric-card__value num">{d.directReports}</div>
+            <p>{d.directReports === 0 ? "No reports this patch" : `+${d.weekDelta} this week`}</p>
+          </article>
+          <article className="metric-card metric-card--amber">
+            <div className="eyebrow">Fix claims · players verify</div>
+            <div className="metric-card__value num">{d.topClusters.filter((cluster) => cluster.readout.poll !== null).length}</div>
+            <p>{d.topClusters.some((cluster) => cluster.readout.poll !== null) ? "PA says fixed; taps decide" : "No open fix claims"}</p>
+          </article>
+          <article className="metric-card metric-card--blue">
+            <div className="eyebrow">Radar leads</div>
+            <div className="metric-card__value num">{radarLeadCount}</div>
+            <p>Rumors with links — not evidence</p>
+          </article>
+        </div>
+      </section>
+
+      {scoreboard ? (
+        <section className="brief-section" aria-labelledby="scoreboard-title">
+          <div className="section-intro">
+            <div>
+              <div className="eyebrow">The scoreboard</div>
+              <h2 id="scoreboard-title">Fix claims, player verdicts</h2>
+            </div>
+            <p>Pearl Abyss says fixed. Players confirm, contest, or stay quiet — the board never decides for them.</p>
+          </div>
+          <div className="content-grid content-grid--wide">
+            <article className="chart-card chart-card--wide">
+              <div className="chart-card__header">
+                <div>
+                  <h3>What {d.currentPatch.version} claims to fix</h3>
+                  <p>
+                    Official wording, counted literally — <span className="num">{scoreboard.totalClaims}</span>{" "}
+                    {scoreboard.totalClaims === 1 ? "claimed fix" : "claimed fixes"} in the patch notes.
+                  </p>
                 </div>
-                <p className="text-sm leading-6">{claim.cluster?.title}</p>
-                <p className="text-xs leading-5" style={{ color: "var(--text-dim)" }}>
-                  Claimed fix: {claim.fixText}
+                <a
+                  href={d.currentPatch.officialUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="link text-xs"
+                >
+                  Official notes ↗
+                </a>
+              </div>
+              {scoreboard.totalClaims === 0 ? (
+                <p className="chart-empty chart-empty--short">No claimed fixes parsed from this patch yet.</p>
+              ) : (
+                <>
+                  <div className="mt-3 divide-y">
+                    {visibleClaims.map((claim, index) => (
+                      <div key={index} className="py-2.5 first:pt-0">
+                        <div className="stat-label">
+                          {CATEGORY_LABELS[claim.category as keyof typeof CATEGORY_LABELS] ?? "General"}
+                        </div>
+                        <p className="mt-1 max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+                          {claim.fixText}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {d.claimedFixes.length > visibleClaims.length ? (
+                    <p className="muted-note">
+                      +{d.claimedFixes.length - visibleClaims.length} more in the official notes.
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </article>
+            <article className="chart-card">
+              <div className="chart-card__header">
+                <div>
+                  <h3>What players say</h3>
+                  <p>Verdicts come only from player taps on watched issues that carry this patch&rsquo;s fix claim.</p>
+                </div>
+              </div>
+              {scoreboard.verifying.length === 0 ? (
+                <p className="chart-empty chart-empty--short">
+                  No claim maps to a watched issue yet. Quiet can mean fixed — or just quiet.
                 </p>
-                <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-                  <span className="num">{claim.cluster?.directReportCount ?? 0}</span> approved reports ·{" "}
-                  <span className="num">{claim.cluster?.signalCount ?? 0}</span> source links
-                </p>
-              </article>
+              ) : (
+                <div className="mt-3 divide-y">
+                  {scoreboard.verifying.map((row) => (
+                    <div key={row.slug} className="py-3 first:pt-0">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                        <p className="min-w-0 text-sm font-semibold">{row.title}</p>
+                        <ReadoutMark label={row.label} tone={row.tone} />
+                      </div>
+                      <p className="num mt-1 text-xs" style={{ color: "var(--text-faint)" }}>
+                        {row.fixedCount + row.stillCount > 0
+                          ? `${row.fixedCount} say fixed · ${row.stillCount} say still happening`
+                          : "awaiting player taps"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="card-rule" />
+              <Link href="/issues" className="link text-xs">
+                Add your verdict on the issue board ↗
+              </Link>
+            </article>
+          </div>
+        </section>
+      ) : null}
+
+      {d.observations.length > 0 ? (
+        <section className="brief-section" aria-labelledby="observations-title">
+          <div className="section-intro">
+            <div>
+              <div className="eyebrow">Around the patch</div>
+              <h2 id="observations-title">What the internet is saying</h2>
+            </div>
+            <p>
+              Reviewed coverage from trusted domains, shown verbatim. Observations are context — they never count as
+              evidence and never touch issue numbers.
+            </p>
+          </div>
+          <div className="observation-list">
+            {d.observations.map((observation) => (
+              <a
+                key={observation.id}
+                href={observation.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="observation-row"
+              >
+                <div className="observation-row__meta">
+                  <span className="readout-mark readout-mark--dim">
+                    Observation · {OBSERVATION_KIND_LABELS[observation.kind]}
+                  </span>
+                  <span className="num">{observation.sourceDomain ?? "unknown source"}</span>
+                  <span>{timeAgo(observation.observedAt)}</span>
+                  {observation.seenCount > 1 ? (
+                    <span className="num">seen {observation.seenCount}×</span>
+                  ) : null}
+                </div>
+                <strong>{observation.title}</strong>
+                {observation.snippet ? <p>{observation.snippet}</p> : null}
+              </a>
             ))}
           </div>
         </section>
       ) : null}
 
-      <section className="grid gap-3 lg:grid-cols-[1.5fr_0.9fr]">
-        <div className="panel min-w-0 space-y-5">
-          <SectionHeader
-            title={active.length > 0 ? "Top issues this patch" : "Nothing reported, tapped, or linked yet"}
-            description={
-              active.length > 0
-                ? "Current readouts, ordered by approved reports, source leads, and player taps."
-                : "Known problem areas remain listed. The patch context and source radar are still available."
-            }
-            action={
-              <Link href="/issues" className="btn btn-ghost btn-sm">
-                All issues
+      <section className="brief-section" aria-labelledby="highlights-title">
+        <div className="section-intro">
+          <div>
+            <div className="eyebrow">Highlights</div>
+            <h2 id="highlights-title">Read the pulse</h2>
+          </div>
+          <p>Two views of the same system: what has accumulated, and what the radar is still sorting.</p>
+        </div>
+        <div className="highlight-grid">
+          <article className="chart-card chart-card--wide">
+            <div className="chart-card__header">
+              <div>
+                <h3>Signal trend</h3>
+                <p>Cumulative public activity across the last 30 days.</p>
+              </div>
+              <span className="badge badge-dim">Current patch</span>
+            </div>
+            <SignalTrendChart reports={d.series} signals={d.signalSeries} />
+          </article>
+          <article className="chart-card">
+            <div className="chart-card__header">
+              <div>
+                <h3>Source radar funnel</h3>
+                <p>How public chatter becomes inspectable context.</p>
+              </div>
+              <Link href="/scanner" className="link text-xs">
+                Open radar ↗
               </Link>
-            }
-          />
-
-          {active.length > 0 ? (
-            <div className="space-y-4">
-              {active.slice(0, 6).map((cluster) => (
-                <Link key={cluster.id} href="/issues" className="block space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                    <span className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="truncate font-medium">{cluster.title}</span>
-                      <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
-                    </span>
-                    <span className="num ml-auto shrink-0 text-xs" style={{ color: "var(--text-dim)" }}>
-                      {cluster.directReportCount} reports · {cluster.confirmations.totalCount} taps · {cluster.signalCount} links
-                    </span>
-                  </div>
-                  <MeterBar value={cluster.strengthScore} max={maxStrength} tone={cluster.readout.tone} />
-                </Link>
-              ))}
             </div>
-          ) : null}
-
-          {candidates.length > 0 || monitored.length > 0 ? (
-            <div className="space-y-2.5">
-              {active.length > 0 ? <div className="stat-label pt-1">Also watching</div> : null}
-              {candidates.length > 0 ? (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {candidates.map((cluster) => (
-                    <Link
-                      key={cluster.id}
-                      href="/issues"
-                      className="panel-inset interactive block space-y-1.5 border px-3 py-2.5"
-                    >
-                      <p className="truncate text-sm font-medium">{cluster.title}</p>
-                      <div className="flex items-center justify-between gap-2">
-                        <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
-                        <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-                          {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
-                        </span>
-                      </div>
-                      <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-                        {cluster.readout.sentence}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-              ) : null}
-              {monitored.length > 0 ? (
-                <p className="text-xs" style={{ color: "var(--text-faint)" }} title="The scanner checks public sources each run.">
-                  {monitoredAreasNote(monitored.length)}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          <p className="max-w-prose border-t pt-3 text-xs leading-5" style={{ color: "var(--text-faint)" }}>
-            Watchlist clusters start at zero. Player reports are evidence; one-tap confirmations are signals; scanner
-            links remain leads. The tracker never invents counts — and quiet never means fixed.
-          </p>
+            <RadarFunnel data={radar} />
+          </article>
         </div>
+      </section>
 
-        <div className="min-w-0 space-y-3">
-          <div className="panel space-y-3">
-            <div className="stat-label">Platforms</div>
+      <section className="brief-section" aria-labelledby="activity-title">
+        <div className="section-intro">
+          <div>
+            <div className="eyebrow">The record</div>
+            <h2 id="activity-title">Activity and context</h2>
+          </div>
+          <p>Player evidence and official notes belong in the same brief, but they are never the same thing.</p>
+        </div>
+        <div className="content-grid content-grid--wide">
+          <article className="chart-card chart-card--wide">
+            <div className="chart-card__header">
+              <div>
+                <h3>30-day patch activity</h3>
+                <p>Approved reports and source leads over time.</p>
+              </div>
+              <span className="badge badge-dim">Current patch</span>
+            </div>
+            {hasActivity ? (
+              <PatchActivityChart reports={d.series} signals={d.signalSeries} />
+            ) : (
+              <div className="chart-empty">Activity appears once approved reports or source leads come in.</div>
+            )}
+          </article>
+          <article className="source-card">
+            <div className="source-card__topline">
+              <div className="eyebrow">Source document</div>
+              <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="link text-xs">
+                Official notes ↗
+              </a>
+            </div>
+            <h3>Official patch source</h3>
+            <p className="source-card__document">{d.currentPatch.title}</p>
+            <p className="source-card__summary">
+              {d.currentPatch.summary ??
+                "Official notes provide patch context. The board itself is driven by player reports, confirmation signals, and corroborated source leads."}
+            </p>
+            <div className="source-card__date">{publishedDate(d.currentPatch.publishedAt)}</div>
+          </article>
+        </div>
+      </section>
+
+      <section className="brief-section" aria-labelledby="coverage-title">
+        <div className="section-intro">
+          <div>
+            <div className="eyebrow">Coverage</div>
+            <h2 id="coverage-title">Where the signal is coming from</h2>
+          </div>
+          <p>These breakdowns stay intentionally small until reports give them something honest to say.</p>
+        </div>
+        <div className="content-grid">
+          <article className="chart-card">
+            <div className="chart-card__header">
+              <div>
+                <h3>Platforms</h3>
+                <p>Approved report distribution.</p>
+              </div>
+            </div>
             {platformEntries.length === 0 ? (
-              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                No approved reports yet.
-              </p>
+              <p className="chart-empty chart-empty--short">No approved reports yet.</p>
             ) : (
-              <div className="space-y-2.5">
+              <div className="bar-list">
                 {platformEntries.map(([platform, count]) => (
-                  <div key={platform} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
+                  <div key={platform} className="bar-list__row">
+                    <div className="bar-list__label">
                       <span>{PLATFORM_LABELS[platform as keyof typeof PLATFORM_LABELS] ?? platform}</span>
-                      <span className="num text-xs" style={{ color: "var(--text-dim)" }}>{count}</span>
+                      <span className="num">{count}</span>
                     </div>
-                    <MeterBar value={count} max={maxPlatform} tone="dim" />
+                    <div className="bar-list__track" aria-hidden="true">
+                      <span style={{ width: `${Math.round((count / maxPlatform) * 100)}%` }} />
+                    </div>
                   </div>
                 ))}
               </div>
             )}
-            <div className="border-t pt-3">
-              <div className="stat-label mb-2">Most-cited GPUs</div>
-              {gpuEntries.length === 0 ? (
-                <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-                  Appears once reports include hardware.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {gpuEntries.map(([gpu, count]) => (
+            <div className="card-rule" />
+            <div className="eyebrow">Most-cited GPUs</div>
+            {Object.entries(d.gpus).length === 0 ? (
+              <p className="muted-note">Appears once reports include hardware.</p>
+            ) : (
+              <div className="chip-list">
+                {Object.entries(d.gpus)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 5)
+                  .map(([gpu, count]) => (
                     <span key={gpu} className="chip">
-                      {gpu}
-                      <span className="num" style={{ color: "var(--text-faint)" }}>{count}</span>
+                      {gpu} <span className="num">{count}</span>
                     </span>
                   ))}
-                </div>
-              )}
-            </div>
-          </div>
+              </div>
+            )}
+          </article>
 
-          <div className="panel space-y-2">
-            <div className="stat-label">By category</div>
+          <article className="chart-card">
+            <div className="chart-card__header">
+              <div>
+                <h3>Categories</h3>
+                <p>What approved reports are about.</p>
+              </div>
+            </div>
             {categoryEntries.length === 0 ? (
-              <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-                Counts appear as reports are sorted.
-              </p>
+              <p className="chart-empty chart-empty--short">Counts appear as reports are sorted.</p>
             ) : (
-              <div className="space-y-1">
+              <div className="bar-list">
                 {categoryEntries.map(([category, count]) => (
-                  <div key={category} className="flex items-center justify-between py-1 text-sm">
-                    <span style={{ color: "var(--text-dim)" }}>
-                      {CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? category}
-                    </span>
-                    <span className="num text-xs">{count}</span>
+                  <div key={category} className="bar-list__row">
+                    <div className="bar-list__label">
+                      <span>{CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? category}</span>
+                      <span className="num">{count}</span>
+                    </div>
+                    <div className="bar-list__track" aria-hidden="true">
+                      <span className="bar-list__track--amber" style={{ width: `${Math.round((count / maxCategory) * 100)}%` }} />
+                    </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+            <div className="card-rule" />
+            <p className="muted-note">Reports capture category, severity, frequency, hardware, repro steps, and optional evidence links.</p>
+          </article>
+
+          <article className="chart-card feed-card">
+            <div className="chart-card__header">
+              <div>
+                <h3>Latest public signals</h3>
+                <p>Reviewed links currently visible on the board.</p>
+              </div>
+              <Link href="/issues" className="link text-xs">
+                View issues ↗
+              </Link>
+            </div>
+            {d.publicFindings.length === 0 ? (
+              <p className="chart-empty chart-empty--short">No public source links are displayed for this patch yet.</p>
+            ) : (
+              <div className="feed-list">
+                {d.publicFindings.slice(0, 4).map((finding) => (
+                  <a key={finding.id} href={finding.sourceUrl} target="_blank" rel="noreferrer noopener" className="feed-item">
+                    <div className="feed-item__meta">
+                      <span>{finding.sourceHost}</span>
+                      <span>{timeAgo(finding.observedAt)}</span>
+                    </div>
+                    <strong>{finding.title}</strong>
+                    <p>{finding.summary}</p>
+                  </a>
+                ))}
+              </div>
+            )}
+          </article>
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-[1.35fr_0.9fr]">
-        <div className="panel">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="h-section">30-day patch activity</h2>
-              <p className="text-sm" style={{ color: "var(--text-dim)" }}>
-                Approved reports and source leads over time.
-              </p>
-            </div>
-            <span className="badge badge-dim">Current patch</span>
-          </div>
-          {hasActivity ? (
-            <PatchActivityChart reports={d.series} signals={d.signalSeries} />
-          ) : (
-            <div className="flex h-28 items-center justify-center text-xs" style={{ color: "var(--text-faint)" }}>
-              Activity appears once approved reports or source leads come in.
-            </div>
-          )}
-        </div>
-
-        <div className="panel space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="h-section">Official patch source</h2>
-            <a href={d.currentPatch.officialUrl} target="_blank" rel="noreferrer noopener" className="link text-xs">
-              Official notes ↗
-            </a>
-          </div>
-          <p className="text-sm font-medium">{d.currentPatch.title}</p>
-          <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
-            {d.currentPatch.summary ??
-              "Official notes provide the patch label and source context. The board itself is driven by player reports, confirmation signals, and corroborated source leads."}
-          </p>
-          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
-            {d.currentPatch.publishedAt
-              ? `Published ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(d.currentPatch.publishedAt))}`
-              : "Publish time not stored yet."}
-          </p>
+      <section className="method-note" aria-label="How to read this brief">
+        <div className="eyebrow">Read the board correctly</div>
+        <p>
+          Player reports are evidence. One-tap confirmations are signals. Scanner links are leads. Official notes are context. The tracker never invents counts, and quiet never means fixed.
+        </p>
+        <div className="method-note__links">
+          <Link href="/issues" className="link">Browse issues ↗</Link>
+          <Link href="/report" className="link">Submit a report ↗</Link>
+          <Link href="/about" className="link">Read the method ↗</Link>
         </div>
       </section>
 
-      <section className="grid gap-4 border-t pt-5 md:grid-cols-3 md:gap-6">
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold">Privacy</h3>
-          <p className="text-sm leading-6" style={{ color: "var(--text-faint)" }}>
-            No accounts, ads, trackers, or raw IP storage. Public text is a neutral generated summary, never your raw
-            words.
-          </p>
+      <section className="brief-notes" aria-label="Privacy and evidence notes">
+        <div>
+          <h3>Privacy</h3>
+          <p>No accounts, ads, trackers, or raw IP storage. Public text is a neutral generated summary, never your raw words.</p>
         </div>
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold">Evidence</h3>
-          <p className="text-sm leading-6" style={{ color: "var(--text-faint)" }}>
-            Reports capture platform, severity, frequency, hardware, repro steps, and optional evidence links.
-          </p>
+        <div>
+          <h3>Evidence</h3>
+          <p>Reports capture platform, severity, frequency, hardware, repro steps, and optional evidence links.</p>
         </div>
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold">Official channel</h3>
-          <p className="text-sm leading-6" style={{ color: "var(--text-faint)" }}>
-            Crash logs and PERS IDs still belong in Pearl Abyss support. This hub organizes community evidence,
-            signals, and leads.
-          </p>
+        <div>
+          <h3>Official channel</h3>
+          <p>Crash logs and PERS IDs still belong in Pearl Abyss support. This hub organizes community evidence, signals, and leads.</p>
         </div>
       </section>
     </div>

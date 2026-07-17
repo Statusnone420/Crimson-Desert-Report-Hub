@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+// Ordered as the evidence pipeline reads: brief → issues → scanner → contribute → method.
 const NAV = [
-  { href: "/", label: "Dashboard" },
+  { href: "/", label: "Patch Brief" },
   { href: "/issues", label: "Issues" },
+  { href: "/scanner", label: "Scanner" },
   { href: "/report", label: "Report" },
   { href: "/about", label: "About" },
-  { href: "/scanner", label: "Scanner" },
 ];
 
 export function NavLinks() {

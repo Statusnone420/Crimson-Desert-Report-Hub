@@ -4,7 +4,17 @@ import { CURRENT_PATCH } from "@/lib/constants";
 
 export type RelevanceSkipReason = "category_other" | "source_not_issue_report" | "wrong_patch" | "stale_source";
 
-export type SignalRelevanceDecision = { keep: true } | { keep: false; reason: RelevanceSkipReason };
+/**
+ * Observation genres: named non-complaint genres the pre-screen already
+ * recognizes. A genre on a rejection changes the candidate's DESTINATION
+ * (observation lane instead of the trash), never the rejection itself — the
+ * evidence funnel's keep/reject behavior is byte-for-byte unchanged.
+ */
+export type ObservationKind = "patch_release" | "press_reception" | "fix_announcement";
+
+export type SignalRelevanceDecision =
+  | { keep: true }
+  | { keep: false; reason: RelevanceSkipReason; observationKind?: ObservationKind };
 
 export type CandidatePreScreenInput = {
   title: string;
@@ -45,6 +55,18 @@ const SYMPTOM_PATTERNS = [
   /\b(?:quests?|missions?|objectives?|npcs?|cutscenes?|dialogue)\b.{0,60}\b(?:stuck|blocked|frozen|missing|broken|bugged|softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete|not progressing|not spawning)\b/i,
   /\b(?:softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete)\b/i,
 ] as const;
+
+// The press subset of BROAD_CONTENT_PATTERNS: coverage worth keeping as an
+// observation. Guides/trailers/walkthroughs stay plain rejects — they are
+// content ABOUT the game, not reception OF the patch.
+const PRESS_RECEPTION_PATTERNS = [
+  /\breview\b/i,
+  /\bbenchmark\b/i,
+  /\bperformance test\b/i,
+  /\bfirst look\b/i,
+] as const;
+
+const PATCH_NOTES_MIRROR_PATTERN = /\bpatch notes?\b/i;
 
 const BROAD_CONTENT_PATTERNS = [
   /\bpatch notes?\b/i,
@@ -264,16 +286,24 @@ export function preScreenCandidate(
     !matchesAny(sourceText, FIX_PERSISTENCE_CUES) &&
     !hasComplaintSymptom(sourceText)
   ) {
-    return { keep: false, reason: "source_not_issue_report" };
+    return { keep: false, reason: "source_not_issue_report", observationKind: "patch_release" };
   }
   if (isBroadContentTitle(input.title)) {
-    return { keep: false, reason: "source_not_issue_report" };
+    return {
+      keep: false,
+      reason: "source_not_issue_report",
+      observationKind: PATCH_NOTES_MIRROR_PATTERN.test(input.title)
+        ? "patch_release"
+        : matchesAny(input.title, PRESS_RECEPTION_PATTERNS)
+          ? "press_reception"
+          : undefined,
+    };
   }
   if (isClaimedFixNotReport(sourceText)) {
-    return { keep: false, reason: "source_not_issue_report" };
+    return { keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" };
   }
   if (isFixAnnouncement(sourceText)) {
-    return { keep: false, reason: "source_not_issue_report" };
+    return { keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" };
   }
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {
     return { keep: false, reason: "source_not_issue_report" };

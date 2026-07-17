@@ -2,16 +2,17 @@ import Link from "next/link";
 
 export default function AboutPage() {
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <section className="space-y-2">
-        <p className="stat-label">Purpose and privacy</p>
-        <h1 className="text-3xl font-semibold">About this tracker</h1>
+    <div className="page-stack editorial-page about-page">
+      <section className="editorial-page__hero">
+        <p className="eyebrow">Purpose and privacy</p>
+        <h1 className="h-section">About this tracker</h1>
         <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
           A community-run way to turn scattered patch complaints into structured, moderated evidence.
         </p>
       </section>
 
-      <section className="panel space-y-3 text-sm leading-6">
+      <div className="about-grid">
+      <section className="about-block space-y-3 text-sm leading-6">
         <h2 className="text-lg font-semibold">What it is</h2>
         <p className="max-w-prose">
           Crimson Desert Report Hub is an unofficial, fan-run confirmation board. It organizes structured player
@@ -22,7 +23,7 @@ export default function AboutPage() {
         </p>
       </section>
 
-      <section className="panel space-y-3 text-sm leading-6">
+      <section className="about-block space-y-3 text-sm leading-6">
         <h2 className="text-lg font-semibold">Privacy posture</h2>
         <p className="max-w-prose">No accounts. No email. No ads. No analytics trackers.</p>
         <p className="max-w-prose">
@@ -32,7 +33,7 @@ export default function AboutPage() {
         </p>
       </section>
 
-      <section className="panel space-y-3 text-sm leading-6">
+      <section className="about-block about-block--wide space-y-3 text-sm leading-6">
         <h2 className="text-lg font-semibold">Evidence, signals, and leads</h2>
         <p className="max-w-prose">
           Reports are evidence: structured submissions remain private except for counts and moderator-approved
@@ -45,7 +46,7 @@ export default function AboutPage() {
         </p>
       </section>
 
-      <section className="panel space-y-3 text-sm leading-6">
+      <section className="about-block space-y-3 text-sm leading-6">
         <h2 className="text-lg font-semibold">Public source</h2>
         <p className="max-w-prose">
           The website code is intended to be public for transparency, privacy review, and community contributions.
@@ -61,7 +62,7 @@ export default function AboutPage() {
         </a>
       </section>
 
-      <section className="panel space-y-3 text-sm leading-6">
+      <section className="about-block space-y-3 text-sm leading-6">
         <h2 className="text-lg font-semibold">Use official support too</h2>
         <p className="max-w-prose">
           This site aggregates community evidence; it does not replace official channels. If you have crash
@@ -69,6 +70,7 @@ export default function AboutPage() {
           your community report here.
         </p>
       </section>
+      </div>
     </div>
   );
 }
