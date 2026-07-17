@@ -70,7 +70,7 @@ Add the production hostname to the widget configuration. The report form remains
 ## Automation posture
 
 - Official patch notes provide patch context and claimed-fix metadata.
-- Tavily provides bounded public-web discovery. The deployment stays within its 1,000-credit monthly ceiling, including permitted context extraction.
+- Tavily provides bounded public-web discovery. Real scans stay within the persisted 1,000-credit monthly scan budget, including permitted context extraction. The protected no-write preview also consumes Tavily search credits but does not write the scan ledger; count every preview query against the provider-side 1,000-credit allocation when checking monthly usage.
 - High-value provider usage is approved, server-side, and capped at `$2` per UTC month. Exact model routing is maintainer configuration.
 - Routine moderation and dossier prose use approved low-cost or deterministic fallback paths configured by maintainers.
 - Reddit API access and direct subreddit monitoring are permanently off.
@@ -84,6 +84,8 @@ curl -H "Authorization: Bearer <CRON_SECRET>" \
 ```
 
 It is bounded and deterministic, and it does not write public data or the persisted scan ledger.
+
+Preview requests are capped at two Tavily search queries and are intended for occasional connectivity checks, not repeated quota-free probes.
 
 ## Admin workflow
 
