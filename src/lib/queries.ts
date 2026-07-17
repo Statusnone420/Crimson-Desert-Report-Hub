@@ -898,6 +898,16 @@ export type PublicScannerData = {
 };
 
 /**
+ * Admin rescues re-screen a single stored candidate without searching, so they can
+ * add a kept signal while reviewing zero candidates — counting them would inflate
+ * keptThisWeek and eat into filteredThisWeek. Same rule as telemetry.server.ts
+ * isIntakeRun on the front-page observatory; unify the two once both are in-tree.
+ */
+function isIntakeRun(run: { mode: string; intent: string | null; search_queries_used: number | null }): boolean {
+  return !(run.mode === "manual" && run.intent === "rescue_candidate" && (run.search_queries_used ?? 0) === 0);
+}
+
+/**
  * Aggregate-only scanner counts for the public /scanner tab. Public and private
  * source text is read server-side only to enforce current-patch eligibility; no
  * title, URL, summary, rejection reason, or candidate row leaves this function.
@@ -922,19 +932,27 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
 
     const { data: runData } = await supabase
       .from("automation_runs")
-      .select("search_results_seen, reddit_posts_seen, signals_inserted, status, finished_at, started_at")
+      .select(
+        "search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, status, mode, intent, search_queries_used, finished_at, started_at",
+      )
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])
       .gte("started_at", weekAgo)
       .order("started_at", { ascending: false });
-    const runs = (runData ?? []) as {
-      search_results_seen: number;
-      reddit_posts_seen: number;
-      signals_inserted: number;
-      status: string;
-      finished_at: string | null;
-      started_at: string;
-    }[];
+    const runs = (
+      (runData ?? []) as {
+        search_results_seen: number;
+        reddit_posts_seen: number;
+        signals_inserted: number;
+        signals_reobserved: number | null;
+        status: string;
+        mode: string;
+        intent: string | null;
+        search_queries_used: number | null;
+        finished_at: string | null;
+        started_at: string;
+      }[]
+    ).filter(isIntakeRun);
     const reviewedThisWeek = runs.reduce(
       (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
       0,
@@ -945,7 +963,14 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       (sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)),
       0,
     );
-    const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek);
+    // Re-encounters of already-tracked signals pass screening too — they land in
+    // signals_reobserved instead of signals_inserted. They belong on the surviving
+    // side of the funnel, or repeat-only weeks would read as 100% filtered.
+    const reobservedThisWeek = runs.reduce(
+      (sum, run) => (run.status === "failed" ? sum : sum + (run.signals_reobserved ?? 0)),
+      0,
+    );
+    const filteredThisWeek = Math.max(0, reviewedThisWeek - keptThisWeek - reobservedThisWeek);
 
     // Heartbeat is independent of the weekly counters: a quiet or paused week must not
     // erase the real "last checked" time when older runs exist. Unbounded latest lookup.
