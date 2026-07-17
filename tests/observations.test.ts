@@ -233,6 +233,25 @@ describe("ask series fingerprinting", () => {
     expect(observationConflictHash(a)).toBe(observationUrlHash(a.url));
     expect(observationConflictHash(a)).not.toBe(observationConflictHash(b));
   });
+
+  it("preserves semantic numbers outside the serialized day number", () => {
+    const twoPlayerAsk = candidate({
+      kind: "community_ask",
+      title: "Day 3 of asking for 2-player co-op : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/aaa/day_3_two_player/",
+      sourceDomain: "reddit.com",
+    });
+    const fourPlayerAsk = candidate({
+      kind: "community_ask",
+      title: "Day 3 of asking for 4-player co-op : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_3_four_player/",
+      sourceDomain: "reddit.com",
+    });
+
+    expect(normalizeAskSeriesTitle(twoPlayerAsk.title)).toBe("day # of asking for 2-player co-op");
+    expect(normalizeAskSeriesTitle(fourPlayerAsk.title)).toBe("day # of asking for 4-player co-op");
+    expect(observationConflictHash(twoPlayerAsk)).not.toBe(observationConflictHash(fourPlayerAsk));
+  });
 });
 
 describe("persistObservations", () => {

@@ -38,14 +38,15 @@ export function observationUrlHash(url: string): string {
 /**
  * Serialized campaigns post a NEW thread each day ("Day 20 of asking…", "Day 21
  * of asking…"), so URL identity would fragment one campaign into daily rows.
- * Normalizing digits out of the title collapses the series to one fingerprint;
+ * Normalizing only the serialized day number collapses the series to one
+ * fingerprint while preserving meaningful numbers in the request itself;
  * re-observations then increment seen_count — which IS the momentum tracker.
  */
 export function normalizeAskSeriesTitle(title: string): string {
   return title
     .toLowerCase()
     .replace(/\s*:\s*r\/\w+\s*$/i, "")
-    .replace(/\d+/g, "#")
+    .replace(/\bday\s+\d+\b/g, "day #")
     .replace(/\s+/g, " ")
     .trim();
 }
