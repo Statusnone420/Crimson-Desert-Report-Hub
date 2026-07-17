@@ -3,37 +3,40 @@ import { expect, test } from "@playwright/test";
 test("all public surfaces remain complete and calm with zero community input", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
-  await expect(page.getByText("No reports this patch")).toBeVisible();
-  await expect(page.getByText("No watched issue has enough signal yet.")).toBeVisible();
+  // Quiet board is a real reading: composed copy states it, never begs.
+  await expect(page.getByText(/A quiet board on/)).toBeVisible();
+  await expect(page.getByText("No player signals filed yet this patch. A quiet board is a real reading.")).toBeVisible();
+  await expect(page.getByText(/No published issues yet for/)).toBeVisible();
   await expect(page.getByText(/be the first|waiting on the community|players testing|until a player report/i)).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Reviewed versus survived screening" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /Funnel view/ })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "What the internet is saying" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "What players are asking for" })).toHaveCount(0);
-  await expect(page.getByText("Activity appears after the scanner records its first intake.")).toBeVisible();
-  await page.getByRole("tab", { name: /Funnel view/ }).click();
-  await expect(page.getByRole("heading", { name: "From public chatter to a board lead" })).toBeVisible();
-  await expect(page.getByText("The timeline starts with the first tracked patch.")).toBeVisible();
+  // Modules with nothing to say close ranks instead of rendering empty shells.
+  await expect(page.getByText("03 · The Claims Record")).toHaveCount(0);
+  await expect(page.getByText("04 · From The Wire")).toHaveCount(0);
+  // Scanner analytics stay off the homepage even at N=0.
+  await expect(page.getByRole("tab")).toHaveCount(0);
 
-  const reportStat = page.getByText("Player-reported issues", { exact: true }).locator("..");
-  const reportStatColor = await reportStat.locator(".metric-card__value").evaluate((node) => getComputedStyle(node).color);
+  // Silence is never green: zero-count numerals stay neutral ink.
+  const statColor = await page
+    .locator(".pulse-stat__value")
+    .first()
+    .evaluate((node) => getComputedStyle(node).color);
   const green = await page.evaluate(() => {
     const probe = document.createElement("span");
-    probe.style.color = "var(--green-bright)";
+    probe.style.color = "var(--green)";
     document.body.appendChild(probe);
     const color = getComputedStyle(probe).color;
     probe.remove();
     return color;
   });
-  expect(reportStatColor).not.toBe(green);
+  expect(statColor).not.toBe(green);
 
   await page.goto("/issues");
   await expect(page.getByRole("heading", { name: "What players are reporting" })).toBeVisible();
-  await expect(page.getByText("No public issue clusters yet.")).toBeVisible();
+  await expect(page.getByText(/No published issues yet for/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "File a report", exact: true })).toHaveAttribute("href", "/report");
   await expect(page.getByText(/be the first|waiting on the community|players testing/i)).toHaveCount(0);
 
   await page.goto("/scanner");
-  await expect(page.getByRole("heading", { name: "Scanner" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "How the radar reads the web" })).toBeVisible();
   await expect(page.getByText("Scanner unavailable").first()).toBeVisible();
   await expect(page.getByText("No mapped radar questions are available in this environment.")).toBeVisible();
   await expect(page.getByText(/be the first|waiting on the community|players testing/i)).toHaveCount(0);

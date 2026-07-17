@@ -1,3 +1,4 @@
+import { OperatorShell, PublicShell } from "@/components/dispatch/Chrome";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { PublicScannerView } from "@/components/scanner/PublicScannerView";
 import { isAdmin } from "@/lib/adminGuard";
@@ -20,28 +21,34 @@ export default async function ScannerPage() {
       .filter((cluster) => cluster.candidateSignalCount > 0)
       .sort((a, b) => b.candidateSignalCount - a.candidateSignalCount);
     return (
-      <PublicScannerView
-        data={scoreboard}
-        integrations={integrations}
-        patchVersion={currentPatch.version}
-        leadQuestions={leadQuestions}
-      />
+      <PublicShell active="observatory">
+        <PublicScannerView
+          data={scoreboard}
+          integrations={integrations}
+          patchVersion={currentPatch.version}
+          leadQuestions={leadQuestions}
+        />
+      </PublicShell>
     );
   }
 
   const adminData = await getAutomationAdminData();
   return (
-    <AdminScannerView
-      runs={adminData.runs}
-      signals={adminData.signals}
-      rejectedCandidates={adminData.rejectedCandidates}
-      control={adminData.control}
-      activeRun={adminData.activeRun}
-      latestRealRun={adminData.latestRealRun}
-      latestFind={adminData.latestFind}
-      scoreboard={scoreboard}
-      features={features()}
-      integrations={integrations}
-    />
+    <OperatorShell active="scanner">
+      <div className="dispatch-container">
+        <AdminScannerView
+          runs={adminData.runs}
+          signals={adminData.signals}
+          rejectedCandidates={adminData.rejectedCandidates}
+          control={adminData.control}
+          activeRun={adminData.activeRun}
+          latestRealRun={adminData.latestRealRun}
+          latestFind={adminData.latestFind}
+          scoreboard={scoreboard}
+          features={features()}
+          integrations={integrations}
+        />
+      </div>
+    </OperatorShell>
   );
 }

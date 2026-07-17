@@ -37,10 +37,12 @@ function writeStance(key: string, kind: ConfirmationKind): void {
   for (const listener of stanceListeners) listener();
 }
 
-const KIND_TONES: Record<ConfirmationKind, { color: string; borderColor: string; background: string }> = {
-  have_it: { color: "var(--blue)", borderColor: "var(--blue)", background: "var(--blue-tint)" },
-  still_happening: { color: "var(--crimson-bright)", borderColor: "var(--crimson-edge)", background: "var(--crimson-tint)" },
-  fixed_for_me: { color: "var(--green-bright)", borderColor: "var(--green-edge)", background: "var(--green-tint)" },
+// Selected stance keeps the semantic ink but stays a rule-bordered text
+// button — no pills, no tinted fills, per the Dispatch guardrails.
+const KIND_TONES: Record<ConfirmationKind, { color: string; borderColor: string }> = {
+  have_it: { color: "var(--blue)", borderColor: "var(--blue)" },
+  still_happening: { color: "var(--crimson)", borderColor: "var(--crimson)" },
+  fixed_for_me: { color: "var(--green)", borderColor: "var(--green)" },
 };
 
 type Phase = "idle" | "picking" | "sending" | "done";
@@ -121,15 +123,13 @@ export function ConfirmButtons({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs" style={{ color: "var(--text-dim)" }}>
-          {question}
-        </span>
+      <div className="flex flex-wrap items-center gap-3.5">
+        <span style={{ fontSize: 13, color: "var(--dispatch-faint)" }}>{question}</span>
         {kinds.map((kind) => (
           <button
             key={kind}
             type="button"
-            className="chip"
+            className="tap-btn"
             ref={(button) => {
               kindButtons.current[kind] = button;
             }}
@@ -147,7 +147,7 @@ export function ConfirmButtons({
           >
             {KIND_LABELS[kind]}
             {countFor(kind) > 0 ? (
-              <span aria-hidden="true" className="num" style={{ color: "var(--text-faint)" }}>
+              <span aria-hidden="true" className="tap-btn__count">
                 {countFor(kind)}
               </span>
             ) : null}
@@ -155,33 +155,36 @@ export function ConfirmButtons({
         ))}
       </div>
       {phase === "picking" || phase === "sending" ? (
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Pick your platform">
-          <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-            On which platform?
-          </span>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Pick your platform">
+          <span style={{ fontSize: 13, color: "var(--dispatch-faint)" }}>On which platform?</span>
           {PLATFORMS.filter((platform) => platform !== "other").map((platform) => (
             <button
               key={platform}
               type="button"
-              className="chip"
+              className="tap-btn tap-btn--sm"
               disabled={phase === "sending"}
               onClick={() => submit(platform)}
             >
               {PLATFORM_LABELS[platform]}
             </button>
           ))}
-          <button type="button" className="chip" disabled={phase === "sending"} onClick={() => submit("other")}>
+          <button
+            type="button"
+            className="tap-btn tap-btn--sm"
+            disabled={phase === "sending"}
+            onClick={() => submit("other")}
+          >
             Other
           </button>
         </div>
       ) : null}
       {message ? (
-        <p className="text-xs" style={{ color: "var(--crimson-bright)" }} role="alert">
+        <p className="text-xs" style={{ color: "var(--crimson)" }} role="alert">
           {message}
         </p>
       ) : null}
       {phase === "done" ? (
-        <p className="text-xs" style={{ color: "var(--text-faint)" }} role="status" aria-live="polite">
+        <p className="text-xs" style={{ color: "var(--dispatch-faint)" }} role="status" aria-live="polite">
           Recorded once per network per patch. Counts refresh from the server; you can change your answer.
         </p>
       ) : null}

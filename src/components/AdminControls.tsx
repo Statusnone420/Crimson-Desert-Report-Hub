@@ -65,33 +65,38 @@ export function AdminControls() {
 
   return (
     <div className="relative">
-      <button
-        type="button"
-        onClick={onAdminClick}
-        className="text-xs hover:text-[var(--text)]"
-        style={{ color: "var(--text-dim)" }}
-        aria-expanded={open}
-      >
+      <button type="button" onClick={onAdminClick} aria-expanded={open}>
         Admin
       </button>
       {open ? (
         <div className="pointer-events-none fixed inset-0 z-[var(--z-dropdown)]">
           <div className="pointer-events-auto absolute bottom-16 right-4 w-72 max-w-[calc(100vw-2rem)]">
-            <div className="panel max-h-[calc(100dvh-5rem)] space-y-3 overflow-y-auto shadow-xl">
+            <div
+              className="max-h-[calc(100dvh-5rem)] space-y-3 overflow-y-auto"
+              style={{
+                background: "var(--dispatch-inset)",
+                border: "1px solid rgba(236, 227, 208, 0.18)",
+                borderTop: "2px solid var(--rule-strong)",
+                padding: "16px 18px",
+                textTransform: "none",
+                letterSpacing: "normal",
+                fontFamily: "var(--font-sans)",
+              }}
+            >
               <div>
-                <div className="stat-label">Admin</div>
-                <p className="mt-1 text-sm" style={{ color: "var(--text-dim)" }}>
+                <div className="mono-label">Operator sign-in</div>
+                <p className="mt-1 text-sm" style={{ color: "var(--dispatch-dim)" }}>
                   Sign in to open the admin workspace.
                 </p>
               </div>
 
               {busy && admin === null ? (
-                <p className="text-sm" style={{ color: "var(--text-dim)" }}>
+                <p className="text-sm" style={{ color: "var(--dispatch-dim)" }}>
                   Checking access...
                 </p>
               ) : (
                 <form className="space-y-3" onSubmit={onLogin}>
-                  <div>
+                  <div className="dispatch-field">
                     <label htmlFor="admin-password">Admin password</label>
                     <input
                       id="admin-password"
@@ -106,10 +111,14 @@ export function AdminControls() {
                       Wrong password.
                     </p>
                   ) : null}
-                  <button className="btn w-full" disabled={busy || password.length === 0}>
+                  <button className="dispatch-btn w-full" disabled={busy || password.length === 0}>
                     {busy ? "Checking..." : "Sign in"}
                   </button>
-                  <button type="button" className="btn btn-ghost w-full" onClick={() => setOpen(false)}>
+                  <button
+                    type="button"
+                    className="dispatch-btn dispatch-btn--secondary w-full"
+                    onClick={() => setOpen(false)}
+                  >
                     Cancel
                   </button>
                 </form>

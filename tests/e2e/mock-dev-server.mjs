@@ -784,6 +784,45 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Aggregate view fixture: derives the daily rollup from the same seed rows,
+  // mirroring the migration's semantics (family reports, current-stance taps,
+  // persisted non-dry-run kept leads).
+  if (url.pathname === "/rest/v1/daily_signal_rollup" && req.method === "GET") {
+    const dayKey = (iso) => new Date(iso).toISOString().slice(0, 10);
+    const publishedDay = new Date("2026-07-08T00:00:00.000Z");
+    const floor = new Date(Math.max(publishedDay.getTime(), now() - 30 * 24 * 60 * 60 * 1000));
+    const reportsByDay = new Map();
+    for (const report of bugReports) {
+      if (report.moderation_status !== "approved") continue;
+      if (!String(report.patch_version ?? "").startsWith("1.13")) continue;
+      const key = dayKey(report.created_at);
+      reportsByDay.set(key, (reportsByDay.get(key) ?? 0) + 1);
+    }
+    const tapsByDay = new Map();
+    for (const tap of issueConfirmations) {
+      const key = dayKey(tap.created_at);
+      tapsByDay.set(key, (tapsByDay.get(key) ?? 0) + 1);
+    }
+    const keptByDay = new Map();
+    for (const run of automationRuns) {
+      if (run.mode === "dry_run" || !["success", "partial"].includes(run.status)) continue;
+      const key = dayKey(run.started_at);
+      keptByDay.set(key, (keptByDay.get(key) ?? 0) + (run.signals_inserted ?? 0));
+    }
+    const rows = [];
+    for (let time = floor.getTime(); time <= now(); time += 24 * 60 * 60 * 1000) {
+      const key = new Date(time).toISOString().slice(0, 10);
+      rows.push({
+        day: key,
+        reports: reportsByDay.get(key) ?? 0,
+        taps: tapsByDay.get(key) ?? 0,
+        kept_leads: keptByDay.get(key) ?? 0,
+      });
+    }
+    sendJson(res, req.method, 200, rows);
+    return;
+  }
+
   if (url.pathname === "/rest/v1/source_signals" && req.method === "PATCH") {
     const raw = await readBody(req);
     const patch = raw ? JSON.parse(raw) : {};

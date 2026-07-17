@@ -111,11 +111,12 @@ type ContrastTarget = {
 };
 
 const DASHBOARD_CONTRAST_TARGETS: ContrastTarget[] = [
-  { selector: '.nav-link[data-active="true"]', label: "active nav link" },
-  { selector: ".eyebrow", label: "eyebrow data labels" },
-  { selector: ".chart-card__header p", label: "chart descriptions" },
-  { selector: ".signal-rail__meta-copy", label: "scan telemetry line" },
-  { selector: ".method-note__links .link", label: "method note links" },
+  { selector: '.dispatch-nav__link[aria-current="page"]', label: "active nav link" },
+  { selector: ".dispatch-kicker", label: "section kickers" },
+  { selector: ".brief-lead__meta", label: "lead meta line", optional: true },
+  { selector: ".pulse-stat__caption", label: "pulse stat captions" },
+  { selector: ".record-block__toc-row", label: "edition toc rows", optional: true },
+  { selector: ".dispatch-footer__note", label: "footer note" },
 ];
 
 async function expectContrastAtLeast(page: Page, targets: ContrastTarget[], minimum = 4.5) {
@@ -230,10 +231,15 @@ async function expectDesignTokenContrast(page: Page) {
     }
 
     const styles = getComputedStyle(document.documentElement);
+    const canvas = styles.getPropertyValue("--dispatch-bg");
+    const inset = styles.getPropertyValue("--dispatch-inset");
     const checks = [
-      { label: "faint text on surface", fg: styles.getPropertyValue("--text-faint"), bg: styles.getPropertyValue("--surface") },
-      { label: "faint text on inset surface", fg: styles.getPropertyValue("--text-faint"), bg: styles.getPropertyValue("--surface-inset") },
-      { label: "dim text on raised surface", fg: styles.getPropertyValue("--text-dim"), bg: styles.getPropertyValue("--surface-2") },
+      { label: "dim ink on canvas", fg: styles.getPropertyValue("--dispatch-dim"), bg: canvas },
+      { label: "muted ink on canvas", fg: styles.getPropertyValue("--dispatch-muted"), bg: canvas },
+      { label: "faint ink on canvas", fg: styles.getPropertyValue("--dispatch-faint"), bg: canvas },
+      { label: "quiet ink on canvas", fg: styles.getPropertyValue("--dispatch-quiet"), bg: canvas },
+      { label: "ghost ink on canvas", fg: styles.getPropertyValue("--dispatch-ghost"), bg: canvas },
+      { label: "quiet ink on inset", fg: styles.getPropertyValue("--dispatch-quiet"), bg: inset },
       { label: "white primary button text", fg: "#fff", bg: styles.getPropertyValue("--crimson-action") },
     ];
 
@@ -354,117 +360,76 @@ async function expectCumulativeLayoutShiftBelow(page: Page, maximum = 0.01) {
 }
 
 test.describe("public surface visual regression", () => {
-  test("dashboard renders moderated patch intelligence", async ({ page }) => {
+  test("dashboard renders moderated patch intelligence", async ({ page }, testInfo) => {
+    // The desktop composition; the sub-900 brief is a separate composition
+    // covered by the mobile-viewport test below.
+    test.skip(testInfo.project.name !== "chromium", "Desktop composition");
     const problems = collectConsoleProblems(page);
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Primary" });
 
     await expect(page).toHaveTitle(/Crimson Desert Report Hub/i);
-    await expect(nav.getByRole("link", { name: "Patch Brief" })).toHaveAttribute("href", "/");
-    await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("href", "/issues");
-    await expect(nav.getByRole("link", { name: "Report", exact: true })).toHaveAttribute("href", "/report");
-    await expect(nav.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
-    await expect(nav.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/scanner");
+    // Editorial Dispatch nav: full labels on desktop, short labels below 900px.
+    await expect(nav.getByRole("link", { name: /^(THE )?BRIEF$/ })).toHaveAttribute("href", "/");
+    await expect(nav.getByRole("link", { name: /^(ISSUE BOARD|ISSUES)$/ })).toHaveAttribute("href", "/issues");
+    await expect(nav.getByRole("link", { name: /^(FILE A REPORT →|REPORT)$/ })).toHaveAttribute("href", "/report");
+    await expect(nav.getByRole("link", { name: "OBSERVATORY" })).toHaveAttribute("href", "/scanner");
+    // Masthead: the identity is typographic; edition and dateline are real data.
     await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
-    await expect(page.getByText("Right now", { exact: true })).toBeVisible();
-    await expect(page.getByText(/Current issue readout —/)).toBeVisible();
-    await expect(page.getByText(/Patch 1\.13\.\d{2}/).first()).toBeVisible();
-    await expect(page.getByText("Player-reported issues", { exact: true })).toBeVisible();
-    await expect(page.getByText("Radar leads", { exact: true })).toBeVisible();
-    await expect(page.getByText("Rumors with links — not evidence", { exact: true })).toBeVisible();
-    await expect(page.getByText("Reviewed", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Survived", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Public signals", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Patch Brief" })).toBeVisible();
-    // Claimed-fix scoreboard: official claims verbatim, player verdicts from taps only.
-    await expect(page.getByRole("heading", { name: "Fix claims, player verdicts" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /What 1\.13\.\d{2} claims to fix/ })).toBeVisible();
+    await expect(page.getByText("A field report on the current state of the game")).toBeVisible();
+    await expect(page.getByText(/EDITION №\d+/)).toBeVisible();
+    // Lead: composed deterministic kicker/headline/dek, count-backed.
+    await expect(page.getByText(/PATCH 1\.13\.01 · HOTFIX · DAY \d+/)).toBeVisible();
+    await expect(page.getByText(/player reports and \d+ player taps against 1\.13\.01/)).toBeVisible();
+    // The Record rail.
+    await expect(page.getByText("The Record", { exact: true })).toBeVisible();
+    await expect(page.getByText("Current patch", { exact: true })).toBeVisible();
+    await expect(page.getByText("1 of 2 contested")).toBeVisible();
+    await expect(page.getByRole("link", { name: /pearlabyss\.com/ })).toHaveAttribute("href", /pearlabyss\.com/);
+    await expect(page.getByText("In This Edition", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: /The claims record/ })).toHaveAttribute("href", "#claims");
+    // 01 · Patch Pulse: server-rendered paired-bar chart plus text restatement.
+    await expect(page.getByText("01 · Patch Pulse")).toBeVisible();
+    await expect(page.getByRole("img", { name: /Daily signal since patch publish/ })).toBeVisible();
+    await expect(page.getByText("structured reports")).toBeVisible();
+    await expect(page.getByText("one-tap confirmations")).toBeVisible();
+    await expect(page.getByText(/Public leads kept by the radar this week/)).toBeVisible();
+    // 02 · Issue board: top three by the existing evidence-strength order.
+    await expect(page.getByText("02 · The Issue Board")).toBeVisible();
+    await expect(page.getByRole("link", { name: /All \d+ published issues →/ })).toHaveAttribute("href", "/issues");
+    await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Map-open crash persists after fix" })).toBeVisible();
+    await expect(page.getByText(/\d+ rpt · \d+ confirm/).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /I have this too/ })).toBeVisible();
+    // 03 · Claims record: verbatim official text; verdicts only where the data ties them.
+    await expect(page.getByText("03 · The Claims Record")).toBeVisible();
     await expect(
       page.getByText("Fixed an issue where opening the world map could crash or freeze the client."),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "What players say" })).toBeVisible();
-    await expect(page.getByText("1 say fixed · 2 say still happening")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Add your verdict on the issue board ↗" })).toHaveAttribute(
-      "href",
-      "/issues",
-    );
-    // Observation lane: trusted-domain coverage, explicitly not evidence.
-    await expect(page.getByRole("heading", { name: "What the internet is saying" })).toBeVisible();
-    await expect(page.getByText("Observation · Press")).toBeVisible();
-    await expect(page.getByText("Observation · Patch coverage")).toBeVisible();
+    await expect(page.getByText("1 fixed for me")).toBeVisible();
+    await expect(page.getByText("2 still happening")).toBeVisible();
+    await expect(page.getByText(/NO PLAYER VERDICTS YET · CLAIM CLOCK RUNNING SINCE/i)).toBeVisible();
+    // 04 · From the wire: reviewed observations, context never evidence.
+    await expect(page.getByText("04 · From The Wire")).toBeVisible();
+    await expect(page.getByText("Context — never evidence.")).toBeVisible();
     await expect(
       page.getByText("Crimson Desert 1.13.01 hotfix tested: smoother, but not settled"),
     ).toBeVisible();
     await expect(page.getByText("seen 3×")).toBeVisible();
-    await expect(page.getByText("they never count as evidence and never touch issue numbers.")).toBeVisible();
-    await expect(page.getByText("Older patch observation should never appear in the current brief")).toHaveCount(0);
-    // Community pulse lane: requests are not bugs, campaigns show momentum.
-    await expect(page.getByRole("heading", { name: "What players are asking for" })).toBeVisible();
-    await expect(page.getByText("Day 20 of asking to add caracals to the desert : r/CrimsonDesert")).toBeVisible();
-    await expect(page.getByText("day 20 campaign")).toBeVisible();
     await expect(page.getByText("seen 6×")).toBeVisible();
-    await expect(page.getByText("Wanting something is not a bug — these never touch evidence counts.")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Reviewed versus survived screening" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Activity view/ })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("table", { name: "Daily scanner activity over the last 30 days" })).toHaveCount(1);
-    await expect(page.locator("svg .trend-series[tabindex]")).toHaveCount(0);
-    // Observatory workspace: one analytical surface with keyboard-addressable lenses.
-    await expect(page.getByTestId("observatory-workspace")).toBeVisible();
-    await expect(page.getByText("The observatory", { exact: true })).toBeVisible();
-    await expect(page.getByText("Radar yield", { exact: true })).toBeVisible();
-    const watch = page.locator("details.telemetry-watch");
-    await expect(watch).toHaveCount(1);
-    await watch.locator("summary").click();
-    await expect(watch.getByText("Graymane’s Watch", { exact: true })).toBeVisible();
-    await expect(watch.getByText("Filtered is a screening result, not a player verdict.", { exact: false })).toBeVisible();
-    await watch.locator("summary").click();
-    const activityTab = page.getByRole("tab", { name: /Activity view/ });
-    await activityTab.focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(page.getByRole("tab", { name: /Funnel view/ })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("heading", { name: "From public chatter to a board lead" })).toBeVisible();
-    await expect(page.getByRole("table", { name: "Source radar funnel from reviewed candidates to published issues" })).toHaveCount(1);
-    await page.getByRole("tab", { name: /Sources view/ }).click();
-    await expect(page.getByRole("heading", { name: "Where the radar keeps finding signal" })).toBeVisible();
-    await page.getByRole("tab", { name: /Signal mix view/ }).click();
-    await expect(page.getByRole("heading", { name: "What the radar is finding" })).toBeVisible();
-    await page.getByRole("tab", { name: /Player evidence view/ }).click();
-    await expect(page.getByRole("heading", { name: "Who is carrying the evidence" })).toBeVisible();
-    await page.getByRole("tab", { name: /Activity view/ }).click();
-    await expect(page.getByRole("heading", { name: "Reviewed versus survived screening" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Where signals live" })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Where the signal is coming from" })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Top issues this patch" })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Still reported after claimed fix" })).toHaveCount(0);
-    await expect(page.getByText("Also watching", { exact: true })).toHaveCount(0);
-    await expect(page.getByText(/latest player report (?:just now|\d+[mhd] ago)|no player reports yet/).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Official notes" }).first()).toHaveAttribute(
-      "href",
-      /pearlabyss\.com/,
-    );
-    await expect(page.getByRole("link", { name: "Pearl Abyss support" })).toHaveAttribute(
-      "href",
-      "https://support.pearlabyss.com/",
-    );
-    await expect(page.getByRole("link", { name: "Source Radar" })).toHaveAttribute("href", "/scanner");
-    await expect(page.getByRole("heading", { name: "Patch ledger" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Official patch source" })).toBeVisible();
-    await expect(page.getByText("View all 30 claims", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("View all 2 claims", { exact: true })).toHaveCount(0);
-    // Overpromising dashboard copy must be gone.
-    await expect(page.getByText("none found yet — scanner active", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("Watchlist awaiting evidence", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("Watchlist · awaiting first reports", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("What can be learned without waiting for reports")).toHaveCount(0);
-    await expect(page.getByText("Useful next clicks")).toHaveCount(0);
-    await expect(page.getByText("Patch web radar", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Older patch observation should never appear in the current brief")).toHaveCount(0);
+    // Observatory footnote: the page's only box; scanner analytics stay off the homepage.
+    await expect(page.getByText("From the Observatory")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Visit the Observatory →" })).toHaveAttribute("href", "/scanner");
+    await expect(page.getByTestId("observatory-workspace")).toHaveCount(0);
+    await expect(page.getByText("Radar yield", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("tab")).toHaveCount(0);
+    // Dispatch guardrails: no cards, pills, or metric strips on the brief.
+    await expect(page.locator(".panel, .badge, .chip, .metric-card, .metric-strip")).toHaveCount(0);
     await expectHealthyPage(page, problems);
-    // Chromium repeats sticky elements while stitching a full-page screenshot.
-    // Keep the product header sticky in real viewports, but make the long visual artifact represent the document flow.
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.addStyleTag({
-      content:
-        "*,*::before,*::after { animation: none !important; transition: none !important; } .site-header { position: relative !important; }",
+      content: "*,*::before,*::after { animation: none !important; transition: none !important; }",
     });
     const dashboardScreenshot = await page.screenshot({ fullPage: true });
     await page.screenshot({ path: "test-results/dashboard-buffer-debug.png", fullPage: true });
@@ -479,13 +444,25 @@ test.describe("public surface visual regression", () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/");
 
-      await expect(page.getByRole("heading", { name: "Reviewed versus survived screening" })).toBeVisible();
-      await expect(
-        page.getByRole("table", { name: "Daily scanner activity over the last 30 days" }),
-      ).toHaveCount(1);
+      // Separately composed mobile brief: fact strip, pulse, tappable lead story.
+      await expect(page.getByText(/\d+ reports/).first()).toBeVisible();
+      await expect(page.getByText("01 · Patch Pulse")).toBeVisible();
+      await expect(page.getByRole("button", { name: /I have this too/ })).toBeVisible();
+      const tapBounds = await page.getByRole("button", { name: /I have this too/ }).boundingBox();
+      expect(tapBounds && tapBounds.height >= 44 ? "tall enough" : `too short: ${tapBounds?.height}`).toBe(
+        "tall enough",
+      );
 
       await expectHealthyPage(page, problems);
     }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.addStyleTag({
+      content: "*,*::before,*::after { animation: none !important; transition: none !important; }",
+    });
+    await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true, maxDiffPixelRatio: 0.02 });
   });
 
   test("web app manifest keeps public navigation inside one standalone scope", async ({ page }) => {
@@ -533,7 +510,7 @@ test.describe("public surface visual regression", () => {
     );
 
     const dashboardLink = page.getByRole("navigation", { name: "Primary" }).getByRole("link", {
-      name: "Patch Brief",
+      name: /^(THE )?BRIEF$/,
     });
     await expect(dashboardLink).toHaveAttribute("href", "/");
     await expect(dashboardLink).not.toHaveAttribute("target", "_blank");
@@ -565,21 +542,29 @@ test.describe("public surface visual regression", () => {
     await page.goto("/issues");
 
     await expect(page.getByRole("heading", { name: "What players are reporting" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Top issues this patch" })).toBeVisible();
+    await expect(page.getByText(/Issue Board · Patch 1\.13\.01/i)).toBeVisible();
     const publicLinks = page.getByText("Links seen in the wild");
     if ((await publicLinks.count()) > 0) {
-      await expect(publicLinks.first()).toBeVisible();
-      await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
-      // Public cards never wear confidence chrome — that authority theater is gone.
+      // Below 900px the links rail sits behind a disclosure; open it first.
+      const disclosure = page.locator("details.issue-rail__details summary").first();
+      if (await disclosure.isVisible().catch(() => false)) {
+        await disclosure.click();
+      }
+      await expect(publicLinks.filter({ visible: true }).first()).toBeVisible();
+      await expect(
+        page.getByRole("link", { name: "Open source" }).filter({ visible: true }).first(),
+      ).toBeVisible();
+      // Public entries never wear confidence chrome — that authority theater is gone.
       await expect(page.getByText("High confidence")).toHaveCount(0);
     } else {
       await expect(page.getByText(/Source candidates stay private until they are corroborated/)).toBeVisible();
       await expect(page.getByRole("link", { name: "Scanner funnel" })).toHaveAttribute("href", "/scanner");
-      await expect(page.getByRole("link", { name: "Submit a report" })).toHaveAttribute("href", "/report");
+      await expect(page.getByRole("link", { name: "File a report" })).toHaveAttribute("href", "/report");
     }
-    await expect(page.locator(".badge").filter({ hasText: /^Confirmed$/ })).toHaveCount(0);
+    // Dispatch guardrails: no pills or cards anywhere on the board.
+    await expect(page.locator(".badge, .chip, .panel, .metric-card")).toHaveCount(0);
     await expect(page.getByText("private low confidence")).toHaveCount(0);
-    await expect(page.getByText("Player-reported issues first.")).toBeVisible();
+    await expect(page.getByText("the board never fills in blanks", { exact: false })).toBeVisible();
     // Overpromising watchlist copy must be gone: the scanner never claims per-row
     // active discovery, and zero-evidence seeds are never framed as live hunts.
     await expect(page.getByText("scanner is hunting", { exact: false })).toHaveCount(0);
@@ -639,13 +624,18 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/about");
 
-    await expect(page.getByRole("heading", { name: "About this tracker" })).toBeVisible();
-    await expect(page.getByText(/Reports are evidence/)).toBeVisible();
-    await expect(page.getByText(/Confirmations are signals/)).toBeVisible();
-    await expect(page.getByText(/Source links are leads/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "How this tracker thinks" })).toBeVisible();
+    await expect(page.getByText(/Reports are evidence/).first()).toBeVisible();
+    await expect(page.getByText(/Confirmations are signals/).first()).toBeVisible();
+    await expect(page.getByText(/Source links are leads/).first()).toBeVisible();
     await expect(page.getByText(/public signals backed by separate sources|public chatter becomes evidence/i)).toHaveCount(0);
+    // The manual-review overpromise must not ship: excerpts can be neutral auto-summaries.
+    await expect(page.getByText(/reviewed by a moderator before any excerpt/)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Public source" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Scanner page" })).toHaveAttribute("href", "/scanner");
+    await expect(page.locator("#main-content").getByRole("link", { name: "Observatory" })).toHaveAttribute(
+      "href",
+      "/scanner",
+    );
     await expect(page.getByRole("link", { name: "View the source on GitHub" })).toHaveAttribute(
       "href",
       "https://github.com/Statusnone420/Crimson-Desert-Report-Hub",
@@ -658,8 +648,9 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/scanner");
 
-    await expect(page.getByRole("heading", { name: "Scanner" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Source Radar" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "How the radar reads the web" })).toBeVisible();
+    await expect(page.getByText("The Observatory · Public source radar")).toBeVisible();
+    await expect(page.getByText(/Scanner scheduled|Scanner paused/)).toBeVisible();
     await expect(page.getByText("Reviewed", { exact: true })).toBeVisible();
     await expect(page.getByText("Filtered", { exact: true })).toBeVisible();
     await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
@@ -693,7 +684,8 @@ test.describe("public surface visual regression", () => {
 
     await page.goto("/scanner");
     await expect(page.getByRole("heading", { name: "Scanner monitor" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Source Radar" })).toBeVisible();
+    await expect(page.getByText("Operator · The Observatory")).toBeVisible();
+    await expect(page.getByText("radar yield")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Recent radar leads" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Rejected archive" })).toBeVisible();
@@ -711,6 +703,38 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Steam & forums")).toHaveCount(0);
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("scanner-admin.png", { fullPage: true });
+  });
+
+  test("operator report review and compile surfaces wear the console chrome", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "Operator surfaces are desktop-first");
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+
+    await page.goto("/admin");
+    await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
+    await expect(page.getByText("Operator console · signed in")).toBeVisible();
+    await expect(page.getByText("Needs you")).toBeVisible();
+    // The mock queue carries one pending report: the real Approve/Reject/Spam contract renders.
+    await expect(page.getByText("Pending visual test report")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reject" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Spam" })).toBeVisible();
+    await expect(page.getByText("Lifecycle exceptions")).toBeVisible();
+    await expect(page.getByText("Visibility overrides")).toBeVisible();
+    await expect(page.getByText("Current patch override")).toBeVisible();
+    // Session copy must state the absolute TTL, never "after inactivity".
+    await expect(page.getByText(/after inactivity/)).toHaveCount(0);
+    await expect(page.getByText(/12 hours after sign-in/)).toBeVisible();
+    await expectHealthyPage(page, problems);
+    await expect(page).toHaveScreenshot("admin-review.png", { fullPage: true });
+
+    await page.goto("/admin/compile");
+    await expect(page.getByRole("heading", { name: "Compile Pearl Abyss dossier" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Compile now" })).toBeVisible();
+    await expect(page.getByText("Aggregates are deterministic. AI only rewrites prose and falls back cleanly.")).toBeVisible();
+    await expect(page.getByText("Previous runs")).toBeVisible();
+    await expectHealthyPage(page, problems);
+    await expect(page).toHaveScreenshot("admin-compile.png", { fullPage: true });
   });
 
   test("admin footer routes through sign-in to the admin page", async ({ page }) => {
@@ -748,7 +772,7 @@ test.describe("public surface visual regression", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/report");
 
-    await expect(page.getByRole("heading", { name: "Submit a report" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "File a report" })).toBeVisible();
     await expect(page.getByText("Your report helps separate isolated bugs from patch-wide patterns.")).toBeVisible();
     await page.getByLabel("Platform").selectOption("pc_steam");
     await page.getByLabel("Category").selectOption("performance");
@@ -758,11 +782,11 @@ test.describe("public surface visual regression", () => {
     await page
       .getByLabel("What happened?")
       .fill("After patch 1.13, performance mode drops sharply during open-field combat and does not recover.");
-    await page.getByText("Add technical detail Pearl Abyss can use").click();
+    // Technical detail is a flat rule-divided section in the Dispatch layout.
     await page.getByLabel("Hardware (GPU, CPU, RAM)").fill("RTX 4060, Ryzen 5 7600, 32GB RAM");
     await page.getByRole("button", { name: "Submit report" }).click();
 
-    await expect(page.getByRole("heading", { name: "Report received" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Filed." })).toBeVisible();
     await expect(page.getByText("checked and sorted into the right issue automatically")).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("report-success.png", { fullPage: true });
@@ -775,6 +799,11 @@ test.describe("public surface visual regression", () => {
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/report");
+
+      // Below 900px the assistant rail sits behind a disclosure; open it via
+      // keyboard so later focus assertions still reflect keyboard focus.
+      await page.locator("details.assistant-rail > summary").focus();
+      await page.keyboard.press("Enter");
 
       const fileInput = page.locator("#save_import");
       const folderInput = page.locator("#save_import_folder");
@@ -802,6 +831,11 @@ test.describe("public surface visual regression", () => {
   test("local save import fills visible technical fields without uploading raw files", async ({ page }, testInfo) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/report");
+    // Below 900px the assistant rail starts collapsed behind its disclosure.
+    const assistantSummary = page.locator("details.assistant-rail > summary");
+    if (await assistantSummary.isVisible().catch(() => false)) {
+      await assistantSummary.click();
+    }
     await expect(page.getByText("Your browser cannot scan your PC.")).toBeVisible();
     await expect(page.getByText("user_engine_option_save.xml").first()).toBeVisible();
     await expect(page.getByText("Open File Explorer and search This PC for user_engine_option_save.xml.")).toBeVisible();
@@ -813,7 +847,6 @@ test.describe("public surface visual regression", () => {
     await writeFile(settingsPath, settingsXml);
 
     await page.setInputFiles("#save_import", settingsPath);
-    await page.getByText("Add technical detail Pearl Abyss can use").click();
 
     // Selecting files shows a preview but must NOT mutate the form until the user opts in.
     await expect(page.getByText("1 local file inspected in this browser.")).toBeVisible();

@@ -154,6 +154,35 @@ export function getReportPatchContext(supabase?: SupabaseClient): Promise<Report
   return supabase ? readReportPatchContextUncached(supabase) : getCachedReportPatchContext();
 }
 
+/**
+ * Edition № for the masthead: the count of DISTINCT tracked patch versions.
+ * Sync/override history can repeat versions, so raw row counts would lie.
+ * Returns null when unknown so the masthead can omit the edition entirely.
+ */
+async function readTrackedPatchEditionCountUncached(supabase: SupabaseClient): Promise<number | null> {
+  try {
+    const { data, error } = await supabase.from("official_patch_notes").select("patch_version");
+    if (error) return null;
+    const versions = new Set(
+      ((data ?? []) as { patch_version: string }[]).map((row) => row.patch_version.trim()).filter(Boolean),
+    );
+    return versions.size > 0 ? versions.size : null;
+  } catch {
+    return null;
+  }
+}
+
+const getCachedTrackedPatchEditionCount = unstable_cache(
+  async () =>
+    hasSupabaseServiceConfig() ? readTrackedPatchEditionCountUncached(createServiceClient()) : null,
+  ["tracked-patch-edition-count"],
+  { revalidate: 300, tags: [CURRENT_PATCH_TAG] },
+);
+
+export function getTrackedPatchEditionCount(supabase?: SupabaseClient): Promise<number | null> {
+  return supabase ? readTrackedPatchEditionCountUncached(supabase) : getCachedTrackedPatchEditionCount();
+}
+
 export async function syncOfficialPatchNote(
   supabase: SupabaseClient = createServiceClient(),
   options: { now?: Date; fetcher?: OfficialPatchFetchLike } = {},
