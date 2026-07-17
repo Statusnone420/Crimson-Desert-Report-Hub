@@ -41,8 +41,9 @@ export type ObservatoryData = {
   totals: {
     scans: number;
     reviewed: number;
+    kept: number;
     tracked: number;
-    totalObservations: number;
+    reobservations: number;
     filtered: number;
     filterRatePct: number;
     llmCalls: number;
@@ -51,6 +52,11 @@ export type ObservatoryData = {
     scansPerDay: number;
   };
   daily: ObservatoryDailyPoint[];
+  /**
+   * Sourced from the rescue-memory table, which expires rows after ~7 days —
+   * this is a rolling recent window, never an all-time total. UI copy must
+   * label it as recent; durable filtered totals come from `totals.filtered`.
+   */
   rejectionReasons: { reason: string; label: string; count: number }[];
   domains: ObservatoryDomain[];
   signalCategories: Record<string, number>;
@@ -86,8 +92,9 @@ function emptyObservatoryData(): ObservatoryData {
     totals: {
       scans: 0,
       reviewed: 0,
+      kept: 0,
       tracked: 0,
-      totalObservations: 0,
+      reobservations: 0,
       filtered: 0,
       filterRatePct: 0,
       llmCalls: 0,
@@ -130,52 +137,98 @@ export function buildObservatoryDaily(rows: RunRow[], today: Date): ObservatoryD
   return series;
 }
 
+const PAGE_SIZE = 1000;
+
+type PageResult<T> = { data: T[] | null; error: { message: string } | null };
+
+/** Exhaustive paged read: totals labeled "all patches" must never silently truncate. */
+async function fetchAllRows<T>(label: string, page: (from: number, to: number) => PromiseLike<PageResult<T>>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await page(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`${label} read failed: ${error.message}`);
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) return rows;
+  }
+}
+
+type SignalRow = {
+  source_domain: string | null;
+  category: string;
+  confidence: "low" | "medium" | "high";
+  seen_count: number | null;
+};
+
 async function getObservatoryDataUncached(): Promise<ObservatoryData> {
   if (!hasSupabaseServiceConfig()) return emptyObservatoryData();
 
   try {
     const supabase = createServiceClient();
 
-    const [runsRes, rejectedRes, signalsRes, notesRes, fixesRes, confirmationsRes] = await Promise.all([
-      supabase
-        .from("automation_runs")
-        .select(
-          "started_at, status, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, llm_calls_used, estimated_cost_usd",
-        )
-        .neq("mode", "dry_run")
-        .in("status", ["success", "partial", "failed"])
-        .order("started_at", { ascending: true })
-        .limit(5000),
-      supabase.from("automation_rejected_candidates").select("reason, source_domain").limit(5000),
-      supabase.from("source_signals").select("source_domain, category, confidence, seen_count").limit(5000),
+    const [runs, rejected, signals, notesRes, fixes, confirmations] = await Promise.all([
+      fetchAllRows<RunRow>("automation runs", (from, to) =>
+        supabase
+          .from("automation_runs")
+          .select(
+            "started_at, status, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, llm_calls_used, estimated_cost_usd",
+          )
+          .neq("mode", "dry_run")
+          .in("status", ["success", "partial", "failed"])
+          .order("started_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+      fetchAllRows<{ reason: string; source_domain: string | null }>("rejected candidates", (from, to) =>
+        supabase
+          .from("automation_rejected_candidates")
+          .select("reason, source_domain")
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+      fetchAllRows<SignalRow>("source signals", (from, to) =>
+        supabase
+          .from("source_signals")
+          .select("source_domain, category, confidence, seen_count")
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
       supabase.from("official_patch_notes").select("board_no, patch_version, published_at, is_current"),
-      supabase.from("official_patch_claimed_fixes").select("board_no, category").limit(5000),
-      supabase.from("issue_confirmations").select("patch_version, kind").limit(5000),
+      fetchAllRows<{ board_no: string; category: string | null }>("claimed fixes", (from, to) =>
+        supabase
+          .from("official_patch_claimed_fixes")
+          .select("board_no, category")
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+      fetchAllRows<{ patch_version: string | null; kind: string }>("confirmations", (from, to) =>
+        supabase
+          .from("issue_confirmations")
+          .select("patch_version, kind")
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
     ]);
 
-    const runs = (runsRes.data ?? []) as RunRow[];
-    const rejected = (rejectedRes.data ?? []) as { reason: string; source_domain: string | null }[];
-    const signals = (signalsRes.data ?? []) as {
-      source_domain: string | null;
-      category: string;
-      confidence: "low" | "medium" | "high";
-      seen_count: number | null;
-    }[];
     const notes = (notesRes.data ?? []) as {
       board_no: string;
       patch_version: string;
       published_at: string | null;
       is_current: boolean;
     }[];
-    const fixes = (fixesRes.data ?? []) as { board_no: string; category: string | null }[];
-    const confirmations = (confirmationsRes.data ?? []) as { patch_version: string | null; kind: string }[];
 
     const reviewed = runs.reduce((sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0), 0);
+    // Failed runs can carry phantom insert counts from screening that never persisted.
+    const kept = runs.reduce((sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)), 0);
     const llmCalls = runs.reduce((sum, run) => sum + (run.llm_calls_used ?? 0), 0);
     const costUsd = runs.reduce((sum, run) => sum + (run.estimated_cost_usd ?? 0), 0);
     const tracked = signals.length;
-    const filtered = rejected.length;
-    const totalObservations = signals.reduce((sum, signal) => sum + (signal.seen_count ?? 0), 0);
+    // Durable all-time filtered total: derived from runs (which never expire),
+    // not from the rescue table (whose rows are deleted after ~7 days). Same
+    // reviewed-minus-kept semantics as the scanner tab's weekly funnel.
+    const filtered = Math.max(0, reviewed - kept);
+    // seen_count includes the first sighting; only repeats count as re-observations.
+    const reobservations = signals.reduce((sum, signal) => sum + Math.max(0, (signal.seen_count ?? 0) - 1), 0);
     const firstRunAt = runs[0]?.started_at ?? null;
     const activeDays = firstRunAt
       ? Math.max(1, Math.ceil((Date.now() - new Date(firstRunAt).getTime()) / (24 * 60 * 60 * 1000)))
@@ -234,10 +287,11 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
       totals: {
         scans: runs.length,
         reviewed,
+        kept,
         tracked,
-        totalObservations,
+        reobservations,
         filtered,
-        filterRatePct: filtered + tracked > 0 ? Math.round((filtered / (filtered + tracked)) * 100) : 0,
+        filterRatePct: reviewed > 0 ? Math.round((filtered / reviewed) * 100) : 0,
         llmCalls,
         costUsd,
         firstRunAt,

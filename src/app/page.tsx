@@ -500,7 +500,9 @@ export default async function DashboardPage() {
                     </div>
                   ))}
                 </div>
-                <p className="muted-note">All patches, aggregate counts only — no titles or links.</p>
+                <p className="muted-note">
+                  Rolling rescue window (about a week) — aggregate counts only, no titles or links.
+                </p>
               </>
             ) : null}
           </article>
@@ -523,7 +525,7 @@ export default async function DashboardPage() {
             <div className="chart-card__header">
               <div>
                 <h3>Domains: kept vs filtered</h3>
-                <p>Candidates per source domain across all patches.</p>
+                <p>Signals kept all-time; filtered counts cover the scanner&rsquo;s rolling rescue window.</p>
               </div>
             </div>
             <DomainLanes domains={observatory.domains} />

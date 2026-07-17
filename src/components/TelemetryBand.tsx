@@ -48,12 +48,15 @@ export function TelemetryBand({ data }: { data: ObservatoryData }) {
     {
       label: "Filtered out",
       value: totals.filtered.toLocaleString("en-US"),
-      note: `${totals.filterRatePct}% of candidates screened away`,
+      note: `${totals.filterRatePct}% of intake screened away`,
     },
     {
       label: "Signals tracked",
       value: totals.tracked.toLocaleString("en-US"),
-      note: `re-observed ${totals.totalObservations.toLocaleString("en-US")}× in the wild`,
+      note:
+        totals.reobservations > 0
+          ? `re-observed ${totals.reobservations.toLocaleString("en-US")}× in the wild`
+          : "no repeat sightings yet",
     },
     {
       label: "Model calls",

@@ -45,13 +45,15 @@ export function DomainLanes({ domains }: { domains: ObservatoryDomain[] }) {
       {overflow > 0 ? <p className="muted-note">+{overflow} more domains with smaller counts.</p> : null}
       <div className="chart-accessible-data">
         <table>
-          <caption>Signals kept and candidates filtered per source domain, all patches</caption>
+          <caption>
+            Signals kept per source domain (all patches) and candidates filtered (rolling rescue window)
+          </caption>
           <thead>
             <tr>
               <th scope="col">Domain</th>
               <th scope="col">Kept</th>
-              <th scope="col">Filtered</th>
-              <th scope="col">Times re-observed</th>
+              <th scope="col">Filtered (recent)</th>
+              <th scope="col">Times seen</th>
             </tr>
           </thead>
           <tbody>
