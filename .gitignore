@@ -20,6 +20,7 @@
 
 # local planning artifacts
 /.planning/
+/docs/superpowers/
 
 # next.js
 /.next/
@@ -56,3 +57,6 @@ next-env.d.ts
 # Local tooling artifacts
 .playwright-cli/
 output/
+
+# Supabase CLI local project metadata
+/supabase/.temp/

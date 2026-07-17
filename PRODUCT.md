@@ -14,6 +14,18 @@ Crimson Desert Report Hub is an unofficial confirmation board and source radar. 
 
 Official Pearl Abyss patch notes provide canonical patch context and fix claims, while the hub remains independent and unofficial.
 
+## Public Surfaces
+
+The current product is organized as a short reading path:
+
+- **Patch Brief**: a right-now readout, current patch facts, literal metric cards, the claimed-fix scoreboard, community pulse, and reviewed source observations.
+- **Issues**: the evidence board for current-patch issue readouts, reports, player responses, reviewed links, and fix-claim questions.
+- **Report**: anonymous structured intake for a detailed player account.
+- **Scanner**: public source-radar health and mapped questions, with authenticated operator controls.
+- **About**: method, privacy posture, and official-support guidance.
+
+The public brief may show reviewed patch observations such as press reception, fix announcements, and community asks. Those observations add context; they do not replace a player report or confirmation signal.
+
 ## N=0 First
 
 The site must work and feel complete with zero visitors and zero community input. Patch sync, official notes, scanner health, mapped lead questions, and claim clocks make the board useful on its own. Confirmation controls are calm invitations, not empty-state structure, and silence never turns green or becomes proof of a fix.
@@ -37,9 +49,11 @@ The site must work and feel complete with zero visitors and zero community input
 - Prefer dense, scannable operational UI over marketing pages.
 - Stay useful at N=0.
 - Keep Reddit API permanently off. Reddit pages may appear only through Tavily public-web discovery; promising thin results may receive bounded basic extraction after normalization to `old.reddit.com`.
-- Keep Tavily at or below 1,000 monthly credits. Use `deepseek/deepseek-v4-flash` only for high-value scanner extraction and official fix-claim mapping, under a hard $2 UTC-month software cap and per-request price ceilings.
-- Keep routine report moderation and dossier prose on `openrouter/free`, an explicit `:free` model, or deterministic fallback.
+- Keep public-web discovery at or below 1,000 monthly credits. Restrict higher-cost scanner enrichment and official fix-claim mapping to approved server-side automation under a hard $2 UTC-month software cap and per-request price ceilings.
+- Keep routine report moderation and dossier prose on approved low-cost or deterministic fallback paths configured by maintainers.
 - Use a dedicated OpenRouter key with a provider-side monthly reset limit of $2 or lower, verified manually by a maintainer because the repository cannot inspect that dashboard setting.
+
+Public documentation should explain these guarantees and boundaries without treating the current discovery, ranking, prompt, or moderation implementation as a permanent public recipe.
 
 ## Non-Goals
 

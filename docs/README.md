@@ -1,41 +1,56 @@
 # Documentation
 
-Crimson Desert Report Hub is documented in small, purpose-specific files so the README can stay readable.
+This is the canonical map for Crimson Desert Report Hub. The README is the public front door; these pages explain the product contract, system boundaries, release work, and maintainer routines without making the repository history the user manual.
 
-## Current Product Model
+Public documentation explains the promises people need to evaluate: what the hub shows, what it keeps private, how contributions are checked, and which provider or deployment boundaries matter. It intentionally does not publish private query packs, prompt templates, ranking weights, moderation heuristics, or other implementation recipes that are part of the maintainer's operating knowledge.
 
-The current owner-approved model is the **Confirmation Board**: reports are evidence, anonymous confirmations are player signals, and scanner links are leads. The site must remain useful at N=0, never infer a fix from silence, and keep Reddit API permanently off. Tavily discovery stays within 1,000 monthly credits; high-value scanner/claim work uses only budget-capped DeepSeek V4 Flash, while routine AI work stays on free models or deterministic fallback. [Product Notes](../PRODUCT.md) is the concise public contract; the owner-approved [Confirmation Board design](superpowers/specs/2026-07-09-confirmation-board-design.md) is the detailed design record.
+## Read this first
 
-Older dated specs and plans under `docs/superpowers/` are historical records. Their banners identify superseded guidance; do not execute an older checklist when it conflicts with the Confirmation Board design or current repository instructions.
+1. [README](../README.md) — what the hub is and how to run it.
+2. [Product Notes](../PRODUCT.md) — audience, evidence model, principles, and non-goals.
+3. [Architecture](ARCHITECTURE.md) — routes, input registers, persistence, and automation flow.
+4. [Privacy](PRIVACY.md) — what is collected, what is public, and how abuse controls work.
 
-## Public Project Docs
-
-| Document | Use it for |
-| --- | --- |
-| [State of Play & Next Steps](NEXT-STEPS.md) | Owner's resume-cold note: current state, ranked backlog, health check. Read first after time away. |
-| [Launch Checklist](LAUNCH_CHECKLIST.md) | Production setup, required services, first run, and final verification. |
-| [Operations Guide](OPERATIONS.md) | Environment variables, confirmation/scanner controls, deployment behavior, and safe live previews. |
-| [Privacy](PRIVACY.md) | What the app stores, what it shows publicly, and what it avoids collecting. |
-| [Discussion Guide](DISCUSSIONS.md) | How to use GitHub Discussions without leaking secrets or turning questions into issue noise. |
-
-## Repository Docs
+## Public project docs
 
 | Document | Use it for |
 | --- | --- |
-| [Contributing](../CONTRIBUTING.md) | Contribution expectations and verification commands. |
-| [Security](../SECURITY.md) | Vulnerability reporting and secret-handling policy. |
-| [Design Notes](../DESIGN.md) | Visual direction and UI constraints. |
-| [Product Notes](../PRODUCT.md) | Audience, purpose, principles, non-goals, and success criteria. |
+| [Architecture](ARCHITECTURE.md) | A code-oriented map of the public surfaces, data lanes, scheduler, and provider boundaries. |
+| [Launch Checklist](LAUNCH_CHECKLIST.md) | First-time provider setup, authorized migration workflow, production smoke test, and release checks. |
+| [Operations Guide](OPERATIONS.md) | Environment variables, scan controls, budgets, admin actions, and safe live operations. |
+| [Privacy](PRIVACY.md) | Public/private data boundaries, network hashes, confirmations, local file handling, and third parties. |
+| [Discussion Guide](DISCUSSIONS.md) | Where questions, bug reports, and sensitive material belong on GitHub. |
+| [State of Play](NEXT-STEPS.md) | A living maintainer handoff for the current release posture and next decisions. |
+| [Patch Intelligence ADR](ADR-001-patch-intelligence.md) | The historical decision record behind patch-aware intelligence and the observation lane. |
 
-## Wiki Source
+## Repository policy
 
-The GitHub Wiki is a separate repository behind the scenes. The files in [docs/wiki](wiki/Home.md) are polished wiki-ready source pages:
+| Document | Use it for |
+| --- | --- |
+| [Product Notes](../PRODUCT.md) | Product truth, non-goals, and success criteria. |
+| [Design Notes](../DESIGN.md) | Visual language, information hierarchy, and accessibility constraints. |
+| [Contributing](../CONTRIBUTING.md) | Local development, verification, review expectations, and scope boundaries. |
+| [Security Policy](../SECURITY.md) | Vulnerability reporting and secret handling. |
+| [License](../LICENSE) | The current Apache 2.0 terms. |
 
-- [Home](wiki/Home.md)
+## Wiki-ready source
+
+The files under [`docs/wiki`](wiki/Home.md) are public, copyable pages for the GitHub Wiki. They intentionally use stable links and plain language so the wiki can be updated without exposing private operator notes.
+
+- [Wiki home](wiki/Home.md)
 - [Getting Started](wiki/Getting-Started.md)
 - [Data Sources and Automation](wiki/Data-Sources-and-Automation.md)
 - [Privacy and Moderation](wiki/Privacy-and-Moderation.md)
 - [Maintainer Runbook](wiki/Maintainer-Runbook.md)
-- [Sidebar](wiki/_Sidebar.md)
+- [Wiki sidebar](wiki/_Sidebar.md)
 
-Copy those pages into the GitHub Wiki when you want the public wiki to match the repository docs.
+## Historical records
+
+Internal planning artifacts and agent handoffs are intentionally not part of the public documentation tree. The maintained public contract is the README, Product Notes, Architecture, Operations, Privacy, and wiki-ready pages listed above.
+
+## Documentation rules
+
+- Describe observed behavior, not intended behavior, unless a page is explicitly a proposal.
+- Keep reports, confirmations, scanner leads, and official claims separate in every public explanation.
+- Never publish secrets, raw report text, private source candidates, network hashes, or private dashboard details.
+- Update the docs map when adding a public runbook or changing a route, provider, migration workflow, or budget boundary.

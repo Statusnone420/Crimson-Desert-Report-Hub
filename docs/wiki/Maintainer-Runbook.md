@@ -1,78 +1,56 @@
 # Maintainer Runbook
 
-This page is the short operating checklist for maintainers.
+This is the short, public-safe operating checklist. For provider setup and migration authorization, use the [Operations Guide](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/OPERATIONS.md) and [Launch Checklist](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/LAUNCH_CHECKLIST.md).
 
-## Daily Checks
+## Daily checks
 
-- Open the live site and confirm the dashboard loads.
-- Review pending reports in `/admin`.
-- Open the authenticated `/scanner` view for paused scans, failed runs, suspicious radar leads, and the expiring rejected archive.
-- Review only real claim-mapping exceptions or explicit lifecycle locks in `/admin`; normal days should require no lifecycle clicks.
-- Approve only excerpts that are useful and safe to publish.
+- Open the live site and confirm the public pages load.
+- Check the Patch Brief for current official context and honest empty states.
+- Review pending direct reports in /admin.
+- Open the authenticated /scanner view for run health, paused state, and obvious source problems.
+- Approve only excerpts and links that are useful, relevant, and safe to publish.
 
-## Before Running Automation
+## Before a real scan
 
-1. Confirm `AUTOMATION_BUDGET_USD_MONTHLY=2`, Tavily is within the 1,000-credit envelope, and high-value automation is pinned to `deepseek/deepseek-v4-flash`.
-2. Confirm routine report moderation/dossier prose use `openrouter/free`/`:free` or deterministic fallback.
-3. In OpenRouter, manually confirm the deployment's dedicated key has a monthly limit of $2 or lower with monthly reset. The repository cannot verify this provider-side setting.
-4. Confirm no Reddit API credentials or direct subreddit monitor are configured.
-5. Run `Test scan without publishing`.
-6. Run the protected source preview route with a small query count; extraction on this route is deterministic and does not call OpenRouter.
-7. Check that results are plausible issue pages, not reviews, guides, benchmarks, patch notes, or unrelated content.
-8. Confirm mapped public items read as lead questions, never evidence.
-9. Only then run a capped real scan.
+1. Confirm provider caps and the linked Supabase migration list.
+2. Confirm Reddit API credentials are absent.
+3. Run the protected no-publish preview.
+4. Check that its results are relevant issue material rather than general patch or review content.
+5. Run an authorized capped scan only after the preview is acceptable.
 
-## If "AI extraction (OpenRouter)" Shows Paused
+## If automation looks wrong
 
-- Paused means the cost-safety circuit is open; scans keep running with Tavily and deterministic extraction, so nothing is broken.
-- Check the latest runs' skip codes on the admin `/scanner` view: `openrouter_cost_unverified` three or more times inside 24 hours self-heals once the failures age out of the window — no action needed.
-- `openrouter_unexpected_charge` or `openrouter_budget_exceeded` keeps the circuit open for the rest of the UTC month by design; verify the OpenRouter dashboard's key-level spend before considering any change.
-- There is no manual reset. The circuit is recomputed from run history each scan and closes on its own when conditions clear.
+- Pause scheduled scans.
+- Preserve the run history and private candidate context.
+- Prefer hiding or rejecting questionable material while investigating.
+- Do not raise caps, add a provider, or loosen publication rules as an emergency shortcut.
+- If a credential appeared in a screenshot, issue, discussion, or commit, rotate it immediately and follow the security policy.
 
-## Confirmation Board Checks
+## Confirmation board checks
 
-- Confirm that a successful tap acknowledges the selected stance but leaves totals server-authored until refresh.
-- Confirm one network can change stance for an issue/patch family without adding another voter.
-- Confirm claim polls are attributed to the exact claimed patch version; `1.13.00` must not render as a `1.13.01` claim.
-- Confirm only post-clock `Still happening` / `Fixed for me` taps and exact-version post-clock structured reports affect the claim readout. Scanner links remain leads.
-- Confirm hidden or missing issues return `unknown_issue` without consuming a confirmation-attempt entry.
-- Treat the 20-writes/network/hour ledger as an abuse limit, not identity.
+- A successful tap acknowledges a stance but public totals remain server-authored.
+- A later tap changes the current response instead of adding a second voter for the same issue and patch family.
+- Exact-patch fix claims do not bleed into later patches.
+- Scanner links remain leads even when a public issue displays them.
 
-## Overrides
+## Before release
 
-- Use lifecycle locks only for real exceptions; clear them to return control to automation.
-- Use `Force public` or `Force hidden` for an immediate atomic visibility change. `Auto` clears the override and immediately re-runs a revision-checked, atomic promotion refresh for that cluster and its source rows. Database guards preserve forced state and its live automatic baseline across concurrent scanner writes; public pages revalidate after the action.
-- Scanner links remain leads even when a visibility override makes a cluster public.
-
-## Before Release
-
-```bash
+~~~powershell
 npm run lint
 npm test
 npm exec tsc -- --noEmit
 npm run build
 npm run test:e2e
-```
+npm run test:e2e:n0
+git diff --check
+~~~
 
-Run a secret scan before pushing:
+Also inspect the final diff, git status --short, the hosting checks, and the target migration list.
 
-```bash
-rg -n "(sb_secret_|sk-or-|tvly-|SUPABASE_SERVICE_ROLE_KEY|OPENROUTER_API_KEY|TAVILY_API_KEY)" .
-```
-
-Only placeholder names should appear in documentation or examples.
-
-## If Something Looks Wrong
-
-- Pause scheduled scans.
-- Keep direct reports available if public pages are healthy.
-- Do not delete data until the cause is understood.
-- Prefer rejecting or hiding questionable excerpts/leads over publishing them.
-- Rotate exposed secrets immediately if a screenshot, issue, discussion, or commit leaks credentials.
-
-## Useful Links
+## Useful links
 
 - [Operations Guide](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/OPERATIONS.md)
 - [Launch Checklist](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/LAUNCH_CHECKLIST.md)
 - [Privacy](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/PRIVACY.md)
-- [Security](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/SECURITY.md)
+- [Security Policy](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/SECURITY.md)
+- [Public Architecture](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/ARCHITECTURE.md)
