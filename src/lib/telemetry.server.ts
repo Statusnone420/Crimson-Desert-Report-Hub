@@ -90,7 +90,7 @@ type RunRow = {
   reddit_posts_seen: number | null;
   signals_inserted: number | null;
   signals_reobserved: number | null;
-  funnel: { candidatesSeen: number | null } | null;
+  funnel: { candidatesSeen?: number | null } | null;
   llm_calls_used: number | null;
   estimated_cost_usd: number | null;
 };
@@ -112,6 +112,17 @@ export function isIntakeRun(run: RunRow): boolean {
     (run.reddit_posts_seen ?? 0) === 0 &&
     run.funnel?.candidatesSeen === 1
   );
+}
+
+/**
+ * Source counters record fetched rows, before the scanner applies its input
+ * cap. The persisted funnel count is incremented after that cap and is the
+ * only honest count of candidates that entered screening. Older rows without
+ * that count remain unknown instead of being reconstructed from fetch totals.
+ */
+export function screenedCandidatesForRun(run: RunRow): number {
+  const candidatesSeen = run.funnel?.candidatesSeen;
+  return typeof candidatesSeen === "number" && Number.isFinite(candidatesSeen) ? Math.max(0, candidatesSeen) : 0;
 }
 
 const DAILY_WINDOW_DAYS = 30;
@@ -149,7 +160,7 @@ export function buildObservatoryDaily(rows: RunRow[], today: Date): ObservatoryD
   for (const row of rows) {
     const key = dayKey(row.started_at);
     const point = (byDay[key] ??= { date: key, reviewed: 0, kept: 0, reobserved: 0, llmCalls: 0 });
-    point.reviewed += (row.search_results_seen ?? 0) + (row.reddit_posts_seen ?? 0);
+    point.reviewed += screenedCandidatesForRun(row);
     point.llmCalls += row.llm_calls_used ?? 0;
     // Failed runs can carry phantom insert counts from screening that never
     // persisted — same rule the scanner tab applies.
@@ -248,7 +259,7 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
 
     const intakeRuns = runs.filter(isIntakeRun);
     const reviewed = intakeRuns.reduce(
-      (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
+      (sum, run) => sum + screenedCandidatesForRun(run),
       0,
     );
     // Failed runs can carry phantom insert counts from screening that never persisted.

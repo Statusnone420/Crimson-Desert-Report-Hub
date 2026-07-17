@@ -4,7 +4,7 @@ vi.mock("next/cache", () => ({
   unstable_cache: (fn: unknown) => fn,
 }));
 
-import { isIntakeRun } from "@/lib/telemetry.server";
+import { buildObservatoryDaily, isIntakeRun, screenedCandidatesForRun } from "@/lib/telemetry.server";
 
 type IntakeRun = Parameters<typeof isIntakeRun>[0];
 
@@ -56,5 +56,35 @@ describe("isIntakeRun", () => {
         funnel: { candidatesSeen: 0 },
       }),
     ).toBe(true);
+  });
+
+  it("counts only candidates that entered screening, not fetched source rows", () => {
+    const run = {
+      ...baseRun,
+      mode: "scheduled",
+      intent: "broad_discovery",
+      search_results_seen: 8,
+      reddit_posts_seen: 12,
+      signals_inserted: 1,
+      funnel: { candidatesSeen: 5 },
+    };
+
+    expect(screenedCandidatesForRun(run)).toBe(5);
+
+    const point = buildObservatoryDaily([run], new Date("2026-07-17T12:00:00.000Z")).find(
+      (dailyPoint) => dailyPoint.date === "2026-07-17",
+    );
+    expect(point).toEqual({ date: "2026-07-17", reviewed: 5, kept: 1, reobserved: 0, llmCalls: 1 });
+  });
+
+  it("does not infer screened candidates when the persisted funnel count is missing", () => {
+    expect(
+      screenedCandidatesForRun({
+        ...baseRun,
+        search_results_seen: 8,
+        reddit_posts_seen: 12,
+        funnel: {},
+      }),
+    ).toBe(0);
   });
 });
