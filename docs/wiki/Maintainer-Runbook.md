@@ -1,6 +1,6 @@
 # Maintainer Runbook
 
-This is the short, public-safe operating checklist. For provider setup and migration authorization, use the [Operations Guide](../OPERATIONS.md) and [Launch Checklist](../LAUNCH_CHECKLIST.md).
+This is the short, public-safe operating checklist. For provider setup and migration authorization, use the [Operations Guide](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/OPERATIONS.md) and [Launch Checklist](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/LAUNCH_CHECKLIST.md).
 
 ## Daily checks
 

@@ -32,4 +32,4 @@ The public site is designed to remain useful with zero visitors. Quiet means qui
 - [Privacy and Moderation](Privacy-and-Moderation) — what can be public and what stays private.
 - [Maintainer Runbook](Maintainer-Runbook) — safe operating and release checks.
 
-For the deeper repository map, use [the docs index](../README.md) and [the public architecture contract](../ARCHITECTURE.md).
+For the deeper repository map, use [the docs index](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/README.md) and [the public architecture contract](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/ARCHITECTURE.md).

@@ -42,4 +42,4 @@ Admins review direct reports, scanner exceptions, and publication state. Auto, F
 
 Depending on deployment configuration, the project may use Supabase, Vercel, Cloudflare, Tavily, OpenRouter, and optional Turnstile. Provider keys stay server-side. Reddit API access is permanently off.
 
-For the complete repository policy, see [Privacy](../PRIVACY.md) and [Security](../../SECURITY.md).
+For the complete repository policy, see [Privacy](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/PRIVACY.md) and [Security](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/SECURITY.md).
