@@ -1,10 +1,13 @@
 import Link from "next/link";
-import { PatchActivityChart } from "@/components/PatchActivityChart";
+import { PatchTimeline } from "@/components/PatchTimeline";
 import { RadarFunnel } from "@/components/RadarFunnel";
-import { SignalTrendChart } from "@/components/SignalTrendChart";
+import { ScannerActivityChart } from "@/components/ScannerActivityChart";
+import { CategorySplit, ConfidenceMix, DomainLanes } from "@/components/SourceLandscape";
+import { TelemetryBand } from "@/components/TelemetryBand";
 import { ReadoutMark } from "@/components/ui";
 import { buildFixScoreboard } from "@/lib/fixScoreboard";
 import { getDashboardData, getPublicScannerData } from "@/lib/queries";
+import { getObservatoryData } from "@/lib/telemetry.server";
 import { buildRightNowReadout } from "@/lib/rightNow";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { hasClusterEvidence } from "@/lib/evidence";
@@ -54,7 +57,11 @@ function publishedDate(iso: string | null): string {
 }
 
 export default async function DashboardPage() {
-  const [d, radar] = await Promise.all([getDashboardData(), getPublicScannerData()]);
+  const [d, radar, observatory] = await Promise.all([
+    getDashboardData(),
+    getPublicScannerData(),
+    getObservatoryData(),
+  ]);
   const reportedIssues = d.topClusters.filter(hasClusterEvidence).length;
   const playerTaps = d.topClusters.reduce((sum, cluster) => sum + cluster.confirmations.totalCount, 0);
   const radarLeadCount = d.topClusters.reduce((sum, cluster) => sum + cluster.candidateSignalCount, 0);
@@ -93,7 +100,8 @@ export default async function DashboardPage() {
   const categoryEntries = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
   const maxPlatform = Math.max(...platformEntries.map(([, count]) => count), 1);
   const maxCategory = Math.max(...categoryEntries.map(([, count]) => count), 1);
-  const hasActivity = d.series.some((point) => point.count > 0) || d.signalSeries.some((point) => point.count > 0);
+  const maxRejectionReason = Math.max(...observatory.rejectionReasons.map((reason) => reason.count), 1);
+  const hasTelemetry = observatory.totals.scans > 0;
   const scoreboard = buildFixScoreboard({
     claims: d.claimedFixes,
     clusters: d.topClusters,
@@ -161,6 +169,12 @@ export default async function DashboardPage() {
           </a>
         </aside>
       </section>
+
+      {hasTelemetry ? (
+        <section className="brief-section brief-section--band" aria-label="Scanner telemetry across all patches">
+          <TelemetryBand data={observatory} />
+        </section>
+      ) : null}
 
       <section className="signal-rail" aria-labelledby="right-now-title">
         <div className="signal-rail__label">
@@ -430,21 +444,28 @@ export default async function DashboardPage() {
       <section className="brief-section" aria-labelledby="highlights-title">
         <div className="section-intro">
           <div>
-            <div className="eyebrow">Highlights</div>
-            <h2 id="highlights-title">Read the pulse</h2>
+            <div className="eyebrow">The machine at work</div>
+            <h2 id="highlights-title">What the scanner did</h2>
           </div>
-          <p>Two views of the same system: what has accumulated, and what the radar is still sorting.</p>
+          <p>
+            Daily intake across every patch — the muted bars are everything reviewed, the blue bars are what survived
+            screening. Sparse days look sparse on purpose.
+          </p>
         </div>
         <div className="highlight-grid">
           <article className="chart-card chart-card--wide">
             <div className="chart-card__header">
               <div>
-                <h3>Signal trend</h3>
-                <p>Cumulative public activity across the last 30 days.</p>
+                <h3>Scanner activity</h3>
+                <p>Sources reviewed and signals kept per day, last 30 days.</p>
               </div>
-              <span className="badge badge-dim">Current patch</span>
+              <span className="badge badge-dim">All patches</span>
             </div>
-            <SignalTrendChart reports={d.series} signals={d.signalSeries} />
+            {hasTelemetry ? (
+              <ScannerActivityChart daily={observatory.daily} />
+            ) : (
+              <div className="chart-empty">Activity appears once the scanner has run.</div>
+            )}
           </article>
           <article className="chart-card">
             <div className="chart-card__header">
@@ -457,6 +478,67 @@ export default async function DashboardPage() {
               </Link>
             </div>
             <RadarFunnel data={radar} />
+            {observatory.rejectionReasons.length > 0 ? (
+              <>
+                <div className="card-rule" />
+                <div className="eyebrow">Why sources get filtered</div>
+                <div className="bar-list bar-list--tight">
+                  {observatory.rejectionReasons.map((reason) => (
+                    <div key={reason.reason} className="bar-list__row">
+                      <div className="bar-list__label">
+                        <span>{reason.label}</span>
+                        <span className="num">{reason.count}</span>
+                      </div>
+                      <div className="bar-list__track" aria-hidden="true">
+                        <span
+                          style={{
+                            width: `${Math.max(2, Math.round((reason.count / maxRejectionReason) * 100))}%`,
+                            background: "var(--border-strong)",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="muted-note">All patches, aggregate counts only — no titles or links.</p>
+              </>
+            ) : null}
+          </article>
+        </div>
+      </section>
+
+      <section className="brief-section" aria-labelledby="landscape-title">
+        <div className="section-intro">
+          <div>
+            <div className="eyebrow">Source landscape</div>
+            <h2 id="landscape-title">Where signals live</h2>
+          </div>
+          <p>
+            Every domain the radar has touched, and how the screen treated it. Kept means tracked as a lead — still not
+            evidence.
+          </p>
+        </div>
+        <div className="content-grid content-grid--wide">
+          <article className="chart-card chart-card--wide">
+            <div className="chart-card__header">
+              <div>
+                <h3>Domains: kept vs filtered</h3>
+                <p>Candidates per source domain across all patches.</p>
+              </div>
+            </div>
+            <DomainLanes domains={observatory.domains} />
+          </article>
+          <article className="chart-card">
+            <div className="chart-card__header">
+              <div>
+                <h3>What signals are about</h3>
+                <p>Category mix across tracked signals.</p>
+              </div>
+            </div>
+            <CategorySplit categories={observatory.signalCategories} />
+            <div className="card-rule" />
+            <div className="eyebrow">Extraction confidence</div>
+            <ConfidenceMix mix={observatory.confidenceMix} />
           </article>
         </div>
       </section>
@@ -473,16 +555,12 @@ export default async function DashboardPage() {
           <article className="chart-card chart-card--wide">
             <div className="chart-card__header">
               <div>
-                <h3>30-day patch activity</h3>
-                <p>Approved reports and source leads over time.</p>
+                <h3>Patch ledger</h3>
+                <p>Every patch the hub has covered — cadence, claimed fixes, player verdicts.</p>
               </div>
-              <span className="badge badge-dim">Current patch</span>
+              <span className="badge badge-dim">All patches</span>
             </div>
-            {hasActivity ? (
-              <PatchActivityChart reports={d.series} signals={d.signalSeries} />
-            ) : (
-              <div className="chart-empty">Activity appears once approved reports or source leads come in.</div>
-            )}
+            <PatchTimeline patches={observatory.patches} />
           </article>
           <article className="source-card">
             <div className="source-card__topline">
@@ -514,26 +592,48 @@ export default async function DashboardPage() {
           <article className="chart-card">
             <div className="chart-card__header">
               <div>
-                <h3>Platforms</h3>
-                <p>Approved report distribution.</p>
+                <h3>Player evidence</h3>
+                <p>Approved reports for this patch — counted literally, never padded.</p>
               </div>
             </div>
-            {platformEntries.length === 0 ? (
-              <p className="chart-empty chart-empty--short">No approved reports yet.</p>
+            {platformEntries.length === 0 && categoryEntries.length === 0 ? (
+              <p className="chart-empty chart-empty--short">
+                No approved reports for {currentPatchLabel} yet. When they land, platform and category splits appear
+                here — until then, zero stays zero.
+              </p>
             ) : (
-              <div className="bar-list">
-                {platformEntries.map(([platform, count]) => (
-                  <div key={platform} className="bar-list__row">
-                    <div className="bar-list__label">
-                      <span>{PLATFORM_LABELS[platform as keyof typeof PLATFORM_LABELS] ?? platform}</span>
-                      <span className="num">{count}</span>
-                    </div>
-                    <div className="bar-list__track" aria-hidden="true">
-                      <span style={{ width: `${Math.round((count / maxPlatform) * 100)}%` }} />
-                    </div>
+              <>
+                {platformEntries.length > 0 ? (
+                  <div className="bar-list">
+                    {platformEntries.map(([platform, count]) => (
+                      <div key={platform} className="bar-list__row">
+                        <div className="bar-list__label">
+                          <span>{PLATFORM_LABELS[platform as keyof typeof PLATFORM_LABELS] ?? platform}</span>
+                          <span className="num">{count}</span>
+                        </div>
+                        <div className="bar-list__track" aria-hidden="true">
+                          <span style={{ width: `${Math.round((count / maxPlatform) * 100)}%` }} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                ) : null}
+                {categoryEntries.length > 0 ? (
+                  <div className="bar-list">
+                    {categoryEntries.map(([category, count]) => (
+                      <div key={category} className="bar-list__row">
+                        <div className="bar-list__label">
+                          <span>{CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? category}</span>
+                          <span className="num">{count}</span>
+                        </div>
+                        <div className="bar-list__track" aria-hidden="true">
+                          <span className="bar-list__track--amber" style={{ width: `${Math.round((count / maxCategory) * 100)}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
             )}
             <div className="card-rule" />
             <div className="eyebrow">Most-cited GPUs</div>
@@ -549,32 +649,6 @@ export default async function DashboardPage() {
                       {gpu} <span className="num">{count}</span>
                     </span>
                   ))}
-              </div>
-            )}
-          </article>
-
-          <article className="chart-card">
-            <div className="chart-card__header">
-              <div>
-                <h3>Categories</h3>
-                <p>What approved reports are about.</p>
-              </div>
-            </div>
-            {categoryEntries.length === 0 ? (
-              <p className="chart-empty chart-empty--short">Counts appear as reports are sorted.</p>
-            ) : (
-              <div className="bar-list">
-                {categoryEntries.map(([category, count]) => (
-                  <div key={category} className="bar-list__row">
-                    <div className="bar-list__label">
-                      <span>{CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? category}</span>
-                      <span className="num">{count}</span>
-                    </div>
-                    <div className="bar-list__track" aria-hidden="true">
-                      <span className="bar-list__track--amber" style={{ width: `${Math.round((count / maxCategory) * 100)}%` }} />
-                    </div>
-                  </div>
-                ))}
               </div>
             )}
             <div className="card-rule" />

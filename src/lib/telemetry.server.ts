@@ -1,0 +1,265 @@
+import "server-only";
+
+import { unstable_cache } from "next/cache";
+import { countBy } from "@/lib/aggregates";
+import { PUBLIC_DASHBOARD_TAG } from "@/lib/cacheTags";
+import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
+
+/**
+ * Aggregate-only scanner observatory data for the public front page.
+ *
+ * Full-transparency boundary (user decision 2026-07-17): volume, cadence, model
+ * calls, spend, and rejection-reason counts are public — but ONLY as aggregates.
+ * No title, URL, snippet, or per-candidate row ever leaves this module.
+ */
+
+export type ObservatoryDailyPoint = {
+  date: string;
+  reviewed: number;
+  kept: number;
+  reobserved: number;
+  llmCalls: number;
+};
+
+export type ObservatoryDomain = {
+  domain: string;
+  kept: number;
+  filtered: number;
+  totalSeen: number;
+};
+
+export type ObservatoryPatch = {
+  version: string;
+  publishedAt: string | null;
+  isCurrent: boolean;
+  claimedFixes: number;
+  fixCategories: { category: string | null; count: number }[];
+  playerConfirmed: number;
+};
+
+export type ObservatoryData = {
+  totals: {
+    scans: number;
+    reviewed: number;
+    tracked: number;
+    totalObservations: number;
+    filtered: number;
+    filterRatePct: number;
+    llmCalls: number;
+    costUsd: number;
+    firstRunAt: string | null;
+    scansPerDay: number;
+  };
+  daily: ObservatoryDailyPoint[];
+  rejectionReasons: { reason: string; label: string; count: number }[];
+  domains: ObservatoryDomain[];
+  signalCategories: Record<string, number>;
+  confidenceMix: { high: number; medium: number; low: number };
+  patches: ObservatoryPatch[];
+};
+
+export const REJECTION_REASON_LABELS: Record<string, string> = {
+  source_not_issue_report: "Not an issue report",
+  category_other: "Off-category chatter",
+  wrong_patch: "Wrong patch window",
+};
+
+function rejectionReasonLabel(reason: string): string {
+  return REJECTION_REASON_LABELS[reason] ?? reason.replaceAll("_", " ");
+}
+
+type RunRow = {
+  started_at: string;
+  status: string;
+  search_results_seen: number | null;
+  reddit_posts_seen: number | null;
+  signals_inserted: number | null;
+  signals_reobserved: number | null;
+  llm_calls_used: number | null;
+  estimated_cost_usd: number | null;
+};
+
+const DAILY_WINDOW_DAYS = 30;
+
+function emptyObservatoryData(): ObservatoryData {
+  return {
+    totals: {
+      scans: 0,
+      reviewed: 0,
+      tracked: 0,
+      totalObservations: 0,
+      filtered: 0,
+      filterRatePct: 0,
+      llmCalls: 0,
+      costUsd: 0,
+      firstRunAt: null,
+      scansPerDay: 0,
+    },
+    daily: [],
+    rejectionReasons: [],
+    domains: [],
+    signalCategories: {},
+    confidenceMix: { high: 0, medium: 0, low: 0 },
+    patches: [],
+  };
+}
+
+function dayKey(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+export function buildObservatoryDaily(rows: RunRow[], today: Date): ObservatoryDailyPoint[] {
+  const byDay: Record<string, ObservatoryDailyPoint> = {};
+  for (const row of rows) {
+    const key = dayKey(row.started_at);
+    const point = (byDay[key] ??= { date: key, reviewed: 0, kept: 0, reobserved: 0, llmCalls: 0 });
+    point.reviewed += (row.search_results_seen ?? 0) + (row.reddit_posts_seen ?? 0);
+    point.llmCalls += row.llm_calls_used ?? 0;
+    // Failed runs can carry phantom insert counts from screening that never
+    // persisted — same rule the scanner tab applies.
+    if (row.status !== "failed") {
+      point.kept += row.signals_inserted ?? 0;
+      point.reobserved += row.signals_reobserved ?? 0;
+    }
+  }
+  const series: ObservatoryDailyPoint[] = [];
+  for (let i = DAILY_WINDOW_DAYS - 1; i >= 0; i--) {
+    const key = dayKey(new Date(today.getTime() - i * 24 * 60 * 60 * 1000).toISOString());
+    series.push(byDay[key] ?? { date: key, reviewed: 0, kept: 0, reobserved: 0, llmCalls: 0 });
+  }
+  return series;
+}
+
+async function getObservatoryDataUncached(): Promise<ObservatoryData> {
+  if (!hasSupabaseServiceConfig()) return emptyObservatoryData();
+
+  try {
+    const supabase = createServiceClient();
+
+    const [runsRes, rejectedRes, signalsRes, notesRes, fixesRes, confirmationsRes] = await Promise.all([
+      supabase
+        .from("automation_runs")
+        .select(
+          "started_at, status, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, llm_calls_used, estimated_cost_usd",
+        )
+        .neq("mode", "dry_run")
+        .in("status", ["success", "partial", "failed"])
+        .order("started_at", { ascending: true })
+        .limit(5000),
+      supabase.from("automation_rejected_candidates").select("reason, source_domain").limit(5000),
+      supabase.from("source_signals").select("source_domain, category, confidence, seen_count").limit(5000),
+      supabase.from("official_patch_notes").select("board_no, patch_version, published_at, is_current"),
+      supabase.from("official_patch_claimed_fixes").select("board_no, category").limit(5000),
+      supabase.from("issue_confirmations").select("patch_version, kind").limit(5000),
+    ]);
+
+    const runs = (runsRes.data ?? []) as RunRow[];
+    const rejected = (rejectedRes.data ?? []) as { reason: string; source_domain: string | null }[];
+    const signals = (signalsRes.data ?? []) as {
+      source_domain: string | null;
+      category: string;
+      confidence: "low" | "medium" | "high";
+      seen_count: number | null;
+    }[];
+    const notes = (notesRes.data ?? []) as {
+      board_no: string;
+      patch_version: string;
+      published_at: string | null;
+      is_current: boolean;
+    }[];
+    const fixes = (fixesRes.data ?? []) as { board_no: string; category: string | null }[];
+    const confirmations = (confirmationsRes.data ?? []) as { patch_version: string | null; kind: string }[];
+
+    const reviewed = runs.reduce((sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0), 0);
+    const llmCalls = runs.reduce((sum, run) => sum + (run.llm_calls_used ?? 0), 0);
+    const costUsd = runs.reduce((sum, run) => sum + (run.estimated_cost_usd ?? 0), 0);
+    const tracked = signals.length;
+    const filtered = rejected.length;
+    const totalObservations = signals.reduce((sum, signal) => sum + (signal.seen_count ?? 0), 0);
+    const firstRunAt = runs[0]?.started_at ?? null;
+    const activeDays = firstRunAt
+      ? Math.max(1, Math.ceil((Date.now() - new Date(firstRunAt).getTime()) / (24 * 60 * 60 * 1000)))
+      : 1;
+
+    const reasonCounts = countBy(rejected, (row) => row.reason);
+    const rejectionReasons = Object.entries(reasonCounts)
+      .map(([reason, count]) => ({ reason, label: rejectionReasonLabel(reason), count }))
+      .sort((a, b) => b.count - a.count);
+
+    const keptByDomain = countBy(signals, (row) => row.source_domain ?? "unknown");
+    const filteredByDomain = countBy(rejected, (row) => row.source_domain ?? "unknown");
+    const seenByDomain: Record<string, number> = {};
+    for (const signal of signals) {
+      const key = signal.source_domain ?? "unknown";
+      seenByDomain[key] = (seenByDomain[key] ?? 0) + (signal.seen_count ?? 0);
+    }
+    const domains = [...new Set([...Object.keys(keptByDomain), ...Object.keys(filteredByDomain)])]
+      .map((domain) => ({
+        domain,
+        kept: keptByDomain[domain] ?? 0,
+        filtered: filteredByDomain[domain] ?? 0,
+        totalSeen: seenByDomain[domain] ?? 0,
+      }))
+      .sort((a, b) => b.kept + b.filtered - (a.kept + a.filtered));
+
+    const confidenceCounts = countBy(signals, (row) => row.confidence);
+    const fixesByBoard: Record<string, { category: string | null }[]> = {};
+    for (const fix of fixes) {
+      (fixesByBoard[fix.board_no] ??= []).push({ category: fix.category });
+    }
+    const confirmedByPatch = countBy(
+      confirmations.filter((row) => row.kind === "fixed_for_me"),
+      (row) => row.patch_version,
+    );
+
+    const patches = notes
+      .slice()
+      .sort((a, b) => new Date(a.published_at ?? 0).getTime() - new Date(b.published_at ?? 0).getTime())
+      .map((note) => {
+        const patchFixes = fixesByBoard[note.board_no] ?? [];
+        const categoryCounts = countBy(patchFixes, (fix) => fix.category ?? "general");
+        return {
+          version: note.patch_version,
+          publishedAt: note.published_at,
+          isCurrent: note.is_current,
+          claimedFixes: patchFixes.length,
+          fixCategories: Object.entries(categoryCounts)
+            .map(([category, count]) => ({ category: category === "general" ? null : category, count }))
+            .sort((a, b) => b.count - a.count),
+          playerConfirmed: confirmedByPatch[note.patch_version] ?? 0,
+        };
+      });
+
+    return {
+      totals: {
+        scans: runs.length,
+        reviewed,
+        tracked,
+        totalObservations,
+        filtered,
+        filterRatePct: filtered + tracked > 0 ? Math.round((filtered / (filtered + tracked)) * 100) : 0,
+        llmCalls,
+        costUsd,
+        firstRunAt,
+        scansPerDay: Math.round((runs.length / activeDays) * 10) / 10,
+      },
+      daily: buildObservatoryDaily(runs, new Date()),
+      rejectionReasons,
+      domains,
+      signalCategories: countBy(signals, (row) => row.category),
+      confidenceMix: {
+        high: confidenceCounts.high ?? 0,
+        medium: confidenceCounts.medium ?? 0,
+        low: confidenceCounts.low ?? 0,
+      },
+      patches,
+    };
+  } catch {
+    return emptyObservatoryData();
+  }
+}
+
+export const getObservatoryData = unstable_cache(getObservatoryDataUncached, ["public-observatory-data"], {
+  revalidate: 300,
+  tags: [PUBLIC_DASHBOARD_TAG],
+});

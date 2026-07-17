@@ -372,7 +372,8 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Player-reported issues", { exact: true })).toBeVisible();
     await expect(page.getByText("Radar leads", { exact: true })).toBeVisible();
     await expect(page.getByText("Rumors with links — not evidence", { exact: true })).toBeVisible();
-    await expect(page.getByText("Source leads", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Reviewed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Kept", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Public signals", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Patch Brief" })).toBeVisible();
     // Claimed-fix scoreboard: official claims verbatim, player verdicts from taps only.
@@ -403,11 +404,16 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("day 20 campaign")).toBeVisible();
     await expect(page.getByText("seen 6×")).toBeVisible();
     await expect(page.getByText("Wanting something is not a bug — these never touch evidence counts.")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Signal trend" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Scanner activity" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Source radar funnel" })).toBeVisible();
-    await expect(page.getByRole("table", { name: "Cumulative reports and source leads over the last 30 days" })).toHaveCount(1);
+    await expect(page.getByRole("table", { name: "Daily scanner activity over the last 30 days" })).toHaveCount(1);
     await expect(page.getByRole("table", { name: "Source radar funnel from reviewed candidates to published issues" })).toHaveCount(1);
     await expect(page.locator("svg .trend-series[tabindex]")).toHaveCount(0);
+    // Observatory surfaces: all-patch telemetry band, filter reasons, source landscape.
+    await expect(page.getByRole("list", { name: "Scanner telemetry, all patches" })).toBeVisible();
+    await expect(page.getByText("Why sources get filtered")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Domains: kept vs filtered" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What signals are about" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Top issues this patch" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Still reported after claimed fix" })).toHaveCount(0);
     await expect(page.getByText("Also watching", { exact: true })).toHaveCount(0);
@@ -421,7 +427,7 @@ test.describe("public surface visual regression", () => {
       "https://support.pearlabyss.com/",
     );
     await expect(page.getByRole("link", { name: "Source Radar" })).toHaveAttribute("href", "/scanner");
-    await expect(page.getByRole("heading", { name: "30-day patch activity" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Patch ledger" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Official patch source" })).toBeVisible();
     await expect(page.getByText("View all 30 claims", { exact: true })).toHaveCount(0);
     await expect(page.getByText("View all 2 claims", { exact: true })).toHaveCount(0);
@@ -444,9 +450,9 @@ test.describe("public surface visual regression", () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/");
 
-      await expect(page.getByRole("heading", { name: "Signal trend" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Scanner activity" })).toBeVisible();
       await expect(
-        page.getByRole("table", { name: "Cumulative reports and source leads over the last 30 days" }),
+        page.getByRole("table", { name: "Daily scanner activity over the last 30 days" }),
       ).toHaveCount(1);
 
       await expectHealthyPage(page, problems);
