@@ -411,9 +411,24 @@ test.describe("public surface visual regression", () => {
     await expect(page.locator("svg .trend-series[tabindex]")).toHaveCount(0);
     // Observatory surfaces: all-patch telemetry band, filter reasons, source landscape.
     await expect(page.getByRole("list", { name: "Scanner telemetry, all patches" })).toBeVisible();
-    await expect(page.getByText("completed scans + rescues; test runs excluded", { exact: true })).toBeVisible();
+    await expect(page.getByText("The observatory", { exact: true })).toBeVisible();
+    await expect(page.getByText("Radar yield", { exact: true })).toBeVisible();
+    const watch = page.locator("details.telemetry-watch");
+    await expect(watch).toHaveCount(1);
+    await watch.locator("summary").click();
+    await expect(watch.getByText("Graymane’s Watch", { exact: true })).toBeVisible();
+    await expect(watch.getByText("Filtered is a screening result, not a player verdict.", { exact: false })).toBeVisible();
+    const activityCard = page.locator("article.chart-card").filter({ has: page.getByRole("heading", { name: "Scanner activity" }) });
+    const funnelCard = page.locator("article.chart-card").filter({ has: page.getByRole("heading", { name: "Source radar funnel" }) });
+    await expect(activityCard).toBeVisible();
     await expect(page.getByText("Why sources get filtered")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Domains: kept vs filtered" })).toBeVisible();
+    const [activityHeight, funnelHeight] = await Promise.all([
+      activityCard.evaluate((element) => element.getBoundingClientRect().height),
+      funnelCard.evaluate((element) => element.getBoundingClientRect().height),
+    ]);
+    expect(activityHeight).toBeLessThan(funnelHeight);
+    await watch.locator("summary").click();
     await expect(page.getByRole("heading", { name: "What signals are about" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Top issues this patch" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Still reported after claimed fix" })).toHaveCount(0);

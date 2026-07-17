@@ -8,6 +8,7 @@ import {
   buildObservatoryDaily,
   isIntakeRun,
   officialPatchNotesFromResult,
+  radarYieldPct,
   screenedCandidatesForRun,
   screenedOutCandidatesForRun,
 } from "@/lib/telemetry.server";
@@ -155,5 +156,15 @@ describe("isIntakeRun", () => {
         funnel: { candidatesSeen: 5, deduped: 1, kept: 4 },
       }),
     ).toBe(0);
+  });
+});
+
+describe("radarYieldPct", () => {
+  it("calculates unique tracked leads as a share of screened candidates", () => {
+    expect(radarYieldPct(38, 507)).toBeCloseTo(7.495, 3);
+  });
+
+  it("returns zero when there is no screened denominator", () => {
+    expect(radarYieldPct(38, 0)).toBe(0);
   });
 });

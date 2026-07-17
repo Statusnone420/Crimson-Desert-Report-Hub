@@ -503,6 +503,10 @@ export default async function DashboardPage() {
                 <p className="muted-note">
                   Rolling rescue window (about a week) — aggregate counts only, no titles or links.
                 </p>
+                <p className="muted-note">
+                  Patch notes, press, and community asks can still be useful context; trusted examples move to the
+                  observation lane instead of touching issue evidence.
+                </p>
               </>
             ) : null}
           </article>
