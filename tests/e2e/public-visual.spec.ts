@@ -373,7 +373,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Radar leads", { exact: true })).toBeVisible();
     await expect(page.getByText("Rumors with links — not evidence", { exact: true })).toBeVisible();
     await expect(page.getByText("Reviewed", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Kept", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Survived", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Public signals", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Patch Brief" })).toBeVisible();
     // Claimed-fix scoreboard: official claims verbatim, player verdicts from taps only.

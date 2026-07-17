@@ -449,7 +449,7 @@ export default async function DashboardPage() {
           </div>
           <p>
             Daily intake across every patch — the muted bars are everything reviewed, the blue bars are what survived
-            screening. Sparse days look sparse on purpose.
+            screening, whether newly kept or re-observed. Sparse days look sparse on purpose.
           </p>
         </div>
         <div className="highlight-grid">
@@ -457,7 +457,7 @@ export default async function DashboardPage() {
             <div className="chart-card__header">
               <div>
                 <h3>Scanner activity</h3>
-                <p>Sources reviewed and signals kept per day, last 30 days.</p>
+                <p>Sources reviewed and signals surviving screening per day, last 30 days.</p>
               </div>
               <span className="badge badge-dim">All patches</span>
             </div>

@@ -247,13 +247,19 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
     );
     // Failed runs can carry phantom insert counts from screening that never persisted.
     const kept = intakeRuns.reduce((sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)), 0);
+    // Re-encounters of already-tracked signals pass screening too — they land in
+    // signals_reobserved instead of signals_inserted. They belong on the surviving
+    // side of the funnel, or repeat-only runs would read as 100% filtered.
+    const survivedRepeats = intakeRuns.reduce(
+      (sum, run) => (run.status === "failed" ? sum : sum + (run.signals_reobserved ?? 0)),
+      0,
+    );
     const llmCalls = runs.reduce((sum, run) => sum + (run.llm_calls_used ?? 0), 0);
     const costUsd = runs.reduce((sum, run) => sum + (run.estimated_cost_usd ?? 0), 0);
     const tracked = signals.length;
     // Durable all-time filtered total: derived from runs (which never expire),
-    // not from the rescue table (whose rows are deleted after ~7 days). Same
-    // reviewed-minus-kept semantics as the scanner tab's weekly funnel.
-    const filtered = Math.max(0, reviewed - kept);
+    // not from the rescue table (whose rows are deleted after ~7 days).
+    const filtered = Math.max(0, reviewed - kept - survivedRepeats);
     // seen_count includes the first sighting; only repeats count as re-observations.
     const reobservations = signals.reduce((sum, signal) => sum + Math.max(0, (signal.seen_count ?? 0) - 1), 0);
     const firstRunAt = intakeRuns[0]?.started_at ?? null;
@@ -292,8 +298,23 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
       (row) => row.patch_version,
     );
 
-    const patches = notes
-      .slice()
+    // A manual current-patch override leaves a non-current note row behind and
+    // the next official sync inserts another row for the same version — collapse
+    // to one row per version (current wins, then latest published) so the ledger
+    // never lists a patch twice or double-counts its verdicts.
+    const noteByVersion = new Map<string, (typeof notes)[number]>();
+    for (const note of notes) {
+      const existing = noteByVersion.get(note.patch_version);
+      const preferNote =
+        !existing ||
+        (note.is_current && !existing.is_current) ||
+        (!note.is_current &&
+          !existing.is_current &&
+          new Date(note.published_at ?? 0).getTime() > new Date(existing.published_at ?? 0).getTime());
+      if (preferNote) noteByVersion.set(note.patch_version, note);
+    }
+
+    const patches = [...noteByVersion.values()]
       .sort((a, b) => new Date(a.published_at ?? 0).getTime() - new Date(b.published_at ?? 0).getTime())
       .map((note) => {
         const patchFixes = fixesByBoard[note.board_no] ?? [];

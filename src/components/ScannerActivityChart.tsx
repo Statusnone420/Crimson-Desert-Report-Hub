@@ -7,10 +7,13 @@ function labelDate(value: string): string {
 /**
  * Daily scanner work, last 30 days. Total-vs-subset bars: the muted bar is
  * everything reviewed that day, the blue bar in front is what survived
- * screening. Counts, not cumulative — sparse days should look sparse.
+ * screening — newly kept signals plus re-observations of tracked ones, so a
+ * repeat-only day never reads as fully filtered. Counts, not cumulative —
+ * sparse days should look sparse.
  */
 export function ScannerActivityChart({ daily }: { daily: ObservatoryDailyPoint[] }) {
   if (daily.length === 0) return null;
+  const survived = (point: ObservatoryDailyPoint) => point.kept + point.reobserved;
 
   const width = 860;
   const height = 240;
@@ -44,7 +47,7 @@ export function ScannerActivityChart({ daily }: { daily: ObservatoryDailyPoint[]
         {daily.map((point, index) => {
           const x = left + index * step + (step - barWidth) / 2;
           const reviewedY = yFor(point.reviewed);
-          const keptY = yFor(point.kept);
+          const survivedY = yFor(survived(point));
           return (
             <g key={point.date}>
               <rect
@@ -56,19 +59,19 @@ export function ScannerActivityChart({ daily }: { daily: ObservatoryDailyPoint[]
                 fill="var(--text-quiet)"
                 opacity={0.55}
               />
-              {point.kept > 0 ? (
+              {survived(point) > 0 ? (
                 <rect
                   x={x}
-                  y={keptY}
+                  y={survivedY}
                   width={barWidth}
-                  height={Math.max(0, top + plotHeight - keptY)}
+                  height={Math.max(0, top + plotHeight - survivedY)}
                   rx={2}
                   fill="var(--blue)"
                 />
               ) : null}
               <rect x={left + index * step} y={top} width={step} height={plotHeight} fill="transparent">
                 <title>
-                  {`${labelDate(point.date)}: ${point.reviewed} reviewed · ${point.kept} kept · ${point.reobserved} re-observed · ${point.llmCalls} model calls`}
+                  {`${labelDate(point.date)}: ${point.reviewed} reviewed · ${point.kept} newly kept · ${point.reobserved} re-observed · ${point.llmCalls} model calls`}
                 </title>
               </rect>
             </g>
@@ -87,12 +90,12 @@ export function ScannerActivityChart({ daily }: { daily: ObservatoryDailyPoint[]
             </text>
             <text
               x={width - right + 10}
-              y={Math.max(yFor(lastActive.kept) + 3.5, yFor(lastActive.reviewed) + 17.5)}
+              y={Math.max(yFor(survived(lastActive)) + 3.5, yFor(lastActive.reviewed) + 17.5)}
               fill="var(--blue)"
               fontSize="11"
               fontWeight="600"
             >
-              Kept
+              Survived
             </text>
           </>
         ) : null}
@@ -119,7 +122,7 @@ export function ScannerActivityChart({ daily }: { daily: ObservatoryDailyPoint[]
             <tr>
               <th scope="col">Date</th>
               <th scope="col">Sources reviewed</th>
-              <th scope="col">Signals kept</th>
+              <th scope="col">Newly kept</th>
               <th scope="col">Re-observed</th>
               <th scope="col">Model calls</th>
             </tr>
