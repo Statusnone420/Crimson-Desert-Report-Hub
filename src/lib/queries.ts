@@ -1,7 +1,7 @@
 import "server-only";
 
 import { unstable_cache } from "next/cache";
-import { buildDailySeries, countBy, rankClusters } from "@/lib/aggregates";
+import { countBy, rankClusters } from "@/lib/aggregates";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
 import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
@@ -579,8 +579,6 @@ async function getDashboardDataUncached() {
       signalByCategory: {},
       platforms: {},
       gpus: {},
-      series: buildDailySeries([], 30, new Date()),
-      signalSeries: buildDailySeries([], 30, new Date()),
       topClusters: [],
       pendingCount: 0,
       latestReportAt: null,
@@ -690,8 +688,6 @@ async function getDashboardDataUncached() {
     signalByCategory: countBy(signalRows, (row) => row.category),
     platforms: countBy(currentReportRows, (row) => row.platform),
     gpus: countGpus(currentReportRows),
-    series: buildDailySeries(currentReportRows, 30, new Date()),
-    signalSeries: buildDailySeries(signalRows.map((row) => ({ created_at: row.observed_at })), 30, new Date()),
     topClusters,
     pendingCount: pendingCount ?? 0,
     latestReportAt: latestReportAtFromRows(currentReportRows),
