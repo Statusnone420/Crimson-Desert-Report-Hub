@@ -25,6 +25,7 @@ const tables: Record<TableName, Row[]> = {
   official_patch_claimed_fixes: [],
 };
 const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters: Filter[] }[] = [];
+const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
 let selectFailure: TableName | null = null;
 let rpcFailure: string | null = null;
 
@@ -144,6 +145,7 @@ function resetDb() {
   tables.official_patch_notes = [];
   tables.official_patch_claimed_fixes = [];
   mutations.length = 0;
+  rpcCalls.length = 0;
   selectFailure = null;
   rpcFailure = null;
 }
@@ -161,6 +163,7 @@ async function syncOfficialPatchNoteRpc(args: Record<string, unknown>) {
     observed_at: args.p_observed_at,
     is_current: true,
   };
+  rpcCalls.push({ name: "sync_official_patch_note_with_claimed_fixes", args });
   for (const existing of tables.official_patch_notes) {
     if (existing.is_current === true) existing.is_current = false;
   }
@@ -168,6 +171,27 @@ async function syncOfficialPatchNoteRpc(args: Record<string, unknown>) {
   if (existing) Object.assign(existing, row);
   else tables.official_patch_notes.push({ ...row });
   mutations.push({ table: "official_patch_notes", type: "upsert", row, filters: [] });
+
+  tables.official_patch_claimed_fixes = tables.official_patch_claimed_fixes.filter(
+    (fix) => fix.board_no !== row.board_no,
+  );
+  mutations.push({
+    table: "official_patch_claimed_fixes",
+    type: "delete",
+    row: null,
+    filters: [{ column: "board_no", value: row.board_no }],
+  });
+  const claimedFixes = (args.p_claimed_fixes ?? []) as { fix_text: string; category: string | null }[];
+  const fixRows = claimedFixes.map((fix, position) => ({
+    board_no: row.board_no,
+    position,
+    fix_text: fix.fix_text,
+    category: fix.category,
+  }));
+  if (fixRows.length > 0) {
+    tables.official_patch_claimed_fixes.push(...fixRows);
+    mutations.push({ table: "official_patch_claimed_fixes", type: "insert", row: fixRows, filters: [] });
+  }
   return { data: null, error: null };
 }
 
@@ -175,7 +199,7 @@ function fakeSupabase() {
   return {
     from: (table: TableName) => new FakeQuery(table),
     rpc: (name: string, args: Record<string, unknown>) => {
-      if (name !== "sync_official_patch_note") throw new Error(`unexpected RPC: ${name}`);
+      if (name !== "sync_official_patch_note_with_claimed_fixes") throw new Error(`unexpected RPC: ${name}`);
       return syncOfficialPatchNoteRpc(args);
     },
   } as unknown as import("@supabase/supabase-js").SupabaseClient;
@@ -208,6 +232,17 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
     const result = await syncOfficialPatchNote(supabase, { now: new Date("2026-07-05T00:00:00.000Z") });
 
     expect(result.status).toBe("synced");
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0]).toMatchObject({
+      name: "sync_official_patch_note_with_claimed_fixes",
+      args: {
+        p_board_no: "105",
+        p_claimed_fixes: [
+          { fix_text: "Fixed an issue where the map crashed the game.", category: "crash_startup" },
+          { fix_text: "Fixed FPS drops during combat.", category: "performance" },
+        ],
+      },
+    });
 
     const deleteMutation = mutations.find(
       (mutation) => mutation.table === "official_patch_claimed_fixes" && mutation.type === "delete",

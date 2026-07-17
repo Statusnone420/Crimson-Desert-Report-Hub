@@ -166,7 +166,15 @@ export async function syncOfficialPatchNote(
   const changed = existing.source !== "official" || existing.version !== note.patchVersion || existing.officialUrl !== note.officialUrl;
   const observedAt = changed || !existing.observedAt ? observedAtNow : existing.observedAt;
 
-  const { error: syncError } = await supabase.rpc("sync_official_patch_note", {
+  const fixRows = note.claimedFixes.map((fixText) => {
+    const category = classifySignal(fixText).category;
+    return {
+      fix_text: fixText,
+      category: category === "other" ? null : category,
+    };
+  });
+
+  const { error: syncError } = await supabase.rpc("sync_official_patch_note_with_claimed_fixes", {
     p_board_no: note.boardNo,
     p_title: note.title,
     p_patch_version: note.patchVersion,
@@ -174,28 +182,9 @@ export async function syncOfficialPatchNote(
     p_published_at: note.publishedAt,
     p_summary: note.summary,
     p_observed_at: observedAt,
+    p_claimed_fixes: fixRows,
   });
   if (syncError) throw new Error(`official patch sync failed: ${syncError.message}`);
-
-  const { error: deleteFixesError } = await supabase
-    .from("official_patch_claimed_fixes")
-    .delete()
-    .eq("board_no", note.boardNo);
-  if (deleteFixesError) throw new Error(`official patch claimed fixes clear failed: ${deleteFixesError.message}`);
-
-  if (note.claimedFixes.length > 0) {
-    const fixRows = note.claimedFixes.map((fixText, index) => {
-      const category = classifySignal(fixText).category;
-      return {
-        board_no: note.boardNo,
-        position: index,
-        fix_text: fixText,
-        category: category === "other" ? null : category,
-      };
-    });
-    const { error: insertFixesError } = await supabase.from("official_patch_claimed_fixes").insert(fixRows);
-    if (insertFixesError) throw new Error(`official patch claimed fixes insert failed: ${insertFixesError.message}`);
-  }
 
   return { status: "synced", changed, patch: noteToCurrent(note, observedAt) };
 }
