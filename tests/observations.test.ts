@@ -155,11 +155,12 @@ describe("shouldCollectObservation", () => {
 });
 
 type UpsertCall = { rows: Record<string, unknown>[]; options: Record<string, unknown> };
-type UpdateCall = { patch: Record<string, unknown>; hash: string };
+type ExistingObservationRow = { id?: string; url_hash: string; patch_version?: string; seen_count: number };
+type UpdateCall = { patch: Record<string, unknown>; column: string; value: string };
 
 function stubClient({
   patchCount = 0,
-  existingRows = [] as { url_hash: string; seen_count: number }[],
+  existingRows = [] as ExistingObservationRow[],
   upserts = [] as UpsertCall[],
   updates = [] as UpdateCall[],
   failCount = false,
@@ -176,12 +177,35 @@ function stubClient({
                     : { count: patchCount, error: null },
                 ),
             }
-          : {
-              in: () => Promise.resolve({ data: existingRows, error: null }),
-            },
+          : (() => {
+              const filters: { hashes?: string[]; patchVersion?: string } = {};
+              const query = {
+                in: (_column: string, hashes: string[]) => {
+                  filters.hashes = hashes;
+                  return query;
+                },
+                eq: (column: string, value: string) => {
+                  if (column === "patch_version") filters.patchVersion = value;
+                  return query;
+                },
+                then: <TResult1 = unknown, TResult2 = never>(
+                  onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
+                  onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+                ) =>
+                  Promise.resolve({
+                    data: existingRows.filter(
+                      (row) =>
+                        (!filters.hashes || filters.hashes.includes(row.url_hash)) &&
+                        (!filters.patchVersion || row.patch_version === filters.patchVersion),
+                    ),
+                    error: null,
+                  }).then(onfulfilled, onrejected),
+              };
+              return query;
+            })(),
       update: (patch: Record<string, unknown>) => ({
-        eq: (_column: string, hash: string) => {
-          updates.push({ patch, hash });
+        eq: (column: string, value: string) => {
+          updates.push({ patch, column, value });
           return Promise.resolve({ error: null });
         },
       }),
@@ -233,7 +257,7 @@ describe("persistObservations", () => {
       source_domain: "dsogaming.com",
       url_hash: observationUrlHash(candidate().url),
     });
-    expect(upserts[0].options).toMatchObject({ onConflict: "url_hash", ignoreDuplicates: true });
+    expect(upserts[0].options).toMatchObject({ onConflict: "url_hash,patch_version", ignoreDuplicates: true });
   });
 
   it("re-observes an existing row: bumps seen_count and points at the latest post", async () => {
@@ -247,16 +271,55 @@ describe("persistObservations", () => {
     const updates: UpdateCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
     await persistObservations(
-      stubClient({ existingRows: [{ url_hash: observationConflictHash(day21), seen_count: 5 }], upserts, updates }),
+      stubClient({
+        existingRows: [{ id: "observation-1", url_hash: observationConflictHash(day21), patch_version: "1.13.01", seen_count: 5 }],
+        upserts,
+        updates,
+      }),
       [day21],
       "1.13.01",
       report,
     );
     expect(updates).toHaveLength(1);
-    expect(updates[0].patch).toMatchObject({ seen_count: 6, url: day21.url });
+    expect(updates[0]).toMatchObject({ column: "id", value: "observation-1" });
+    expect(updates[0].patch).toMatchObject({
+      seen_count: 6,
+      observed_at: day21.observedAt,
+      last_seen_at: day21.observedAt,
+      url: day21.url,
+    });
     expect(upserts).toHaveLength(0);
     expect(report.observationsKept).toBe(0);
     expect(report.errors).toEqual([]);
+  });
+
+  it("stores the same source again under a later patch instead of updating the old patch row", async () => {
+    const upserts: UpsertCall[] = [];
+    const updates: UpdateCall[] = [];
+    const report = { errors: [] as string[], observationsKept: 0 };
+    const observation = candidate({ observedAt: "2026-07-20T12:00:00.000Z" });
+
+    await persistObservations(
+      stubClient({
+        existingRows: [
+          {
+            id: "old-patch-observation",
+            url_hash: observationConflictHash(observation),
+            patch_version: "1.13.00",
+            seen_count: 7,
+          },
+        ],
+        upserts,
+        updates,
+      }),
+      [observation],
+      "1.13.01",
+      report,
+    );
+
+    expect(updates).toHaveLength(0);
+    expect(upserts[0].rows[0]).toMatchObject({ patch_version: "1.13.01", url_hash: observationConflictHash(observation) });
+    expect(report.observationsKept).toBe(1);
   });
 
   it("stops writing at the per-patch cap", async () => {

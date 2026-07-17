@@ -4,6 +4,7 @@ export type BudgetInput = {
   tavilyCreditsMonthToDate?: number;
   llmSpentMonthToDateUsd?: number;
   mode?: "scheduled" | "manual" | "dry_run";
+  patchBurstActive?: boolean;
   now: Date;
   scannerPolicy?: {
     minIntervalMinutes?: number;
@@ -208,7 +209,9 @@ export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
     (usesScannerPolicy || input.mode === "scheduled" || monthlyBudgetUsd === 0 || remainingMonthUsd >= SEARCH_QUERY_COST_USD);
   const requestedQueries =
     input.mode === "scheduled"
-      ? Math.max(0, Math.min(3, Math.floor(input.scannerPolicy?.scheduledSearchCreditsPerRun ?? 1)))
+      ? input.patchBurstActive
+        ? 3
+        : Math.max(0, Math.min(3, Math.floor(input.scannerPolicy?.scheduledSearchCreditsPerRun ?? 1)))
       : 5;
   const maxSearchQueries = canSpendSearch ? Math.max(0, Math.min(requestedQueries, remainingTavilyCredits)) : 0;
   const allowPaidSearch = maxSearchQueries > 0;

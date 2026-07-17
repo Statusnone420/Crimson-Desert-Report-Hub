@@ -8,7 +8,7 @@ test("all public surfaces remain complete and calm with zero community input", a
   await expect(page.getByText(/be the first|waiting on the community|players testing|until a player report/i)).toHaveCount(0);
 
   const reportStat = page.getByText("Player-reported issues", { exact: true }).locator("..");
-  const reportStatColor = await reportStat.locator(".text-xs").evaluate((node) => getComputedStyle(node).color);
+  const reportStatColor = await reportStat.locator(".metric-card__value").evaluate((node) => getComputedStyle(node).color);
   const green = await page.evaluate(() => {
     const probe = document.createElement("span");
     probe.style.color = "var(--green-bright)";

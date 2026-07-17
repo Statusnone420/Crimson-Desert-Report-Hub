@@ -85,8 +85,8 @@ The central tension is **integrity vs. interestingness**. The current system max
 2. [x] Phase 1.1: claimed-fix scoreboard — shipped 2026-07-16 (`src/lib/fixScoreboard.ts`, Patch Brief section)
 3. [ ] Phase 1.2: dossier auto-regen on patch rollover + archive page
 4. [ ] Phase 1.3: scanner telemetry strip from `automation_runs.funnel`
-5. [ ] Phase 2.5: burst scheduler keyed on `official_patch_notes.is_current` change
-6. [x] Phase 2.6: observation lane — shipped 2026-07-16 (migration file `20260716210000_patch_observations.sql` NOT yet applied to production; scanner reroute in `relevance.ts`/`run.ts`/`observations.ts`; "Around the patch" section on the Patch Brief; fails soft until the migration is applied)
+5. [x] Phase 2.5: burst scheduler keyed on `official_patch_notes.is_current` change — shipped 2026-07-16 (`resolveBurstState`, 72-hour observation window, seven-day publication guard, and auditable `patch_burst_active` ledger marker)
+6. [x] Phase 2.6: observation lane — shipped 2026-07-16 (migration files `20260716210000_patch_observations.sql` and `20260716210100_patch_observations_identity.sql` NOT yet applied to production; scanner reroute in `relevance.ts`/`run.ts`/`observations.ts`; "Around the patch" section on the Patch Brief; fails soft until the migrations are applied)
 7. [ ] Phase 2.7–2.8: query matrix + extraction schema extension
 8. [x] Community-pulse lane (added post-ADR, owner-requested 2026-07-16): `community_pulse` discovery intent
    (request language, no bug vocabulary, every third discovery turn), `community_ask` observation genre with a

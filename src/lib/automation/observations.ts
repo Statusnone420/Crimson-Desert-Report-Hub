@@ -93,31 +93,40 @@ export async function persistObservations(
 
     const { data: existingRows, error: existingError } = await supabase
       .from("patch_observations")
-      .select("url_hash, seen_count")
-      .in("url_hash", hashes);
+      .select("id, url_hash, patch_version, seen_count")
+      .in("url_hash", hashes)
+      .eq("patch_version", patchVersion);
     if (existingError) {
       report.errors.push(`observation read failed: ${existingError.message}`);
       return;
     }
     const existing = new Map(
-      ((existingRows ?? []) as { url_hash: string; seen_count: number }[]).map((row) => [row.url_hash, row.seen_count]),
+      (
+        (existingRows ?? []) as {
+          id: string;
+          url_hash: string;
+          patch_version: string;
+          seen_count: number;
+        }[]
+      ).map((row) => [row.url_hash, row]),
     );
 
     // Re-observations: bump seen_count (the momentum tracker) and point the row
     // at the latest post in the series so "Day 21" replaces "Day 20".
     for (const [hash, observation] of byHash) {
-      const seenCount = existing.get(hash);
-      if (seenCount === undefined) continue;
+      const existingRow = existing.get(hash);
+      if (existingRow === undefined) continue;
       const { error: updateError } = await supabase
         .from("patch_observations")
         .update({
-          seen_count: seenCount + 1,
+          seen_count: existingRow.seen_count + 1,
+          observed_at: observation.observedAt,
           last_seen_at: observation.observedAt,
           title: observation.title.slice(0, 240),
           url: observation.url,
           snippet: observation.snippet.slice(0, 500),
         })
-        .eq("url_hash", hash);
+        .eq("id", existingRow.id);
       if (updateError) report.errors.push(`observation update failed: ${updateError.message}`);
     }
 
@@ -148,7 +157,7 @@ export async function persistObservations(
     }));
     const { error } = await supabase
       .from("patch_observations")
-      .upsert(rows, { onConflict: "url_hash", ignoreDuplicates: true });
+      .upsert(rows, { onConflict: "url_hash,patch_version", ignoreDuplicates: true });
     if (error) {
       report.errors.push(`observation insert failed: ${error.message}`);
       return;

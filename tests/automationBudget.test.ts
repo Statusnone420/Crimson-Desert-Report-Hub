@@ -71,6 +71,39 @@ describe("automation budget", () => {
     expect(budget.maxLlmCalls).toBe(12);
   });
 
+  it("uses three scheduled search credits during a patch burst and the stored setting outside it", () => {
+    const burstBudget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      mode: "scheduled",
+      patchBurstActive: true,
+      now: new Date("2026-07-05T12:00:00Z"),
+      scannerPolicy: {
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 1,
+      },
+    });
+    const quietBudget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      mode: "scheduled",
+      patchBurstActive: false,
+      now: new Date("2026-07-05T12:00:00Z"),
+      scannerPolicy: {
+        scheduledSearchCreditsPerRun: 2,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 1,
+      },
+    });
+
+    expect(burstBudget.maxSearchQueries).toBe(3);
+    expect(burstBudget.maxSearchResults).toBe(15);
+    expect(burstBudget.maxLlmCalls).toBe(12);
+    expect(quietBudget.maxSearchQueries).toBe(2);
+    expect(quietBudget.maxSearchResults).toBe(10);
+  });
+
   it("caps scheduled paid search by monthly Tavily credits instead of dollar run math", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 5,

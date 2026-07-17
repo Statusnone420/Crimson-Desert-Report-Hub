@@ -20,6 +20,7 @@ export type CurrentPatchMetadata = {
   title: string;
   officialUrl: string;
   publishedAt: string | null;
+  observedAt: string | null;
   summary: string | null;
   source: "official" | "fallback";
 };
@@ -30,6 +31,7 @@ type OfficialPatchRow = {
   patch_version: string;
   official_url: string;
   published_at: string | null;
+  observed_at: string | null;
   summary: string | null;
   is_current: boolean;
 };
@@ -44,6 +46,7 @@ export function fallbackCurrentPatchMetadata(): CurrentPatchMetadata {
     title: `Patch Notes Version ${CURRENT_PATCH}`,
     officialUrl: `${OFFICIAL_NOTICE_DETAIL_URL}?_boardNo=105`,
     publishedAt: null,
+    observedAt: null,
     summary: null,
     source: "fallback",
   };
@@ -55,17 +58,19 @@ function rowToCurrent(row: OfficialPatchRow): CurrentPatchMetadata {
     title: row.title,
     officialUrl: row.official_url,
     publishedAt: row.published_at,
+    observedAt: row.observed_at,
     summary: row.summary,
     source: "official",
   };
 }
 
-function noteToCurrent(note: OfficialPatchNote): CurrentPatchMetadata {
+function noteToCurrent(note: OfficialPatchNote, observedAt: string | null): CurrentPatchMetadata {
   return {
     version: note.patchVersion,
     title: note.title,
     officialUrl: note.officialUrl,
     publishedAt: note.publishedAt,
+    observedAt,
     summary: note.summary,
     source: "official",
   };
@@ -75,7 +80,7 @@ async function readCurrentPatchUncached(supabase: SupabaseClient): Promise<Curre
   try {
     const { data, error } = await supabase
       .from("official_patch_notes")
-      .select("board_no, title, patch_version, official_url, published_at, summary, is_current")
+      .select("board_no, title, patch_version, official_url, published_at, observed_at, summary, is_current")
       .eq("is_current", true)
       .order("published_at", { ascending: false, nullsFirst: false })
       .limit(1);
@@ -157,8 +162,9 @@ export async function syncOfficialPatchNote(
   const note = await fetchLatestOfficialPatchNote({ fetcher: options.fetcher });
   if (!note) return { status: "skipped", reason: "not_found", patch: existing };
 
-  const observedAt = (options.now ?? new Date()).toISOString();
+  const observedAtNow = (options.now ?? new Date()).toISOString();
   const changed = existing.source !== "official" || existing.version !== note.patchVersion || existing.officialUrl !== note.officialUrl;
+  const observedAt = changed || !existing.observedAt ? observedAtNow : existing.observedAt;
 
   const { error: clearError } = await supabase.from("official_patch_notes").update({ is_current: false }).eq("is_current", true);
   if (clearError) throw new Error(`official patch clear failed: ${clearError.message}`);
@@ -198,7 +204,7 @@ export async function syncOfficialPatchNote(
     if (insertFixesError) throw new Error(`official patch claimed fixes insert failed: ${insertFixesError.message}`);
   }
 
-  return { status: "synced", changed, patch: noteToCurrent(note) };
+  return { status: "synced", changed, patch: noteToCurrent(note, observedAt) };
 }
 
 type ClaimedFixRow = { fix_text: string; category: string | null };

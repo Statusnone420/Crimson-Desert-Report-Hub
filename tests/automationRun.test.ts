@@ -2691,6 +2691,37 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("uses the patch burst budget and records the active window in the run ledger", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    const burstPatch = {
+      ...officialPatchFixture,
+      observedAt: "2026-07-05T11:00:00.000Z",
+    };
+    mocks.getCurrentPatchMetadata.mockResolvedValue(burstPatch);
+    mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: burstPatch });
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_v4_flash",
+      },
+    });
+
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(3);
+    expect(result.skips).toContain("patch_burst_active");
+    expect(tables.automation_runs[0].skips).toContain("patch_burst_active");
+  });
+
   it("targets corroboration when private weak source signals exist", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;

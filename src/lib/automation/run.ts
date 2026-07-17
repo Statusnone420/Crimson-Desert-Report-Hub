@@ -26,12 +26,18 @@ import {
 } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { tavilyExtract, tavilySearch, type SearchResult } from "@/lib/automation/search";
+import { resolveBurstState } from "@/lib/automation/schedule";
 import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { automationBudgetUsd, automationSubreddits, features } from "@/lib/env";
 import { computeClusterLifecycle, type LifecycleClaimDecision } from "@/lib/lifecycle";
-import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata, syncOfficialPatchNote } from "@/lib/officialPatch.server";
+import {
+  getClaimedFixesForCurrentPatch,
+  getCurrentPatchMetadata,
+  syncOfficialPatchNote,
+  type CurrentPatchMetadata,
+} from "@/lib/officialPatch.server";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import {
   persistObservations,
@@ -1478,6 +1484,7 @@ async function createRunLedger(
   mode: AutomationMode,
   budget: AutomationBudget,
   now: Date,
+  patchBurstActive = false,
 ): Promise<string> {
   const { data, error } = await supabase
     .from("automation_runs")
@@ -1487,6 +1494,7 @@ async function createRunLedger(
       mode,
       budget_monthly_usd: budget.monthlyBudgetUsd,
       budget_remaining_before_usd: budget.remainingMonthUsd,
+      skips: patchBurstActive ? ["patch_burst_active"] : [],
       progress: {
         stage: "starting",
         searchesDone: 0,
@@ -1614,6 +1622,9 @@ async function executeAutomationRun(
   budget: AutomationBudget,
   budgetReadError: string | null,
   openRouterCircuitOpen: boolean,
+  patchMetadata: CurrentPatchMetadata,
+  patchSyncError: string | null,
+  patchBurstActive: boolean,
   now: Date,
 ): Promise<AutomationResult> {
   const result: AutomationResult = {
@@ -1636,9 +1647,18 @@ async function executeAutomationRun(
     observationsKept: 0,
     estimatedCostUsd: 0,
     llmCostUsd: 0,
-    skips: [...budget.skipReasons, ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : [])],
+    skips: [
+      ...budget.skipReasons,
+      ...(patchBurstActive ? ["patch_burst_active"] : []),
+      ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : []),
+    ],
     errors: [],
   };
+
+  if (patchSyncError) {
+    result.status = "partial";
+    result.errors.push(patchSyncError);
+  }
 
   if (budgetReadError) {
     result.status = "skipped";
@@ -1651,17 +1671,10 @@ async function executeAutomationRun(
     writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
 
   let rejected: RejectedCandidate[] = [];
-  let currentPatch: CurrentPatchContext | null = null;
+  const currentPatch: CurrentPatchContext = patchMetadata;
 
   try {
-    currentPatch = await getCurrentPatchMetadata(supabase);
     if (mode !== "dry_run") {
-      try {
-        currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
-      } catch (error) {
-        result.status = "partial";
-        result.errors.push(toErrorMessage(error, "official patch sync failed"));
-      }
       try {
         await runLifecyclePass(supabase, result, budget, currentPatch, now);
       } catch (error) {
@@ -1739,6 +1752,8 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
   if (await hasActiveRun(supabase, now)) return { status: "already_running", runId: null };
 
   const monthlyBudgetUsd = input.scannerPolicy?.monthlyLlmUsdCap ?? automationBudgetUsd();
+  let patchMetadata = await getCurrentPatchMetadata(supabase);
+  let patchSyncError: string | null = null;
   let budgetReadError: string | null = null;
   let spentMonthToDateUsd = 0;
   let tavilyCreditsMonthToDate = 0;
@@ -1756,18 +1771,27 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     spentMonthToDateUsd = monthlyBudgetUsd;
     llmSpentMonthToDateUsd = monthlyBudgetUsd;
   }
+  if (!budgetReadError && input.mode !== "dry_run") {
+    try {
+      patchMetadata = (await syncOfficialPatchNote(supabase, { now })).patch;
+    } catch (error) {
+      patchSyncError = toErrorMessage(error, "official patch sync failed");
+    }
+  }
+  const patchBurstActive = input.mode === "scheduled" && resolveBurstState(patchMetadata, now);
   const computedBudget = computeAutomationBudget({
     monthlyBudgetUsd,
     spentMonthToDateUsd,
     tavilyCreditsMonthToDate,
     llmSpentMonthToDateUsd,
     mode: input.mode,
+    patchBurstActive,
     now,
     scannerPolicy: input.scannerPolicy,
   });
   const budget = openRouterCircuitOpen ? { ...computedBudget, maxLlmCalls: 0 } : computedBudget;
 
-  const runId = await createRunLedger(supabase, input.mode, budget, now);
+  const runId = await createRunLedger(supabase, input.mode, budget, now, patchBurstActive);
   const completion = executeAutomationRun(
     supabase,
     runId,
@@ -1775,6 +1799,9 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     budget,
     budgetReadError,
     openRouterCircuitOpen,
+    patchMetadata,
+    patchSyncError,
+    patchBurstActive,
     now,
   );
   return { status: "started", runId, completion };

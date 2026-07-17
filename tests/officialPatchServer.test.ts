@@ -210,6 +210,32 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
     expect(insertMutation).toBeUndefined();
     expect(tables.official_patch_claimed_fixes).toHaveLength(0);
   });
+
+  it("preserves the original observation time when the current patch is synced again", async () => {
+    mocks.fetchLatestOfficialPatchNote.mockResolvedValue(note);
+    tables.official_patch_notes.push({
+      board_no: note.boardNo,
+      title: note.title,
+      patch_version: note.patchVersion,
+      official_url: note.officialUrl,
+      published_at: note.publishedAt,
+      summary: note.summary,
+      observed_at: "2026-07-03T04:00:00.000Z",
+      is_current: true,
+    });
+
+    const { syncOfficialPatchNote } = await import("@/lib/officialPatch.server");
+    const result = await syncOfficialPatchNote(fakeSupabase(), { now: new Date("2026-07-05T00:00:00.000Z") });
+
+    expect(result).toMatchObject({
+      status: "synced",
+      changed: false,
+      patch: { observedAt: "2026-07-03T04:00:00.000Z" },
+    });
+    expect(mutations.find((mutation) => mutation.table === "official_patch_notes" && mutation.type === "upsert")?.row).toMatchObject({
+      observed_at: "2026-07-03T04:00:00.000Z",
+    });
+  });
 });
 
 describe("getClaimedFixesForCurrentPatch", () => {
