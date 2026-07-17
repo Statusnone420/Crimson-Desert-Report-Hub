@@ -3,6 +3,7 @@ import {
   blocksScheduledScan,
   nextEligibleScheduledScanAt,
   nextScheduledScanAt,
+  resolveBurstState,
   scheduledScanDecision,
 } from "@/lib/automation/schedule";
 
@@ -131,5 +132,95 @@ describe("nextEligibleScheduledScanAt", () => {
         120,
       ).toISOString(),
     ).toBe("2026-07-06T13:30:00.000Z");
+  });
+});
+
+describe("resolveBurstState", () => {
+  const now = new Date("2026-07-05T12:00:00.000Z");
+
+  it("activates for a current patch observed inside the 72-hour window", () => {
+    expect(
+      resolveBurstState(
+        {
+          source: "official",
+          observedAt: "2026-07-02T12:01:00.000Z",
+          publishedAt: "2026-07-04T12:00:00.000Z",
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("expires after 72 hours from observation", () => {
+    expect(
+      resolveBurstState(
+        {
+          source: "official",
+          observedAt: "2026-07-02T11:59:59.000Z",
+          publishedAt: "2026-07-04T12:00:00.000Z",
+        },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a recently observed patch whose publication is older than seven days", () => {
+    expect(
+      resolveBurstState(
+        {
+          source: "official",
+          observedAt: "2026-07-05T11:00:00.000Z",
+          publishedAt: "2026-06-28T11:59:59.000Z",
+        },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it("allows a current patch with no publication timestamp", () => {
+    expect(resolveBurstState({ source: "official", observedAt: "2026-07-05T11:00:00.000Z", publishedAt: null }, now)).toBe(
+      true,
+    );
+  });
+
+  it("stays idle when there is no current patch", () => {
+    expect(resolveBurstState(null, now)).toBe(false);
+  });
+
+  it("does not burst from the hardcoded fallback patch metadata", () => {
+    expect(
+      resolveBurstState(
+        { source: "fallback", observedAt: "2026-07-05T11:00:00.000Z", publishedAt: null },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it("fails closed when patch metadata has no exact official source", () => {
+    expect(resolveBurstState({ observedAt: "2026-07-05T11:00:00.000Z", publishedAt: null }, now)).toBe(false);
+  });
+
+  it("rejects future, malformed, and out-of-window timestamps", () => {
+    expect(
+      resolveBurstState(
+        { source: "official", observedAt: "2026-07-05T13:00:00.000Z", publishedAt: "2026-07-05T14:00:00.000Z" },
+        now,
+      ),
+    ).toBe(false);
+    expect(resolveBurstState({ source: "official", observedAt: "not-a-date", publishedAt: null }, now)).toBe(false);
+    expect(resolveBurstState({ source: "official", observedAt: "2026-07-05T11:00:00.000Z", publishedAt: "not-a-date" }, now)).toBe(false);
+  });
+
+  it("keeps both burst windows inclusive at their exact boundaries", () => {
+    expect(
+      resolveBurstState(
+        {
+          source: "official",
+          observedAt: "2026-07-02T12:00:00.000Z",
+          publishedAt: "2026-06-28T12:00:00.000Z",
+        },
+        now,
+      ),
+    ).toBe(true);
   });
 });

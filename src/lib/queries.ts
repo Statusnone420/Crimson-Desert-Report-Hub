@@ -492,6 +492,81 @@ function countGpus(rows: DashboardReportRow[]): Record<string, number> {
   return counts;
 }
 
+export type PublicObservation = {
+  id: string;
+  kind: "patch_release" | "press_reception" | "fix_announcement" | "community_ask";
+  title: string;
+  url: string;
+  sourceDomain: string | null;
+  snippet: string | null;
+  observedAt: string;
+  seenCount: number;
+};
+
+type PatchObservationRow = {
+  id: string;
+  kind: PublicObservation["kind"];
+  title: string;
+  url: string;
+  source_domain: string | null;
+  snippet: string | null;
+  observed_at: string;
+  seen_count: number;
+};
+
+const PUBLIC_OBSERVATIONS_PER_LANE = 8;
+const COVERAGE_OBSERVATION_KINDS: PublicObservation["kind"][] = [
+  "patch_release",
+  "press_reception",
+  "fix_announcement",
+];
+
+/**
+ * Observation lane read. Never throws: a missing table (migration not applied
+ * yet) or any read error renders as an empty lane, not a broken brief.
+ */
+export async function getPublicObservations(
+  supabase: ReturnType<typeof createServiceClient>,
+  patchVersion: string,
+): Promise<PublicObservation[]> {
+  try {
+    const selectColumns = "id, kind, title, url, source_domain, snippet, observed_at, seen_count";
+    const [coverage, asks] = await Promise.all([
+      supabase
+        .from("patch_observations")
+        .select(selectColumns)
+        .eq("patch_version", patchVersion)
+        .eq("is_public", true)
+        .in("kind", COVERAGE_OBSERVATION_KINDS)
+        .order("observed_at", { ascending: false })
+        .limit(PUBLIC_OBSERVATIONS_PER_LANE),
+      supabase
+        .from("patch_observations")
+        .select(selectColumns)
+        .eq("patch_version", patchVersion)
+        .eq("is_public", true)
+        .eq("kind", "community_ask")
+        .order("observed_at", { ascending: false })
+        .limit(PUBLIC_OBSERVATIONS_PER_LANE),
+    ]);
+    if (coverage.error || asks.error) return [];
+    return ([...(coverage.data ?? []), ...(asks.data ?? [])] as PatchObservationRow[])
+      .sort((left, right) => new Date(right.observed_at).getTime() - new Date(left.observed_at).getTime())
+      .map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        url: row.url,
+        sourceDomain: row.source_domain,
+        snippet: row.snippet,
+        observedAt: row.observed_at,
+        seenCount: row.seen_count,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 async function getDashboardDataUncached() {
   if (!hasSupabaseServiceConfig()) {
     return {
@@ -513,6 +588,7 @@ async function getDashboardDataUncached() {
       latestAutomationRun: null,
       currentPatch: await getCurrentPatchMetadata(),
       claimedFixes: [],
+      observations: [] as PublicObservation[],
       publicFindings: [],
     };
   }
@@ -562,6 +638,7 @@ async function getDashboardDataUncached() {
     getClaimedFixesForCurrentPatch(supabase),
   ]);
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
+  const observations = await getPublicObservations(supabase, currentPatch.version);
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
   const confirmationsByCluster = await readConfirmationRowsByClusterForPatchFamily(supabase, currentPatch.version);
@@ -622,6 +699,7 @@ async function getDashboardDataUncached() {
     latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
     currentPatch,
     claimedFixes,
+    observations,
     publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
   };
 }

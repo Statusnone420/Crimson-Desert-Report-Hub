@@ -4,7 +4,17 @@ import { CURRENT_PATCH } from "@/lib/constants";
 
 export type RelevanceSkipReason = "category_other" | "source_not_issue_report" | "wrong_patch" | "stale_source";
 
-export type SignalRelevanceDecision = { keep: true } | { keep: false; reason: RelevanceSkipReason };
+/**
+ * Observation genres: named non-complaint genres the pre-screen already
+ * recognizes. A genre on a rejection changes the candidate's DESTINATION
+ * (observation lane instead of the trash), never the rejection itself — the
+ * evidence funnel's keep/reject behavior is byte-for-byte unchanged.
+ */
+export type ObservationKind = "patch_release" | "press_reception" | "fix_announcement" | "community_ask";
+
+export type SignalRelevanceDecision =
+  | { keep: true }
+  | { keep: false; reason: RelevanceSkipReason; observationKind?: ObservationKind };
 
 export type CandidatePreScreenInput = {
   title: string;
@@ -45,6 +55,18 @@ const SYMPTOM_PATTERNS = [
   /\b(?:quests?|missions?|objectives?|npcs?|cutscenes?|dialogue)\b.{0,60}\b(?:stuck|blocked|frozen|missing|broken|bugged|softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete|not progressing|not spawning)\b/i,
   /\b(?:softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete)\b/i,
 ] as const;
+
+// The press subset of BROAD_CONTENT_PATTERNS: coverage worth keeping as an
+// observation. Guides/trailers/walkthroughs stay plain rejects — they are
+// content ABOUT the game, not reception OF the patch.
+const PRESS_RECEPTION_PATTERNS = [
+  /\breview\b/i,
+  /\bbenchmark\b/i,
+  /\bperformance test\b/i,
+  /\bfirst look\b/i,
+] as const;
+
+const PATCH_NOTES_MIRROR_PATTERN = /\bpatch notes?\b/i;
 
 const BROAD_CONTENT_PATTERNS = [
   /\bpatch notes?\b/i,
@@ -146,6 +168,31 @@ const FIX_ANNOUNCEMENT_CUES = [
   /\bsmoother\s+performance\b/i,
   /\b(?:boosts?|boosted)\s+performance\b/i,
 ] as const;
+
+// Community asks: request-language the community uses when it WANTS something,
+// not when something is broken. Deliberately tight — a pattern here publishes
+// (as an observation) without corroboration, so every entry must be
+// unambiguous request phrasing.
+const COMMUNITY_ASK_PATTERNS = [
+  /\bday\s+\d+\s+of\s+asking\b/i,
+  /\b(?:please|pls)\s+add\b/i,
+  /\bcan we (?:get|have)\b/i,
+  /\bwe need\b/i,
+  /\bpetition\b/i,
+  /\bfeature request\b/i,
+  /\bmost requested\b/i,
+  /\bwish ?list\b/i,
+] as const;
+
+/** Asks older than this are archive threads, not a live community pulse. */
+const COMMUNITY_ASK_MAX_AGE_DAYS = 14;
+
+function isFreshEnoughForAsk(sourcePublishedAt: string | null | undefined): boolean {
+  if (!sourcePublishedAt) return true; // unknown age: seen-by-search-now is the freshness signal
+  const published = new Date(sourcePublishedAt).getTime();
+  if (Number.isNaN(published)) return true;
+  return Date.now() - published <= COMMUNITY_ASK_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+}
 
 function compact(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -249,6 +296,17 @@ export function preScreenCandidate(
   if (hasUnsupportedSourceContext(input)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
+  // Community asks are patch-agnostic, so they are tagged before the patch
+  // gates. A campaign about a BUG ("day 20 of asking to fix the crashes")
+  // carries symptom language and falls through to the normal complaint path —
+  // the ask lane only takes pure requests.
+  if (
+    matchesAny(sourceText, COMMUNITY_ASK_PATTERNS) &&
+    !hasComplaintSymptom(sourceText) &&
+    isFreshEnoughForAsk(input.sourcePublishedAt)
+  ) {
+    return { keep: false, reason: "source_not_issue_report", observationKind: "community_ask" };
+  }
   if (mentionsOnlyOtherPatch(sourceText, options.currentPatchVersion ?? CURRENT_PATCH)) {
     return { keep: false, reason: "wrong_patch" };
   }
@@ -264,16 +322,24 @@ export function preScreenCandidate(
     !matchesAny(sourceText, FIX_PERSISTENCE_CUES) &&
     !hasComplaintSymptom(sourceText)
   ) {
-    return { keep: false, reason: "source_not_issue_report" };
+    return { keep: false, reason: "source_not_issue_report", observationKind: "patch_release" };
   }
   if (isBroadContentTitle(input.title)) {
-    return { keep: false, reason: "source_not_issue_report" };
+    return {
+      keep: false,
+      reason: "source_not_issue_report",
+      observationKind: PATCH_NOTES_MIRROR_PATTERN.test(input.title)
+        ? "patch_release"
+        : matchesAny(input.title, PRESS_RECEPTION_PATTERNS)
+          ? "press_reception"
+          : undefined,
+    };
   }
   if (isClaimedFixNotReport(sourceText)) {
-    return { keep: false, reason: "source_not_issue_report" };
+    return { keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" };
   }
   if (isFixAnnouncement(sourceText)) {
-    return { keep: false, reason: "source_not_issue_report" };
+    return { keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" };
   }
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {
     return { keep: false, reason: "source_not_issue_report" };

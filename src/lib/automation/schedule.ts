@@ -6,9 +6,31 @@ export type ScheduledScanDecision =
 
 const DEFAULT_MIN_INTERVAL_MINUTES = 60;
 const CRON_JITTER_GRACE_MS = 2 * 60 * 1000;
+const PATCH_BURST_WINDOW_MS = 72 * 60 * 60 * 1000;
+const PATCH_PUBLICATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type PatchBurstMetadata = {
+  source?: "official" | "fallback";
+  observedAt?: string | null;
+  publishedAt?: string | null;
+};
 
 function intervalMs(minIntervalMinutes: number): number {
   return (Number.isFinite(minIntervalMinutes) && minIntervalMinutes > 0 ? minIntervalMinutes : DEFAULT_MIN_INTERVAL_MINUTES) * 60 * 1000;
+}
+
+function isWithinWindow(value: string | null | undefined, now: Date, windowMs: number): boolean {
+  if (!value) return false;
+  const valueMs = new Date(value).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(valueMs) || !Number.isFinite(nowMs)) return false;
+  return valueMs >= nowMs - windowMs && valueMs <= nowMs;
+}
+
+export function resolveBurstState(currentPatch: PatchBurstMetadata | null, now: Date): boolean {
+  if (!currentPatch || currentPatch.source !== "official") return false;
+  if (!isWithinWindow(currentPatch.observedAt, now, PATCH_BURST_WINDOW_MS)) return false;
+  return !currentPatch.publishedAt || isWithinWindow(currentPatch.publishedAt, now, PATCH_PUBLICATION_WINDOW_MS);
 }
 
 /** Dry runs preview only and skip markers are bookkeeping — neither blocks scheduled policy scans. */

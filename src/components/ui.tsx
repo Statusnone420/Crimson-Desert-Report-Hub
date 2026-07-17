@@ -147,6 +147,11 @@ export function ReadoutBadge({ label, tone }: { label: string; tone: Tone }) {
   return <span className={READOUT_TONE_CLASS[tone]}>{label}</span>;
 }
 
+/** Editorial variant of ReadoutBadge: dot + small caps, no pill chrome. */
+export function ReadoutMark({ label, tone }: { label: string; tone: Tone }) {
+  return <span className={`readout-mark readout-mark--${tone}`}>{label}</span>;
+}
+
 const SEVERITY_META: Record<string, { label: string; cls: string }> = {
   blocking: { label: "Blocking", cls: "badge badge-crimson" },
   high: { label: "High severity", cls: "badge badge-crimson" },

@@ -17,16 +17,33 @@ import {
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
 import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
-import { hasUnsupportedSourceContext, preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
+import {
+  hasUnsupportedSourceContext,
+  preScreenCandidate,
+  shouldKeepExtractedSignal,
+  type ObservationKind,
+  type RelevanceSkipReason,
+} from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { tavilyExtract, tavilySearch, type SearchResult } from "@/lib/automation/search";
+import { resolveBurstState } from "@/lib/automation/schedule";
 import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { automationBudgetUsd, automationSubreddits, features } from "@/lib/env";
 import { computeClusterLifecycle, type LifecycleClaimDecision } from "@/lib/lifecycle";
-import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata, syncOfficialPatchNote } from "@/lib/officialPatch.server";
+import {
+  getClaimedFixesForCurrentPatch,
+  getCurrentPatchMetadata,
+  syncOfficialPatchNote,
+  type CurrentPatchMetadata,
+} from "@/lib/officialPatch.server";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
+import {
+  appendUniqueObservation,
+  persistObservations,
+  type ObservationCandidate,
+} from "@/lib/automation/observations";
 import { createServiceClient } from "@/lib/supabase";
 
 export type AutomationMode = "scheduled" | "manual" | "dry_run";
@@ -48,6 +65,7 @@ export type AutomationResult = {
   signalsReobserved: number;
   staleSignalsHidden: number;
   candidatesRescued: number;
+  observationsKept: number;
   estimatedCostUsd: number;
   llmCostUsd: number;
   skips: string[];
@@ -588,12 +606,35 @@ async function prepareSignals(
   currentPatch: CurrentPatchContext,
   clusterOptions: ClusterOption[],
   report?: () => Promise<void>,
-): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[] }> {
+): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[]; observations: ObservationCandidate[] }> {
   const prepared: PreparedSignal[] = [];
   const rejected: RejectedCandidate[] = [];
+  const observations: ObservationCandidate[] = [];
+  const seenObservationHashes = new Set<string>();
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
   let reconFetchesUsed = 0;
+
+  // Observation reroute: a genre-tagged pre-screen rejection from a trusted domain
+  // is copied to the observation lane. The rejection itself is unchanged — the
+  // candidate still lands in the rejected pile exactly as before.
+  const collectObservation = (
+    decision: { keep: false; reason: RelevanceSkipReason; observationKind?: ObservationKind },
+    signal: SourceInput,
+    canonicalUrl: string,
+    snippet: string,
+  ) => {
+    if (!decision.observationKind) return;
+    appendUniqueObservation(observations, {
+      kind: decision.observationKind as ObservationKind,
+      title: signal.title,
+      url: canonicalUrl,
+      sourceDomain: signal.sourceDomain,
+      snippet: snippet.slice(0, 500),
+      sourcePublishedAt: signal.sourcePublishedAt ?? null,
+      observedAt: signal.observedAt,
+    }, seenObservationHashes);
+  };
   // Recon uses Tavily's extract endpoint, so it must be gated on the SAME
   // configured-web-search signal as paid search in collectInputs. Without this,
   // an unset/rotated TAVILY_API_KEY makes tavilyExtract a no-op that still books
@@ -639,17 +680,18 @@ async function prepareSignals(
       if (preScreen.reason === "source_not_issue_report" && isBorderlineRescueCandidate(signal, currentPatch)) {
         // Recon lane: read the real page ONCE before rejecting a promising
         // trusted current-patch candidate whose Tavily snippet is too thin. Bounded
-        // by the MONTHLY Tavily credit budget (searchQueriesUsed < remainingTavilyCredits)
-        // and capped at MAX_RECON_FETCHES_PER_RUN per run — so a run adds at most that
-        // many /extract calls ON TOP OF its per-run search allowance (it is not bounded
-        // by the per-run search cap). A recon miss (budget/cap/failure) falls straight
-        // through to today's snippet-only borderline behavior — strict enhancement, never a regression.
+        // by the per-run Tavily credit budget shared with search
+        // (searchQueriesUsed < budget.maxTavilyCreditsPerRun) and capped at
+        // MAX_RECON_FETCHES_PER_RUN. Scheduled budgets reserve this credit before
+        // search allocation, while burst budgets remain capped at three total.
+        // A recon miss (budget/cap/failure) falls straight through to today's
+        // snippet-only borderline behavior — strict enhancement, never a regression.
         let reconText: string | null = null;
         if (
           webSearchEnabled &&
           budget.allowPaidSearch &&
           reconFetchesUsed < MAX_RECON_FETCHES_PER_RUN &&
-          result.searchQueriesUsed < budget.remainingTavilyCredits
+          result.searchQueriesUsed < budget.maxTavilyCreditsPerRun
         ) {
           reconFetchesUsed += 1;
           result.searchQueriesUsed += 1;
@@ -680,6 +722,7 @@ async function prepareSignals(
             { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
           );
           if (!reScreen.keep) {
+            collectObservation(reScreen, signal, canonicalUrl, effectiveBody);
             result.skips.push(reScreen.reason);
             result.prefilterRejected += 1;
             rejected.push({
@@ -739,6 +782,7 @@ async function prepareSignals(
         continue;
       }
 
+      collectObservation(preScreen, signal, canonicalUrl, signal.body);
       result.skips.push(preScreen.reason);
       result.prefilterRejected += 1;
       rejected.push({
@@ -803,7 +847,7 @@ async function prepareSignals(
     result.skips.push("all_candidates_prefiltered");
   }
 
-  return { prepared, rejected };
+  return { prepared, rejected, observations };
 }
 
 async function loadApprovedReports(supabase: ReturnType<typeof createServiceClient>): Promise<ApprovedReportRow[]> {
@@ -1440,6 +1484,7 @@ async function createRunLedger(
   mode: AutomationMode,
   budget: AutomationBudget,
   now: Date,
+  patchBurstActive = false,
 ): Promise<string> {
   const { data, error } = await supabase
     .from("automation_runs")
@@ -1449,6 +1494,7 @@ async function createRunLedger(
       mode,
       budget_monthly_usd: budget.monthlyBudgetUsd,
       budget_remaining_before_usd: budget.remainingMonthUsd,
+      skips: patchBurstActive ? ["patch_burst_active"] : [],
       progress: {
         stage: "starting",
         searchesDone: 0,
@@ -1503,6 +1549,7 @@ async function finalizeRunLedger(
         persisted: result.signalsInserted,
         kept: result.signalsPrepared,
         promoted: result.clustersPromoted,
+        observations: result.observationsKept,
       },
       progress: snapshotProgress("done", result, result.searchQueriesUsed),
     })
@@ -1575,6 +1622,9 @@ async function executeAutomationRun(
   budget: AutomationBudget,
   budgetReadError: string | null,
   openRouterCircuitOpen: boolean,
+  patchMetadata: CurrentPatchMetadata,
+  patchSyncError: string | null,
+  patchBurstActive: boolean,
   now: Date,
 ): Promise<AutomationResult> {
   const result: AutomationResult = {
@@ -1594,11 +1644,21 @@ async function executeAutomationRun(
     signalsReobserved: 0,
     staleSignalsHidden: 0,
     candidatesRescued: 0,
+    observationsKept: 0,
     estimatedCostUsd: 0,
     llmCostUsd: 0,
-    skips: [...budget.skipReasons, ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : [])],
+    skips: [
+      ...budget.skipReasons,
+      ...(patchBurstActive ? ["patch_burst_active"] : []),
+      ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : []),
+    ],
     errors: [],
   };
+
+  if (patchSyncError) {
+    result.status = "partial";
+    result.errors.push(patchSyncError);
+  }
 
   if (budgetReadError) {
     result.status = "skipped";
@@ -1611,17 +1671,10 @@ async function executeAutomationRun(
     writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
 
   let rejected: RejectedCandidate[] = [];
-  let currentPatch: CurrentPatchContext | null = null;
+  const currentPatch: CurrentPatchContext = patchMetadata;
 
   try {
-    currentPatch = await getCurrentPatchMetadata(supabase);
     if (mode !== "dry_run") {
-      try {
-        currentPatch = (await syncOfficialPatchNote(supabase, { now })).patch;
-      } catch (error) {
-        result.status = "partial";
-        result.errors.push(toErrorMessage(error, "official patch sync failed"));
-      }
       try {
         await runLifecyclePass(supabase, result, budget, currentPatch, now);
       } catch (error) {
@@ -1668,6 +1721,9 @@ async function executeAutomationRun(
         result.status = result.signalsInserted > 0 || result.signalsReobserved > 0 ? "partial" : "failed";
         result.errors.push(toErrorMessage(error, "automation persistence failed"));
       }
+      // Observation lane persists after signals and never affects them: it is
+      // best-effort by design and reports failures into the ledger only.
+      await persistObservations(supabase, prepared.observations, currentPatch.version, result);
     }
 
     if (result.errors.length > 0 && result.status === "success") result.status = "partial";
@@ -1696,6 +1752,8 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
   if (await hasActiveRun(supabase, now)) return { status: "already_running", runId: null };
 
   const monthlyBudgetUsd = input.scannerPolicy?.monthlyLlmUsdCap ?? automationBudgetUsd();
+  let patchMetadata = await getCurrentPatchMetadata(supabase);
+  let patchSyncError: string | null = null;
   let budgetReadError: string | null = null;
   let spentMonthToDateUsd = 0;
   let tavilyCreditsMonthToDate = 0;
@@ -1713,18 +1771,27 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     spentMonthToDateUsd = monthlyBudgetUsd;
     llmSpentMonthToDateUsd = monthlyBudgetUsd;
   }
+  if (!budgetReadError && input.mode !== "dry_run") {
+    try {
+      patchMetadata = (await syncOfficialPatchNote(supabase, { now })).patch;
+    } catch (error) {
+      patchSyncError = toErrorMessage(error, "official patch sync failed");
+    }
+  }
+  const patchBurstActive = input.mode === "scheduled" && resolveBurstState(patchMetadata, now);
   const computedBudget = computeAutomationBudget({
     monthlyBudgetUsd,
     spentMonthToDateUsd,
     tavilyCreditsMonthToDate,
     llmSpentMonthToDateUsd,
     mode: input.mode,
+    patchBurstActive,
     now,
     scannerPolicy: input.scannerPolicy,
   });
   const budget = openRouterCircuitOpen ? { ...computedBudget, maxLlmCalls: 0 } : computedBudget;
 
-  const runId = await createRunLedger(supabase, input.mode, budget, now);
+  const runId = await createRunLedger(supabase, input.mode, budget, now, patchBurstActive);
   const completion = executeAutomationRun(
     supabase,
     runId,
@@ -1732,6 +1799,9 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     budget,
     budgetReadError,
     openRouterCircuitOpen,
+    patchMetadata,
+    patchSyncError,
+    patchBurstActive,
     now,
   );
   return { status: "started", runId, completion };
@@ -1758,6 +1828,7 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
       signalsReobserved: 0,
       staleSignalsHidden: 0,
       candidatesRescued: 0,
+      observationsKept: 0,
       estimatedCostUsd: 0,
       llmCostUsd: 0,
       skips: ["scan_already_running"],
@@ -1881,6 +1952,7 @@ export async function rescueCandidateSignal(
     signalsReobserved: 0,
     staleSignalsHidden: 0,
     candidatesRescued: 0,
+    observationsKept: 0,
     estimatedCostUsd: 0,
     llmCostUsd: 0,
     skips: [...budget.skipReasons, ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : [])],

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
-import { MeterBar, ReadoutBadge, SectionHeader, StatCard } from "@/components/ui";
+import { ReadoutMark, SectionHeader } from "@/components/ui";
 import { CATEGORY_LABELS, PLATFORM_LABELS, PLATFORMS } from "@/lib/constants";
 import { DISPLAY_THRESHOLD_NETWORKS } from "@/lib/readout";
 import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
@@ -49,15 +49,18 @@ export default async function IssuesPage() {
     if (rows.length === 0) return null;
     const max = Math.max(...rows.map((row) => row.weight), 1);
     return (
-      <div className="space-y-1.5 border-t pt-3">
+      <div className="platform-table">
         {rows.map((row) => (
-          <div key={row.platform} className="grid grid-cols-[96px_minmax(0,1fr)_auto] items-center gap-3 text-xs">
-            <span style={{ color: "var(--text-dim)" }}>
+          <div key={row.platform} className="contents">
+            <span className="platform-table__label">
               {PLATFORM_LABELS[row.platform as keyof typeof PLATFORM_LABELS] ?? row.platform}
             </span>
-            <MeterBar value={row.weight} max={max} tone={row.weight > 0 ? cluster.readout.tone : "dim"} />
-            <span className="num" style={{ color: "var(--text-faint)" }}>
-              {row.reports} {row.reports === 1 ? "report" : "reports"} · {row.confirms} confirm
+            <span className="platform-table__bar" aria-hidden="true">
+              <span style={{ width: `${Math.max(8, Math.round((row.weight / max) * 100))}%` }} />
+            </span>
+            <span className="platform-table__count">
+              <span className="num">{row.reports}</span> {row.reports === 1 ? "report" : "reports"} ·{" "}
+              <span className="num">{row.confirms}</span> confirm
             </span>
           </div>
         ))}
@@ -69,18 +72,19 @@ export default async function IssuesPage() {
     const poll = cluster.readout.poll;
     if (!poll || poll.fixedCount + poll.stillCount === 0) return null;
     const total = poll.fixedCount + poll.stillCount;
-    const fixedPct = Math.round((poll.fixedCount / total) * 100);
+    const stillPct = Math.round((poll.stillCount / total) * 100);
     return (
-      <div className="space-y-1.5 border-t pt-3">
+      <div className="mt-4 max-w-[34rem] space-y-1.5">
         {poll.escalated ? (
-          <div className="meter" style={{ display: "flex" }} role="presentation">
-            <span style={{ width: `${fixedPct}%`, background: "var(--green)" }} />
-            <span style={{ width: `${100 - fixedPct}%`, background: "var(--crimson)" }} />
+          // One semantic color only: crimson carries the still-happening share; the
+          // fixed share is the quiet remainder of the track, not a green light.
+          <div className="meter" role="presentation">
+            <span style={{ width: `${stillPct}%`, background: "var(--crimson)" }} />
           </div>
         ) : null}
-        <div className="flex items-center justify-between text-xs" style={{ color: "var(--text-faint)" }}>
+        <div className="flex items-center justify-between gap-3 text-xs" style={{ color: "var(--text-faint)" }}>
           <span>
-            <span className="num" style={{ color: "var(--green-bright)" }}>{poll.fixedCount}</span> say fixed for me
+            <span className="num" style={{ color: "var(--text-dim)" }}>{poll.fixedCount}</span> say fixed for me
           </span>
           <span>
             <span className="num" style={{ color: "var(--crimson-bright)" }}>{poll.stillCount}</span> say still happening
@@ -100,7 +104,7 @@ export default async function IssuesPage() {
           still_happening: cluster.confirmations.pollStillCount,
         };
     return (
-      <div className="border-t pt-3">
+      <div className="mt-4">
         <ConfirmButtons
           clusterId={cluster.id}
           storageScope={ask.kinds.includes("have_it") ? patchFamily : currentPatch.version}
@@ -112,32 +116,34 @@ export default async function IssuesPage() {
     );
   }
 
-  function ClusterCard({ cluster }: { cluster: (typeof clusters)[number] }) {
+  function ClusterEntry({ cluster, lead }: { cluster: (typeof clusters)[number]; lead?: boolean }) {
     const signals = signalsByCluster[cluster.id] ?? [];
     const excerpts = excerptsByCluster[cluster.id] ?? [];
     return (
-      <article className="panel space-y-3.5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1.5">
-            <h2 className="text-lg font-semibold">{cluster.title}</h2>
-            <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-              {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
-              {" · "}
-              <span className="num">{cluster.directReportCount}</span> reports
-              {" · "}
-              <span className="num">{cluster.signalCount}</span> source links
-              {" · "}
-              <span className="num">{cluster.confirmations.totalCount}</span> taps
-            </p>
-          </div>
-          <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
+      <article className={lead ? "issue-entry issue-entry--lead" : "issue-entry"}>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+          <h2 className="issue-entry__title min-w-0">{cluster.title}</h2>
+          <ReadoutMark label={cluster.readout.label} tone={cluster.readout.tone} />
         </div>
+        <p className="issue-entry__meta">
+          <span>{CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}</span>
+          <span aria-hidden="true">·</span>
+          <span>
+            <span className="num">{cluster.directReportCount}</span> reports
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>
+            <span className="num">{cluster.signalCount}</span> source links
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>
+            <span className="num">{cluster.confirmations.totalCount}</span> taps
+          </span>
+        </p>
 
-        <div className="panel-inset border px-3 py-2 text-xs leading-5" style={{ color: "var(--text-dim)" }}>
-          {cluster.readout.sentence}
-        </div>
+        <blockquote className="evidence-quote">{cluster.readout.sentence}</blockquote>
 
-        <p className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+        <p className="mt-3 max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
           {cluster.description}
         </p>
 
@@ -146,12 +152,15 @@ export default async function IssuesPage() {
         <ConfirmStrip cluster={cluster} />
 
         {signals.length > 0 ? (
-          <div className="space-y-3 border-t pt-3">
+          <div className="mt-5 space-y-3 border-t pt-4" style={{ borderColor: "var(--ink-rule)" }}>
             <div className="stat-label">Links seen in the wild</div>
             {signals.slice(0, 3).map((signal) => (
               <div key={signal.id} className="space-y-1 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="badge badge-dim">{sourceHost(signal.source_url, signal.source)}</span>
+                <div
+                  className="num text-xs uppercase tracking-wide"
+                  style={{ color: "var(--text-faint)" }}
+                >
+                  {sourceHost(signal.source_url, signal.source)}
                 </div>
                 <p className="max-w-prose leading-6" style={{ color: "var(--text-dim)" }}>
                   {signal.summary}
@@ -165,10 +174,10 @@ export default async function IssuesPage() {
         ) : null}
 
         {excerpts.length > 0 ? (
-          <div className="space-y-2 border-t pt-3">
+          <div className="mt-5 space-y-2 border-t pt-4" style={{ borderColor: "var(--ink-rule)" }}>
             <div className="stat-label">Approved excerpts</div>
             {excerpts.slice(0, 3).map((excerpt, index) => (
-              <blockquote key={`${cluster.id}-${index}`} className="max-w-prose text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+              <blockquote key={`${cluster.id}-${index}`} className="evidence-quote" style={{ marginTop: 0 }}>
                 &ldquo;{excerpt.text}&rdquo; &mdash;{" "}
                 {PLATFORM_LABELS[excerpt.platform as keyof typeof PLATFORM_LABELS] ?? excerpt.platform} player
               </blockquote>
@@ -180,30 +189,34 @@ export default async function IssuesPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <SectionHeader
-        as="h1"
-        label="Current patch watch"
-        title="What players are reporting"
-        description="Player-reported issues first. Every player count is a report or confirmation tap someone actually sent — the site never fills in blanks."
-      />
-
-      <section className="grid grid-cols-3 gap-2 sm:gap-3">
-        <StatCard label="Watched" value={clusters.length} />
-        <StatCard
-          label="With reports"
-          value={evidenceBacked.length}
-          note={evidenceBacked.length === 0 ? "No player reports this patch" : undefined}
-        />
-        <StatCard
-          label="Still happening"
-          value={stillHappening}
-          valueTone={stillHappening ? "crimson" : undefined}
+    <div className="page-stack editorial-page issues-page">
+      <section className="editorial-page__hero">
+        <SectionHeader
+          as="h1"
+          label="Current patch watch"
+          title="What players are reporting"
+          description="Player-reported issues first. Every player count is a report or confirmation tap someone actually sent — the site never fills in blanks."
         />
       </section>
 
+      <section className="metric-strip metric-strip--3 issue-metrics" aria-label="Issue board summary">
+        <article className="metric-card">
+          <div className="eyebrow">Watched</div>
+          <div className="metric-card__value num">{clusters.length}</div>
+        </article>
+        <article className="metric-card">
+          <div className="eyebrow">With reports</div>
+          <div className="metric-card__value num">{evidenceBacked.length}</div>
+          {evidenceBacked.length === 0 ? <p>No player reports this patch</p> : null}
+        </article>
+        <article className={stillHappening ? "metric-card metric-card--crimson" : "metric-card"}>
+          <div className="eyebrow">Still happening</div>
+          <div className="metric-card__value num">{stillHappening}</div>
+        </article>
+      </section>
+
       {clusters.length === 0 ? (
-        <div className="panel space-y-3 text-sm" style={{ color: "var(--text-dim)" }}>
+        <div className="space-y-3 border-t pt-5 text-sm" style={{ borderColor: "var(--ink-rule)", color: "var(--text-dim)" }}>
           <p className="font-medium" style={{ color: "var(--text)" }}>
             No public issue clusters yet.
           </p>
@@ -219,43 +232,64 @@ export default async function IssuesPage() {
               Submit a report
             </Link>
             <Link href="/" className="btn btn-ghost btn-sm">
-              Dashboard
+              Patch Brief
             </Link>
           </div>
         </div>
       ) : (
         <>
-          {active.length > 0 ? (
-            <section className="space-y-3">
-              {active.map((cluster) => (
-                <ClusterCard key={cluster.id} cluster={cluster} />
-              ))}
-            </section>
-          ) : null}
+          <section className="issue-list-section">
+            <div className="section-intro">
+              <div>
+                <div className="eyebrow">{currentPatch.version} issue board</div>
+                <h2>Top issues this patch</h2>
+              </div>
+              <p>Every full entry below has player evidence, a confirmation signal, or a published source lead.</p>
+            </div>
+            {active.length > 0 ? (
+              <div className="issue-board">
+                {active.map((cluster, index) => (
+                  <ClusterEntry key={cluster.id} cluster={cluster} lead={index === 0} />
+                ))}
+              </div>
+            ) : (
+              <div className="issue-empty">
+                <p className="font-medium" style={{ color: "var(--text)" }}>No evidence-backed issues yet.</p>
+                <p className="text-sm leading-6" style={{ color: "var(--text-dim)" }}>
+                  The board is watching known areas, but nothing has cleared the public evidence threshold for a full issue card.
+                </p>
+              </div>
+            )}
+          </section>
 
           {candidates.length > 0 || monitored.length > 0 ? (
-            <section className="panel space-y-3">
-              <div className="space-y-1">
-                <h2 className="stat-label">Watchlist</h2>
-                <p className="max-w-prose text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+            <section className="brief-section">
+              <div className="section-intro">
+                <div>
+                  <div className="eyebrow">Watchlist</div>
+                  <h2>Waiting on evidence</h2>
+                </div>
+                <p>
                   Nothing here has a player report or confirmation tap yet. Mapped source links remain leads, not
                   evidence.
                 </p>
               </div>
               {candidates.length > 0 ? (
-                <div className={candidates.length === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2"}>
+                <div className="issue-board">
                   {candidates.map((cluster) => (
-                    <div key={cluster.id} className="panel-inset space-y-2 border px-3 py-2.5">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="min-w-0 text-sm font-medium">{cluster.title}</p>
-                        <ReadoutBadge label={cluster.readout.label} tone={cluster.readout.tone} />
+                    <div key={cluster.id} className="issue-entry">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+                        <p className="min-w-0 text-base font-semibold">{cluster.title}</p>
+                        <ReadoutMark label={cluster.readout.label} tone={cluster.readout.tone} />
                       </div>
-                      <p className="text-xs leading-5" style={{ color: "var(--text-dim)" }}>
+                      <p className="issue-entry__meta">
+                        {CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}
+                      </p>
+                      <p className="mt-2 max-w-prose text-xs leading-5" style={{ color: "var(--text-dim)" }}>
                         {cluster.readout.sentence}
                       </p>
-                      <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--text-faint)" }}>
-                        <span>{CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category}</span>
-                        <Link href="/report" className="link shrink-0">
+                      <div className="mt-2 text-xs">
+                        <Link href="/report" className="link">
                           Full report →
                         </Link>
                       </div>
@@ -266,20 +300,21 @@ export default async function IssuesPage() {
               ) : null}
               {monitored.length > 0 ? (
                 <p
-                  className="text-xs"
+                  className="mt-3 text-xs"
                   style={{ color: "var(--text-faint)" }}
                   title="The scanner checks public sources each run."
                 >
                   {monitoredAreasNote(monitored.length)}
                 </p>
               ) : null}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
-                <p className="text-xs leading-5" style={{ color: "var(--text-faint)" }}>
+              <div className="method-note mt-6">
+                <div className="eyebrow">Scanner</div>
+                <p>
                   The scanner checks public sources every run. Last run finished {timeAgo(scanMeta?.finishedAt ?? null)}.
                 </p>
-                <Link href="/report" className="btn btn-ghost btn-sm">
-                  Seeing a bug? Report it
-                </Link>
+                <div className="method-note__links">
+                  <Link href="/report" className="link">Seeing a bug? Report it ↗</Link>
+                </div>
               </div>
             </section>
           ) : null}

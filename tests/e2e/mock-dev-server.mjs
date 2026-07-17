@@ -437,6 +437,74 @@ const officialPatchClaimedFixes = [
   },
 ];
 
+const patchObservations = [
+  {
+    id: "observation-old-patch",
+    created_at: isoMinutesAgo(10),
+    patch_version: "1.13.00",
+    kind: "community_ask",
+    title: "Older patch observation should never appear in the current brief",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/old-patch-observation/",
+    url_hash: "mock-observation-hash-old-patch",
+    source_domain: "reddit.com",
+    snippet: "This belongs to the previous patch.",
+    source_published_at: isoMinutesAgo(15),
+    observed_at: isoMinutesAgo(10),
+    last_seen_at: isoMinutesAgo(10),
+    seen_count: 4,
+    is_public: true,
+  },
+  {
+    id: "observation-1",
+    created_at: isoMinutesAgo(30),
+    patch_version: "1.13.01",
+    kind: "press_reception",
+    title: "Crimson Desert 1.13.01 hotfix tested: smoother, but not settled",
+    url: "https://www.dsogaming.com/articles/crimson-desert-1-13-01-tested/",
+    url_hash: "mock-observation-hash-1",
+    source_domain: "dsogaming.com",
+    snippet:
+      "Frame rate and controller issues persist for some players, despite the hotfix addressing several crashes and glitches.",
+    source_published_at: isoMinutesAgo(90),
+    observed_at: isoMinutesAgo(30),
+    last_seen_at: isoMinutesAgo(30),
+    seen_count: 3,
+    is_public: true,
+  },
+  {
+    id: "observation-2",
+    created_at: isoMinutesAgo(55),
+    patch_version: "1.13.01",
+    kind: "patch_release",
+    title: "Crimson Desert hotfix 1.13.01 rolling out on all platforms",
+    url: "https://www.pcgamer.com/crimson-desert-hotfix-1-13-01/",
+    url_hash: "mock-observation-hash-2",
+    source_domain: "pcgamer.com",
+    snippet: "Pearl Abyss says the hotfix targets map crashes and frame rate drops reported since 1.13.00.",
+    source_published_at: isoMinutesAgo(120),
+    observed_at: isoMinutesAgo(55),
+    last_seen_at: isoMinutesAgo(55),
+    seen_count: 1,
+    is_public: true,
+  },
+  {
+    id: "observation-3",
+    created_at: isoMinutesAgo(20),
+    patch_version: "1.13.01",
+    kind: "community_ask",
+    title: "Day 20 of asking to add caracals to the desert : r/CrimsonDesert",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/mock1/day_20_of_asking/",
+    url_hash: "mock-observation-hash-3",
+    source_domain: "reddit.com",
+    snippet: "Still no caracals. The desert needs its cats. I will be here tomorrow.",
+    source_published_at: isoMinutesAgo(200),
+    observed_at: isoMinutesAgo(20),
+    last_seen_at: isoMinutesAgo(20),
+    seen_count: 6,
+    is_public: true,
+  },
+];
+
 function sendJson(res, method, status, data, headers = {}) {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -521,6 +589,20 @@ function filterRows(table, url) {
 
   const isCurrent = url.searchParams.get("is_current");
   if (isCurrent === "eq.true") rows = rows.filter((row) => row.is_current === true);
+
+  const patchVersion = url.searchParams.get("patch_version");
+  if (patchVersion?.startsWith("eq.")) rows = rows.filter((row) => row.patch_version === patchVersion.slice(3));
+
+  const kind = url.searchParams.get("kind");
+  if (kind?.startsWith("eq.")) rows = rows.filter((row) => row.kind === kind.slice(3));
+  if (kind?.startsWith("in.")) {
+    const allowed = kind
+      .slice(3)
+      .replace(/^\(|\)$/g, "")
+      .split(",")
+      .map((value) => value.replace(/^"|"$/g, ""));
+    rows = rows.filter((row) => allowed.includes(row.kind));
+  }
 
   const publicStatus = url.searchParams.get("public_status");
   if (publicStatus?.startsWith("eq.")) rows = rows.filter((row) => row.public_status === publicStatus.slice(3));
@@ -694,6 +776,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/official_patch_claimed_fixes" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(officialPatchClaimedFixes, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/patch_observations" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(patchObservations, url));
     return;
   }
 

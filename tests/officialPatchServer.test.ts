@@ -25,7 +25,9 @@ const tables: Record<TableName, Row[]> = {
   official_patch_claimed_fixes: [],
 };
 const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters: Filter[] }[] = [];
+const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
 let selectFailure: TableName | null = null;
+let rpcFailure: string | null = null;
 
 class FakeQuery {
   private filters: Filter[] = [];
@@ -143,11 +145,64 @@ function resetDb() {
   tables.official_patch_notes = [];
   tables.official_patch_claimed_fixes = [];
   mutations.length = 0;
+  rpcCalls.length = 0;
   selectFailure = null;
+  rpcFailure = null;
+}
+
+async function syncOfficialPatchNoteRpc(args: Record<string, unknown>) {
+  if (rpcFailure) return { data: null, error: { message: rpcFailure } };
+
+  const row = {
+    board_no: args.p_board_no,
+    title: args.p_title,
+    patch_version: args.p_patch_version,
+    official_url: args.p_official_url,
+    published_at: args.p_published_at,
+    summary: args.p_summary,
+    observed_at: args.p_observed_at,
+    is_current: true,
+  };
+  rpcCalls.push({ name: "sync_official_patch_note_with_claimed_fixes", args });
+  for (const existing of tables.official_patch_notes) {
+    if (existing.is_current === true) existing.is_current = false;
+  }
+  const existing = tables.official_patch_notes.find((item) => item.board_no === row.board_no);
+  if (existing) Object.assign(existing, row);
+  else tables.official_patch_notes.push({ ...row });
+  mutations.push({ table: "official_patch_notes", type: "upsert", row, filters: [] });
+
+  tables.official_patch_claimed_fixes = tables.official_patch_claimed_fixes.filter(
+    (fix) => fix.board_no !== row.board_no,
+  );
+  mutations.push({
+    table: "official_patch_claimed_fixes",
+    type: "delete",
+    row: null,
+    filters: [{ column: "board_no", value: row.board_no }],
+  });
+  const claimedFixes = (args.p_claimed_fixes ?? []) as { fix_text: string; category: string | null }[];
+  const fixRows = claimedFixes.map((fix, position) => ({
+    board_no: row.board_no,
+    position,
+    fix_text: fix.fix_text,
+    category: fix.category,
+  }));
+  if (fixRows.length > 0) {
+    tables.official_patch_claimed_fixes.push(...fixRows);
+    mutations.push({ table: "official_patch_claimed_fixes", type: "insert", row: fixRows, filters: [] });
+  }
+  return { data: null, error: null };
 }
 
 function fakeSupabase() {
-  return { from: (table: TableName) => new FakeQuery(table) } as unknown as import("@supabase/supabase-js").SupabaseClient;
+  return {
+    from: (table: TableName) => new FakeQuery(table),
+    rpc: (name: string, args: Record<string, unknown>) => {
+      if (name !== "sync_official_patch_note_with_claimed_fixes") throw new Error(`unexpected RPC: ${name}`);
+      return syncOfficialPatchNoteRpc(args);
+    },
+  } as unknown as import("@supabase/supabase-js").SupabaseClient;
 }
 
 beforeEach(() => {
@@ -177,6 +232,17 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
     const result = await syncOfficialPatchNote(supabase, { now: new Date("2026-07-05T00:00:00.000Z") });
 
     expect(result.status).toBe("synced");
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0]).toMatchObject({
+      name: "sync_official_patch_note_with_claimed_fixes",
+      args: {
+        p_board_no: "105",
+        p_claimed_fixes: [
+          { fix_text: "Fixed an issue where the map crashed the game.", category: "crash_startup" },
+          { fix_text: "Fixed FPS drops during combat.", category: "performance" },
+        ],
+      },
+    });
 
     const deleteMutation = mutations.find(
       (mutation) => mutation.table === "official_patch_claimed_fixes" && mutation.type === "delete",
@@ -209,6 +275,58 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
     );
     expect(insertMutation).toBeUndefined();
     expect(tables.official_patch_claimed_fixes).toHaveLength(0);
+  });
+
+  it("preserves the original observation time when the current patch is synced again", async () => {
+    mocks.fetchLatestOfficialPatchNote.mockResolvedValue(note);
+    tables.official_patch_notes.push({
+      board_no: note.boardNo,
+      title: note.title,
+      patch_version: note.patchVersion,
+      official_url: note.officialUrl,
+      published_at: note.publishedAt,
+      summary: note.summary,
+      observed_at: "2026-07-03T04:00:00.000Z",
+      is_current: true,
+    });
+
+    const { syncOfficialPatchNote } = await import("@/lib/officialPatch.server");
+    const result = await syncOfficialPatchNote(fakeSupabase(), { now: new Date("2026-07-05T00:00:00.000Z") });
+
+    expect(result).toMatchObject({
+      status: "synced",
+      changed: false,
+      patch: { observedAt: "2026-07-03T04:00:00.000Z" },
+    });
+    expect(mutations.find((mutation) => mutation.table === "official_patch_notes" && mutation.type === "upsert")?.row).toMatchObject({
+      observed_at: "2026-07-03T04:00:00.000Z",
+    });
+    expect(mutations.filter((mutation) => mutation.table === "official_patch_notes" && mutation.type === "update")).toEqual([]);
+  });
+
+  it("leaves the existing current row intact when the atomic sync fails", async () => {
+    tables.official_patch_notes.push({
+      board_no: "104",
+      title: "Patch Notes Version 1.12.00",
+      patch_version: "1.12.00",
+      official_url: "https://example.com/104",
+      published_at: "2026-06-01T03:00:00.000Z",
+      observed_at: "2026-06-01T04:00:00.000Z",
+      summary: "Previous patch.",
+      is_current: true,
+    });
+    rpcFailure = "sync unavailable";
+    mocks.fetchLatestOfficialPatchNote.mockResolvedValue(note);
+
+    const { syncOfficialPatchNote } = await import("@/lib/officialPatch.server");
+
+    await expect(syncOfficialPatchNote(fakeSupabase(), { now: new Date("2026-07-05T00:00:00.000Z") })).rejects.toThrow(
+      "official patch sync failed: sync unavailable",
+    );
+    expect(tables.official_patch_notes).toEqual([
+      expect.objectContaining({ board_no: "104", patch_version: "1.12.00", is_current: true }),
+    ]);
+    expect(mutations).toEqual([]);
   });
 });
 

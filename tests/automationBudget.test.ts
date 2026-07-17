@@ -50,6 +50,7 @@ describe("automation budget", () => {
     expect(budget.monthlyTavilyCreditCap).toBe(1000);
     expect(budget.remainingTavilyCredits).toBe(1000);
     expect(budget.maxSearchQueries).toBe(1);
+    expect(budget.maxTavilyCreditsPerRun).toBe(2);
     expect(budget.maxLlmCalls).toBe(4);
     expect(budget.estimatedRunAllowanceUsd).toBeGreaterThan(0);
   });
@@ -71,6 +72,41 @@ describe("automation budget", () => {
     expect(budget.maxLlmCalls).toBe(12);
   });
 
+  it("reserves one Tavily credit for recon during a patch burst and honors the stored setting outside it", () => {
+    const burstBudget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      mode: "scheduled",
+      patchBurstActive: true,
+      now: new Date("2026-07-05T12:00:00Z"),
+      scannerPolicy: {
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 1,
+      },
+    });
+    const quietBudget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      mode: "scheduled",
+      patchBurstActive: false,
+      now: new Date("2026-07-05T12:00:00Z"),
+      scannerPolicy: {
+        scheduledSearchCreditsPerRun: 2,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 1,
+      },
+    });
+
+    expect(burstBudget.maxSearchQueries).toBe(2);
+    expect(burstBudget.maxTavilyCreditsPerRun).toBe(3);
+    expect(burstBudget.maxSearchResults).toBe(10);
+    expect(burstBudget.maxLlmCalls).toBe(8);
+    expect(quietBudget.maxSearchQueries).toBe(2);
+    expect(quietBudget.maxTavilyCreditsPerRun).toBe(3);
+    expect(quietBudget.maxSearchResults).toBe(10);
+  });
+
   it("caps scheduled paid search by monthly Tavily credits instead of dollar run math", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 5,
@@ -82,6 +118,20 @@ describe("automation budget", () => {
     expect(budget.allowPaidSearch).toBe(false);
     expect(budget.maxSearchQueries).toBe(0);
     expect(budget.skipReasons).toContain("tavily_credit_cap");
+  });
+
+  it("uses the final monthly Tavily credit for search instead of reserving an unusable recon slot", () => {
+    const budget = computeAutomationBudget({
+      monthlyBudgetUsd: 5,
+      spentMonthToDateUsd: 0,
+      tavilyCreditsMonthToDate: 999,
+      mode: "scheduled",
+      now: new Date("2026-07-20T12:00:00Z"),
+    });
+
+    expect(budget.remainingTavilyCredits).toBe(1);
+    expect(budget.maxSearchQueries).toBe(1);
+    expect(budget.maxTavilyCreditsPerRun).toBe(1);
   });
 
   it("caps configured Tavily credits to the free-tier scanner guardrail", () => {

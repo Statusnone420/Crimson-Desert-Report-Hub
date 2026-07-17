@@ -5,6 +5,7 @@ import {
   countRowsAtOrAfterClaimByCluster,
   countDistinctVerifiedReportsByCluster,
   excerptsByClusterForCurrentPatch,
+  getPublicObservations,
   filterExactPatchReports,
   filterPatchFamilyReports,
   groupConfirmationRowsByCluster,
@@ -16,6 +17,105 @@ import {
 } from "@/lib/queries";
 
 vi.mock("server-only", () => ({}));
+
+type ObservationQueryRow = {
+  id: string;
+  patch_version: string;
+  kind: string;
+  is_public: boolean;
+  title: string;
+  url: string;
+  source_domain: string | null;
+  snippet: string | null;
+  observed_at: string;
+  seen_count: number;
+};
+
+function observationClient(rows: ObservationQueryRow[], error: { message: string } | null = null) {
+  return {
+    from(table: string) {
+      expect(table).toBe("patch_observations");
+      const filters: ((row: ObservationQueryRow) => boolean)[] = [];
+      const query = {
+        select() {
+          return query;
+        },
+        eq(column: string, value: string | boolean) {
+          filters.push((row) => row[column as keyof ObservationQueryRow] === value);
+          return query;
+        },
+        in(column: string, values: string[]) {
+          filters.push((row) => values.includes(String(row[column as keyof ObservationQueryRow])));
+          return query;
+        },
+        order() {
+          return query;
+        },
+        limit(count: number) {
+          return Promise.resolve({ data: error ? null : rows.filter((row) => filters.every((filter) => filter(row))).slice(0, count), error });
+        },
+      };
+      return query;
+    },
+  };
+}
+
+describe("getPublicObservations", () => {
+  it("keeps separate eight-row budgets for coverage and community asks", async () => {
+    const rows: ObservationQueryRow[] = [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        id: `coverage-${index}`,
+        patch_version: "1.13.01",
+        kind: "press_reception",
+        is_public: true,
+        title: `Coverage ${index}`,
+        url: `https://example.com/coverage-${index}`,
+        source_domain: "example.com",
+        snippet: "Coverage",
+        observed_at: `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`,
+        seen_count: 1,
+      })),
+      {
+        id: "ask-current",
+        patch_version: "1.13.01",
+        kind: "community_ask",
+        is_public: true,
+        title: "Current-patch community ask",
+        url: "https://reddit.com/current-ask",
+        source_domain: "reddit.com",
+        snippet: "Ask",
+        observed_at: "2026-07-16T13:00:00Z",
+        seen_count: 2,
+      },
+      {
+        id: "ask-old-patch",
+        patch_version: "1.13.00",
+        kind: "community_ask",
+        is_public: true,
+        title: "Old-patch community ask",
+        url: "https://reddit.com/old-ask",
+        source_domain: "reddit.com",
+        snippet: "Old ask",
+        observed_at: "2026-07-16T14:00:00Z",
+        seen_count: 9,
+      },
+    ];
+
+    const observations = await getPublicObservations(observationClient(rows) as never, "1.13.01");
+
+    expect(observations.filter((observation) => observation.kind === "press_reception")).toHaveLength(8);
+    expect(observations.filter((observation) => observation.kind === "community_ask")).toEqual([
+      expect.objectContaining({ id: "ask-current", title: "Current-patch community ask" }),
+    ]);
+    expect(observations.map((observation) => observation.id)).not.toContain("ask-old-patch");
+  });
+
+  it("degrades a missing observation table to an empty public lane", async () => {
+    await expect(
+      getPublicObservations(observationClient([], { message: "relation patch_observations does not exist" }) as never, "1.13.01"),
+    ).resolves.toEqual([]);
+  });
+});
 
 describe("countDistinctVerifiedReportsByCluster", () => {
   it("counts one verified report per report id", () => {
