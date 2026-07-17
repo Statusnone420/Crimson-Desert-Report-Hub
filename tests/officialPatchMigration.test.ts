@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const migrationsDir = join(process.cwd(), "supabase", "migrations");
+const atomicOfficialPatchSyncMigration = join(migrationsDir, "20260717033224_atomic_official_patch_sync.sql");
 
 function atomicOverrideMigration(): string {
   const matches = readdirSync(migrationsDir).filter((file) => file.endsWith("_atomic_current_patch_override.sql"));
@@ -27,5 +28,18 @@ describe("atomic current patch override migration", () => {
 
     expect(sql).toMatch(/revoke all on function public\.set_current_patch_override[\s\S]*from public, anon, authenticated/i);
     expect(sql).toMatch(/grant execute on function public\.set_current_patch_override[\s\S]*to service_role/i);
+  });
+});
+
+describe("atomic official patch sync migration", () => {
+  it("keeps the current-row transition in a locked service-only RPC", () => {
+    const sql = readFileSync(atomicOfficialPatchSyncMigration, "utf8");
+
+    expect(sql).toMatch(/create or replace function public\.sync_official_patch_note/i);
+    expect(sql).toMatch(/pg_advisory_xact_lock/i);
+    expect(sql).toMatch(/update public\.official_patch_notes[\s\S]*set is_current = false[\s\S]*insert into public\.official_patch_notes/i);
+    expect(sql).toMatch(/on conflict \(board_no\)[\s\S]*is_current = true/i);
+    expect(sql).toMatch(/revoke all on function public\.sync_official_patch_note/i);
+    expect(sql).toMatch(/grant execute on function public\.sync_official_patch_note[\s\S]*to service_role/i);
   });
 });

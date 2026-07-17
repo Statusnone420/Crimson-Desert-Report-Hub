@@ -40,8 +40,8 @@ import {
 } from "@/lib/officialPatch.server";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import {
+  appendUniqueObservation,
   persistObservations,
-  shouldCollectObservation,
   type ObservationCandidate,
 } from "@/lib/automation/observations";
 import { createServiceClient } from "@/lib/supabase";
@@ -610,6 +610,7 @@ async function prepareSignals(
   const prepared: PreparedSignal[] = [];
   const rejected: RejectedCandidate[] = [];
   const observations: ObservationCandidate[] = [];
+  const seenObservationHashes = new Set<string>();
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
   let reconFetchesUsed = 0;
@@ -623,10 +624,8 @@ async function prepareSignals(
     canonicalUrl: string,
     snippet: string,
   ) => {
-    if (!shouldCollectObservation({ sourceDomain: signal.sourceDomain, observationKind: decision.observationKind }, observations.length)) {
-      return;
-    }
-    observations.push({
+    if (!decision.observationKind) return;
+    appendUniqueObservation(observations, {
       kind: decision.observationKind as ObservationKind,
       title: signal.title,
       url: canonicalUrl,
@@ -634,7 +633,7 @@ async function prepareSignals(
       snippet: snippet.slice(0, 500),
       sourcePublishedAt: signal.sourcePublishedAt ?? null,
       observedAt: signal.observedAt,
-    });
+    }, seenObservationHashes);
   };
   // Recon uses Tavily's extract endpoint, so it must be gated on the SAME
   // configured-web-search signal as paid search in collectInputs. Without this,

@@ -69,6 +69,22 @@ export function shouldCollectObservation(
   return domainTier(candidate.sourceDomain) === "trusted";
 }
 
+/** Deduplicate by campaign/source identity before applying the per-run cap. */
+export function appendUniqueObservation(
+  observations: ObservationCandidate[],
+  candidate: ObservationCandidate,
+  seenConflictHashes: Set<string>,
+): boolean {
+  const conflictHash = observationConflictHash(candidate);
+  if (seenConflictHashes.has(conflictHash)) return false;
+  if (!shouldCollectObservation({ sourceDomain: candidate.sourceDomain, observationKind: candidate.kind }, observations.length)) {
+    return false;
+  }
+  seenConflictHashes.add(conflictHash);
+  observations.push(candidate);
+  return true;
+}
+
 type ObservationClient = Pick<SupabaseClient, "from">;
 
 /**

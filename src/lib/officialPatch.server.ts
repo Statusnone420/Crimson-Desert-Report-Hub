@@ -166,23 +166,16 @@ export async function syncOfficialPatchNote(
   const changed = existing.source !== "official" || existing.version !== note.patchVersion || existing.officialUrl !== note.officialUrl;
   const observedAt = changed || !existing.observedAt ? observedAtNow : existing.observedAt;
 
-  const { error: clearError } = await supabase.from("official_patch_notes").update({ is_current: false }).eq("is_current", true);
-  if (clearError) throw new Error(`official patch clear failed: ${clearError.message}`);
-
-  const { error: upsertError } = await supabase.from("official_patch_notes").upsert(
-    {
-      board_no: note.boardNo,
-      title: note.title,
-      patch_version: note.patchVersion,
-      official_url: note.officialUrl,
-      published_at: note.publishedAt,
-      summary: note.summary,
-      observed_at: observedAt,
-      is_current: true,
-    },
-    { onConflict: "board_no" },
-  );
-  if (upsertError) throw new Error(`official patch upsert failed: ${upsertError.message}`);
+  const { error: syncError } = await supabase.rpc("sync_official_patch_note", {
+    p_board_no: note.boardNo,
+    p_title: note.title,
+    p_patch_version: note.patchVersion,
+    p_official_url: note.officialUrl,
+    p_published_at: note.publishedAt,
+    p_summary: note.summary,
+    p_observed_at: observedAt,
+  });
+  if (syncError) throw new Error(`official patch sync failed: ${syncError.message}`);
 
   const { error: deleteFixesError } = await supabase
     .from("official_patch_claimed_fixes")

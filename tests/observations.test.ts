@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  appendUniqueObservation,
   MAX_OBSERVATIONS_PER_PATCH,
   MAX_OBSERVATIONS_PER_RUN,
   normalizeAskSeriesTitle,
@@ -149,6 +150,46 @@ describe("shouldCollectObservation", () => {
       shouldCollectObservation(
         { sourceDomain: "dsogaming.com", observationKind: "press_reception" },
         MAX_OBSERVATIONS_PER_RUN,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("appendUniqueObservation", () => {
+  it("deduplicates campaign fingerprints before applying the per-run cap", () => {
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    const day20 = candidate({
+      kind: "community_ask",
+      title: "Day 20 of asking to add caracals to the desert : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/aaa/day_20/",
+      sourceDomain: "reddit.com",
+    });
+    const day21 = candidate({
+      kind: "community_ask",
+      title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+      sourceDomain: "reddit.com",
+    });
+
+    expect(appendUniqueObservation(observations, day20, seenConflictHashes)).toBe(true);
+    expect(appendUniqueObservation(observations, day21, seenConflictHashes)).toBe(false);
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN - 1; index += 1) {
+      expect(
+        appendUniqueObservation(
+          observations,
+          candidate({ url: `https://www.dsogaming.com/articles/coverage-${index}/` }),
+          seenConflictHashes,
+        ),
+      ).toBe(true);
+    }
+
+    expect(observations).toHaveLength(MAX_OBSERVATIONS_PER_RUN);
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({ url: "https://www.dsogaming.com/articles/coverage-overflow/" }),
+        seenConflictHashes,
       ),
     ).toBe(false);
   });

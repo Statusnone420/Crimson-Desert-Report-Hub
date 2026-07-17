@@ -26,6 +26,7 @@ const tables: Record<TableName, Row[]> = {
 };
 const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters: Filter[] }[] = [];
 let selectFailure: TableName | null = null;
+let rpcFailure: string | null = null;
 
 class FakeQuery {
   private filters: Filter[] = [];
@@ -144,10 +145,40 @@ function resetDb() {
   tables.official_patch_claimed_fixes = [];
   mutations.length = 0;
   selectFailure = null;
+  rpcFailure = null;
+}
+
+async function syncOfficialPatchNoteRpc(args: Record<string, unknown>) {
+  if (rpcFailure) return { data: null, error: { message: rpcFailure } };
+
+  const row = {
+    board_no: args.p_board_no,
+    title: args.p_title,
+    patch_version: args.p_patch_version,
+    official_url: args.p_official_url,
+    published_at: args.p_published_at,
+    summary: args.p_summary,
+    observed_at: args.p_observed_at,
+    is_current: true,
+  };
+  for (const existing of tables.official_patch_notes) {
+    if (existing.is_current === true) existing.is_current = false;
+  }
+  const existing = tables.official_patch_notes.find((item) => item.board_no === row.board_no);
+  if (existing) Object.assign(existing, row);
+  else tables.official_patch_notes.push({ ...row });
+  mutations.push({ table: "official_patch_notes", type: "upsert", row, filters: [] });
+  return { data: null, error: null };
 }
 
 function fakeSupabase() {
-  return { from: (table: TableName) => new FakeQuery(table) } as unknown as import("@supabase/supabase-js").SupabaseClient;
+  return {
+    from: (table: TableName) => new FakeQuery(table),
+    rpc: (name: string, args: Record<string, unknown>) => {
+      if (name !== "sync_official_patch_note") throw new Error(`unexpected RPC: ${name}`);
+      return syncOfficialPatchNoteRpc(args);
+    },
+  } as unknown as import("@supabase/supabase-js").SupabaseClient;
 }
 
 beforeEach(() => {
@@ -235,6 +266,32 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
     expect(mutations.find((mutation) => mutation.table === "official_patch_notes" && mutation.type === "upsert")?.row).toMatchObject({
       observed_at: "2026-07-03T04:00:00.000Z",
     });
+    expect(mutations.filter((mutation) => mutation.table === "official_patch_notes" && mutation.type === "update")).toEqual([]);
+  });
+
+  it("leaves the existing current row intact when the atomic sync fails", async () => {
+    tables.official_patch_notes.push({
+      board_no: "104",
+      title: "Patch Notes Version 1.12.00",
+      patch_version: "1.12.00",
+      official_url: "https://example.com/104",
+      published_at: "2026-06-01T03:00:00.000Z",
+      observed_at: "2026-06-01T04:00:00.000Z",
+      summary: "Previous patch.",
+      is_current: true,
+    });
+    rpcFailure = "sync unavailable";
+    mocks.fetchLatestOfficialPatchNote.mockResolvedValue(note);
+
+    const { syncOfficialPatchNote } = await import("@/lib/officialPatch.server");
+
+    await expect(syncOfficialPatchNote(fakeSupabase(), { now: new Date("2026-07-05T00:00:00.000Z") })).rejects.toThrow(
+      "official patch sync failed: sync unavailable",
+    );
+    expect(tables.official_patch_notes).toEqual([
+      expect.objectContaining({ board_no: "104", patch_version: "1.12.00", is_current: true }),
+    ]);
+    expect(mutations).toEqual([]);
   });
 });
 
