@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessClaims } from "@/lib/claims";
+import { assessClaims, uniqueClaimAttributions } from "@/lib/claims";
 
 const clusters = [
   {
@@ -23,6 +23,24 @@ const clusters = [
     postCurrentPatchEvidenceCount: 0,
   },
 ];
+
+describe("uniqueClaimAttributions", () => {
+  it("does not invent a claim for a manually locked lifecycle cluster", () => {
+    const result = uniqueClaimAttributions([], [clusters[0]]);
+    expect(result.size).toBe(0);
+  });
+
+  it("requires exactly one claim and one verifying cluster per category", () => {
+    const claim = { fixText: "Fixed the map crash.", category: "crash_startup" };
+    expect(uniqueClaimAttributions([claim], [clusters[0]]).get("crash_startup")?.id).toBe("c1");
+    expect(uniqueClaimAttributions([claim, { ...claim, fixText: "Fixed another map crash." }], [clusters[0]])).toEqual(
+      new Map(),
+    );
+    expect(uniqueClaimAttributions([claim], [clusters[0], { ...clusters[0], id: "c1-duplicate" }])).toEqual(
+      new Map(),
+    );
+  });
+});
 
 describe("assessClaims", () => {
   it("marks a claim disputed when it routes to a cluster with evidence", () => {

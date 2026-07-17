@@ -2,8 +2,9 @@ import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
+import { uniqueClaimAttributions } from "@/lib/claims";
 import { composeDispatchBrief, formatWeeklyDelta, weeklyDeltaSentence } from "@/lib/dispatchBrief";
-import { hasClusterEvidence } from "@/lib/evidence";
+import { needsFullIssueCard } from "@/lib/evidence";
 import { getTrackedPatchEditionCount } from "@/lib/officialPatch.server";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import {
@@ -128,6 +129,33 @@ function PulseChart({
   );
 }
 
+function PulseDataTable({ series, maxDays }: { series: DailySignalDay[]; maxDays: number }) {
+  const shown = series.slice(-maxDays);
+  return (
+    <div className="sr-only">
+      <table aria-label="Daily Patch Pulse signal by day">
+        <caption>Daily Patch Pulse signal by day</caption>
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Structured reports</th>
+            <th scope="col">One-tap confirmations</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((day) => (
+            <tr key={day.day}>
+              <th scope="row">{day.day}</th>
+              <td>{day.reports}</td>
+              <td>{day.taps}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default async function DispatchHomePage() {
   const [d, radar, series, edition] = await Promise.all([
     getDashboardData(),
@@ -144,7 +172,22 @@ export default async function DispatchHomePage() {
   const verifying = d.topClusters.filter(
     (cluster) => cluster.fix_claimed_patch_version === patch.version,
   );
+  /**
+   * Claims record attribution: a verbatim claim gets a verdict split only when
+   * the stored categories join it to exactly one verifying cluster and that
+   * category has exactly one claim (1:1). There is no claim→cluster foreign
+   * key, so anything more would be a fabricated association.
+   */
+  const attributedByCategory = uniqueClaimAttributions(d.claimedFixes, verifying);
+  const claimRows = d.claimedFixes.map((claim) => {
+    const attributed = claim.category === null ? null : attributedByCategory.get(claim.category) ?? null;
+    const poll = attributed?.readout.poll ?? null;
+    const clockSince =
+      shortDate(attributed?.fix_claimed_at ?? null) ?? shortDate(patch.publishedAt) ?? "PATCH PUBLISH";
+    return { claim, attributed, poll, clockSince };
+  });
   const contestedClusters = verifying.filter((cluster) => {
+    if (attributedByCategory.get(cluster.category)?.id !== cluster.id) return false;
     const poll = cluster.readout.poll;
     return poll !== null && poll.stillCount > poll.fixedCount && poll.stillCount > 0;
   });
@@ -172,34 +215,11 @@ export default async function DispatchHomePage() {
     series,
   });
 
-  // Issue board: existing evidence-strength order, top three with evidence.
-  const boardClusters = d.topClusters.filter(hasClusterEvidence);
+  // Issue board: the same published-entry gate used by /issues, top three by evidence strength.
+  const boardClusters = d.topClusters.filter(needsFullIssueCard);
   const top3 = boardClusters.slice(0, 3);
   const [leadStory, ...secondaryStories] = top3;
 
-  /**
-   * Claims record attribution: a verbatim claim gets a verdict split only when
-   * the stored categories join it to exactly one verifying cluster and that
-   * category has exactly one claim (1:1). There is no claim→cluster foreign
-   * key, so anything more would be a fabricated association.
-   */
-  const claimsByCategory = new Map<string, number>();
-  for (const claim of d.claimedFixes) {
-    const key = claim.category ?? "general";
-    claimsByCategory.set(key, (claimsByCategory.get(key) ?? 0) + 1);
-  }
-  const claimRows = d.claimedFixes.map((claim) => {
-    const key = claim.category ?? "general";
-    const clusterMatches = verifying.filter((cluster) => cluster.category === claim.category);
-    const attributed =
-      claim.category !== null && clusterMatches.length === 1 && claimsByCategory.get(key) === 1
-        ? clusterMatches[0]
-        : null;
-    const poll = attributed?.readout.poll ?? null;
-    const clockSince =
-      shortDate(attributed?.fix_claimed_at ?? null) ?? shortDate(patch.publishedAt) ?? "PATCH PUBLISH";
-    return { claim, attributed, poll, clockSince };
-  });
   const verdictsElsewhere = verifying.length > 0 && claimRows.every((row) => row.attributed === null);
   const mobileClaimRow =
     claimRows.find((row) => row.attributed && mostContested && row.attributed.id === mostContested.id) ??
@@ -450,6 +470,7 @@ export default async function DispatchHomePage() {
                   one-tap confirmations
                 </span>
               </div>
+              {series !== null ? <PulseDataTable series={series} maxDays={14} /> : null}
             </div>
             <div className="pulse-stats">
               <div className="pulse-stat">

@@ -9,11 +9,12 @@ describe("hasClusterEvidence", () => {
 });
 
 describe("needsFullIssueCard", () => {
-  it("keeps claim polls and every raw confirmation reachable without calling them evidence", () => {
+  it("counts a public source-only cluster as a published issue without calling it a player report", () => {
     const base = { strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0 }, readout: { poll: null } };
     expect(needsFullIssueCard(base)).toBe(false);
     expect(needsFullIssueCard({ ...base, confirmations: { totalCount: 1 } })).toBe(true);
     expect(needsFullIssueCard({ ...base, readout: { poll: { fixedCount: 0, stillCount: 0 } } })).toBe(true);
+    // A reviewed source lead contributes to strengthScore while direct reports remain zero.
     expect(needsFullIssueCard({ ...base, strengthScore: 1 })).toBe(true);
   });
 });

@@ -8,6 +8,7 @@ import type { DailySignalDay } from "@/lib/queries";
  */
 
 export type BriefTrend = "quiet" | "easing" | "flat" | "rising";
+export type WeeklyComparisonState = "unavailable" | "in_progress" | "ready";
 
 export type ContestedClaim = {
   title: string;
@@ -36,6 +37,7 @@ export type DispatchBrief = {
   pulseHeadline: string;
   trend: BriefTrend;
   dayNumber: number | null;
+  weeklyComparisonState: WeeklyComparisonState;
   /** Whole-percent weekly report delta vs the first week since publish; null when the launch week had no reports. */
   weeklyDeltaPct: number | null;
   launchWeekReports: number;
@@ -71,10 +73,12 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
   const now = input.now ?? new Date();
   const dayNumber = patchDayNumber(input.publishedAt, now);
   const windows = weeklyReportWindows(input.series);
+  const weeklyComparisonState: WeeklyComparisonState =
+    input.series === null ? "unavailable" : input.series.length < 7 ? "in_progress" : "ready";
   const launchWeekReports = windows?.launch ?? 0;
   const latestWeekReports = windows?.latest ?? 0;
   const weeklyDeltaPct =
-    windows && windows.launch > 0
+    weeklyComparisonState === "ready" && windows && windows.launch > 0
       ? Math.round(((windows.latest - windows.launch) / windows.launch) * 100)
       : null;
 
@@ -99,9 +103,11 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
     flat: `Report volume is holding steady on ${input.patchVersion}.`,
     rising: `Reports are rising since ${input.patchVersion} landed.`,
   };
-  const headline = contested
-    ? `${trendHeadline[trend]} One claimed fix is still contested.`
-    : trendHeadline[trend];
+  const headlineBase =
+    trend !== "quiet" && weeklyComparisonState === "in_progress"
+      ? `The first week on ${input.patchVersion} is still in progress.`
+      : trendHeadline[trend];
+  const headline = contested ? `${headlineBase} One claimed fix is still contested.` : headlineBase;
 
   const dayLead = dayNumber !== null ? `Day ${dayNumber} in, the` : "The";
   const claimSentence =
@@ -119,6 +125,8 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
   const pulseHeadline: string =
     trend === "quiet"
       ? "No player signals filed yet this patch. A quiet board is a real reading."
+      : weeklyComparisonState === "in_progress"
+        ? "The first week is still in progress — no launch-week comparison yet."
       : trend === "easing"
         ? "Signal is easing — weekly report volume is below the launch week."
         : trend === "rising"
@@ -132,6 +140,7 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
     pulseHeadline,
     trend,
     dayNumber,
+    weeklyComparisonState,
     weeklyDeltaPct,
     launchWeekReports,
     latestWeekReports,
@@ -145,7 +154,12 @@ export function formatWeeklyDelta(brief: Pick<DispatchBrief, "weeklyDeltaPct" | 
   return "0%";
 }
 
-export function weeklyDeltaSentence(brief: Pick<DispatchBrief, "weeklyDeltaPct" | "trend">): string {
+export function weeklyDeltaSentence(
+  brief: Pick<DispatchBrief, "weeklyDeltaPct" | "trend" | "weeklyComparisonState">,
+): string {
+  if (brief.weeklyComparisonState === "in_progress") {
+    return "Launch-week comparison starts after seven days of signal.";
+  }
   if (brief.weeklyDeltaPct === null) {
     return "Reports this week; the launch week had none to compare against.";
   }

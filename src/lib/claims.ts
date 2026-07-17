@@ -3,6 +3,30 @@ import type { Category } from "@/lib/constants";
 
 export type ClaimLike = { fixText: string; category: string | null };
 
+/**
+ * Join official claims to lifecycle clusters only when both sides are unique
+ * within a category. A category alone is not a claim-to-cluster foreign key.
+ */
+export function uniqueClaimAttributions<T extends { id: string; category: string }>(
+  claims: ClaimLike[],
+  clusters: T[],
+): Map<string, T> {
+  const claimCounts = new Map<string, number>();
+  for (const claim of claims) {
+    if (claim.category === null) continue;
+    claimCounts.set(claim.category, (claimCounts.get(claim.category) ?? 0) + 1);
+  }
+
+  const attributions = new Map<string, T>();
+  for (const cluster of clusters) {
+    const clusterMatches = clusters.filter((candidate) => candidate.category === cluster.category);
+    if (claimCounts.get(cluster.category) === 1 && clusterMatches.length === 1) {
+      attributions.set(cluster.category, cluster);
+    }
+  }
+  return attributions;
+}
+
 export type ClaimClusterLike = {
   id: string;
   slug: string;

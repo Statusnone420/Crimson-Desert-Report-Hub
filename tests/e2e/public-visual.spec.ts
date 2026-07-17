@@ -391,8 +391,11 @@ test.describe("public surface visual regression", () => {
     // 01 · Patch Pulse: server-rendered paired-bar chart plus text restatement.
     await expect(page.getByText("01 · Patch Pulse")).toBeVisible();
     await expect(page.getByRole("img", { name: /Daily signal since patch publish/ })).toBeVisible();
-    await expect(page.getByText("structured reports")).toBeVisible();
-    await expect(page.getByText("one-tap confirmations")).toBeVisible();
+    await expect(page.getByText("structured reports", { exact: true })).toBeVisible();
+    await expect(page.getByText("one-tap confirmations", { exact: true })).toBeVisible();
+    const pulseData = page.locator('table[aria-label="Daily Patch Pulse signal by day"]');
+    await expect(pulseData).toHaveCount(1);
+    await expect(pulseData.locator("tbody tr")).not.toHaveCount(0);
     await expect(page.getByText(/Public leads kept by the radar this week/)).toBeVisible();
     // 02 · Issue board: top three by the existing evidence-strength order.
     await expect(page.getByText("02 · The Issue Board")).toBeVisible();

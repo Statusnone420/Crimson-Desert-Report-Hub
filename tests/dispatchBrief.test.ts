@@ -91,6 +91,17 @@ describe("dispatch brief composer", () => {
     expect(weeklyDeltaSentence(brief)).toContain("launch week had none");
   });
 
+  it("defers the weekly comparison until seven rollup days are available", () => {
+    const brief = composeDispatchBrief({ ...base, reports: 1, taps: 1, series: days([1]) });
+    expect(brief.weeklyComparisonState).toBe("in_progress");
+    expect(brief.weeklyDeltaPct).toBeNull();
+    expect(brief.latestWeekReports).toBe(1);
+    expect(formatWeeklyDelta(brief)).toBe("1");
+    expect(weeklyDeltaSentence(brief)).toContain("after seven days");
+    expect(brief.pulseHeadline).toContain("no launch-week comparison yet");
+    expect(brief.headline).toBe("The first week on 1.13.01 is still in progress.");
+  });
+
   it("reports rising when the latest week outpaces launch", () => {
     const brief = composeDispatchBrief({ ...base, series: days([1, 0, 0, 0, 0, 0, 0, 3, 4, 5]) });
     expect(brief.trend).toBe("rising");
