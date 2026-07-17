@@ -471,6 +471,22 @@ const patchObservations = [
     seen_count: 1,
     is_public: true,
   },
+  {
+    id: "observation-3",
+    created_at: isoMinutesAgo(20),
+    patch_version: "1.13.01",
+    kind: "community_ask",
+    title: "Day 20 of asking to add caracals to the desert : r/CrimsonDesert",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/mock1/day_20_of_asking/",
+    url_hash: "mock-observation-hash-3",
+    source_domain: "reddit.com",
+    snippet: "Still no caracals. The desert needs its cats. I will be here tomorrow.",
+    source_published_at: isoMinutesAgo(200),
+    observed_at: isoMinutesAgo(20),
+    last_seen_at: isoMinutesAgo(20),
+    seen_count: 6,
+    is_public: true,
+  },
 ];
 
 function sendJson(res, method, status, data, headers = {}) {

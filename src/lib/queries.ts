@@ -494,7 +494,7 @@ function countGpus(rows: DashboardReportRow[]): Record<string, number> {
 
 export type PublicObservation = {
   id: string;
-  kind: "patch_release" | "press_reception" | "fix_announcement";
+  kind: "patch_release" | "press_reception" | "fix_announcement" | "community_ask";
   title: string;
   url: string;
   sourceDomain: string | null;

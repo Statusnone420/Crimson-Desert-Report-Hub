@@ -104,7 +104,12 @@ export default async function DashboardPage() {
     patch_release: "Patch coverage",
     press_reception: "Press",
     fix_announcement: "Fix talk",
+    community_ask: "Community ask",
   };
+  const communityAsks = d.observations.filter((observation) => observation.kind === "community_ask");
+  const coverageObservations = d.observations.filter((observation) => observation.kind !== "community_ask");
+  const askCampaignDay = (title: string): string | null =>
+    title.match(/day\s+(\d+)\s+of\s+asking/i)?.[1] ?? null;
 
   return (
     <div className="page-stack patch-brief-page">
@@ -338,7 +343,7 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      {d.observations.length > 0 ? (
+      {coverageObservations.length > 0 ? (
         <section className="brief-section" aria-labelledby="observations-title">
           <div className="section-intro">
             <div>
@@ -351,7 +356,7 @@ export default async function DashboardPage() {
             </p>
           </div>
           <div className="observation-list">
-            {d.observations.map((observation) => (
+            {coverageObservations.map((observation) => (
               <a
                 key={observation.id}
                 href={observation.url}
@@ -373,6 +378,51 @@ export default async function DashboardPage() {
                 {observation.snippet ? <p>{observation.snippet}</p> : null}
               </a>
             ))}
+          </div>
+        </section>
+      ) : null}
+
+      {communityAsks.length > 0 ? (
+        <section className="brief-section" aria-labelledby="community-asks-title">
+          <div className="section-intro">
+            <div>
+              <div className="eyebrow">Community pulse</div>
+              <h2 id="community-asks-title">What players are asking for</h2>
+            </div>
+            <p>
+              Requests and campaigns the scanner keeps seeing, shown verbatim. Wanting something is not a bug —
+              these never touch evidence counts.
+            </p>
+          </div>
+          <div className="observation-list">
+            {communityAsks.map((observation) => {
+              const campaignDay = askCampaignDay(observation.title);
+              return (
+                <a
+                  key={observation.id}
+                  href={observation.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="observation-row"
+                >
+                  <div className="observation-row__meta">
+                    <span className="readout-mark readout-mark--dim">Community ask</span>
+                    <span className="num">{observation.sourceDomain ?? "unknown source"}</span>
+                    <span>{timeAgo(observation.observedAt)}</span>
+                    {campaignDay ? (
+                      <span className="num" style={{ color: "var(--amber-bright)" }}>
+                        day {campaignDay} campaign
+                      </span>
+                    ) : null}
+                    {observation.seenCount > 1 ? (
+                      <span className="num">seen {observation.seenCount}×</span>
+                    ) : null}
+                  </div>
+                  <strong>{observation.title}</strong>
+                  {observation.snippet ? <p>{observation.snippet}</p> : null}
+                </a>
+              );
+            })}
           </div>
         </section>
       ) : null}

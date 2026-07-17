@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   MAX_OBSERVATIONS_PER_PATCH,
   MAX_OBSERVATIONS_PER_RUN,
+  normalizeAskSeriesTitle,
+  observationConflictHash,
   observationUrlHash,
   persistObservations,
   shouldCollectObservation,
@@ -153,17 +155,35 @@ describe("shouldCollectObservation", () => {
 });
 
 type UpsertCall = { rows: Record<string, unknown>[]; options: Record<string, unknown> };
+type UpdateCall = { patch: Record<string, unknown>; hash: string };
 
-function stubClient(existingCount: number, upserts: UpsertCall[], failCount = false) {
+function stubClient({
+  patchCount = 0,
+  existingRows = [] as { url_hash: string; seen_count: number }[],
+  upserts = [] as UpsertCall[],
+  updates = [] as UpdateCall[],
+  failCount = false,
+} = {}) {
   return {
     from: () => ({
-      select: () => ({
-        eq: () =>
-          Promise.resolve(
-            failCount
-              ? { count: null, error: { message: "table missing" } }
-              : { count: existingCount, error: null },
-          ),
+      select: (_columns: string, options?: { count?: string }) =>
+        options?.count
+          ? {
+              eq: () =>
+                Promise.resolve(
+                  failCount
+                    ? { count: null, error: { message: "table missing" } }
+                    : { count: patchCount, error: null },
+                ),
+            }
+          : {
+              in: () => Promise.resolve({ data: existingRows, error: null }),
+            },
+      update: (patch: Record<string, unknown>) => ({
+        eq: (_column: string, hash: string) => {
+          updates.push({ patch, hash });
+          return Promise.resolve({ error: null });
+        },
       }),
       upsert: (rows: Record<string, unknown>[], options: Record<string, unknown>) => {
         upserts.push({ rows, options });
@@ -173,11 +193,37 @@ function stubClient(existingCount: number, upserts: UpsertCall[], failCount = fa
   } as unknown as Pick<SupabaseClient, "from">;
 }
 
+describe("ask series fingerprinting", () => {
+  it("collapses daily campaign posts into one fingerprint", () => {
+    const day20 = candidate({
+      kind: "community_ask",
+      title: "Day 20 of asking to add caracals to the desert : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/aaa/day_20/",
+      sourceDomain: "reddit.com",
+    });
+    const day21 = candidate({
+      kind: "community_ask",
+      title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+      sourceDomain: "reddit.com",
+    });
+    expect(normalizeAskSeriesTitle(day20.title)).toBe("day # of asking to add caracals to the desert");
+    expect(observationConflictHash(day20)).toBe(observationConflictHash(day21));
+  });
+
+  it("keeps coverage observations keyed by URL, not title", () => {
+    const a = candidate({ url: "https://www.dsogaming.com/a/" });
+    const b = candidate({ url: "https://www.dsogaming.com/b/" });
+    expect(observationConflictHash(a)).toBe(observationUrlHash(a.url));
+    expect(observationConflictHash(a)).not.toBe(observationConflictHash(b));
+  });
+});
+
 describe("persistObservations", () => {
   it("writes observations under the per-patch cap and counts them", async () => {
     const upserts: UpsertCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
-    await persistObservations(stubClient(0, upserts), [candidate()], "1.13.01", report);
+    await persistObservations(stubClient({ upserts }), [candidate()], "1.13.01", report);
     expect(report.errors).toEqual([]);
     expect(report.observationsKept).toBe(1);
     expect(upserts).toHaveLength(1);
@@ -190,10 +236,38 @@ describe("persistObservations", () => {
     expect(upserts[0].options).toMatchObject({ onConflict: "url_hash", ignoreDuplicates: true });
   });
 
+  it("re-observes an existing row: bumps seen_count and points at the latest post", async () => {
+    const day21 = candidate({
+      kind: "community_ask",
+      title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+      sourceDomain: "reddit.com",
+    });
+    const upserts: UpsertCall[] = [];
+    const updates: UpdateCall[] = [];
+    const report = { errors: [] as string[], observationsKept: 0 };
+    await persistObservations(
+      stubClient({ existingRows: [{ url_hash: observationConflictHash(day21), seen_count: 5 }], upserts, updates }),
+      [day21],
+      "1.13.01",
+      report,
+    );
+    expect(updates).toHaveLength(1);
+    expect(updates[0].patch).toMatchObject({ seen_count: 6, url: day21.url });
+    expect(upserts).toHaveLength(0);
+    expect(report.observationsKept).toBe(0);
+    expect(report.errors).toEqual([]);
+  });
+
   it("stops writing at the per-patch cap", async () => {
     const upserts: UpsertCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
-    await persistObservations(stubClient(MAX_OBSERVATIONS_PER_PATCH, upserts), [candidate()], "1.13.01", report);
+    await persistObservations(
+      stubClient({ patchCount: MAX_OBSERVATIONS_PER_PATCH, upserts }),
+      [candidate()],
+      "1.13.01",
+      report,
+    );
     expect(upserts).toHaveLength(0);
     expect(report.observationsKept).toBe(0);
     expect(report.errors).toEqual([]);
@@ -202,9 +276,48 @@ describe("persistObservations", () => {
   it("degrades to an error note when the table is unreadable, never throws", async () => {
     const upserts: UpsertCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
-    await persistObservations(stubClient(0, upserts, true), [candidate()], "1.13.01", report);
+    await persistObservations(stubClient({ upserts, failCount: true }), [candidate()], "1.13.01", report);
     expect(upserts).toHaveLength(0);
     expect(report.observationsKept).toBe(0);
     expect(report.errors).toHaveLength(1);
+  });
+});
+
+describe("community ask genre", () => {
+  it("tags a fresh feature-request campaign as community_ask", () => {
+    const decision = preScreenCandidate(
+      {
+        title: "Day 20 of asking to add caracals to the desert : r/CrimsonDesert",
+        snippet: "Still no caracals. The desert needs its cats.",
+        sourceDomain: "reddit.com",
+      },
+      PATCH_OPTIONS,
+    );
+    expect(decision).toMatchObject({ keep: false, observationKind: "community_ask" });
+  });
+
+  it("does NOT hijack a bug campaign — symptom language stays a complaint", () => {
+    const decision = preScreenCandidate(
+      {
+        title: "Day 20 of asking to fix the crashes in the wyvern nest",
+        snippet: "The game still crashes every time since the patch.",
+        sourceDomain: "reddit.com",
+      },
+      PATCH_OPTIONS,
+    );
+    expect(decision).toEqual({ keep: true });
+  });
+
+  it("ignores stale asks older than the freshness window", () => {
+    const decision = preScreenCandidate(
+      {
+        title: "Please add caracals to the desert",
+        snippet: "An old wishlist thread.",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-05-01T00:00:00.000Z",
+      },
+      PATCH_OPTIONS,
+    );
+    expect((decision as { observationKind?: string }).observationKind).toBeUndefined();
   });
 });

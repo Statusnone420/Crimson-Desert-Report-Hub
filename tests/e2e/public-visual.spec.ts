@@ -396,6 +396,12 @@ test.describe("public surface visual regression", () => {
     ).toBeVisible();
     await expect(page.getByText("seen 3×")).toBeVisible();
     await expect(page.getByText("they never count as evidence and never touch issue numbers.")).toBeVisible();
+    // Community pulse lane: requests are not bugs, campaigns show momentum.
+    await expect(page.getByRole("heading", { name: "What players are asking for" })).toBeVisible();
+    await expect(page.getByText("Day 20 of asking to add caracals to the desert : r/CrimsonDesert")).toBeVisible();
+    await expect(page.getByText("day 20 campaign")).toBeVisible();
+    await expect(page.getByText("seen 6×")).toBeVisible();
+    await expect(page.getByText("Wanting something is not a bug — these never touch evidence counts.")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Signal trend" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Source radar funnel" })).toBeVisible();
     await expect(page.getByRole("img", { name: "Cumulative reports and source leads over the last 30 days" })).toBeVisible();

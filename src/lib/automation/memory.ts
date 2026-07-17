@@ -3,6 +3,7 @@ import { buildSearchQueries } from "@/lib/automation/search";
 export type ScanIntent =
   | "broad_discovery"
   | "forum_discovery"
+  | "community_pulse"
   | "corroborate_cluster"
   | "rescue_candidate"
   // "quarantine" is a legacy/historical intent, never produced by chooseScanIntent
@@ -50,7 +51,12 @@ function eligibleLanes(memory: ScanMemory, rotationOffset: number): ScanIntent[]
   // lands on even offsets — all "broad" under a parity rule — and forum_discovery (the
   // site:reddit / site:steam lane) would never fire while the backlog persists.
   const discoveryTurn = Math.floor(rotationOffset / laneCount);
-  const discoveryLane: ScanIntent = discoveryTurn % 2 === 0 ? "broad_discovery" : "forum_discovery";
+  // Three discovery flavors interleave: broad (bug vocabulary, whole web),
+  // forum (subreddit/steam bug vocabulary), and community pulse (request
+  // language, NO bug vocabulary — the lane that can surface "day 20 of asking
+  // for caracals"). Pulse gets every third discovery turn.
+  const DISCOVERY_LANES: ScanIntent[] = ["broad_discovery", "forum_discovery", "community_pulse"];
+  const discoveryLane = DISCOVERY_LANES[((discoveryTurn % DISCOVERY_LANES.length) + DISCOVERY_LANES.length) % DISCOVERY_LANES.length];
   const lanes: ScanIntent[] = [discoveryLane];
   if (corroborateEligible) lanes.push("corroborate_cluster");
   if (rescueEligible) lanes.push("rescue_candidate");
@@ -106,6 +112,18 @@ export function buildMemorySearchQueries(
 
   if (intent === "rescue_candidate") {
     return [`site:reddit.com OR site:steamcommunity.com Crimson Desert patch ${patchVersion} player reports bug issue`].slice(0, count);
+  }
+
+  if (intent === "community_pulse") {
+    // Request language only — no crash/stutter vocabulary, so this lane can
+    // surface what players are ASKING for, not what is broken. Subreddit-first
+    // because that is where campaigns live; alternate a wider phrasing.
+    const pulseQueries = [
+      `site:reddit.com r/CrimsonDesert "of asking" OR "please add" OR "feature request"`,
+      `site:reddit.com r/CrimsonDesert most requested OR wishlist OR "can we get" OR "we need"`,
+    ];
+    const pulseIndex = ((turn % pulseQueries.length) + pulseQueries.length) % pulseQueries.length;
+    return count >= pulseQueries.length ? pulseQueries.slice(0, count) : [pulseQueries[pulseIndex]];
   }
 
   if (intent === "forum_discovery") {

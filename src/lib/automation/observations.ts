@@ -35,6 +35,30 @@ export function observationUrlHash(url: string): string {
   return createHash("sha256").update(url).digest("hex");
 }
 
+/**
+ * Serialized campaigns post a NEW thread each day ("Day 20 of asking…", "Day 21
+ * of asking…"), so URL identity would fragment one campaign into daily rows.
+ * Normalizing digits out of the title collapses the series to one fingerprint;
+ * re-observations then increment seen_count — which IS the momentum tracker.
+ */
+export function normalizeAskSeriesTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/\s*:\s*r\/\w+\s*$/i, "")
+    .replace(/\d+/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function observationConflictHash(candidate: Pick<ObservationCandidate, "kind" | "title" | "url" | "sourceDomain">): string {
+  if (candidate.kind === "community_ask") {
+    return createHash("sha256")
+      .update(`ask:${candidate.sourceDomain ?? ""}:${normalizeAskSeriesTitle(candidate.title)}`)
+      .digest("hex");
+  }
+  return observationUrlHash(candidate.url);
+}
+
 /** Gate for the reroute in prepareSignals: trusted domain, has a genre, under the run cap. */
 export function shouldCollectObservation(
   candidate: { sourceDomain: string | null; observationKind?: ObservationKind },
@@ -60,6 +84,46 @@ export async function persistObservations(
 ): Promise<void> {
   if (observations.length === 0) return;
   try {
+    const byHash = new Map<string, ObservationCandidate>();
+    for (const observation of observations) {
+      const hash = observationConflictHash(observation);
+      if (!byHash.has(hash)) byHash.set(hash, observation);
+    }
+    const hashes = [...byHash.keys()];
+
+    const { data: existingRows, error: existingError } = await supabase
+      .from("patch_observations")
+      .select("url_hash, seen_count")
+      .in("url_hash", hashes);
+    if (existingError) {
+      report.errors.push(`observation read failed: ${existingError.message}`);
+      return;
+    }
+    const existing = new Map(
+      ((existingRows ?? []) as { url_hash: string; seen_count: number }[]).map((row) => [row.url_hash, row.seen_count]),
+    );
+
+    // Re-observations: bump seen_count (the momentum tracker) and point the row
+    // at the latest post in the series so "Day 21" replaces "Day 20".
+    for (const [hash, observation] of byHash) {
+      const seenCount = existing.get(hash);
+      if (seenCount === undefined) continue;
+      const { error: updateError } = await supabase
+        .from("patch_observations")
+        .update({
+          seen_count: seenCount + 1,
+          last_seen_at: observation.observedAt,
+          title: observation.title.slice(0, 240),
+          url: observation.url,
+          snippet: observation.snippet.slice(0, 500),
+        })
+        .eq("url_hash", hash);
+      if (updateError) report.errors.push(`observation update failed: ${updateError.message}`);
+    }
+
+    const fresh = [...byHash.entries()].filter(([hash]) => !existing.has(hash));
+    if (fresh.length === 0) return;
+
     const { count, error: countError } = await supabase
       .from("patch_observations")
       .select("id", { count: "exact", head: true })
@@ -71,12 +135,12 @@ export async function persistObservations(
     const room = Math.max(0, MAX_OBSERVATIONS_PER_PATCH - (count ?? 0));
     if (room === 0) return;
 
-    const rows = observations.slice(0, room).map((observation) => ({
+    const rows = fresh.slice(0, room).map(([hash, observation]) => ({
       patch_version: patchVersion,
       kind: observation.kind,
       title: observation.title.slice(0, 240),
       url: observation.url,
-      url_hash: observationUrlHash(observation.url),
+      url_hash: hash,
       source_domain: observation.sourceDomain,
       snippet: observation.snippet.slice(0, 500),
       source_published_at: observation.sourcePublishedAt,

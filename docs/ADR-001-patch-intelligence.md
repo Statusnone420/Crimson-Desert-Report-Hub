@@ -88,3 +88,8 @@ The central tension is **integrity vs. interestingness**. The current system max
 5. [ ] Phase 2.5: burst scheduler keyed on `official_patch_notes.is_current` change
 6. [x] Phase 2.6: observation lane — shipped 2026-07-16 (migration file `20260716210000_patch_observations.sql` NOT yet applied to production; scanner reroute in `relevance.ts`/`run.ts`/`observations.ts`; "Around the patch" section on the Patch Brief; fails soft until the migration is applied)
 7. [ ] Phase 2.7–2.8: query matrix + extraction schema extension
+8. [x] Community-pulse lane (added post-ADR, owner-requested 2026-07-16): `community_pulse` discovery intent
+   (request language, no bug vocabulary, every third discovery turn), `community_ask` observation genre with a
+   14-day freshness window, series fingerprinting so daily "day N of asking" campaign posts collapse into one
+   row whose `seen_count` tracks momentum, and a "What players are asking for" section on the Patch Brief.
+   Asks are pulse, not evidence — same epistemics and caps as the observation lane.
