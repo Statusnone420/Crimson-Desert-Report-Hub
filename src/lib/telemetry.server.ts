@@ -90,7 +90,7 @@ type RunRow = {
   reddit_posts_seen: number | null;
   signals_inserted: number | null;
   signals_reobserved: number | null;
-  funnel: { candidatesSeen?: number | null } | null;
+  funnel: { candidatesSeen?: number | null; deduped?: number | null } | null;
   llm_calls_used: number | null;
   estimated_cost_usd: number | null;
 };
@@ -123,6 +123,19 @@ export function isIntakeRun(run: RunRow): boolean {
 export function screenedCandidatesForRun(run: RunRow): number {
   const candidatesSeen = run.funnel?.candidatesSeen;
   return typeof candidatesSeen === "number" && Number.isFinite(candidatesSeen) ? Math.max(0, candidatesSeen) : 0;
+}
+
+/**
+ * A duplicate entered the processing slice but never reached relevance
+ * screening. Only the remaining candidates are screened out; persisted
+ * survivors include both new signals and re-observations.
+ */
+export function screenedOutCandidatesForRun(run: RunRow): number {
+  const deduped = run.funnel?.deduped;
+  const duplicateCount = typeof deduped === "number" && Number.isFinite(deduped) ? Math.max(0, deduped) : 0;
+  const kept = run.status === "failed" ? 0 : (run.signals_inserted ?? 0);
+  const reobserved = run.status === "failed" ? 0 : (run.signals_reobserved ?? 0);
+  return Math.max(0, screenedCandidatesForRun(run) - duplicateCount - kept - reobserved);
 }
 
 const DAILY_WINDOW_DAYS = 30;
@@ -264,19 +277,12 @@ async function getObservatoryDataUncached(): Promise<ObservatoryData> {
     );
     // Failed runs can carry phantom insert counts from screening that never persisted.
     const kept = intakeRuns.reduce((sum, run) => (run.status === "failed" ? sum : sum + (run.signals_inserted ?? 0)), 0);
-    // Re-encounters of already-tracked signals pass screening too — they land in
-    // signals_reobserved instead of signals_inserted. They belong on the surviving
-    // side of the funnel, or repeat-only runs would read as 100% filtered.
-    const survivedRepeats = intakeRuns.reduce(
-      (sum, run) => (run.status === "failed" ? sum : sum + (run.signals_reobserved ?? 0)),
-      0,
-    );
     const llmCalls = runs.reduce((sum, run) => sum + (run.llm_calls_used ?? 0), 0);
     const costUsd = runs.reduce((sum, run) => sum + (run.estimated_cost_usd ?? 0), 0);
     const tracked = signals.length;
     // Durable all-time filtered total: derived from runs (which never expire),
     // not from the rescue table (whose rows are deleted after ~7 days).
-    const filtered = Math.max(0, reviewed - kept - survivedRepeats);
+    const filtered = intakeRuns.reduce((sum, run) => sum + screenedOutCandidatesForRun(run), 0);
     // seen_count includes the first sighting; only repeats count as re-observations.
     const reobservations = signals.reduce((sum, signal) => sum + Math.max(0, (signal.seen_count ?? 0) - 1), 0);
     const firstRunAt = intakeRuns[0]?.started_at ?? null;

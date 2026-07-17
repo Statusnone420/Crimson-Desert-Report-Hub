@@ -4,7 +4,12 @@ vi.mock("next/cache", () => ({
   unstable_cache: (fn: unknown) => fn,
 }));
 
-import { buildObservatoryDaily, isIntakeRun, screenedCandidatesForRun } from "@/lib/telemetry.server";
+import {
+  buildObservatoryDaily,
+  isIntakeRun,
+  screenedCandidatesForRun,
+  screenedOutCandidatesForRun,
+} from "@/lib/telemetry.server";
 
 type IntakeRun = Parameters<typeof isIntakeRun>[0];
 
@@ -86,5 +91,17 @@ describe("isIntakeRun", () => {
         funnel: {},
       }),
     ).toBe(0);
+  });
+
+  it("does not count within-run duplicates as screened out", () => {
+    expect(
+      screenedOutCandidatesForRun({
+        ...baseRun,
+        mode: "scheduled",
+        intent: "broad_discovery",
+        signals_inserted: 1,
+        funnel: { candidatesSeen: 5, deduped: 2 },
+      }),
+    ).toBe(2);
   });
 });
