@@ -8,6 +8,12 @@ const migrationPath = join(
   "migrations",
   "20260717094404_atomic_patch_observation_persistence.sql",
 );
+const timestampMigrationPath = join(
+  process.cwd(),
+  "supabase",
+  "migrations",
+  "20260717095918_tolerate_invalid_observation_timestamps.sql",
+);
 
 describe("atomic patch observation persistence migration", () => {
   it("serializes writers and owns the per-patch cap in the database", () => {
@@ -37,5 +43,14 @@ describe("atomic patch observation persistence migration", () => {
 
     expect(sql).toMatch(/revoke all on function public\.persist_patch_observations\(text, jsonb\)[\s\S]*from public, anon, authenticated/i);
     expect(sql).toMatch(/grant execute on function public\.persist_patch_observations\(text, jsonb\)[\s\S]*to service_role/i);
+  });
+
+  it("coerces malformed optional publication timestamps without aborting the batch", () => {
+    const sql = readFileSync(timestampMigrationPath, "utf8");
+
+    expect(sql).toMatch(/parsed_source_published_at timestamptz/i);
+    expect(sql).toMatch(/if nullif\(pg_catalog\.btrim\(observation->>'source_published_at'\), ''\) is not null then/i);
+    expect(sql).toMatch(/begin\s+parsed_source_published_at := \(observation->>'source_published_at'\)::timestamptz;\s+exception when others then[\s\S]*parsed_source_published_at := null;/i);
+    expect(sql).toMatch(/parsed_source_published_at,\s+\(observation->>'observed_at'\)::timestamptz/i);
   });
 });
