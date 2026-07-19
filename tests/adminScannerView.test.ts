@@ -1,7 +1,9 @@
 import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
+import { emptyPatchRadarData } from "@/lib/radar.server";
 
+vi.mock("server-only", () => ({}));
 vi.mock("@/app/admin/actions", () => ({ setScannerPolicy: vi.fn() }));
 
 type InputProps = {
@@ -41,6 +43,7 @@ describe("AdminScannerView", () => {
       latestRealRun: null,
       latestFind: null,
       scoreboard: {} as never,
+      radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       features: { turnstile: false, reddit: false, ai: true, xSearch: false, webSearch: true, automation: true },
       integrations: [],
     });

@@ -72,6 +72,57 @@ describe("Tavily search request", () => {
     expect(body).not.toHaveProperty("auto_parameters");
     expect(body.search_depth).not.toBe("advanced");
   });
+
+  it("stays on general search (no news topic), accepting that published_date is usually absent", async () => {
+    // Root cause of source_published_at being null on every retained signal:
+    // Tavily only returns published_date under topic "news", and switching to
+    // the news index would drop the Reddit/Steam community threads the scanner
+    // depends on. This locks the deliberate trade-off: general search, no
+    // fabricated dates, scanner timestamps stay scanner timestamps.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [] }),
+    }));
+
+    await tavilySearch("Crimson Desert FPS", { env: { TAVILY_API_KEY: "tavily-key" }, fetcher });
+
+    const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).not.toHaveProperty("topic");
+  });
+
+  it("preserves published_date as sourcePublishedAt whenever Tavily does supply one", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [
+          {
+            title: "Patch 1.14.00 performance thread",
+            url: "https://www.reddit.com/r/CrimsonDesert/comments/abc/",
+            content: "fps drops after 1.14.00",
+            published_date: "2026-07-17T08:00:00Z",
+          },
+          {
+            title: "Undated general result",
+            url: "https://steamcommunity.com/app/discussions/1",
+            content: "stutter report",
+          },
+        ],
+      }),
+    }));
+
+    const results = await tavilySearch("Crimson Desert FPS", {
+      env: { TAVILY_API_KEY: "tavily-key" },
+      fetcher,
+      now: new Date("2026-07-19T12:00:00Z"),
+    });
+
+    expect(results[0].sourcePublishedAt).toBe("2026-07-17T08:00:00Z");
+    // An absent date stays absent — never backfilled from observation time.
+    expect(results[1].sourcePublishedAt).toBeUndefined();
+    expect(results[1].observedAt).toBe("2026-07-19T12:00:00.000Z");
+  });
 });
 
 describe("Tavily extract request", () => {

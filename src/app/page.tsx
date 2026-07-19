@@ -1,18 +1,22 @@
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
 import { PublicShell } from "@/components/dispatch/Chrome";
+import {
+  ActivityDataTable,
+  DivergingActivityChart,
+  InkDonut,
+  SegmentedFunnelBar,
+} from "@/components/dispatch/RadarCharts";
+import { mergeActivitySeries } from "@/lib/activitySeries";
+import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { uniqueClaimAttributions } from "@/lib/claims";
 import { composeDispatchBrief, formatWeeklyDelta, weeklyDeltaSentence } from "@/lib/dispatchBrief";
 import { needsFullIssueCard } from "@/lib/evidence";
 import { getTrackedPatchEditionCount } from "@/lib/officialPatch.server";
 import { patchFamilyKey } from "@/lib/patchWatch";
-import {
-  getDashboardData,
-  getDailySignalRollup,
-  getPublicScannerData,
-  type DailySignalDay,
-} from "@/lib/queries";
+import { getPatchRadarData } from "@/lib/radar.server";
+import { getDashboardData, getDailySignalRollup, getPublicScannerData } from "@/lib/queries";
 
 export const revalidate = 300;
 
@@ -48,121 +52,33 @@ function officialHost(url: string): string {
   }
 }
 
-/**
- * Paired-bar daily chart, server-rendered SVG. Taps behind-left, reports
- * right, shared linear scale. Zero days render no bars; the axis and date
- * labels always render so a quiet board still reads as a chart.
- */
-function PulseChart({
-  series,
-  width,
-  height,
-  plotHeight,
-  maxDays,
-  barWidth,
-  leftPad,
-  labelsInSvg,
-}: {
-  series: DailySignalDay[];
-  width: number;
-  height: number;
-  plotHeight: number;
-  maxDays: number;
-  barWidth: number;
-  leftPad: number;
-  labelsInSvg: boolean;
-}) {
-  const shown = series.slice(-maxDays);
-  const count = Math.max(shown.length, 1);
-  const pitch = Math.min(80, Math.floor((width - leftPad * 2) / count));
-  const barW = Math.min(barWidth, Math.max(4, Math.floor((pitch - 4) / 2)));
-  const maxValue = Math.max(1, ...shown.map((day) => Math.max(day.taps, day.reports)));
-  const k = plotHeight / maxValue;
-  const scaled = (value: number) => (value <= 0 ? 0 : Math.max(1, Math.round(value * k)));
-  const labelIndexes = new Set([0, Math.floor((count - 1) / 2), count - 1]);
-  const totalReports = shown.reduce((sum, day) => sum + day.reports, 0);
-  const totalTaps = shown.reduce((sum, day) => sum + day.taps, 0);
-
-  return (
-    <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      className="pulse-chart"
-      role="img"
-      aria-label={`Daily signal since patch publish: ${totalReports} structured reports and ${totalTaps} one-tap confirmations across ${shown.length} days.`}
-    >
-      <line x1="0" y1={plotHeight} x2={width} y2={plotHeight} stroke="rgba(236,227,208,0.28)" strokeWidth="1" />
-      {shown.map((day, index) => {
-        const x = leftPad + index * pitch;
-        const tapsHeight = scaled(day.taps);
-        const reportsHeight = scaled(day.reports);
-        return (
-          <g key={day.day}>
-            {tapsHeight > 0 ? (
-              <rect x={x} y={plotHeight - tapsHeight} width={barW} height={tapsHeight} fill="var(--bar-taps)" />
-            ) : null}
-            {reportsHeight > 0 ? (
-              <rect
-                x={x + barW + 2}
-                y={plotHeight - reportsHeight}
-                width={barW}
-                height={reportsHeight}
-                fill="var(--bar-reports)"
-              />
-            ) : null}
-            {labelsInSvg && labelIndexes.has(index) ? (
-              <text
-                x={x}
-                y={height - 8}
-                fontFamily="var(--font-mono)"
-                fontSize="10.5"
-                fill="var(--dispatch-quiet)"
-              >
-                {shortDate(day.day)}
-              </text>
-            ) : null}
-          </g>
-        );
-      })}
-    </svg>
-  );
+function nextCheckLabel(iso: string): string {
+  if (new Date(iso).getTime() <= Date.now()) return "Next check eligible now";
+  return `Next eligible check ${relativeTimeShort(iso)}`;
 }
 
-function PulseDataTable({ series, maxDays }: { series: DailySignalDay[]; maxDays: number }) {
-  const shown = series.slice(-maxDays);
-  return (
-    <div className="sr-only">
-      <table aria-label="Daily Patch Pulse signal by day">
-        <caption>Daily Patch Pulse signal by day</caption>
-        <thead>
-          <tr>
-            <th scope="col">Date</th>
-            <th scope="col">Structured reports</th>
-            <th scope="col">One-tap confirmations</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((day) => (
-            <tr key={day.day}>
-              <th scope="row">{day.day}</th>
-              <td>{day.reports}</td>
-              <td>{day.taps}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+function relativeTimeShort(iso: string | null): string {
+  if (!iso) return "n/a";
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  const abs = Math.abs(mins);
+  const prefix = mins < 0 ? "in " : "";
+  const suffix = mins < 0 ? "" : " ago";
+  if (abs < 1) return mins < 0 ? "shortly" : "just now";
+  if (abs < 60) return `${prefix}${abs}m${suffix}`;
+  const hours = Math.floor(abs / 60);
+  if (hours < 24) return `${prefix}${hours}h${suffix}`;
+  return `${prefix}${Math.floor(hours / 24)}d${suffix}`;
 }
 
 export default async function DispatchHomePage() {
-  const [d, radar, series, edition] = await Promise.all([
+  const [d, scoreboard, series, edition, radarData] = await Promise.all([
     getDashboardData(),
     getPublicScannerData(),
     getDailySignalRollup(),
     getTrackedPatchEditionCount(),
+    getPatchRadarData(),
   ]);
+  const radar = scoreboard;
 
   const patch = d.currentPatch;
   const patchFamily = patchFamilyKey(patch.version) ?? patch.version;
@@ -213,7 +129,18 @@ export default async function DispatchHomePage() {
     claimedFixCount: d.claimedFixes.length,
     contestedClaimCount: contestedClusters.length,
     series,
+    radar: radarData.connected
+      ? {
+          newLeads7d: radarData.window.newLeads7d,
+          reobservations7d: radarData.window.reobservations7d,
+          activeLeadClusters: radarData.activeLeadClusters,
+        }
+      : null,
   });
+
+  // Evidence and radar series merge onto one chart but never one lane.
+  const activity = mergeActivitySeries(series, radarData.connected ? radarData.daily : null);
+  const showRadarBand = radarData.connected;
 
   // Issue board: the same published-entry gate used by /issues, top three by evidence strength.
   const boardClusters = d.topClusters.filter(needsFullIssueCard);
@@ -229,23 +156,26 @@ export default async function DispatchHomePage() {
   const wire = d.observations.slice(0, 3);
   const publishedDateLabel = mediumDate(patch.publishedAt);
 
-  const tocRows: { href: string; label: string; index: string }[] = [
-    {
-      href: "#pulse",
-      label: `Patch Pulse — signal since ${mediumDate(patch.publishedAt) ?? patch.version}`,
-      index: "01",
-    },
-    {
-      href: "#board",
-      label:
-        top3.length > 0
-          ? `The issue board, top ${top3.length === 3 ? "three" : top3.length === 2 ? "two" : "story"}`
-          : "The issue board",
-      index: "02",
-    },
-  ];
-  if (claimRows.length > 0) tocRows.push({ href: "#claims", label: "The claims record", index: "03" });
-  if (wire.length > 0) tocRows.push({ href: "#wire", label: "From the wire", index: "04" });
+  // Section numbering is computed from what actually renders, so empty
+  // modules close ranks without leaving gaps in the numbering.
+  const sectionIds: string[] = ["pulse"];
+  if (showRadarBand) sectionIds.push("radar");
+  sectionIds.push("board");
+  if (claimRows.length > 0) sectionIds.push("claims");
+  if (wire.length > 0) sectionIds.push("wire");
+  const sectionNo = (id: string): string => String(sectionIds.indexOf(id) + 1).padStart(2, "0");
+
+  const tocLabels: Record<string, string> = {
+    pulse: `Patch Pulse — signal since ${mediumDate(patch.publishedAt) ?? patch.version}`,
+    radar: "The radar — what the scanner is tracking",
+    board:
+      top3.length > 0
+        ? `The issue board, top ${top3.length === 3 ? "three" : top3.length === 2 ? "two" : "story"}`
+        : "The issue board",
+    claims: "The claims record",
+    wire: "From the wire",
+  };
+  const tocRows = sectionIds.map((id) => ({ href: `#${id}`, label: tocLabels[id], index: sectionNo(id) }));
 
   function statusLine(cluster: (typeof d.topClusters)[number], withCategory: boolean) {
     const tone = cluster.readout.tone;
@@ -347,8 +277,16 @@ export default async function DispatchHomePage() {
             <h2 className="brief-lead__headline">{brief.headline}</h2>
             <p className="brief-lead__dek">{brief.dek}</p>
             <p className="brief-lead__meta dispatch-desktop-only">
-              {d.total} player reports · {totalTaps} player taps · {radar.keptThisWeek} kept leads · updated{" "}
-              {timeAgo(d.latestReportAt)}
+              {d.total} player report{d.total === 1 ? "" : "s"} · {totalTaps} player tap{totalTaps === 1 ? "" : "s"} ·{" "}
+              {radarData.connected
+                ? `${radarData.window.newLeads7d} new radar leads (7d)`
+                : `${radar.keptThisWeek} kept leads`}{" "}
+              ·{" "}
+              {d.latestReportAt
+                ? `updated ${timeAgo(d.latestReportAt)}`
+                : radarData.connected && radarData.health.lastScanAt
+                  ? `last scan ${relativeTimeShort(radarData.health.lastScanAt)}`
+                  : "no reports yet"}
             </p>
             <div className="brief-fact-strip dispatch-mobile-only">
               <span>{d.total} reports</span>
@@ -413,29 +351,33 @@ export default async function DispatchHomePage() {
           </div>
         </section>
 
-        {/* 01 · Patch Pulse */}
+        {/* Patch Pulse */}
         <section id="pulse" className="brief-band" aria-label="Patch Pulse">
           <div className="pulse-grid">
             <div className="pulse-main">
               <div className="brief-band__kicker-row">
-                <h2 className="dispatch-kicker">01 · Patch Pulse</h2>
+                <h2 className="dispatch-kicker">{sectionNo("pulse")} · Patch Pulse</h2>
                 <span className="brief-band__caption dispatch-desktop-only">
-                  reports + taps per day since {patch.version}
+                  evidence above the line · radar intelligence below · per day since {patch.version}
                 </span>
               </div>
               <p className="pulse-headline">{brief.pulseHeadline}</p>
-              {series === null ? (
+              {activity.days.length === 0 ? (
                 <p className="brief-band__caption">
                   Daily series unavailable right now — the counts above are still live.
                 </p>
               ) : (
                 <>
+                  {!activity.evidenceAvailable ? (
+                    <p className="brief-band__caption">
+                      The evidence series is unavailable right now — its lane reads empty, not zero.
+                    </p>
+                  ) : null}
                   <div className="dispatch-desktop-only">
-                    <PulseChart
-                      series={series}
+                    <DivergingActivityChart
+                      series={activity.days}
                       width={824}
-                      height={176}
-                      plotHeight={150}
+                      laneHeight={88}
                       maxDays={14}
                       barWidth={18}
                       leftPad={24}
@@ -443,34 +385,49 @@ export default async function DispatchHomePage() {
                     />
                   </div>
                   <div className="dispatch-mobile-only">
-                    <PulseChart
-                      series={series}
+                    <DivergingActivityChart
+                      series={activity.days}
                       width={350}
-                      height={64}
-                      plotHeight={62}
+                      laneHeight={44}
                       maxDays={14}
                       barWidth={10}
                       leftPad={6}
                       labelsInSvg={false}
                     />
                     <div className="pulse-axis-row">
-                      <span>{shortDate(series[0]?.day ?? null)}</span>
-                      <span>{shortDate(series[series.length - 1]?.day ?? null)}</span>
+                      <span>{shortDate(activity.days[0]?.day ?? null)}</span>
+                      <span>{shortDate(activity.days[activity.days.length - 1]?.day ?? null)}</span>
                     </div>
                   </div>
                 </>
               )}
-              <div className="pulse-legend dispatch-desktop-only">
-                <span>
-                  <i className="pulse-legend__reports" aria-hidden="true" />
-                  structured reports
-                </span>
-                <span>
-                  <i className="pulse-legend__taps" aria-hidden="true" />
-                  one-tap confirmations
-                </span>
+              <div className="pulse-legend pulse-legend--grouped dispatch-desktop-only">
+                <div className="pulse-legend-group">
+                  <span className="pulse-legend-group__name">Player evidence</span>
+                  <span>
+                    <i className="pulse-legend__reports" aria-hidden="true" />
+                    structured reports
+                  </span>
+                  <span>
+                    <i className="pulse-legend__taps" aria-hidden="true" />
+                    one-tap confirmations
+                  </span>
+                </div>
+                {activity.radarAvailable ? (
+                  <div className="pulse-legend-group">
+                    <span className="pulse-legend-group__name">Radar intelligence</span>
+                    <span>
+                      <i className="pulse-legend__leads" aria-hidden="true" />
+                      new kept leads
+                    </span>
+                    <span>
+                      <i className="pulse-legend__reobs" aria-hidden="true" />
+                      re-observations
+                    </span>
+                  </div>
+                ) : null}
               </div>
-              {series !== null ? <PulseDataTable series={series} maxDays={14} /> : null}
+              {activity.days.length > 0 ? <ActivityDataTable series={activity.days} maxDays={14} /> : null}
             </div>
             <div className="pulse-stats">
               <div className="pulse-stat">
@@ -497,10 +454,190 @@ export default async function DispatchHomePage() {
           </div>
         </section>
 
-        {/* 02 · Issue board */}
+        {/* The Radar — scanner intelligence, aggregate-only, never evidence */}
+        {showRadarBand ? (
+          <section id="radar" className="brief-band" aria-label="The radar">
+            <div className="brief-band__header">
+              <h2 className="dispatch-kicker">{sectionNo("radar")} · The Radar</h2>
+              <span className="brief-band__note dispatch-desktop-only">
+                Public-source intelligence, counted in aggregate. Never player evidence.
+              </span>
+            </div>
+            <div className="stat-band stat-band--radar" style={{ marginTop: 18 }} aria-label="Radar activity">
+              <div className="stat-band__cell">
+                <div className="stat-band__label">New leads · 7d</div>
+                <div
+                  className={
+                    radarData.window.newLeads7d > 0 ? "stat-band__value stat-band__value--blue" : "stat-band__value"
+                  }
+                >
+                  {radarData.window.newLeads7d}
+                </div>
+                <div className="stat-band__caption">
+                  Leads first seen this week and still tracked · {radarData.window.newLeads24h} in the last day
+                </div>
+              </div>
+              <div className="stat-band__cell">
+                <div className="stat-band__label">Re-observations · 7d</div>
+                <div
+                  className={
+                    radarData.window.reobservations7d > 0
+                      ? "stat-band__value stat-band__value--blue"
+                      : "stat-band__value"
+                  }
+                >
+                  {radarData.window.reobservations7d}
+                </div>
+                <div className="stat-band__caption">
+                  Known leads seen again in later scans · {radarData.window.reobservations24h} in the last day
+                </div>
+              </div>
+              <div className="stat-band__cell">
+                <div className="stat-band__label">Active problem areas</div>
+                <div className="stat-band__value">{radarData.activeLeadClusters}</div>
+                <div className="stat-band__caption">Distinct issue areas holding at least one tracked lead</div>
+              </div>
+              <div className="stat-band__cell">
+                <div className="stat-band__label">Recurring leads</div>
+                <div className="stat-band__value">{radarData.recurring.recurringLeads}</div>
+                <div className="stat-band__caption">
+                  Of {radarData.recurring.trackedLeads} tracked leads, seen up to{" "}
+                  {Math.max(1, radarData.recurring.maxSeenCount)}× so far
+                </div>
+              </div>
+            </div>
+            {radarData.recurring.trackedLeads === 0 && radarData.funnel7d.reviewed === 0 ? (
+              <p className="radar-note" style={{ marginTop: 18 }}>
+                The radar has nothing tracked for this patch yet. Zeros are real readings.
+              </p>
+            ) : (
+              <div className="radar-grid">
+                <div className="radar-main">
+                  {radarData.categories.length > 0 ? (
+                    <div className="radar-cats" aria-label="Radar activity by category">
+                      {(() => {
+                        const max = Math.max(...radarData.categories.map((bucket) => bucket.tracked), 1);
+                        return radarData.categories.map((bucket) => (
+                          <div key={bucket.category} className="radar-cat">
+                            <span>
+                              {CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category}
+                            </span>
+                            <div className="radar-cat__track">
+                              <div
+                                className="radar-cat__fill"
+                                style={{
+                                  width: `${Math.max(4, Math.round((bucket.tracked / max) * 100))}%`,
+                                  background: categoryChartColor(bucket.category),
+                                }}
+                              />
+                            </div>
+                            <span className="radar-cat__count">
+                              {bucket.tracked} lead{bucket.tracked === 1 ? "" : "s"}
+                              {bucket.new7d > 0 ? <span className="is-blue"> · {bucket.new7d} new</span> : null}
+                            </span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  ) : null}
+                  {radarData.funnel7d.reviewed > 0 ? (
+                    <div>
+                      <p className="brief-band__caption" style={{ marginBottom: 8 }}>
+                        This week the radar reviewed {radarData.funnel7d.reviewed} public candidates:
+                      </p>
+                      <SegmentedFunnelBar
+                        reviewed={radarData.funnel7d.reviewed}
+                        kept={radarData.funnel7d.kept}
+                        reobserved={radarData.funnel7d.reobserved}
+                        filtered={radarData.funnel7d.filtered}
+                      />
+                    </div>
+                  ) : null}
+                  <p className="radar-note">
+                    Counts only — lead titles and links stay private until corroboration publishes them. Times are
+                    when the scanner saw a page, not when it was posted.{" "}
+                    <Link href="/scanner" className="dispatch-link">
+                      How the radar works →
+                    </Link>
+                  </p>
+                </div>
+                <aside className="radar-rail" aria-label="Radar composition and health">
+                  {radarData.categories.length > 1 ? (
+                    <div className="radar-donut-row">
+                      <InkDonut
+                        slices={radarData.categories.map((bucket) => ({
+                          label: CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category,
+                          value: bucket.tracked,
+                          color: categoryChartColor(bucket.category),
+                        }))}
+                        size={132}
+                        thickness={16}
+                        centerLabel="tracked leads"
+                      />
+                      <div className="radar-donut-legend">
+                        {radarData.categories.slice(0, 4).map((bucket) => (
+                          <div key={bucket.category} className="radar-donut-legend__row">
+                            <span>
+                              <i
+                                className="radar-donut-legend__swatch"
+                                style={{ background: categoryChartColor(bucket.category) }}
+                                aria-hidden="true"
+                              />
+                              {CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category}
+                            </span>
+                            <span className="num-quiet">{bucket.tracked}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="radar-health" aria-label="Scanner health">
+                    <div>
+                      <span
+                        className={
+                          radarData.health.paused
+                            ? "is-amber"
+                            : radarData.health.lastScanStatus === "failed"
+                              ? "is-crimson"
+                              : "is-green"
+                        }
+                      >
+                        ●{" "}
+                        {radarData.health.paused
+                          ? "Scanner paused"
+                          : radarData.health.lastScanStatus === "failed"
+                            ? "Last scan failed"
+                            : "Scanner active"}
+                      </span>
+                      {radarData.health.lastScanAt
+                        ? ` · last scan ${relativeTimeShort(radarData.health.lastScanAt)}`
+                        : " · no scans recorded"}
+                    </div>
+                    <div>
+                      7d: {radarData.health.runs7d.succeeded} ok · {radarData.health.runs7d.skipped} skipped ·{" "}
+                      {radarData.health.runs7d.failed > 0 ? (
+                        <span className="is-amber">{radarData.health.runs7d.failed} failed</span>
+                      ) : (
+                        "0 failed"
+                      )}
+                    </div>
+                    {radarData.health.nextEligibleAt ? (
+                      <div>{nextCheckLabel(radarData.health.nextEligibleAt)}</div>
+                    ) : null}
+                    <div>
+                      Source dates: {radarData.dateCoverage.withSourceDate} of {radarData.dateCoverage.tracked} leads
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {/* Issue board */}
         <section id="board" className="brief-band" aria-label="The issue board">
           <div className="brief-band__header">
-            <h2 className="dispatch-kicker">02 · The Issue Board</h2>
+            <h2 className="dispatch-kicker">{sectionNo("board")} · The Issue Board</h2>
             <span style={{ fontSize: 13 }}>
               <Link href="/issues" className="dispatch-link">
                 All {boardClusters.length} published issue{boardClusters.length === 1 ? "" : "s"} →
@@ -552,10 +689,10 @@ export default async function DispatchHomePage() {
           )}
         </section>
 
-        {/* 03 · Claims record */}
+        {/* Claims record */}
         {claimRows.length > 0 ? (
           <section id="claims" className="brief-band" aria-label="The claims record">
-            <h2 className="dispatch-kicker">03 · The Claims Record</h2>
+            <h2 className="dispatch-kicker">{sectionNo("claims")} · The Claims Record</h2>
             <p className="claims-intro">
               What {patch.version} claims to fix, against what players say. The board never decides for them.
             </p>
@@ -593,11 +730,11 @@ export default async function DispatchHomePage() {
           </section>
         ) : null}
 
-        {/* 04 · From the wire */}
+        {/* From the wire */}
         {wire.length > 0 ? (
           <section id="wire" className="brief-band" aria-label="From the wire">
             <div className="brief-band__header">
-              <h2 className="dispatch-kicker">04 · From The Wire</h2>
+              <h2 className="dispatch-kicker">{sectionNo("wire")} · From The Wire</h2>
               <span className="brief-band__note dispatch-desktop-only">
                 Reviewed coverage from trusted domains. Context — never evidence.
               </span>

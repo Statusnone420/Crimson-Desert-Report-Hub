@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
+import { RecurrenceScatter, SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
+import { categoryChartColor } from "@/lib/categoryColors";
+import { CATEGORY_LABELS } from "@/lib/constants";
 import type { IntegrationStatus } from "@/lib/env";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import type { DecoratedCluster, PublicScannerData } from "@/lib/queries";
+import type { PatchRadarData } from "@/lib/radar.server";
 
 function timeAgo(iso: string): string {
   const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
@@ -15,11 +19,13 @@ function timeAgo(iso: string): string {
 
 export function PublicScannerView({
   data,
+  radar,
   integrations,
   patchVersion,
   leadQuestions,
 }: {
   data: PublicScannerData;
+  radar: PatchRadarData;
   integrations: IntegrationStatus[];
   patchVersion: string;
   leadQuestions: DecoratedCluster[];
@@ -101,6 +107,80 @@ export function PublicScannerView({
           </div>
         ))}
       </div>
+
+      {radar.connected && radar.recurring.trackedLeads > 0 ? (
+        <section className="obs-questions" aria-label="The radar's working set">
+          <div className="obs-questions__header">
+            <h2 className="dispatch-kicker">The radar&apos;s working set</h2>
+            <p className="obs-questions__note">
+              Counts and positions only. Lead titles, links, and rejected candidates stay private until
+              corroboration publishes them.
+            </p>
+          </div>
+          <div className="radar-grid" style={{ marginTop: 0 }}>
+            <div className="radar-main">
+              <div>
+                <p className="brief-band__caption" style={{ marginBottom: 8 }}>
+                  Recurrence field — one dot per tracked lead. Right means tracked longer; higher means seen in
+                  more scans. Blue dots are published leads.
+                </p>
+                <RecurrenceScatter points={radar.recurrence} width={520} height={190} />
+              </div>
+              {radar.funnel7d.reviewed > 0 ? (
+                <div>
+                  <p className="brief-band__caption" style={{ marginBottom: 8 }}>
+                    What happened to the {radar.funnel7d.reviewed} candidates reviewed this week:
+                  </p>
+                  <SegmentedFunnelBar
+                    reviewed={radar.funnel7d.reviewed}
+                    kept={radar.funnel7d.kept}
+                    reobserved={radar.funnel7d.reobserved}
+                    filtered={radar.funnel7d.filtered}
+                  />
+                </div>
+              ) : null}
+            </div>
+            <aside className="radar-rail" aria-label="Working set composition">
+              <div>
+                <div className="mono-label" style={{ marginBottom: 10 }}>
+                  Tracked leads by category
+                </div>
+                <div className="radar-donut-legend">
+                  {radar.categories.map((bucket) => (
+                    <div key={bucket.category} className="radar-donut-legend__row">
+                      <span>
+                        <i
+                          className="radar-donut-legend__swatch"
+                          style={{ background: categoryChartColor(bucket.category) }}
+                          aria-hidden="true"
+                        />
+                        {CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category}
+                      </span>
+                      <span className="num-quiet">
+                        {bucket.tracked}
+                        {bucket.new7d > 0 ? ` (+${bucket.new7d} this week)` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="radar-health" aria-label="Source-date coverage">
+                <div>
+                  Source dates: {radar.dateCoverage.withSourceDate} of {radar.dateCoverage.tracked} leads
+                </div>
+                <div>
+                  Patch match: {radar.eligibility.current_patch} explicit · {radar.eligibility.fresh_language}{" "}
+                  fresh language · {radar.eligibility.unknown_source_freshness} unknown freshness
+                </div>
+              </div>
+              <p className="radar-note">
+                &ldquo;Seen&rdquo; times are scanner observations — when the radar found a page, not when it was
+                posted. The search provider rarely supplies publication dates, so the radar never guesses them.
+              </p>
+            </aside>
+          </div>
+        </section>
+      ) : null}
 
       <div className="obs-health" aria-label="Scanner integrations">
         {integrations.map((integration) => (

@@ -328,7 +328,16 @@ export default async function IssuesPage() {
             <h1 className="dispatch-pagehead__title">What players are reporting</h1>
             <p className="dispatch-pagehead__dek">
               Every count below is a report or tap someone actually sent — the board never fills in blanks.
-              Entries need player evidence, a confirmation signal, or a published source lead.
+              Entries need player evidence, a confirmation signal, or a published source lead. This is the strict
+              evidence layer, not the whole picture: the radar tracks more in aggregate on{" "}
+              <Link href="/" className="dispatch-link">
+                the Brief
+              </Link>{" "}
+              and{" "}
+              <Link href="/scanner" className="dispatch-link">
+                the Observatory
+              </Link>
+              .
             </p>
             <p className="issues-statline dispatch-mobile-only">
               {clusters.length} watched · {evidenceBacked.length} with reports · {stillHappening} still happening

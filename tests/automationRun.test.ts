@@ -4046,6 +4046,75 @@ describe("cron keepalive route", () => {
     });
     expect(mocks.insertSkippedScheduledRun).not.toHaveBeenCalled();
   });
+
+  it("revalidates public surfaces after a successful scheduled scan", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "partial" });
+    const revalidatePublicSurfaces = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    vi.doMock("@/lib/revalidate", () => ({ revalidatePublicSurfaces }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(revalidatePublicSurfaces).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not revalidate public surfaces when the scheduled scan fails or is skipped", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "failed" });
+    const revalidatePublicSurfaces = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    vi.doMock("@/lib/revalidate", () => ({ revalidatePublicSurfaces }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const failedResponse = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    expect(failedResponse.status).toBe(200);
+    expect(revalidatePublicSurfaces).not.toHaveBeenCalled();
+
+    // A paused scanner skips before running and must not invalidate either.
+    mocks.getAutomationControlState.mockResolvedValue({ paused: true, updatedAt: "2026-07-05T12:00:00.000Z" });
+    const skippedResponse = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    expect(skippedResponse.status).toBe(200);
+    expect(revalidatePublicSurfaces).not.toHaveBeenCalled();
+  });
 });
 
 describe("cron source preview route", () => {

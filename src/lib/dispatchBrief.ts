@@ -16,6 +16,13 @@ export type ContestedClaim = {
   fixedCount: number;
 };
 
+/** Aggregate radar activity — scanner intelligence, never blended into evidence counts. */
+export type RadarActivity = {
+  newLeads7d: number;
+  reobservations7d: number;
+  activeLeadClusters: number;
+};
+
 export type DispatchBriefInput = {
   patchVersion: string;
   publishedAt: string | null;
@@ -27,6 +34,8 @@ export type DispatchBriefInput = {
   claimedFixCount: number;
   contestedClaimCount: number;
   series: DailySignalDay[] | null;
+  /** Null when the radar is unavailable in this environment. */
+  radar?: RadarActivity | null;
   now?: Date;
 };
 
@@ -36,6 +45,8 @@ export type DispatchBrief = {
   dek: string;
   pulseHeadline: string;
   trend: BriefTrend;
+  /** True when a quiet evidence board is led by real radar activity instead of "0 reports". */
+  radarLed: boolean;
   dayNumber: number | null;
   weeklyComparisonState: WeeklyComparisonState;
   /** Whole-percent weekly report delta vs the first week since publish; null when the launch week had no reports. */
@@ -97,8 +108,14 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
 
   const contested = input.contested && input.contested.stillCount > input.contested.fixedCount ? input.contested : null;
 
+  const radar = input.radar ?? null;
+  const radarActive = radar !== null && radar.newLeads7d + radar.reobservations7d > 0;
+  const radarLed = quiet && radarActive;
+
   const trendHeadline: Record<BriefTrend, string> = {
-    quiet: `A quiet board on ${input.patchVersion}.`,
+    quiet: radarLed
+      ? `The board is quiet on ${input.patchVersion} — the radar isn't.`
+      : `A quiet board on ${input.patchVersion}.`,
     easing: `Reports are easing since ${input.patchVersion} landed.`,
     flat: `Report volume is holding steady on ${input.patchVersion}.`,
     rising: `Reports are rising since ${input.patchVersion} landed.`,
@@ -118,13 +135,20 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
         : input.contestedClaimCount > 0
           ? `${plural(input.contestedClaimCount, "of its claimed fixes is", `of its ${input.claimedFixCount} claimed fixes are`)} still contested by players.`
           : `Its ${plural(input.claimedFixCount, "claimed fix", "claimed fixes")} ${input.claimedFixCount === 1 ? "is" : "are"} not contested by player taps so far.`;
+  const radarSentence = radarLed
+    ? `The scanner kept ${plural(radar.newLeads7d, "new public lead")} and re-observed known ones ${radar.reobservations7d} time${radar.reobservations7d === 1 ? "" : "s"} this week across ${plural(radar.activeLeadClusters, "problem area")} — scanner intelligence, not player evidence.`
+    : null;
   const dek = quiet
-    ? `No player reports or taps have been filed against ${input.patchVersion} yet. Quiet is a real reading — the board never fills in blanks.`
+    ? radarSentence
+      ? `No player reports or taps have been filed against ${input.patchVersion} yet. ${radarSentence} Quiet evidence is a real reading — the board never fills in blanks.`
+      : `No player reports or taps have been filed against ${input.patchVersion} yet. Quiet is a real reading — the board never fills in blanks.`
     : `${dayLead} board holds ${plural(input.reports, "player report")} and ${plural(input.taps, "player tap")} against ${input.patchVersion}. ${claimSentence}`;
 
   const pulseHeadline: string =
     trend === "quiet"
-      ? "No player signals filed yet this patch. A quiet board is a real reading."
+      ? radarLed
+        ? "Player evidence is quiet; the radar is still finding public chatter. The two never mix."
+        : "No player signals filed yet this patch. A quiet board is a real reading."
       : weeklyComparisonState === "in_progress"
         ? "The first week is still in progress — no launch-week comparison yet."
       : trend === "easing"
@@ -139,6 +163,7 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
     dek,
     pulseHeadline,
     trend,
+    radarLed,
     dayNumber,
     weeklyComparisonState,
     weeklyDeltaPct,

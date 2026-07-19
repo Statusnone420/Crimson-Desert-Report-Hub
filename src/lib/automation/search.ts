@@ -78,6 +78,16 @@ export function buildSearchQueries(
   return rotatedQueries.slice(0, count);
 }
 
+/**
+ * Source-date reality (audited 2026-07-19): Tavily only returns
+ * `published_date` for `topic: "news"` requests, and the scanner deliberately
+ * uses general search — the news index would drop the Reddit/Steam community
+ * threads that produce every useful signal. So `sourcePublishedAt` is
+ * expected to be absent for most results; the mapper preserves it whenever
+ * Tavily does supply one. Downstream must treat observed/first-seen times as
+ * scanner timestamps, never as publication dates, and eligibility falls back
+ * to explicit patch-version text (see automation/eligibility.ts).
+ */
 function mapTavilyResult(item: TavilyResult, observedAt: string): SearchResult | null {
   if (!item.title || !item.url) return null;
   let sourceDomain: string;

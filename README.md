@@ -105,6 +105,15 @@ npm run dev
 
 The app can render a safe empty public shell without provider credentials, but full local behavior needs a server-side Supabase URL/key. Keep real values in `.env.local` or provider dashboards; never commit them.
 
+To preview the site against an invented, repo-ignored dataset (no Supabase, no writes anywhere), generate a deterministic production-shaped seed and boot the in-memory harness:
+
+```bash
+npm run preview:seed -- --leads 60 --reports 2 --taps 8 --days 14
+npm run dev:preview   # http://127.0.0.1:3130
+```
+
+The seed uses the exact row shapes the live scanner writes, so anything previewed reproduces once real data reaches the same scale. Same `--seed` in, same dataset out.
+
 For a normal development check:
 
 ```bash

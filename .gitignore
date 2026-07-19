@@ -22,6 +22,9 @@
 /.planning/
 /docs/superpowers/
 
+# local preview seed (invented database for dev:preview; regenerate with npm run preview:seed)
+/preview-data/
+
 # next.js
 /.next/
 /out/

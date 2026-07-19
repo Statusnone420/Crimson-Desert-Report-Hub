@@ -78,9 +78,50 @@ describe("dispatch brief composer", () => {
   it("renders the quiet board as a real reading with literal zeros", () => {
     const brief = composeDispatchBrief({ ...base, reports: 0, taps: 0, series: days([0, 0, 0]) });
     expect(brief.trend).toBe("quiet");
+    expect(brief.radarLed).toBe(false);
     expect(brief.headline).toBe("A quiet board on 1.13.01.");
     expect(brief.pulseHeadline).toBe("No player signals filed yet this patch. A quiet board is a real reading.");
     expect(brief.dek).toContain("never fills in blanks");
+  });
+
+  it("leads with the radar when the board is quiet but the scanner is active", () => {
+    const brief = composeDispatchBrief({
+      ...base,
+      reports: 0,
+      taps: 0,
+      series: days([0, 0, 0]),
+      radar: { newLeads7d: 13, reobservations7d: 33, activeLeadClusters: 18 },
+    });
+    expect(brief.trend).toBe("quiet");
+    expect(brief.radarLed).toBe(true);
+    expect(brief.headline).toBe("The board is quiet on 1.13.01 — the radar isn't.");
+    expect(brief.dek).toContain("13 new public leads");
+    expect(brief.dek).toContain("re-observed known ones 33 times");
+    expect(brief.dek).toContain("18 problem areas");
+    expect(brief.dek).toContain("scanner intelligence, not player evidence");
+    expect(brief.pulseHeadline).toContain("The two never mix");
+  });
+
+  it("keeps radar activity out of the lead when player evidence exists", () => {
+    const brief = composeDispatchBrief({
+      ...base,
+      radar: { newLeads7d: 13, reobservations7d: 33, activeLeadClusters: 18 },
+    });
+    expect(brief.radarLed).toBe(false);
+    expect(brief.headline).toBe("Reports are easing since 1.13.01 landed.");
+    expect(brief.dek).not.toContain("scanner intelligence");
+  });
+
+  it("keeps the plain quiet reading when the radar is quiet too", () => {
+    const brief = composeDispatchBrief({
+      ...base,
+      reports: 0,
+      taps: 0,
+      series: days([0, 0, 0]),
+      radar: { newLeads7d: 0, reobservations7d: 0, activeLeadClusters: 0 },
+    });
+    expect(brief.radarLed).toBe(false);
+    expect(brief.headline).toBe("A quiet board on 1.13.01.");
   });
 
   it("shows a raw count instead of a percent when the launch week had no reports", () => {

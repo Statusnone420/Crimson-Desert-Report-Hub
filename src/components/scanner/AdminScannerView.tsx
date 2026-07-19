@@ -1,5 +1,6 @@
 import { setScannerPolicy } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
+import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
 import { RejectedArchive } from "@/components/scanner/RejectedArchive";
 import { SubmitButton } from "@/components/SubmitButton";
 import type { Features, IntegrationStatus } from "@/lib/env";
@@ -8,6 +9,7 @@ import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
 import { radarYieldPct } from "@/lib/observatoryMetrics";
 import type { AdminSignalRow, AutomationRunRow, PublicScannerData, RejectedCandidateRow } from "@/lib/queries";
+import type { PatchRadarData } from "@/lib/radar.server";
 
 function cadenceLabel(minutes: number): string {
   if (minutes === 60) return "hourly";
@@ -141,6 +143,7 @@ export function AdminScannerView({
   latestRealRun,
   latestFind,
   scoreboard,
+  radar,
   features,
   integrations,
 }: {
@@ -152,6 +155,7 @@ export function AdminScannerView({
   latestRealRun: AutomationRunRow | null;
   latestFind: AutomationRunRow | null;
   scoreboard: PublicScannerData;
+  radar: PatchRadarData;
   features: Features;
   integrations: IntegrationStatus[];
 }) {
@@ -173,10 +177,11 @@ export function AdminScannerView({
         <div className="dispatch-pagehead__copy">
           <p className="dispatch-kicker dispatch-kicker--amber">Operator · The Observatory</p>
           <h1 className="dispatch-pagehead__title" style={{ fontSize: 44 }}>
-            Scanner monitor
+            Today&apos;s radar desk
           </h1>
           <p className="dispatch-pagehead__dek" style={{ maxWidth: "54ch" }}>
-            Source health, kept radar leads, and an expiring archive of auto-rejected candidates.
+            What changed, what keeps recurring, and what needs you — with the full review, rescue, and budget
+            workflows below.
           </p>
         </div>
         <div className="op-actions">
@@ -205,31 +210,128 @@ export function AdminScannerView({
         ))}
       </div>
 
-      <div className="stat-band" aria-label="Source radar funnel">
-        <div className="stat-band__cell">
-          <div className="stat-band__label">Reviewed · 7d</div>
-          <div className="stat-band__value">{scoreboard.reviewedThisWeek}</div>
-        </div>
-        <div className="stat-band__cell">
-          <div className="stat-band__label">Filtered</div>
-          <div className="stat-band__value">{scoreboard.filteredThisWeek}</div>
-        </div>
-        <div className="stat-band__cell">
-          <div className="stat-band__label">Awaiting corroboration</div>
-          <div className="stat-band__value stat-band__value--blue">{scoreboard.awaiting}</div>
-        </div>
-        <div className="stat-band__cell">
-          <div className="stat-band__label">Published issues</div>
-          <div className="stat-band__value stat-band__value--crimson">{scoreboard.published}</div>
-        </div>
-        <div className="stat-band__cell">
-          <div className="stat-band__label">
-            Live {scoreboard.published} · Watching {scoreboard.awaiting} · Kept {scoreboard.keptThisWeek}
+      {radar.connected ? (
+        <div className="stat-band stat-band--radar" aria-label="Since the last day" style={{ marginBottom: 26 }}>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">New leads · 24h</div>
+            <div
+              className={
+                radar.window.newLeads24h > 0 ? "stat-band__value stat-band__value--blue" : "stat-band__value"
+              }
+            >
+              {radar.window.newLeads24h}
+            </div>
+            <div className="stat-band__caption">{radar.window.newLeads7d} in the last 7 days</div>
           </div>
-          <div className="stat-band__value">{scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}</div>
-          <div className="stat-band__caption">radar yield</div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Re-observed · 24h</div>
+            <div
+              className={
+                radar.window.reobservations24h > 0 ? "stat-band__value stat-band__value--blue" : "stat-band__value"
+              }
+            >
+              {radar.window.reobservations24h}
+            </div>
+            <div className="stat-band__caption">
+              {radar.recurring.recurringLeads} of {radar.recurring.trackedLeads} tracked leads recur
+            </div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Needs you</div>
+            <div
+              className={
+                rejectedArchive.length > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value stat-band__value--green"
+              }
+            >
+              {rejectedArchive.length}
+            </div>
+            <div className="stat-band__caption">Rejected candidates expiring — rescue is optional</div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Failed runs · 7d</div>
+            <div
+              className={
+                radar.health.runs7d.failed > 0 ? "stat-band__value stat-band__value--crimson" : "stat-band__value"
+              }
+            >
+              {radar.health.runs7d.failed}
+            </div>
+            <div className="stat-band__caption">
+              {radar.health.runs7d.succeeded} ok · {radar.health.runs7d.skipped} skipped
+            </div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Source dates</div>
+            <div className="stat-band__value">
+              {radar.dateCoverage.withSourceDate}/{radar.dateCoverage.tracked}
+            </div>
+            <div className="stat-band__caption">
+              Leads with a real publication date — Tavily general search rarely provides one
+            </div>
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {radar.connected && radar.funnel7d.reviewed > 0 ? (
+        /* Funnel as a proportional bar instead of a second stat band — the two
+           bands read as clones; this row answers "where did the week's
+           candidates go" in one shape and keeps the KPIs beside it. */
+        <div className="desk-funnel" aria-label="Source radar funnel">
+          <div className="desk-funnel__main">
+            <div className="mono-label" style={{ marginBottom: 10 }}>
+              This week · {radar.funnel7d.reviewed} candidates reviewed
+            </div>
+            <SegmentedFunnelBar
+              reviewed={radar.funnel7d.reviewed}
+              kept={radar.funnel7d.kept}
+              reobserved={radar.funnel7d.reobserved}
+              filtered={radar.funnel7d.filtered}
+            />
+          </div>
+          <div className="desk-funnel__kpis">
+            <div className="desk-funnel__kpi">
+              <span className="mono-label">Awaiting</span>
+              <span className="desk-funnel__num desk-funnel__num--blue">{scoreboard.awaiting}</span>
+            </div>
+            <div className="desk-funnel__kpi">
+              <span className="mono-label">Published</span>
+              <span className="desk-funnel__num desk-funnel__num--crimson">{scoreboard.published}</span>
+            </div>
+            <div className="desk-funnel__kpi">
+              <span className="mono-label">Radar yield</span>
+              <span className="desk-funnel__num">
+                {scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="stat-band" aria-label="Source radar funnel">
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Reviewed · 7d</div>
+            <div className="stat-band__value">{scoreboard.reviewedThisWeek}</div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Filtered</div>
+            <div className="stat-band__value">{scoreboard.filteredThisWeek}</div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Awaiting corroboration</div>
+            <div className="stat-band__value stat-band__value--blue">{scoreboard.awaiting}</div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Published issues</div>
+            <div className="stat-band__value stat-band__value--crimson">{scoreboard.published}</div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">
+              Live {scoreboard.published} · Watching {scoreboard.awaiting} · Kept {scoreboard.keptThisWeek}
+            </div>
+            <div className="stat-band__value">{scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}</div>
+            <div className="stat-band__caption">radar yield</div>
+          </div>
+        </div>
+      )}
 
       <div className="monitor-grid">
         <section className="monitor-col" aria-label="Recent radar leads">

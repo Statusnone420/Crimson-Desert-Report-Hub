@@ -3,6 +3,7 @@ import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { PublicScannerView } from "@/components/scanner/PublicScannerView";
 import { isAdmin } from "@/lib/adminGuard";
 import { applyLlmCircuitToStatuses, features, integrationStatuses } from "@/lib/env";
+import { getPatchRadarData } from "@/lib/radar.server";
 import { getAutomationAdminData, getIssuesData, getPublicScannerData } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 // transparency view instead of being bounced to the login page.
 export default async function ScannerPage() {
   const admin = await isAdmin();
-  const scoreboard = await getPublicScannerData();
+  const [scoreboard, radar] = await Promise.all([getPublicScannerData(), getPatchRadarData()]);
   const integrations = applyLlmCircuitToStatuses(integrationStatuses(), scoreboard.llmPaused);
 
   if (!admin) {
@@ -24,6 +25,7 @@ export default async function ScannerPage() {
       <PublicShell active="observatory">
         <PublicScannerView
           data={scoreboard}
+          radar={radar}
           integrations={integrations}
           patchVersion={currentPatch.version}
           leadQuestions={leadQuestions}
@@ -45,6 +47,7 @@ export default async function ScannerPage() {
           latestRealRun={adminData.latestRealRun}
           latestFind={adminData.latestFind}
           scoreboard={scoreboard}
+          radar={radar}
           features={features()}
           integrations={integrations}
         />

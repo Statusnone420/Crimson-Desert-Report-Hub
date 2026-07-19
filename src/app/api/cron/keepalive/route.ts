@@ -3,6 +3,7 @@ import { insertSkippedScheduledRun, runAutomationMonitor } from "@/lib/automatio
 import { scheduledScanDecision } from "@/lib/automation/schedule";
 import { getAutomationControlState } from "@/lib/automation/settings";
 import { isVercelPreview } from "@/lib/previewGuard";
+import { revalidatePublicSurfaces } from "@/lib/revalidate";
 import { createServiceClient } from "@/lib/supabase";
 
 export const maxDuration = 300;
@@ -46,6 +47,12 @@ export async function GET(req: Request) {
   );
   if (decision.run) {
     automation = await runAutomationMonitor({ mode: "scheduled", scannerPolicy: control });
+    // Manual admin scans already invalidate the public caches; scheduled scans
+    // used to rely on the 5-minute TTL alone. A scan that persisted work should
+    // surface on public pages immediately, not up to 5 minutes later.
+    if (automation.status === "success" || automation.status === "partial") {
+      revalidatePublicSurfaces();
+    }
   } else {
     automation = { status: "skipped", reason: decision.skipReason };
     await insertSkippedScheduledRun(supabase, decision.skipReason, now);
