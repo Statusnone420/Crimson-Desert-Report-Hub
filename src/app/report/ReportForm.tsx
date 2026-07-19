@@ -18,6 +18,7 @@ import {
   PLATFORM_LABELS,
   SEVERITIES,
 } from "@/lib/constants";
+import { categoryChartColor } from "@/lib/categoryColors";
 import { analyzeSaveImport, type SaveImportAnalysis, type SaveImportFile } from "@/lib/saveImport";
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
@@ -88,6 +89,7 @@ export function ReportForm({
   const [saveImport, setSaveImport] = useState<SaveImportAnalysis | null>(null);
   const [pendingImport, setPendingImport] = useState<SaveImportAnalysis | null>(null);
   const [saveImportMessage, setSaveImportMessage] = useState("");
+  const [category, setCategory] = useState("");
   // Desktop shows the assistant rail expanded; below 900px it starts collapsed
   // behind the disclosure summary. A user toggle wins over the derived default.
   const [assistantToggled, setAssistantToggled] = useState<boolean | null>(null);
@@ -175,6 +177,7 @@ export function ReportForm({
     if (res.status === 201) {
       setStatus("done");
       form.reset();
+      setCategory("");
       return;
     }
 
@@ -265,14 +268,29 @@ export function ReportForm({
               </select>
             </div>
             <div className="dispatch-field">
-              <label htmlFor="category">Category</label>
-              <select id="category" name="category" required defaultValue="">
+              <label htmlFor="category">
+                Category
+                {category ? (
+                  <i
+                    className="cat-swatch cat-swatch--label"
+                    style={{ background: categoryChartColor(category) }}
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </label>
+              <select
+                id="category"
+                name="category"
+                required
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+              >
                 <option value="" disabled>
                   Choose category
                 </option>
-                {CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {CATEGORY_LABELS[category]}
+                {CATEGORIES.map((option) => (
+                  <option key={option} value={option}>
+                    {CATEGORY_LABELS[option]}
                   </option>
                 ))}
               </select>

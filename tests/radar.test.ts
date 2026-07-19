@@ -138,9 +138,54 @@ describe("composePatchRadarData buckets and recurrence", () => {
       signals: [signal({ first_seen_at: "2026-07-16T12:00:00Z", seen_count: 5, public_status: "public" })],
     });
     expect(data.recurrence).toEqual([
-      { daysTracked: 3, seenCount: 5, isPublic: true, category: "performance" },
+      { daysTracked: 3, daysSinceSeen: 0, seenCount: 5, isPublic: true, category: "performance" },
     ]);
     expect(data.recurring.recurringLeads).toBe(1);
+  });
+
+  it("measures recency from last_seen_at as scanner time", () => {
+    const data = compose({
+      signals: [
+        signal({ first_seen_at: "2026-07-10T12:00:00Z", last_seen_at: "2026-07-15T12:00:00Z" }),
+        signal({ first_seen_at: "2026-07-18T12:00:00Z", last_seen_at: null, observed_at: "2026-07-18T12:00:00Z" }),
+      ],
+    });
+    expect(data.recurrence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ daysTracked: 9, daysSinceSeen: 4 }),
+        expect.objectContaining({ daysTracked: 1, daysSinceSeen: 1 }),
+      ]),
+    );
+  });
+
+  it("caps recurrence points on the freshest observations deterministically", () => {
+    const stale = signal({ last_seen_at: "2026-07-01T12:00:00Z" });
+    const fresh = signal({ last_seen_at: "2026-07-19T11:00:00Z" });
+    const data = compose({ signals: [stale, fresh] });
+
+    expect(data.recurrence.map((point) => point.daysSinceSeen)).toEqual([0, 18]);
+  });
+});
+
+describe("composePatchRadarData weekly composition", () => {
+  it("buckets still-tracked leads by first-seen week and category, filling gap weeks", () => {
+    const data = compose({
+      signals: [
+        signal({ first_seen_at: "2026-07-01T10:00:00Z" }), // week of Mon 2026-06-29
+        signal({ first_seen_at: "2026-07-02T10:00:00Z", category: "crash_startup" }),
+        signal({ first_seen_at: "2026-07-17T10:00:00Z" }), // week of Mon 2026-07-13
+        signal({ first_seen_at: "2026-07-17T11:00:00Z", category: "made_up" }),
+        signal({ first_seen_at: "2026-07-10T10:00:00Z", public_status: "hidden" }), // excluded
+      ],
+    });
+    expect(data.weekly.map((w) => w.weekStart)).toEqual(["2026-06-29", "2026-07-06", "2026-07-13"]);
+    expect(data.weekly[0]?.counts).toEqual({ performance: 1, crash_startup: 1 });
+    expect(data.weekly[1]?.counts).toEqual({});
+    expect(data.weekly[2]?.counts).toEqual({ performance: 1, other: 1 });
+  });
+
+  it("returns an empty weekly series when nothing is tracked", () => {
+    expect(compose().weekly).toEqual([]);
   });
 });
 

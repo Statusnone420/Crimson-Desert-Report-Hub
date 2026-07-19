@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
-import { RecurrenceScatter, SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
-import { categoryChartColor } from "@/lib/categoryColors";
+import { CategorySparklines, RecurrenceSmallMultiples, SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
+import { categoryChartColor, chartCategories } from "@/lib/categoryColors";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import type { IntegrationStatus } from "@/lib/env";
 import { patchFamilyKey } from "@/lib/patchWatch";
@@ -121,11 +121,26 @@ export function PublicScannerView({
             <div className="radar-main">
               <div>
                 <p className="brief-band__caption" style={{ marginBottom: 8 }}>
-                  Recurrence field — one dot per tracked lead. Right means tracked longer; higher means seen in
-                  more scans. Blue dots are published leads.
+                  Recurrence by problem area — one panel per area, all on shared scales. Right means tracked
+                  longer; higher means seen in more scans. Solid dots are published leads, hollow dots private.
                 </p>
-                <RecurrenceScatter points={radar.recurrence} width={520} height={190} />
+                <RecurrenceSmallMultiples
+                  points={radar.recurrence}
+                  categories={chartCategories(radar.recurrence.map((point) => point.category))}
+                />
               </div>
+              {radar.weekly.length > 1 ? (
+                <div>
+                  <p className="brief-band__caption" style={{ marginBottom: 8 }}>
+                    Still-tracked leads first seen per week by problem area — each line wears its area&apos;s color:
+                  </p>
+                  <CategorySparklines
+                    weeks={radar.weekly}
+                    categories={chartCategories(radar.weekly.flatMap((week) => Object.keys(week.counts)))}
+                    width={330}
+                  />
+                </div>
+              ) : null}
               {radar.funnel7d.reviewed > 0 ? (
                 <div>
                   <p className="brief-band__caption" style={{ marginBottom: 8 }}>
@@ -145,12 +160,12 @@ export function PublicScannerView({
                 <div className="mono-label" style={{ marginBottom: 10 }}>
                   Tracked leads by category
                 </div>
-                <div className="radar-donut-legend">
+                <div className="cat-legend">
                   {radar.categories.map((bucket) => (
-                    <div key={bucket.category} className="radar-donut-legend__row">
+                    <div key={bucket.category} className="cat-legend__row">
                       <span>
                         <i
-                          className="radar-donut-legend__swatch"
+                          className="cat-swatch"
                           style={{ background: categoryChartColor(bucket.category) }}
                           aria-hidden="true"
                         />

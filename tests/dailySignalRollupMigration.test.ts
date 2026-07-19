@@ -15,7 +15,8 @@ describe("daily_signal_rollup migration", () => {
   });
 
   it("exposes only the four aggregate columns", () => {
-    const finalSelect = migration.slice(migration.lastIndexOf("select\n"));
+    const normalizedMigration = migration.replace(/\r\n/g, "\n");
+    const finalSelect = normalizedMigration.slice(normalizedMigration.lastIndexOf("select\n"));
     expect(finalSelect).toContain("d.day");
     expect(finalSelect).toMatch(/as reports/);
     expect(finalSelect).toMatch(/as taps/);

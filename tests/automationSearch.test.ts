@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSearchQueries, tavilyExtract, tavilySearch } from "@/lib/automation/search";
+import { buildSearchQueries, buildWireNewsQuery, tavilyExtract, tavilySearch } from "@/lib/automation/search";
 
 describe("automation search planning", () => {
   it("leads with Reddit-targeted queries at low query budgets", () => {
@@ -89,6 +89,25 @@ describe("Tavily search request", () => {
 
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
     expect(JSON.parse(init.body)).not.toHaveProperty("topic");
+  });
+
+  it("sends topic news only when the wire's press slot asks for it", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [] }),
+    }));
+
+    await tavilySearch(buildWireNewsQuery("1.14.00"), {
+      env: { TAVILY_API_KEY: "tavily-key" },
+      fetcher,
+      topic: "news",
+    });
+
+    const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
+    const body = JSON.parse(init.body);
+    expect(body.topic).toBe("news");
+    expect(body.query).toContain("Crimson Desert patch 1.14.00");
   });
 
   it("preserves published_date as sourcePublishedAt whenever Tavily does supply one", async () => {

@@ -8,6 +8,8 @@
  * identity. Reserved semantic colors (crimson evidence, amber contested,
  * green fixed, blue lead register) are untouched.
  */
+import { CATEGORIES, CATEGORY_LABELS } from "@/lib/constants";
+
 export const CATEGORY_CHART_COLORS: Record<string, string> = {
   performance: "var(--cat-performance)",
   crash_startup: "var(--cat-crash)",
@@ -20,4 +22,18 @@ export const CATEGORY_CHART_COLORS: Record<string, string> = {
 
 export function categoryChartColor(category: string): string {
   return CATEGORY_CHART_COLORS[category] ?? CATEGORY_CHART_COLORS.other;
+}
+
+/**
+ * Chart categories in the FIXED enum order (hues follow the category, never
+ * its rank), filtered to the keys actually present so charts never render
+ * empty sectors or legend rows.
+ */
+export function chartCategories(present: Iterable<string>): { category: string; label: string; color: string }[] {
+  const set = new Set(present);
+  return CATEGORIES.filter((category) => set.has(category)).map((category) => ({
+    category,
+    label: CATEGORY_LABELS[category],
+    color: categoryChartColor(category),
+  }));
 }

@@ -3,6 +3,8 @@ import { ScanControls } from "@/components/ScanControls";
 import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
 import { RejectedArchive } from "@/components/scanner/RejectedArchive";
 import { SubmitButton } from "@/components/SubmitButton";
+import { categoryChartColor } from "@/lib/categoryColors";
+import { CATEGORY_LABELS } from "@/lib/constants";
 import type { Features, IntegrationStatus } from "@/lib/env";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
@@ -118,7 +120,14 @@ function signalRow(signal: AdminSignalRow) {
         <span className={signal.public_status === "public" ? "is-green" : undefined}>
           {publicStatusLabel(signal.public_status)}
         </span>{" "}
-        · {(signal.source_type ?? signal.source).toUpperCase()} ·{" "}
+        ·{" "}
+        <i
+          className="cat-swatch cat-swatch--meta"
+          style={{ background: categoryChartColor(signal.category) }}
+          aria-hidden="true"
+        />
+        {(CATEGORY_LABELS[signal.category as keyof typeof CATEGORY_LABELS] ?? signal.category).toUpperCase()} ·{" "}
+        {(signal.source_type ?? signal.source).toUpperCase()} ·{" "}
         <span className={confidenceTone(signal.confidence)}>{signal.confidence.toUpperCase()} CONFIDENCE</span> · SEEN{" "}
         {signal.seen_count ?? 1}×
       </div>

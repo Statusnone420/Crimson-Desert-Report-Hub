@@ -25,7 +25,13 @@ import {
   type RelevanceSkipReason,
 } from "@/lib/automation/relevance";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
-import { tavilyExtract, tavilySearch, type SearchResult } from "@/lib/automation/search";
+import {
+  buildWireNewsQuery,
+  tavilyExtract,
+  tavilySearch,
+  WIRE_NEWS_TURN_INTERVAL,
+  type SearchResult,
+} from "@/lib/automation/search";
 import { resolveBurstState } from "@/lib/automation/schedule";
 import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
@@ -575,11 +581,25 @@ async function collectInputs(
 
   if (f.webSearch && budget.allowPaidSearch) {
     const startDate = currentPatch.publishedAt?.slice(0, 10) ?? null;
-    for (const query of buildMemorySearchQueries(budget.maxSearchQueries, currentPatch.version, intent, {
-      rotationOffset: searchRotationOffset(now),
-      targetClusterTitles: result.intent === "corroborate_cluster" ? result.targetClusterTitles : undefined,
-      laneCount,
-    })) {
+    // Wire slot: every few discovery TURNS, one general-search slot becomes the
+    // press query on Tavily's news index — identical credit count, but the
+    // trusted-press results it feeds into the observation lane carry real
+    // published_date values. Discovery lanes only; backlog lanes stay whole.
+    const discoveryTurn = Math.floor(searchRotationOffset(now) / Math.max(1, laneCount));
+    const wireSlot =
+      (intent === "broad_discovery" || intent === "forum_discovery" || intent === "community_pulse") &&
+      budget.maxSearchQueries >= 2 &&
+      discoveryTurn % WIRE_NEWS_TURN_INTERVAL === 0;
+    for (const query of buildMemorySearchQueries(
+      budget.maxSearchQueries - (wireSlot ? 1 : 0),
+      currentPatch.version,
+      intent,
+      {
+        rotationOffset: searchRotationOffset(now),
+        targetClusterTitles: result.intent === "corroborate_cluster" ? result.targetClusterTitles : undefined,
+        laneCount,
+      },
+    )) {
       try {
         result.searchQueriesUsed += 1;
         result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
@@ -589,6 +609,19 @@ async function collectInputs(
       } catch (error) {
         result.status = "partial";
         result.errors.push(toErrorMessage(error, "search failed"));
+      }
+      await report?.();
+    }
+    if (wireSlot) {
+      try {
+        result.searchQueriesUsed += 1;
+        result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
+        const found = await tavilySearch(buildWireNewsQuery(currentPatch.version), { now, startDate, topic: "news" });
+        result.searchResultsSeen += found.length;
+        inputs.push(...found.slice(0, 5).map(searchResultToInput));
+      } catch (error) {
+        result.status = "partial";
+        result.errors.push(toErrorMessage(error, "wire news search failed"));
       }
       await report?.();
     }
@@ -1132,6 +1165,50 @@ type SignalPersistence = {
   previousClusterId: string | null;
 };
 
+/**
+ * Process-lifetime latch for the optional re-observation ledger. The table
+ * ships as a migration the owner applies manually, so a missing relation is
+ * an expected production state: the first missing-table response turns the
+ * ledger off for this process and scans continue untouched. First observations
+ * need no event row — first_seen_at already records them.
+ */
+let observationLedgerAvailable = true;
+
+function isMissingObservationLedgerError(error: { code?: string | null; message?: string | null }): boolean {
+  return (
+    error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    /(?:relation|table).*signal_observation_events.*(?:does not exist|not found|schema cache)/i.test(
+      error.message ?? "",
+    )
+  );
+}
+
+async function recordReobservationEvent(
+  supabase: ReturnType<typeof createServiceClient>,
+  signalId: string,
+  runId: string | null,
+  now: Date,
+): Promise<void> {
+  if (!observationLedgerAvailable) return;
+  try {
+    const { error } = await supabase.from("signal_observation_events").insert({
+      signal_id: signalId,
+      run_id: runId,
+      observed_at: now.toISOString(),
+    });
+    if (!error) return;
+    if (isMissingObservationLedgerError(error)) {
+      observationLedgerAvailable = false;
+      return;
+    }
+    throw new Error(`re-observation ledger write failed: ${error.message}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("re-observation ledger write failed:")) throw error;
+    throw new Error(`re-observation ledger write failed: ${toErrorMessage(error, "unknown error")}`);
+  }
+}
+
 async function upsertSignal(
   supabase: ReturnType<typeof createServiceClient>,
   signal: PreparedSignal,
@@ -1187,6 +1264,7 @@ async function upsertSignal(
       })
       .eq("id", existing.id);
     if (error) throw new Error(error.message);
+    await recordReobservationEvent(supabase, existing.id, runId, now);
     return { kind: "reobserved", previousClusterId: existing.cluster_id ?? null };
   }
 

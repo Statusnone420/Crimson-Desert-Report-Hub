@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
 import { PublicShell } from "@/components/dispatch/Chrome";
+import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS, PLATFORM_LABELS, PLATFORMS } from "@/lib/constants";
 import { DISPLAY_THRESHOLD_NETWORKS } from "@/lib/readout";
 import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
@@ -52,7 +53,7 @@ export default async function IssuesPage() {
     const category = (
       CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category
     ).toUpperCase();
-    const metaParts = [category, `${cluster.directReportCount} REPORTS`];
+    const metaParts = [`${cluster.directReportCount} REPORTS`];
     if (cluster.signalCount > 0) {
       metaParts.push(`${cluster.signalCount} SOURCE LINK${cluster.signalCount === 1 ? "" : "S"}`);
     }
@@ -61,7 +62,15 @@ export default async function IssuesPage() {
       <div className={`status-line status-line--${tone}`}>
         <span className="status-line__dot" aria-hidden="true" />
         <span className={`status-line__label--${tone}`}>{cluster.readout.label.toUpperCase()}</span>
-        <span className="status-line__meta">· {metaParts.join(" · ")}</span>
+        <span className="status-line__meta">
+          ·{" "}
+          <i
+            className="cat-swatch cat-swatch--meta"
+            style={{ background: categoryChartColor(cluster.category) }}
+            aria-hidden="true"
+          />
+          {category} · {metaParts.join(" · ")}
+        </span>
       </div>
     );
   }
@@ -292,6 +301,11 @@ export default async function IssuesPage() {
                   <span className="status-line__label--blue">RADAR LEAD</span>
                   <span className="status-line__meta">
                     ·{" "}
+                    <i
+                      className="cat-swatch cat-swatch--meta"
+                      style={{ background: categoryChartColor(cluster.category) }}
+                      aria-hidden="true"
+                    />
                     {(
                       CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category
                     ).toUpperCase()}

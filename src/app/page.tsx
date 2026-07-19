@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
 import { PublicShell } from "@/components/dispatch/Chrome";
+import { LastVisitDeltas } from "@/components/dispatch/LastVisitDeltas";
 import {
   ActivityDataTable,
   DivergingActivityChart,
-  InkDonut,
+  HeatStrip,
+  RadarScreen,
   SegmentedFunnelBar,
+  WeeklyStackedColumns,
 } from "@/components/dispatch/RadarCharts";
 import { mergeActivitySeries } from "@/lib/activitySeries";
-import { categoryChartColor } from "@/lib/categoryColors";
+import { categoryChartColor, chartCategories } from "@/lib/categoryColors";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { uniqueClaimAttributions } from "@/lib/claims";
 import { composeDispatchBrief, formatWeeklyDelta, weeklyDeltaSentence } from "@/lib/dispatchBrief";
@@ -156,6 +159,12 @@ export default async function DispatchHomePage() {
   const wire = d.observations.slice(0, 3);
   const publishedDateLabel = mediumDate(patch.publishedAt);
 
+  // Fixed-order chart categories for the radar screen and weekly columns.
+  const radarSectors = chartCategories([
+    ...radarData.categories.map((bucket) => bucket.category),
+    ...radarData.weekly.flatMap((week) => Object.keys(week.counts)),
+  ]);
+
   // Section numbering is computed from what actually renders, so empty
   // modules close ranks without leaving gaps in the numbering.
   const sectionIds: string[] = ["pulse"];
@@ -185,7 +194,13 @@ export default async function DispatchHomePage() {
         <span className={`status-line__label--${tone}`}>{cluster.readout.label.toUpperCase()}</span>
         {withCategory ? (
           <span className="status-line__meta">
-            · {(CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category).toUpperCase()}
+            ·{" "}
+            <i
+              className="cat-swatch cat-swatch--meta"
+              style={{ background: categoryChartColor(cluster.category) }}
+              aria-hidden="true"
+            />
+            {(CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category).toUpperCase()}
           </span>
         ) : null}
       </div>
@@ -362,6 +377,7 @@ export default async function DispatchHomePage() {
                 </span>
               </div>
               <p className="pulse-headline">{brief.pulseHeadline}</p>
+              {activity.days.length > 0 ? <LastVisitDeltas days={activity.days} /> : null}
               {activity.days.length === 0 ? (
                 <p className="brief-band__caption">
                   Daily series unavailable right now — the counts above are still live.
@@ -428,6 +444,33 @@ export default async function DispatchHomePage() {
                 ) : null}
               </div>
               {activity.days.length > 0 ? <ActivityDataTable series={activity.days} maxDays={14} /> : null}
+              {activity.days.length > 1 ? (
+                <div className="heat-strips" style={{ marginTop: 22 }}>
+                  <HeatStrip
+                    days={activity.days.map((day) => ({
+                      day: day.day,
+                      value: day.reports + day.taps,
+                      detail: `${day.reports} report${day.reports === 1 ? "" : "s"} · ${day.taps} tap${day.taps === 1 ? "" : "s"}`,
+                    }))}
+                    tone="evidence"
+                    label="Evidence"
+                    ariaLabel={`Season calendar, evidence row: one cell per day since ${patch.version}, darker crimson means more player reports and taps that day.`}
+                  />
+                  <HeatStrip
+                    days={activity.days.map((day) => ({
+                      day: day.day,
+                      value: day.newLeads + day.reobservations,
+                      detail: `${day.newLeads} new lead${day.newLeads === 1 ? "" : "s"} · ${day.reobservations} re-obs`,
+                    }))}
+                    tone="radar"
+                    label="Radar"
+                    ariaLabel={`Season calendar, radar row: one cell per day since ${patch.version}, darker blue means more new leads and re-observations that day. Radar activity is scanner intelligence, not evidence.`}
+                  />
+                  <p className="radar-note">
+                    The season calendar — one cell per day of {patch.version}, each register on its own ramp.
+                  </p>
+                </div>
+              ) : null}
             </div>
             <div className="pulse-stats">
               <div className="pulse-stat">
@@ -511,7 +554,13 @@ export default async function DispatchHomePage() {
                 The radar has nothing tracked for this patch yet. Zeros are real readings.
               </p>
             ) : (
-              <div className="radar-grid">
+              <div className="radar-grid radar-grid--screen">
+                <div className="radar-screen-wrap">
+                  <RadarScreen points={radarData.recurrence} sectors={radarSectors} size={430} />
+                  <p className="radar-screen-caption">
+                    center = seen today · rim = quiet longest · solid = published · hollow = private
+                  </p>
+                </div>
                 <div className="radar-main">
                   {radarData.categories.length > 0 ? (
                     <div className="radar-cats" aria-label="Radar activity by category">
@@ -540,6 +589,14 @@ export default async function DispatchHomePage() {
                       })()}
                     </div>
                   ) : null}
+                  {radarData.weekly.length > 1 ? (
+                    <div>
+                      <p className="brief-band__caption" style={{ marginBottom: 6 }}>
+                        Working set by first-seen week — each color is a problem area:
+                      </p>
+                      <WeeklyStackedColumns weeks={radarData.weekly} categories={radarSectors} width={620} height={148} />
+                    </div>
+                  ) : null}
                   {radarData.funnel7d.reviewed > 0 ? (
                     <div>
                       <p className="brief-band__caption" style={{ marginBottom: 8 }}>
@@ -560,37 +617,6 @@ export default async function DispatchHomePage() {
                       How the radar works →
                     </Link>
                   </p>
-                </div>
-                <aside className="radar-rail" aria-label="Radar composition and health">
-                  {radarData.categories.length > 1 ? (
-                    <div className="radar-donut-row">
-                      <InkDonut
-                        slices={radarData.categories.map((bucket) => ({
-                          label: CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category,
-                          value: bucket.tracked,
-                          color: categoryChartColor(bucket.category),
-                        }))}
-                        size={132}
-                        thickness={16}
-                        centerLabel="tracked leads"
-                      />
-                      <div className="radar-donut-legend">
-                        {radarData.categories.slice(0, 4).map((bucket) => (
-                          <div key={bucket.category} className="radar-donut-legend__row">
-                            <span>
-                              <i
-                                className="radar-donut-legend__swatch"
-                                style={{ background: categoryChartColor(bucket.category) }}
-                                aria-hidden="true"
-                              />
-                              {CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category}
-                            </span>
-                            <span className="num-quiet">{bucket.tracked}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
                   <div className="radar-health" aria-label="Scanner health">
                     <div>
                       <span
@@ -628,7 +654,7 @@ export default async function DispatchHomePage() {
                       Source dates: {radarData.dateCoverage.withSourceDate} of {radarData.dateCoverage.tracked} leads
                     </div>
                   </div>
-                </aside>
+                </div>
               </div>
             )}
           </section>

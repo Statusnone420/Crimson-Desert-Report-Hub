@@ -31,6 +31,12 @@ export type TavilySearchOptions = {
   fetcher?: SearchFetch;
   now?: Date;
   startDate?: string | null;
+  /**
+   * Tavily returns real `published_date` values only from its news index.
+   * The complaint hunt stays on general search (the news index would drop
+   * Reddit/Steam community threads); ONLY the wire's press query sets this.
+   */
+  topic?: "news";
 };
 
 type TavilyResult = {
@@ -60,6 +66,20 @@ function queryPack(patchVersion: string): string[] {
   ];
 }
 
+/**
+ * The wire's press query: every few discovery turns, ONE general-search slot
+ * is spent on Tavily's news index instead (same credit count as before). The
+ * news index covers exactly the trusted-press domains the observation lane
+ * accepts, and it is the only Tavily surface that returns real
+ * `published_date` values — so wire items gain honest publication dates
+ * without touching the complaint hunt or inventing any date.
+ */
+export const WIRE_NEWS_TURN_INTERVAL = 3;
+
+export function buildWireNewsQuery(patchVersion: string): string {
+  return `Crimson Desert patch ${patchVersion} update Pearl Abyss`;
+}
+
 export function buildSearchQueries(
   maxQueries: number,
   patchVersion = CURRENT_PATCH,
@@ -84,9 +104,12 @@ export function buildSearchQueries(
  * uses general search — the news index would drop the Reddit/Steam community
  * threads that produce every useful signal. So `sourcePublishedAt` is
  * expected to be absent for most results; the mapper preserves it whenever
- * Tavily does supply one. Downstream must treat observed/first-seen times as
- * scanner timestamps, never as publication dates, and eligibility falls back
- * to explicit patch-version text (see automation/eligibility.ts).
+ * Tavily does supply one. The single deliberate exception is the wire's press
+ * slot (buildWireNewsQuery), which runs on the news index precisely so
+ * trusted-press observations carry real dates. Downstream must treat
+ * observed/first-seen times as scanner timestamps, never as publication
+ * dates, and eligibility falls back to explicit patch-version text (see
+ * automation/eligibility.ts).
  */
 function mapTavilyResult(item: TavilyResult, observedAt: string): SearchResult | null {
   if (!item.title || !item.url) return null;
@@ -180,6 +203,7 @@ export async function tavilySearch(query: string, options: TavilySearchOptions =
       search_depth: "basic",
       include_usage: true,
       ...(options.startDate ? { start_date: options.startDate } : {}),
+      ...(options.topic ? { topic: options.topic } : {}),
     }),
   });
   if (!res.ok) throw new Error(`tavily search failed: ${res.status}`);

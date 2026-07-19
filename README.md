@@ -71,6 +71,7 @@ The board is useful even at **N=0**: a quiet board is a real readout, not a made
 ## Privacy and providers
 
 - No accounts, email collection, ads, or analytics trackers.
+- The Brief's "since your last visit" note uses one localStorage timestamp that never leaves the browser; it is self-announcing and documented in [Privacy](docs/PRIVACY.md).
 - Raw IP addresses are not stored. The server uses salted one-way network hashes for deduplication and abuse limits; hashes and individual confirmation rows are never public.
 - The optional save/config helper reads selected files in the browser and submits only the sanitized text a visitor chooses to keep.
 - Reddit API access is permanently off. Public Reddit pages may appear only through ordinary Tavily web discovery and bounded context extraction.

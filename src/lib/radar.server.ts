@@ -58,9 +58,18 @@ export type RadarDailyPoint = { day: string; newLeads: number; reobservations: n
 export type RadarRecurrencePoint = {
   /** Whole days since the scanner first saw this lead. */
   daysTracked: number;
+  /** Whole days since the scanner last saw this lead (scanner time, not source time). */
+  daysSinceSeen: number;
   seenCount: number;
   isPublic: boolean;
   category: string;
+};
+
+export type RadarWeeklyPoint = {
+  /** Monday of the ISO week, as a YYYY-MM-DD day key. */
+  weekStart: string;
+  /** Tracked leads first seen that week, bucketed by safe category. */
+  counts: Record<string, number>;
 };
 
 export type PatchRadarData = {
@@ -81,6 +90,12 @@ export type PatchRadarData = {
   confidenceMix: { high: number; medium: number; low: number };
   funnel7d: { reviewed: number; filtered: number; kept: number; reobserved: number };
   daily: RadarDailyPoint[];
+  /**
+   * Working-set composition by first-seen week. Counts only still-tracked
+   * leads (archived ones drop out of history), so the honest label is
+   * "leads first seen that week and still tracked".
+   */
+  weekly: RadarWeeklyPoint[];
   recurrence: RadarRecurrencePoint[];
   health: {
     lastScanAt: string | null;
@@ -99,6 +114,7 @@ export type PatchRadarData = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_WINDOW_DAYS = 30;
 const RECURRENCE_POINT_CAP = 200;
+const WEEKLY_WINDOW_WEEKS = 12;
 
 function emptyEligibility(): Record<CurrentPatchEligibilityReason, number> {
   return {
@@ -123,6 +139,7 @@ export function emptyPatchRadarData(patch: { version: string; publishedAt: strin
     confidenceMix: { high: 0, medium: 0, low: 0 },
     funnel7d: { reviewed: 0, filtered: 0, kept: 0, reobserved: 0 },
     daily: [],
+    weekly: [],
     recurrence: [],
     health: {
       lastScanAt: null,
@@ -155,6 +172,14 @@ function parseTime(value: string | null | undefined): number | null {
 
 function dayKey(iso: string): string {
   return iso.slice(0, 10);
+}
+
+/** Monday of the UTC week containing the given time, as a day key. */
+function weekStartKey(ms: number): string {
+  const date = new Date(ms);
+  const dow = date.getUTCDay();
+  const daysFromMonday = (dow + 6) % 7;
+  return dayKey(new Date(ms - daysFromMonday * DAY_MS).toISOString());
 }
 
 const PLATFORM_SET = new Set<string>(PLATFORMS);
@@ -199,8 +224,19 @@ export function composePatchRadarData(input: {
   const trackedLeads = tracked.length;
   const recurringLeads = tracked.filter((row) => (row.seen_count ?? 1) > 1).length;
   const maxSeenCount = tracked.reduce((max, row) => Math.max(max, row.seen_count ?? 1), 0);
-  const recurrence: RadarRecurrencePoint[] = tracked.slice(0, RECURRENCE_POINT_CAP).map((row) => ({
+  const lastSeenMs = (row: RadarSignalRow) =>
+    parseTime(row.last_seen_at) ?? parseTime(row.observed_at) ?? firstSeenMs(row);
+  // Supabase does not guarantee row order. Keep the capped visual deterministic
+  // and spend the cap on the leads with the freshest scanner observations.
+  const recurrenceRows = [...tracked].sort(
+    (a, b) =>
+      lastSeenMs(b) - lastSeenMs(a) ||
+      firstSeenMs(b) - firstSeenMs(a) ||
+      (b.seen_count ?? 1) - (a.seen_count ?? 1),
+  );
+  const recurrence: RadarRecurrencePoint[] = recurrenceRows.slice(0, RECURRENCE_POINT_CAP).map((row) => ({
     daysTracked: Math.max(0, Math.floor((nowMs - firstSeenMs(row)) / DAY_MS)),
+    daysSinceSeen: Math.max(0, Math.floor((nowMs - lastSeenMs(row)) / DAY_MS)),
     seenCount: Math.max(1, row.seen_count ?? 1),
     isPublic: row.public_status === "public",
     category: CATEGORY_SET.has(row.category) ? row.category : "other",
@@ -255,6 +291,30 @@ export function composePatchRadarData(input: {
     kept,
     reobserved,
   };
+
+  // --- Weekly working-set composition (still-tracked leads by first-seen week) ---
+  const weeklyCounts = new Map<string, Record<string, number>>();
+  const weeklyFloorMs = nowMs - WEEKLY_WINDOW_WEEKS * 7 * DAY_MS;
+  let earliestWeekMs: number | null = null;
+  for (const row of tracked) {
+    const seenMs = firstSeenMs(row);
+    if (seenMs < weeklyFloorMs) continue;
+    const week = weekStartKey(seenMs);
+    const key = CATEGORY_SET.has(row.category) ? row.category : "other";
+    const counts = weeklyCounts.get(week) ?? {};
+    counts[key] = (counts[key] ?? 0) + 1;
+    weeklyCounts.set(week, counts);
+    if (earliestWeekMs === null || seenMs < earliestWeekMs) earliestWeekMs = seenMs;
+  }
+  const weekly: RadarWeeklyPoint[] = [];
+  if (earliestWeekMs !== null) {
+    const currentWeek = weekStartKey(nowMs);
+    for (let ms = new Date(`${weekStartKey(earliestWeekMs)}T00:00:00Z`).getTime(); ; ms += 7 * DAY_MS) {
+      const week = dayKey(new Date(ms).toISOString());
+      weekly.push({ weekStart: week, counts: weeklyCounts.get(week) ?? {} });
+      if (week >= currentWeek) break;
+    }
+  }
 
   // --- Daily series (since patch publish, capped at DAILY_WINDOW_DAYS) ---
   const publishedMs = parseTime(input.patch.publishedAt);
@@ -321,6 +381,7 @@ export function composePatchRadarData(input: {
     confidenceMix,
     funnel7d,
     daily,
+    weekly,
     recurrence,
     health: {
       lastScanAt: lastTerminal?.started_at ?? null,
