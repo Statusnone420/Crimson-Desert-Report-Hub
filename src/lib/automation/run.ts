@@ -1648,9 +1648,10 @@ async function persistRejectedCandidates(
   // Rescue memory: a URL that already lives in source_signals (typically via an
   // admin rescue) is a tracked lead — re-rejecting it would contradict the
   // operator's decision every run. Record a re-observation instead so the
-  // lead's freshness reflects that the scanner saw it again. Best-effort: on
-  // read failure the candidate falls through to the rejected pile as before.
-  let candidates = rejected;
+  // lead's freshness reflects that the scanner saw it again. Best-effort: a URL
+  // leaves the rejected pile ONLY after its re-observation fully commits, so a
+  // mid-loop failure cannot lose candidates from both paths.
+  const reobservedUrls = new Set<string>();
   try {
     const urls = [...new Set(rejected.map((candidate) => candidate.url))];
     const { data, error } = await supabase
@@ -1663,29 +1664,30 @@ async function persistRejectedCandidates(
         .filter((row) => row.canonical_url)
         .map((row) => [row.canonical_url as string, row]),
     );
-    if (tracked.size > 0) {
-      candidates = rejected.filter((candidate) => !tracked.has(candidate.url));
-      for (const row of tracked.values()) {
-        const { error: updateError } = await supabase
-          .from("source_signals")
-          .update({
-            last_seen_at: now.toISOString(),
-            seen_count: Number(row.seen_count ?? 1) + 1,
-            last_seen_run_id: runId,
-          })
-          .eq("id", row.id);
-        if (updateError) throw new Error(updateError.message);
-        await recordReobservationEvent(supabase, row.id, runId, now);
-        result.signalsReobserved += 1;
-        result.skips.push("rescued_signal_reobserved");
-      }
+    for (const [url, row] of tracked) {
+      const { error: updateError } = await supabase
+        .from("source_signals")
+        .update({
+          last_seen_at: now.toISOString(),
+          seen_count: Number(row.seen_count ?? 1) + 1,
+          last_seen_run_id: runId,
+        })
+        .eq("id", row.id);
+      if (updateError) throw new Error(updateError.message);
+      await recordReobservationEvent(supabase, row.id, runId, now);
+      reobservedUrls.add(url);
+      result.signalsReobserved += 1;
+      result.skips.push("rescued_signal_reobserved");
     }
   } catch (error) {
-    // Best-effort bookkeeping only — a failed freshness update must not degrade
-    // the run status; the candidates simply fall through to the rejected pile.
+    // Best-effort bookkeeping only — a failed read or update must not degrade
+    // the run status; URLs not yet re-observed fall through to the rejected
+    // pile below exactly as they would have without this block.
     result.skips.push("rescue_memory_read_failed");
     void error;
   }
+  let candidates =
+    reobservedUrls.size > 0 ? rejected.filter((candidate) => !reobservedUrls.has(candidate.url)) : rejected;
   if (candidates.length === 0) return;
   // Dedupe against the un-expired reject pile: the same page resurfaces in
   // search run after run (one patch-notes mirror was stored 7×). Refresh the
