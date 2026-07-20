@@ -183,6 +183,10 @@ const FIX_CLAIM_NOUN = String.raw`(?:black ?screens?|infinite (?:load|loading)|s
 // strip and masquerade as a live complaint.
 const FIX_CLAIM_NOUN_SERIES = String.raw`${FIX_CLAIM_NOUN}(?:\s*(?:[,/&]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${FIX_CLAIM_NOUN})*`;
 const FIX_CLAIM_SYMPTOM = new RegExp(String.raw`\b${FIX_CLAIM_VERB}\b${FIX_CLAIM_GLUE}\s+${FIX_CLAIM_NOUN_SERIES}\b`, "i");
+const BARE_SYMPTOM_NOUN_FIRST_FIX_CLAIM = new RegExp(
+  String.raw`\b(?:errors?|glitch(?:es)?)\s+${FIX_CLAIM_VERB}\b`,
+  "i",
+);
 
 // Positive marketing/announcement phrasing (a patch "includes/adds/brings a fix", ships
 // "performance fixes", "improves/optimizes FPS", targets a "stable N fps"). Positive
@@ -289,7 +293,8 @@ function isClaimedFixNotReport(text: string): boolean {
 function stripFixClaimCopy(text: string): string {
   return text
     .replace(new RegExp(CRASH_FREEZE_HANG_FIX_LIST.source, "gi"), " ")
-    .replace(new RegExp(FIX_CLAIM_SYMPTOM.source, "gi"), " ");
+    .replace(new RegExp(FIX_CLAIM_SYMPTOM.source, "gi"), " ")
+    .replace(new RegExp(BARE_SYMPTOM_NOUN_FIRST_FIX_CLAIM.source, "gi"), " ");
 }
 
 // A real complaint is present iff, after stripping fix-claim copy, the text still

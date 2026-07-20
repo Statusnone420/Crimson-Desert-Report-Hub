@@ -1326,6 +1326,24 @@ describe("automation relevance", () => {
       ).toMatchObject({ keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" });
     });
 
+    it("rejects noun-first error and glitch fix announcements", () => {
+      for (const title of [
+        "Crimson Desert 1.14.00 update brings error fixes",
+        "Crimson Desert 1.14.00 update brings glitch fixes",
+      ]) {
+        expect(
+          preScreenCandidate(
+            {
+              title,
+              snippet: "The update ships today.",
+              sourceDomain: "dsogaming.com",
+            },
+            { currentPatchVersion: "1.14.00" },
+          ),
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" });
+      }
+    });
+
     it("rejects an unknown-domain page that never mentions the game as off_topic", () => {
       expect(
         preScreenCandidate({
