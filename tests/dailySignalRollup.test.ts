@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { composeDailySignalRollup } from "@/lib/queries";
+import { composeDailySignalRollup, fetchAllDailySignalRollupRows } from "@/lib/queries";
+
+describe("fetchAllDailySignalRollupRows", () => {
+  it("continues past a full page before returning the complete input", async () => {
+    const ranges: [number, number][] = [];
+    const rows = await fetchAllDailySignalRollupRows("test rollup", async (from, to) => {
+      ranges.push([from, to]);
+      return { data: from === 0 ? Array.from({ length: 1000 }, (_, index) => index) : [1000], error: null };
+    });
+
+    expect(rows).toHaveLength(1001);
+    expect(ranges).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+  });
+});
 
 describe("composeDailySignalRollup", () => {
   it("matches the previous view semantics without exposing raw tables", () => {

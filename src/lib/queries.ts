@@ -1061,6 +1061,28 @@ type DailyKeptLeadRollupRow = {
   search_queries_used: number | null;
 };
 
+const DAILY_SIGNAL_ROLLUP_PAGE_SIZE = 1000;
+
+type DailySignalRollupPage<T> = {
+  data: T[] | null;
+  error: { message: string } | null;
+};
+
+/** Exhaustive paged read so the Patch Pulse rollup never silently truncates. */
+export async function fetchAllDailySignalRollupRows<T>(
+  label: string,
+  page: (from: number, to: number) => PromiseLike<DailySignalRollupPage<T>>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += DAILY_SIGNAL_ROLLUP_PAGE_SIZE) {
+    const { data, error } = await page(from, from + DAILY_SIGNAL_ROLLUP_PAGE_SIZE - 1);
+    if (error) throw new Error(`${label} read failed: ${error.message}`);
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < DAILY_SIGNAL_ROLLUP_PAGE_SIZE) return rows;
+  }
+}
+
 function dayKey(value: string): string | null {
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return null;
@@ -1133,25 +1155,42 @@ async function getDailySignalRollupUncached(): Promise<DailySignalDay[] | null> 
     const today = new Date().toISOString().slice(0, 10);
     const since = `${addDays(today, -30)}T00:00:00.000Z`;
     const [reports, taps, runs] = await Promise.all([
-      supabase
-        .from("bug_reports")
-        .select("created_at, patch_version")
-        .eq("moderation_status", "approved")
-        .gte("created_at", since),
-      supabase.from("issue_confirmations").select("created_at, patch_family").gte("created_at", since),
-      supabase
-        .from("automation_runs")
-        .select("started_at, signals_inserted, mode, intent, search_queries_used")
-        .in("status", ["success", "partial"])
-        .gte("started_at", since),
+      fetchAllDailySignalRollupRows<DailyReportRollupRow>("daily reports", (from, to) =>
+        supabase
+          .from("bug_reports")
+          .select("created_at, patch_version")
+          .eq("moderation_status", "approved")
+          .gte("created_at", since)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+      fetchAllDailySignalRollupRows<DailyTapRollupRow>("daily confirmations", (from, to) =>
+        supabase
+          .from("issue_confirmations")
+          .select("created_at, patch_family")
+          .gte("created_at", since)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+      fetchAllDailySignalRollupRows<DailyKeptLeadRollupRow>("daily automation runs", (from, to) =>
+        supabase
+          .from("automation_runs")
+          .select("started_at, signals_inserted, mode, intent, search_queries_used")
+          .in("status", ["success", "partial"])
+          .gte("started_at", since)
+          .order("started_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
     ]);
-    if (reports.error || taps.error || runs.error) return null;
     return composeDailySignalRollup({
       today,
       currentPatch,
-      reports: (reports.data ?? []) as DailyReportRollupRow[],
-      taps: (taps.data ?? []) as DailyTapRollupRow[],
-      runs: (runs.data ?? []) as DailyKeptLeadRollupRow[],
+      reports,
+      taps,
+      runs,
     });
   } catch {
     return null;
