@@ -72,7 +72,9 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
         { llmCallsRemaining: 0 },
       );
 
-      const relevance: SignalRelevanceDecision = preScreen.keep ? shouldKeepExtractedSignal(extraction) : preScreen;
+      const relevance: SignalRelevanceDecision = preScreen.keep
+        ? shouldKeepExtractedSignal(extraction, `${result.title} ${result.snippet}`)
+        : preScreen;
 
       previews.push({
         query,
