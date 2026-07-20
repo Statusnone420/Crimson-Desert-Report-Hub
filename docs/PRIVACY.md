@@ -91,6 +91,15 @@ This helper is designed to improve report quality without uploading raw save fil
 
 The server receives only the final form submission text.
 
+## Since-Your-Last-Visit Note
+
+The Patch Brief can show a line such as "Since your last visit (Jul 15) — +3 new leads". It works like this, and only like this:
+
+- The browser stores one timestamp (`cdReportHub.lastVisitAt`) in its own localStorage when the Brief loads.
+- That timestamp never leaves the browser: it is not sent to the server, not written to any cookie, and not readable by any other site.
+- The deltas shown are computed in the browser from the same public aggregate series every visitor sees — there is no personalized data behind them.
+- The note always announces itself ("Remembered by this browser only"); clearing site data removes the memory, and blocked storage simply means the note never appears.
+
 ## Source Radar And AI Providers
 
 The scanner may read public Pearl Abyss patch-note metadata and public web-search results through Tavily. Public-web queries may find `reddit.com` pages, but the project does not use Reddit API credentials or direct subreddit monitoring. For a small number of promising Reddit results whose search snippets are too thin, the scanner may ask Tavily for bounded basic extraction after normalizing the public URL to `old.reddit.com`.

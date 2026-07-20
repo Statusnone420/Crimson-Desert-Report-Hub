@@ -71,6 +71,7 @@ The board is useful even at **N=0**: a quiet board is a real readout, not a made
 ## Privacy and providers
 
 - No accounts, email collection, ads, or analytics trackers.
+- The Brief's "since your last visit" note uses one localStorage timestamp that never leaves the browser; it is self-announcing and documented in [Privacy](docs/PRIVACY.md).
 - Raw IP addresses are not stored. The server uses salted one-way network hashes for deduplication and abuse limits; hashes and individual confirmation rows are never public.
 - The optional save/config helper reads selected files in the browser and submits only the sanitized text a visitor chooses to keep.
 - Reddit API access is permanently off. Public Reddit pages may appear only through ordinary Tavily web discovery and bounded context extraction.
@@ -104,6 +105,15 @@ npm run dev
 ```
 
 The app can render a safe empty public shell without provider credentials, but full local behavior needs a server-side Supabase URL/key. Keep real values in `.env.local` or provider dashboards; never commit them.
+
+To preview the site against an invented, repo-ignored dataset (no Supabase, no writes anywhere), generate a deterministic production-shaped seed and boot the in-memory harness:
+
+```bash
+npm run preview:seed -- --leads 60 --reports 2 --taps 8 --days 14
+npm run dev:preview   # http://127.0.0.1:3130
+```
+
+The seed uses the exact row shapes the live scanner writes, so anything previewed reproduces once real data reaches the same scale. Same `--seed` in, same dataset out.
 
 For a normal development check:
 

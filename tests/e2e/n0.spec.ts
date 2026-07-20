@@ -11,6 +11,8 @@ test("all public surfaces remain complete and calm with zero community input", a
   // Modules with nothing to say close ranks instead of rendering empty shells.
   await expect(page.getByText("03 · The Claims Record")).toHaveCount(0);
   await expect(page.getByText("04 · From The Wire")).toHaveCount(0);
+  // No scanner config means no radar band — it closes ranks too, no fake zeros.
+  await expect(page.getByText("· The Radar")).toHaveCount(0);
   // Scanner analytics stay off the homepage even at N=0.
   await expect(page.getByRole("tab")).toHaveCount(0);
 

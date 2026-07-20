@@ -388,38 +388,59 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("link", { name: /pearlabyss\.com/ })).toHaveAttribute("href", /pearlabyss\.com/);
     await expect(page.getByText("In This Edition", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: /The claims record/ })).toHaveAttribute("href", "#claims");
-    // 01 · Patch Pulse: server-rendered paired-bar chart plus text restatement.
+    // 01 · Patch Pulse: diverging chart — evidence above the axis, radar
+    // intelligence below, four separately labeled series plus text restatement.
     await expect(page.getByText("01 · Patch Pulse")).toBeVisible();
-    await expect(page.getByRole("img", { name: /Daily signal since patch publish/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /Daily activity across \d+ days/ })).toBeVisible();
     await expect(page.getByText("structured reports", { exact: true })).toBeVisible();
     await expect(page.getByText("one-tap confirmations", { exact: true })).toBeVisible();
-    const pulseData = page.locator('table[aria-label="Daily Patch Pulse signal by day"]');
+    await expect(page.getByText("new kept leads", { exact: true })).toBeVisible();
+    await expect(page.getByText("re-observations", { exact: true })).toBeVisible();
+    const pulseData = page.locator('table[aria-label^="Daily activity by day"]');
     await expect(pulseData).toHaveCount(1);
     await expect(pulseData.locator("tbody tr")).not.toHaveCount(0);
+    await expect(pulseData.locator("thead th")).toHaveCount(5);
     await expect(page.getByText(/Public leads kept by the radar this week/)).toBeVisible();
-    // 02 · Issue board: top three by the existing evidence-strength order.
-    await expect(page.getByText("02 · The Issue Board")).toBeVisible();
+    // 02 · The Radar: aggregate scanner intelligence, labeled, never evidence,
+    // and never leaking a private candidate's title, URL, or domain.
+    await expect(page.getByText("02 · The Radar")).toBeVisible();
+    await expect(page.getByText("New leads · 7d")).toBeVisible();
+    await expect(page.getByText("Re-observations · 7d")).toBeVisible();
+    await expect(page.getByText("Public-source intelligence, counted in aggregate. Never player evidence.")).toBeVisible();
+    // The radar screen: polar working-set field, position first, hues redundant.
+    await expect(page.getByRole("img", { name: /Radar screen: \d+ tracked leads/ })).toBeVisible();
+    await expect(page.getByText(/center = seen today/i)).toBeVisible();
+    // Season almanac: one ramp per register, never blended.
+    await expect(page.getByRole("img", { name: /Season calendar, evidence row/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /Season calendar, radar row/ })).toBeVisible();
+    const homepageHtml = await page.content();
+    expect(homepageHtml).not.toContain("Possible mount input lockup");
+    expect(homepageHtml).not.toContain("forum.example.com");
+    expect(homepageHtml).not.toContain("mount-input-rumor");
+    // 03 · Issue board: top three by the existing evidence-strength order.
+    await expect(page.getByText("03 · The Issue Board")).toBeVisible();
     await expect(page.getByRole("link", { name: /All \d+ published issues →/ })).toHaveAttribute("href", "/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Map-open crash persists after fix" })).toBeVisible();
     await expect(page.getByText(/\d+ rpt · \d+ confirm/).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /I have this too/ })).toBeVisible();
-    // 03 · Claims record: verbatim official text; verdicts only where the data ties them.
-    await expect(page.getByText("03 · The Claims Record")).toBeVisible();
+    // 04 · Claims record: verbatim official text; verdicts only where the data ties them.
+    await expect(page.getByText("04 · The Claims Record")).toBeVisible();
     await expect(
       page.getByText("Fixed an issue where opening the world map could crash or freeze the client."),
     ).toBeVisible();
     await expect(page.getByText("1 fixed for me")).toBeVisible();
     await expect(page.getByText("2 still happening")).toBeVisible();
     await expect(page.getByText(/NO PLAYER VERDICTS YET · CLAIM CLOCK RUNNING SINCE/i)).toBeVisible();
-    // 04 · From the wire: reviewed observations, context never evidence.
-    await expect(page.getByText("04 · From The Wire")).toBeVisible();
+    // 05 · From the wire: reviewed observations, context never evidence.
+    await expect(page.getByText("05 · From The Wire")).toBeVisible();
     await expect(page.getByText("Context — never evidence.")).toBeVisible();
     await expect(
       page.getByText("Crimson Desert 1.13.01 hotfix tested: smoother, but not settled"),
     ).toBeVisible();
-    await expect(page.getByText("seen 3×")).toBeVisible();
-    await expect(page.getByText("seen 6×")).toBeVisible();
+    // Scoped to the wire band: radar-screen blip tooltips also say "seen N×".
+    await expect(page.locator("#wire").getByText("seen 3×")).toBeVisible();
+    await expect(page.locator("#wire").getByText("seen 6×")).toBeVisible();
     await expect(page.getByText("Older patch observation should never appear in the current brief")).toHaveCount(0);
     // Observatory footnote: the page's only box; scanner analytics stay off the homepage.
     await expect(page.getByText("From the Observatory")).toBeVisible();
@@ -466,6 +487,21 @@ test.describe("public surface visual regression", () => {
       content: "*,*::before,*::after { animation: none !important; transition: none !important; }",
     });
     await expect(page).toHaveScreenshot("dashboard.png", { fullPage: true, maxDiffPixelRatio: 0.02 });
+  });
+
+  test("dashboard announces browser-local deltas for a returning visitor", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "cdReportHub.lastVisitAt",
+        new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      );
+    });
+    await page.goto("/");
+
+    await expect(page.getByText(/Since your last visit \(/)).toBeVisible();
+    await expect(page.getByText("Remembered by this browser only.")).toBeVisible();
+    await expectHealthyPage(page, problems);
   });
 
   test("web app manifest keeps public navigation inside one standalone scope", async ({ page }) => {
@@ -662,6 +698,11 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Questions from the radar" })).toBeVisible();
     await expect(page.getByText("Mount and input lockups")).toBeVisible();
     await expect(page.getByRole("button", { name: /I have this too/ })).toBeVisible();
+    // Radar working set: aggregate positions and counts only, one tinted
+    // panel per problem area on shared scales.
+    await expect(page.getByText("The radar's working set")).toBeVisible();
+    await expect(page.getByRole("group", { name: /Recurrence by problem area/ })).toBeVisible();
+    await expect(page.getByText(/Source dates: \d+ of \d+ leads/)).toBeVisible();
     const scannerHtml = await page.content();
     expect(scannerHtml).not.toContain("Possible mount input lockup");
     expect(scannerHtml).not.toContain("Private mapped candidate used to prove public question rendering");
@@ -686,9 +727,12 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("link", { name: "Scanner monitor" })).toBeVisible();
 
     await page.goto("/scanner");
-    await expect(page.getByRole("heading", { name: "Scanner monitor" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Today's radar desk" })).toBeVisible();
     await expect(page.getByText("Operator · The Observatory")).toBeVisible();
-    await expect(page.getByText("radar yield")).toBeVisible();
+    await expect(page.getByText(/radar yield/i)).toBeVisible();
+    await expect(page.getByText("New leads · 24h")).toBeVisible();
+    await expect(page.getByText("Re-observed · 24h")).toBeVisible();
+    await expect(page.getByText(/candidates reviewed/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Recent radar leads" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Rejected archive" })).toBeVisible();
@@ -791,8 +835,10 @@ test.describe("public surface visual regression", () => {
 
     await expect(page.getByRole("heading", { name: "Filed." })).toBeVisible();
     await expect(page.getByText("checked and sorted into the right issue automatically")).toBeVisible();
-    await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("report-success.png", { fullPage: true });
+    await page.getByRole("button", { name: "File another report" }).click();
+    await expect(page.getByLabel("Category")).toHaveValue("");
+    await expectHealthyPage(page, problems);
   });
 
   test("report file pickers stay contained and visibly focusable on mobile", async ({ page }, testInfo) => {

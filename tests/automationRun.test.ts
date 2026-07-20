@@ -70,6 +70,7 @@ type TableName =
   | "automation_rejected_candidates"
   | "official_patch_notes"
   | "source_signals"
+  | "signal_observation_events"
   | "issue_clusters"
   | "bug_reports"
   | "approved_excerpts"
@@ -88,6 +89,7 @@ const tables: Record<TableName, Row[]> = {
   automation_rejected_candidates: [],
   official_patch_notes: [],
   source_signals: [],
+  signal_observation_events: [],
   issue_clusters: [],
   bug_reports: [],
   approved_excerpts: [],
@@ -105,6 +107,7 @@ let beforeVisibilityRefreshRpc: ((args: Record<string, unknown>) => void) | null
 let visibilityRefreshFailure: string | null = null;
 let issueClusterInsertRace: { slug: string; row: Row } | null = null;
 let sourceSignalInsertFailure: { title: string; message: string } | null = null;
+let observationEventInsertFailure: string | null = null;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -131,6 +134,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   visibilityRefreshFailure = null;
   issueClusterInsertRace = null;
   sourceSignalInsertFailure = null;
+  observationEventInsertFailure = null;
 }
 
 function nextId(table: TableName) {
@@ -306,6 +310,9 @@ class FakeQuery {
       this.insertRows!.some((row) => row.title === sourceSignalInsertFailure!.title)
     ) {
       return { data: null, error: { message: sourceSignalInsertFailure.message } };
+    }
+    if (this.table === "signal_observation_events" && observationEventInsertFailure) {
+      return { data: null, error: { message: observationEventInsertFailure } };
     }
     const inserted = this.insertRows!.map((row) => {
       const next = {
@@ -2645,6 +2652,123 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("records a re-observation event in the ledger when the table exists", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementation(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam after patch 1.13.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    // First observation writes no event (first_seen_at already records it);
+    // the re-observation writes exactly one.
+    expect(tables.signal_observation_events).toHaveLength(1);
+    expect(tables.signal_observation_events[0]).toMatchObject({
+      signal_id: sourceSignalRows()[0].id,
+      run_id: tables.automation_runs[1].id,
+      observed_at: "2026-07-05T13:00:00.000Z",
+    });
+  });
+
+  it("degrades the observation ledger to a no-op without failing the scan", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    observationEventInsertFailure = 'relation "signal_observation_events" does not exist';
+    mocks.tavilySearch.mockImplementation(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam after patch 1.13.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const secondResult = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    // The migration may not be applied in production: the ledger silently
+    // stands down and the scan is untouched — still a success, still counted
+    // as a re-observation, no error note.
+    expect(secondResult.status).toBe("success");
+    expect(secondResult.signalsReobserved).toBe(1);
+    expect(secondResult.errors).toEqual([]);
+    expect(tables.signal_observation_events).toHaveLength(0);
+  });
+
+  it("surfaces non-schema observation ledger failures instead of hiding them", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    observationEventInsertFailure = "permission denied for table signal_observation_events";
+    mocks.tavilySearch.mockImplementation(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam after patch 1.13.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const secondResult = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    expect(secondResult.status).toBe("failed");
+    expect(secondResult.errors).toContain(
+      "re-observation ledger write failed: permission denied for table signal_observation_events",
+    );
+  });
+
+  it("spends one discovery slot on the wire's news-topic press query on eligible turns", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z with a single lane -> discovery turn % 3 === 0: the wire slot fires.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const calls = mocks.tavilySearch.mock.calls as [string, { topic?: string }?][];
+    const newsCalls = calls.filter(([, options]) => options?.topic === "news");
+    expect(newsCalls).toHaveLength(1);
+    expect(newsCalls[0][0]).toContain("Crimson Desert patch 1.13.00");
+    // The wire REPLACES a general slot: total credit spend is unchanged.
+    expect(result.searchQueriesUsed).toBe(calls.length);
+  });
+
+  it("keeps every search slot on general (dated-less) search on non-wire turns", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 13:00Z -> discovery turn % 3 === 1: no wire slot, complaint hunt untouched.
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    const calls = mocks.tavilySearch.mock.calls as [string, { topic?: string }?][];
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every(([, options]) => options?.topic === undefined)).toBe(true);
+  });
+
   it("changes the next scheduled intent after a zero-kept scan", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -4045,6 +4169,75 @@ describe("cron keepalive route", () => {
       }),
     });
     expect(mocks.insertSkippedScheduledRun).not.toHaveBeenCalled();
+  });
+
+  it("revalidates public surfaces after a successful scheduled scan", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "partial" });
+    const revalidatePublicSurfaces = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    vi.doMock("@/lib/revalidate", () => ({ revalidatePublicSurfaces }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(revalidatePublicSurfaces).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not revalidate public surfaces when the scheduled scan fails or is skipped", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "failed" });
+    const revalidatePublicSurfaces = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    vi.doMock("@/lib/revalidate", () => ({ revalidatePublicSurfaces }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const failedResponse = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    expect(failedResponse.status).toBe(200);
+    expect(revalidatePublicSurfaces).not.toHaveBeenCalled();
+
+    // A paused scanner skips before running and must not invalidate either.
+    mocks.getAutomationControlState.mockResolvedValue({ paused: true, updatedAt: "2026-07-05T12:00:00.000Z" });
+    const skippedResponse = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    expect(skippedResponse.status).toBe(200);
+    expect(revalidatePublicSurfaces).not.toHaveBeenCalled();
   });
 });
 

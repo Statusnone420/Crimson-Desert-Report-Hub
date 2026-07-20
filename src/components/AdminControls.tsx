@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
 
@@ -22,6 +22,11 @@ export function AdminControls() {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState("");
   const router = useRouter();
+  const pathname = usePathname();
+
+  // /admin/login renders its own full-page sign-in form; showing the footer
+  // popover there presented two competing sign-in forms at once.
+  if (pathname?.startsWith("/admin")) return null;
 
   async function onAdminClick() {
     setError(false);

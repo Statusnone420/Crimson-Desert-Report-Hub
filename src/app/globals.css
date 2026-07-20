@@ -43,11 +43,25 @@
   --blue: #7fb0ea;
   --blue-hover: #a8cbf2;
 
-  /* Chart fills */
+  /* Chart fills. Evidence bars keep crimson/ink; radar-intelligence bars use
+     the blue lead register (same meaning as the RADAR LEAD status line). */
   --bar-taps: rgba(236, 227, 208, 0.16);
   --bar-reports: var(--crimson-action);
+  --bar-leads: rgba(127, 176, 234, 0.72);
+  --bar-reobs: rgba(127, 176, 234, 0.26);
   --meter-track: rgba(236, 227, 208, 0.12);
   --meter-fill: rgba(236, 227, 208, 0.55);
+
+  /* Categorical chart hues — one fixed color per issue category, validated
+     for CVD separation and contrast on this surface (see lib/categoryColors).
+     Data identity only; never reused for status meaning. */
+  --cat-performance: #d07c3f;
+  --cat-crash: #ab4f8f;
+  --cat-controls: #2d9dbf;
+  --cat-graphics: #8672e6;
+  --cat-quest: #89991f;
+  --cat-audio: #a5661f;
+  --cat-other: rgba(236, 227, 208, 0.38);
 
   /* Type */
   --font-display: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
@@ -775,6 +789,19 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 .pulse-legend i { width: 10px; height: 10px; display: inline-block; }
 .pulse-legend__reports { background: var(--bar-reports); }
 .pulse-legend__taps { background: var(--bar-taps); }
+.pulse-legend__leads { background: var(--bar-leads); }
+.pulse-legend__reobs { background: var(--bar-reobs); }
+
+/* Grouped legend for the diverging chart: the two registers named apart. */
+.pulse-legend--grouped { display: flex; gap: 40px; flex-wrap: wrap; }
+.pulse-legend-group { display: flex; align-items: baseline; gap: 14px; }
+.pulse-legend-group__name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dispatch-quiet);
+}
 
 .pulse-stats {
   display: flex;
@@ -798,6 +825,258 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 .pulse-stat__value--crimson { color: var(--crimson); }
 
 .pulse-stat__caption { font-size: 13.5px; line-height: 1.55; color: var(--dispatch-muted); margin-top: 4px; }
+
+/* ---------- The Radar (homepage scanner-intelligence band) ---------- */
+
+.radar-grid {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 72px;
+  margin-top: 26px;
+}
+
+.radar-main { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+
+.radar-cats { display: flex; flex-direction: column; gap: 9px; max-width: 640px; }
+
+.radar-cat {
+  display: grid;
+  grid-template-columns: 168px 1fr 150px;
+  align-items: center;
+  gap: 14px;
+  font-size: 12.5px;
+  color: var(--dispatch-muted);
+}
+
+.radar-cat__track { height: 3px; background: var(--meter-track); }
+.radar-cat__fill { height: 3px; background: var(--bar-leads); }
+.radar-cat__count { font-family: var(--font-mono); font-size: 12px; color: var(--dispatch-quiet); }
+.radar-cat__count .is-blue { color: var(--blue); }
+
+.radar-rail {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--rule);
+  padding-left: 44px;
+  min-width: 0;
+  gap: 18px;
+}
+
+/* The radar screen: polar working-set field, the band's centerpiece. */
+.radar-grid--screen { grid-template-columns: 430px 1fr; gap: 64px; align-items: start; }
+.radar-screen-wrap { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.radar-screen { display: block; max-width: 100%; height: auto; }
+.radar-screen-caption {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dispatch-quiet);
+}
+
+/* Season almanac: one cell per day, per register, on that register's ramp. */
+.heat-strips { display: flex; flex-direction: column; gap: 7px; }
+.heat-strip { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 14px; }
+.heat-strip__label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dispatch-quiet);
+}
+.heat-strip__cells { display: flex; flex-wrap: wrap; gap: 3px; }
+.heat-cell { width: 14px; height: 14px; flex: 0 0 auto; box-shadow: inset 0 0 0 1px rgba(236, 227, 208, 0.09); }
+.heat-cell--evidence1 { background: rgba(226, 83, 74, 0.22); }
+.heat-cell--evidence2 { background: rgba(226, 83, 74, 0.42); }
+.heat-cell--evidence3 { background: rgba(226, 83, 74, 0.66); }
+.heat-cell--evidence4 { background: rgba(226, 83, 74, 0.92); }
+.heat-cell--radar1 { background: rgba(127, 176, 234, 0.22); }
+.heat-cell--radar2 { background: rgba(127, 176, 234, 0.42); }
+.heat-cell--radar3 { background: rgba(127, 176, 234, 0.66); }
+.heat-cell--radar4 { background: rgba(127, 176, 234, 0.92); }
+
+.weekly-columns { display: block; max-width: 100%; height: auto; }
+
+/* Category sparklines and shared swatch */
+.cat-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  vertical-align: baseline;
+}
+.cat-swatch--meta { width: 7px; height: 7px; margin-right: 6px; }
+.cat-swatch--label { margin-left: 8px; margin-right: 0; }
+.cat-legend { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cat-legend__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12.5px;
+  color: var(--dispatch-muted);
+}
+.cat-legend__row .num-quiet { font-family: var(--font-mono); color: var(--dispatch-quiet); }
+
+.cat-sparklines { display: flex; flex-direction: column; gap: 9px; max-width: 640px; }
+.cat-sparklines__row {
+  display: grid;
+  grid-template-columns: 168px 1fr 44px;
+  align-items: center;
+  gap: 14px;
+  font-size: 12.5px;
+  color: var(--dispatch-muted);
+}
+.cat-sparklines__row svg { display: block; max-width: 100%; height: auto; }
+.cat-sparklines__count { font-family: var(--font-mono); font-size: 12px; text-align: right; }
+
+/* Recurrence small multiples: shared-scale panels, one per problem area. */
+.recurrence-multiples {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 20px 24px;
+}
+.recurrence-panel { margin: 0; min-width: 0; }
+.recurrence-panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--dispatch-muted);
+  margin-bottom: 4px;
+}
+.recurrence-panel__head .num-quiet { margin-left: auto; font-family: var(--font-mono); color: var(--dispatch-quiet); }
+.recurrence-panel svg { display: block; max-width: 100%; height: auto; }
+
+.radar-health {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.9;
+  text-transform: uppercase;
+  color: var(--dispatch-quiet);
+}
+.radar-health .is-green { color: var(--green); }
+.radar-health .is-amber { color: var(--amber); }
+.radar-health .is-crimson { color: var(--crimson); }
+
+.radar-note { font-size: 12.5px; line-height: 1.55; color: var(--dispatch-faint); max-width: 62ch; }
+
+/* Since-your-last-visit line: self-announcing, browser-local memory. */
+.visit-deltas {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dispatch-muted);
+  margin: 2px 0 10px;
+}
+.visit-deltas__key { color: var(--blue); }
+.visit-deltas__note { color: var(--dispatch-faint); text-transform: none; letter-spacing: 0; font-family: inherit; }
+
+/* Proportional funnel bar (kept / re-observed / filtered of reviewed) */
+
+.funnel-bar-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
+.funnel-bar { display: flex; height: 8px; background: var(--meter-track); }
+.funnel-bar__kept { background: var(--bar-leads); }
+.funnel-bar__reobs { background: var(--bar-reobs); }
+.funnel-bar__filtered { background: rgba(236, 227, 208, 0.1); }
+.funnel-bar__labels {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+}
+.funnel-bar__label--kept { color: var(--blue); }
+.funnel-bar__label--reobs { color: rgba(127, 176, 234, 0.65); }
+.funnel-bar__label--filtered { color: var(--dispatch-quiet); }
+
+/* Operator desk funnel row (replaces the second stat band on the desk) */
+
+.desk-funnel {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 64px;
+  align-items: center;
+  border-top: 2px solid var(--rule-strong);
+  padding: 20px 0 24px;
+}
+
+.desk-funnel__kpis { display: flex; gap: 0; }
+.desk-funnel__kpi {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 24px;
+  border-left: 1px solid var(--rule-soft);
+}
+.desk-funnel__kpi:last-child { padding-right: 0; }
+.desk-funnel__num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--dispatch-ink);
+}
+.desk-funnel__num--blue { color: var(--blue); }
+.desk-funnel__num--crimson { color: var(--crimson); }
+
+@media (max-width: 1199px) and (min-width: 900px) {
+  .radar-grid { grid-template-columns: 1fr; gap: 32px; }
+  .radar-grid--screen { grid-template-columns: 1fr; }
+  .radar-screen-wrap { max-width: 430px; }
+  .radar-rail { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule); padding-top: 22px; }
+  .desk-funnel { grid-template-columns: 1fr; gap: 22px; }
+}
+
+@media (max-width: 899px) {
+  .radar-grid { grid-template-columns: 1fr; gap: 18px; margin-top: 16px; }
+
+  /* Category meters keep their colored tracks on mobile: label row on top,
+     full-width bar beneath — never a bare text list. */
+  .radar-cat { grid-template-columns: 1fr auto; gap: 5px 12px; align-items: baseline; }
+  .radar-cat__track { grid-column: 1 / -1; order: 3; }
+  .radar-cat__count { text-align: right; }
+
+  .radar-rail { border-left: 0; padding-left: 0; gap: 12px; }
+  .radar-health { line-height: 1.8; }
+
+  .radar-grid--screen { gap: 24px; }
+  .radar-screen-wrap { max-width: 390px; margin: 0 auto; }
+
+  .heat-strip { grid-template-columns: 1fr; gap: 5px; }
+  .heat-cell { width: 12px; height: 12px; }
+
+  .cat-sparklines__row { grid-template-columns: 1fr auto; gap: 4px 12px; }
+  .cat-sparklines__row svg { grid-column: 1 / -1; order: 3; width: 100%; }
+
+  .recurrence-multiples { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
+
+  /* Radar stat bands: a strict 2-up grid instead of ragged flex-wrap; a lone
+     trailing cell spans the full row. */
+  .stat-band--radar { display: grid; grid-template-columns: 1fr 1fr; }
+  .stat-band--radar .stat-band__cell {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-ghost);
+    padding: 12px 0 14px;
+  }
+  .stat-band--radar .stat-band__cell:nth-child(odd) { border-right: 1px solid var(--rule-soft); padding-right: 14px; }
+  .stat-band--radar .stat-band__cell:nth-child(even) { padding-left: 14px; }
+  .stat-band--radar .stat-band__cell:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    border-right: 0;
+    padding-right: 0;
+  }
+  .stat-band--radar .stat-band__label { font-size: 10px; letter-spacing: 0.1em; }
+  .stat-band--radar .stat-band__value { font-size: 27px; margin: 5px 0 5px; }
+  .stat-band--radar .stat-band__caption { font-size: 11px; line-height: 1.4; }
+
+  .desk-funnel { grid-template-columns: 1fr; gap: 18px; padding: 16px 0 18px; }
+  .desk-funnel__kpi { padding: 0 14px; }
+  .desk-funnel__kpi:first-child { border-left: 0; padding-left: 0; }
+  .desk-funnel__num { font-size: 24px; }
+}
 
 /* ---------- Issue board (homepage top three) ---------- */
 

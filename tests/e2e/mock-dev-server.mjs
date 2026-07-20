@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
@@ -505,6 +505,41 @@ const patchObservations = [
   },
 ];
 
+/**
+ * Preview seed override: when PREVIEW_SEED_FILE points at a JSON file, its
+ * table arrays replace the built-in Playwright seed in place. This is the
+ * repo-ignored "what would the site look like with X data" harness — the seed
+ * file uses the exact production row shapes (see scripts/generate-preview-seed.mjs),
+ * so anything previewed here reproduces once the live scanner writes the same
+ * shapes. Playwright never sets PREVIEW_SEED_FILE, so tests are unaffected.
+ */
+const previewSeedFile = process.env.PREVIEW_SEED_FILE;
+if (previewSeedFile) {
+  const seedTables = {
+    issue_clusters: clusters,
+    bug_reports: bugReports,
+    approved_excerpts: excerpts,
+    source_signals: signals,
+    automation_runs: automationRuns,
+    automation_rejected_candidates: rejectedCandidates,
+    automation_settings: automationSettings,
+    issue_confirmations: issueConfirmations,
+    official_patch_notes: officialPatchNotes,
+    official_patch_claimed_fixes: officialPatchClaimedFixes,
+    patch_observations: patchObservations,
+  };
+  const seed = JSON.parse(readFileSync(previewSeedFile, "utf8"));
+  for (const [table, rows] of Object.entries(seed)) {
+    const target = seedTables[table];
+    if (!target) {
+      console.warn(`[preview-seed] unknown table "${table}" ignored`);
+      continue;
+    }
+    if (Array.isArray(rows)) target.splice(0, target.length, ...rows);
+  }
+  console.log(`[preview-seed] loaded ${previewSeedFile}`);
+}
+
 function sendJson(res, method, status, data, headers = {}) {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -789,12 +824,22 @@ const server = createServer(async (req, res) => {
   // persisted non-dry-run kept leads).
   if (url.pathname === "/rest/v1/daily_signal_rollup" && req.method === "GET") {
     const dayKey = (iso) => new Date(iso).toISOString().slice(0, 10);
-    const publishedDay = new Date("2026-07-08T00:00:00.000Z");
+    // Derive the current patch family from the seeded notes (mirrors the
+    // migration) so preview seeds on other patch versions roll up correctly.
+    const currentNote = officialPatchNotes.find((note) => note.is_current) ?? officialPatchNotes[0];
+    const family = String(currentNote?.patch_version ?? "1.13")
+      .split(".")
+      .slice(0, 2)
+      .map((part) => String(Number(part)))
+      .join(".");
+    const publishedDay = new Date(currentNote?.published_at ?? "2026-07-08T00:00:00.000Z");
+    publishedDay.setUTCHours(0, 0, 0, 0);
     const floor = new Date(Math.max(publishedDay.getTime(), now() - 30 * 24 * 60 * 60 * 1000));
     const reportsByDay = new Map();
     for (const report of bugReports) {
       if (report.moderation_status !== "approved") continue;
-      if (!String(report.patch_version ?? "").startsWith("1.13")) continue;
+      const reportVersion = String(report.patch_version ?? "");
+      if (reportVersion !== family && !reportVersion.startsWith(`${family}.`)) continue;
       const key = dayKey(report.created_at);
       reportsByDay.set(key, (reportsByDay.get(key) ?? 0) + 1);
     }
