@@ -104,6 +104,8 @@ const settingsXml = `
   </EngineOptionVideo>
 </EngineOptionSave>`;
 
+const E2E_NOW = new Date("2026-07-20T00:10:00.000Z");
+
 type ContrastTarget = {
   selector: string;
   label: string;
@@ -360,6 +362,10 @@ async function expectCumulativeLayoutShiftBelow(page: Page, maximum = 0.01) {
 }
 
 test.describe("public surface visual regression", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.clock.install({ time: E2E_NOW });
+  });
+
   test("dashboard renders moderated patch intelligence", async ({ page }, testInfo) => {
     // The desktop composition; the sub-900 brief is a separate composition
     // covered by the mobile-viewport test below.
@@ -849,10 +855,16 @@ test.describe("public surface visual regression", () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/report");
 
-      // Below 900px the assistant rail sits behind a disclosure; open it via
-      // keyboard so later focus assertions still reflect keyboard focus.
-      await page.locator("details.assistant-rail > summary").focus();
-      await page.keyboard.press("Enter");
+      // Below 900px the assistant rail sits behind a disclosure. SSR starts
+      // it open before the viewport store hydrates, so only press Enter when
+      // it is actually closed; an unconditional keypress races hydration and
+      // closes the rail on CI.
+      const assistantRail = page.locator("details.assistant-rail");
+      const assistantSummary = assistantRail.locator("> summary");
+      await assistantSummary.focus();
+      const isOpen = await assistantRail.evaluate((element) => (element as HTMLDetailsElement).open);
+      if (!isOpen) await page.keyboard.press("Enter");
+      await expect(assistantRail).toHaveAttribute("open", "");
 
       const fileInput = page.locator("#save_import");
       const folderInput = page.locator("#save_import_folder");

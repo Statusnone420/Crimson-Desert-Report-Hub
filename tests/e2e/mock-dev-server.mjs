@@ -11,7 +11,14 @@ rmSync(path.join(process.cwd(), ".next", "dev", "cache"), { recursive: true, for
 const appPort = Number(process.env.PLAYWRIGHT_PORT ?? 3100);
 const supabasePort = Number(process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765);
 
-const now = () => Date.now();
+// Keep the mock data on the same side of the UTC week boundary as the visual
+// baselines. The application and browser receive the same clock via the
+// freeze-time preload below, so relative labels and weekly sections cannot
+// disappear merely because CI started a few minutes later.
+const fixtureNowIso = process.env.PLAYWRIGHT_NOW ?? "2026-07-20T00:10:00.000Z";
+const fixtureNowMs = Date.parse(fixtureNowIso);
+if (!Number.isFinite(fixtureNowMs)) throw new Error(`Invalid PLAYWRIGHT_NOW: ${fixtureNowIso}`);
+const now = () => fixtureNowMs;
 const isoMinutesAgo = (minutes) => new Date(now() - minutes * 60 * 1000).toISOString();
 const isoDaysAgo = (days) => new Date(now() - days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -703,7 +710,7 @@ const server = createServer(async (req, res) => {
     const parsed = raw ? JSON.parse(raw) : {};
     const row = {
       id: `report-${bugReports.length + 1}`,
-      created_at: new Date().toISOString(),
+      created_at: new Date(now()).toISOString(),
       ...parsed,
     };
     bugReports.push(row);
@@ -728,7 +735,7 @@ const server = createServer(async (req, res) => {
     const parsed = raw ? JSON.parse(raw) : {};
     const row = {
       id: `excerpt-${excerpts.length + 1}`,
-      created_at: new Date().toISOString(),
+      created_at: new Date(now()).toISOString(),
       bug_reports: null,
       ...parsed,
     };
@@ -889,6 +896,10 @@ function stop() {
 
 server.listen(supabasePort, "127.0.0.1", () => {
   const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
+  const freezeTimePreload = path
+    .join(process.cwd(), "tests", "e2e", "freeze-time.cjs")
+    .replaceAll("\\", "/");
+  const nodeOptions = `${process.env.NODE_OPTIONS?.trim() ?? ""} --require="${freezeTimePreload}"`.trim();
   child = spawn(process.execPath, [nextBin, "dev", "-H", "127.0.0.1", "-p", String(appPort)], {
     cwd: process.cwd(),
     env: {
@@ -906,6 +917,8 @@ server.listen(supabasePort, "127.0.0.1", () => {
       GROQ_API_KEY: "",
       OPENROUTER_API_KEY: "",
       XAI_API_KEY: "",
+      PLAYWRIGHT_NOW: fixtureNowIso,
+      NODE_OPTIONS: nodeOptions,
     },
     stdio: "inherit",
   });

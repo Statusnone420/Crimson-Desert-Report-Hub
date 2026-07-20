@@ -7,6 +7,7 @@ import {
   evaluateCurrentPatchEligibility,
   type CurrentPatchEligibilityReason,
 } from "@/lib/automation/eligibility";
+import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
@@ -208,6 +209,28 @@ function isTrackedLead(row: RadarSignalRow): boolean {
   return row.public_status !== "hidden";
 }
 
+/**
+ * Radar aggregates must use the same patch and source-context boundary as the
+ * public scanner: public signals need publication eligibility, while private
+ * candidates only need storage eligibility so they can remain hollow radar
+ * points until corroboration. Hidden, unsupported, stale, and wrong-patch
+ * rows never enter the current-patch working set.
+ */
+function isCurrentPatchRadarLead(
+  row: RadarSignalRow,
+  currentPatch: { version: string; publishedAt: string | null },
+): boolean {
+  if (!isTrackedLead(row)) return false;
+  if (hasUnsupportedSourceContext({ title: row.title ?? "", snippet: row.summary, url: row.source_url })) {
+    return false;
+  }
+  const eligibility = evaluateCurrentPatchEligibility(
+    { title: row.title, summary: row.summary, sourcePublishedAt: row.source_published_at },
+    currentPatch,
+  );
+  return row.public_status === "public" ? eligibility.canPublish : eligibility.canStore;
+}
+
 export function composePatchRadarData(input: {
   signals: RadarSignalRow[];
   runs: RadarRunRow[];
@@ -224,7 +247,7 @@ export function composePatchRadarData(input: {
   const dayAgo = nowMs - DAY_MS;
   const weekAgo = nowMs - 7 * DAY_MS;
 
-  const tracked = input.signals.filter(isTrackedLead);
+  const tracked = input.signals.filter((row) => isCurrentPatchRadarLead(row, input.patch));
   const intakeRuns = input.runs.filter(isIntakeRun);
 
   // --- Windows ---
