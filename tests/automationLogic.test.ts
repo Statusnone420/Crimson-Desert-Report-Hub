@@ -1283,6 +1283,19 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("rejects a bugs-and-glitches marketing announcement despite the new bare symptom patterns", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert 1.14 Update Fixes Numerous Bugs & Glitches",
+            snippet: "The patch improves performance and fixes several errors and glitches.",
+            sourceDomain: "dsogaming.com",
+          },
+          { currentPatchVersion: "1.14.00" },
+        ),
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" });
+    });
+
     it("rejects an unknown-domain page that never mentions the game as off_topic", () => {
       expect(
         preScreenCandidate({

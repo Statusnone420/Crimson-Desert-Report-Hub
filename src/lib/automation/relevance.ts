@@ -173,9 +173,13 @@ const STUTTER_HITCH_COMPLAINT = /\b(?:stutters|stuttering|hitches|hitching)\b(?!
 // real precision boundary), never false-drops, so erring broad here is safe. Crash/freeze/
 // hang fix-LISTS (coordination, "fix for crash issues") stay with CRASH_FREEZE_HANG_FIX_LIST.
 const FIX_CLAIM_VERB = String.raw`(?:fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|address(?:es|ed|ing)?|reduc(?:e|es|ed|ing)|eliminat(?:e|es|ed|ing)|correct(?:s|ed|ing)?)`;
-const FIX_CLAIM_GLUE = String.raw`(?:\s+(?:a|an|the|some|any|all|various|multiple|several|reported|known))?(?:\s+(?:bug|bugs|issue|issues|problem|problems|glitch|glitches))?(?:\s+(?:with|for))?(?:\s+(?:a|an|the))?(?:\s+(?:broken|missing|lost|muted|silent|slow|stuck|frozen|glitchy|bugged|black|infinite|input|unresponsive|awful|bad|poor|terrible|horrible|worse))?`;
-const FIX_CLAIM_NOUN = String.raw`(?:black ?screens?|infinite (?:load|loading)|stuck (?:on|at) (?:load|loading|boot)|loading times?|frame ?times?(?:\s+spikes?)?|(?:fps|frame ?rates?|framerate)(?:\s+drops?)?|drops?|stutters?|stuttering|hitch(?:es|ing)?|lag(?:s|gy|ging)?|lock ?ups?|locks? up|input locks?|unresponsive(?:ness)?|controls?|artifacts?|ghosting|flicker(?:ing)?|texture ?shimmer|screen tearing|rendering|lighting|shadows?|visuals?|pop.?ins?|audio|sounds?|music|voice(?:s|\s?lines?)?|sfx|quests?|missions?|objectives?|npcs?|cutscenes?|dialogue|softlocks?|performance)`;
-const FIX_CLAIM_SYMPTOM = new RegExp(String.raw`\b${FIX_CLAIM_VERB}\b${FIX_CLAIM_GLUE}\s+${FIX_CLAIM_NOUN}\b`, "i");
+const FIX_CLAIM_GLUE = String.raw`(?:\s+(?:a|an|the|some|any|all|various|multiple|several|numerous|many|reported|known))?(?:\s+(?:bug|bugs|issue|issues|problem|problems|glitch|glitches))?(?:\s+(?:with|for))?(?:\s+(?:a|an|the))?(?:\s+(?:broken|missing|lost|muted|silent|slow|stuck|frozen|glitchy|bugged|black|infinite|input|unresponsive|awful|bad|poor|terrible|horrible|worse))?`;
+const FIX_CLAIM_NOUN = String.raw`(?:black ?screens?|infinite (?:load|loading)|stuck (?:on|at) (?:load|loading|boot)|loading times?|frame ?times?(?:\s+spikes?)?|(?:fps|frame ?rates?|framerate)(?:\s+drops?)?|drops?|stutters?|stuttering|hitch(?:es|ing)?|lag(?:s|gy|ging)?|lock ?ups?|locks? up|input locks?|unresponsive(?:ness)?|controls?|artifacts?|ghosting|flicker(?:ing)?|texture ?shimmer|screen tearing|rendering|lighting|shadows?|visuals?|pop.?ins?|audio|sounds?|music|voice(?:s|\s?lines?)?|sfx|quests?|missions?|objectives?|npcs?|cutscenes?|dialogue|softlocks?|performance|errors?|glitch(?:es|ing)?|bugs?|cross[- ]?saves?|saves?|unplayable)`;
+// Advertised symptoms arrive as coordinated lists ("fixes numerous bugs, errors
+// and glitches") — strip the whole series, or the trailing nouns survive the
+// strip and masquerade as a live complaint.
+const FIX_CLAIM_NOUN_SERIES = String.raw`${FIX_CLAIM_NOUN}(?:\s*(?:[,/&]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${FIX_CLAIM_NOUN})*`;
+const FIX_CLAIM_SYMPTOM = new RegExp(String.raw`\b${FIX_CLAIM_VERB}\b${FIX_CLAIM_GLUE}\s+${FIX_CLAIM_NOUN_SERIES}\b`, "i");
 
 // Positive marketing/announcement phrasing (a patch "includes/adds/brings a fix", ships
 // "performance fixes", "improves/optimizes FPS", targets a "stable N fps"). Positive

@@ -1681,8 +1681,10 @@ async function persistRejectedCandidates(
       }
     }
   } catch (error) {
-    result.status = result.status === "success" ? "partial" : result.status;
-    result.errors.push(`rescued-signal reobservation failed: ${toErrorMessage(error, "unknown error")}`);
+    // Best-effort bookkeeping only — a failed freshness update must not degrade
+    // the run status; the candidates simply fall through to the rejected pile.
+    result.skips.push("rescue_memory_read_failed");
+    void error;
   }
   if (candidates.length === 0) return;
   const rows = candidates.slice(0, MAX_REJECTED_CANDIDATES_PER_RUN).map((candidate) => ({

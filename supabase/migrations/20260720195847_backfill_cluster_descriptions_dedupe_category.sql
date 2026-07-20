@@ -12,7 +12,8 @@ set is_public = false,
     admin_visibility_override = 'force_hidden',
     lifecycle_reason = 'Merged into auto-3504f3a93c0b (duplicate Xbox graphics-glitch lead)',
     visibility_revision = visibility_revision + 1
-where slug = 'auto-b7e557a13e9d';
+where slug = 'auto-b7e557a13e9d'
+  and admin_visibility_override is distinct from 'force_hidden';
 
 -- 3) Cross-save crash at the main menu is a crash, not quest progression.
 update issue_clusters

@@ -45,6 +45,11 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "The page never mentions Crimson Desert, so it was dropped before any other screening.",
     summaryLabel: "off-topic",
   },
+  rescue_memory_read_failed: {
+    label: "Rescue memory read failed",
+    detail: "The scanner could not check whether rejected candidates were previously rescued leads; they went to the rejected pile as usual.",
+    summaryLabel: "rescue memory read failed",
+  },
   rescued_signal_reobserved: {
     label: "Rescued lead seen again",
     detail: "A previously rescued lead reappeared in search; its freshness was updated instead of re-rejecting it.",
