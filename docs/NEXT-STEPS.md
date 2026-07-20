@@ -36,16 +36,16 @@ This is the maintainer's resume-cold note. It records the current product shape 
 - Revisit cadence or provider allocation only with a fresh budget review; do not solve a discovery concern by silently raising the Tavily or OpenRouter caps.
 - Consider a formal contributor/admin identity model only if shared-password operations become a real bottleneck.
 
-### Parked P3s (2026-07-20 audit)
+### 2026-07-20 audit P3s — resolved
 
-Small, confirmed, non-urgent items from the July 20 full-site audit. None block anything; pick them up opportunistically.
+All parked P3s from the July 20 full-site audit were closed the same day. What remains below is the record, not a to-do list.
 
-- **Unindexed foreign keys** flagged by the Supabase advisor: `automation_rejected_candidates.run_id` and `signal_observation_events.run_id`. Add covering indexes if either table's row count grows past a few thousand.
-- **Unused indexes** flagged by the advisor (e.g. `idx_official_patch_notes_published`, `idx_issue_clusters_admin_override`): candidates for removal after a month of production traffic confirms they stay unused.
-- **RLS enabled with no policies** on service-role-only tables (`issue_confirmations`, `patch_observations`, etc.): intentional default-deny — documented here so the advisor INFO notices are not re-investigated from scratch.
-- **Rejected-candidate duplication**: the same URL/title can be stored once per run in `automation_rejected_candidates` (one patch-notes mirror appeared 7×). Dedupe by URL hash within the retention window if the admin reject queue gets noisy.
+- **Unindexed foreign keys**: covering indexes added for `automation_rejected_candidates.run_id` and `signal_observation_events.run_id` (`20260720202450_fk_covering_indexes_run_id.sql`, applied to production).
+- **Unused indexes** flagged by the advisor: reviewed and deliberately retained — every flagged table is tiny (hundreds of rows at most), several indexes serve brand-new features (`signal_observation_events` shipped the same week), and dropping them saves nothing measurable. Re-check the advisor after a month of traffic before removing any.
+- **RLS enabled with no policies** on service-role-only tables (`issue_confirmations`, `patch_observations`, etc.): intentional default-deny — documented so the advisor INFO notices are not re-investigated from scratch.
+- **Rejected-candidate duplication**: `persistRejectedCandidates` now dedupes against the un-expired reject pile by URL and refreshes the existing row's retention window instead of stacking duplicates.
 - **Tracked-lead count vs raw signal rows**: the radar reports fewer tracked leads than raw non-hidden `source_signals` rows because stale/unsupported/wrong-patch rows are excluded by `isCurrentPatchRadarLead`. Expected, not a bug.
-- **Near-duplicate cluster fingerprints**: two clusters for the same Xbox graphics-glitch post differed only by title punctuation. If it recurs, normalize titles (strip punctuation and patch-version suffixes) inside `semanticFingerprint`.
+- **Near-duplicate cluster fingerprints**: `semanticFingerprint` now strips patch-version tokens and narration filler (articles, first-person framing) so rephrasings of one complaint share a fingerprint. Note: stored fingerprints predate this change, so an old signal re-encountered under new wording can still route fresh — URL-level dedupe still catches exact re-observations.
 
 ### Do not reopen casually
 

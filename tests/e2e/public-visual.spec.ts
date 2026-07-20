@@ -743,7 +743,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Rejected archive" })).toBeVisible();
     await expect(page.getByLabel("Search recent archive")).toBeVisible();
-    await page.getByLabel("Search recent archive").fill("off-topic, not a bug");
+    await page.getByLabel("Search recent archive").fill("not sortable into a bug area");
     await expect(page.getByText("New armor set locations guide")).toBeVisible();
     await expect(page.getByText("Patch 1.13 full notes mirror")).toHaveCount(0);
     await expect(page.getByRole("status")).toContainText("matching candidates");

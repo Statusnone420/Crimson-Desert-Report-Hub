@@ -174,13 +174,12 @@ export default async function DispatchHomePage() {
   if (wire.length > 0) sectionIds.push("wire");
   const sectionNo = (id: string): string => String(sectionIds.indexOf(id) + 1).padStart(2, "0");
 
+  // Short names on purpose: the TOC is now a single-line strip closing the
+  // hero band, and the descriptive detail lives in each section's own header.
   const tocLabels: Record<string, string> = {
-    pulse: `Patch Pulse — signal since ${mediumDate(patch.publishedAt) ?? patch.version}`,
-    radar: "The radar — what the scanner is tracking",
-    board:
-      top3.length > 0
-        ? `The issue board, top ${top3.length === 3 ? "three" : top3.length === 2 ? "two" : "story"}`
-        : "The issue board",
+    pulse: "Patch Pulse",
+    radar: "The radar",
+    board: "The issue board",
     claims: "The claims record",
     wire: "From the wire",
   };
@@ -354,16 +353,16 @@ export default async function DispatchHomePage() {
                 </span>
               </div>
             </div>
-            <div>
-              <h2 className="record-block__header record-block__header--again">In This Edition</h2>
-              {tocRows.map((row) => (
-                <a key={row.href} href={row.href} className="record-block__toc-row">
-                  <span>{row.label}</span>
-                  <span className="record-block__index">{row.index}</span>
-                </a>
-              ))}
-            </div>
           </div>
+          <nav className="brief-lead__toc dispatch-desktop-only" aria-label="In this edition">
+            <span className="brief-lead__toc-label">In This Edition</span>
+            {tocRows.map((row) => (
+              <a key={row.href} href={row.href} className="brief-lead__toc-row">
+                <span>{row.label}</span>
+                <span className="brief-lead__toc-index">{row.index}</span>
+              </a>
+            ))}
+          </nav>
         </section>
 
         {/* Patch Pulse */}

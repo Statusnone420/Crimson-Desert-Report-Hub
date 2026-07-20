@@ -598,9 +598,12 @@ export function RecurrenceSmallMultiples({
             >
               <line x1={padL} y1={8 + plotH} x2={w - 4} y2={8 + plotH} stroke="rgba(236,227,208,0.2)" strokeWidth="1" />
               {[...grouped.values()].map(({ point, count }) => {
-                const x = padL + (point.daysTracked / maxDays) * (plotW - 8) + 4;
-                const y = 8 + plotH - ((point.seenCount - 1) / (maxSeen - 1)) * (plotH - 8) - 4;
-                const radius = Math.min(9, 3.25 * Math.sqrt(count));
+                // Left inset keeps the leftmost dot center 12px right of padL and
+                // the bottom inset keeps the lowest (1×) dot center 14px above the
+                // baseline, so enlarged dots never cross the axis or the y gutter.
+                const x = padL + 12 + (point.daysTracked / maxDays) * (plotW - 20);
+                const y = 8 + plotH - 14 - ((point.seenCount - 1) / (maxSeen - 1)) * (plotH - 26);
+                const radius = Math.min(8, 3.25 * Math.sqrt(count));
                 return (
                   <circle
                     key={`${point.daysTracked}:${point.seenCount}:${point.isPublic}`}
@@ -625,7 +628,7 @@ export function RecurrenceSmallMultiples({
               <text x={padL - 5} y={14} textAnchor="end" fontFamily="var(--font-mono)" fontSize="11" fill="var(--dispatch-quiet)">
                 {maxSeen}×
               </text>
-              <text x={padL - 5} y={8 + plotH} textAnchor="end" fontFamily="var(--font-mono)" fontSize="11" fill="var(--dispatch-quiet)">
+              <text x={padL - 5} y={8 + plotH - 10} textAnchor="end" fontFamily="var(--font-mono)" fontSize="11" fill="var(--dispatch-quiet)">
                 1×
               </text>
             </svg>

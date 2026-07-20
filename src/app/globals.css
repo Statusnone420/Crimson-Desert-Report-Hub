@@ -704,8 +704,6 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   color: var(--dispatch-ink);
 }
 
-.record-block__header--again { margin-top: 20px; }
-
 .record-block__row {
   display: flex;
   justify-content: space-between;
@@ -733,6 +731,37 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 
 .record-block__toc-row:hover { color: var(--dispatch-ink); text-decoration: none; }
 .record-block__toc-row .record-block__index { font-family: var(--font-mono); color: var(--dispatch-quiet); }
+
+/* In-edition strip: closes the hero band full-width so the rail no longer
+   carries the whole table of contents and stretches the copy cell. */
+.brief-lead__toc {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 28px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  margin-top: 8px;
+}
+.brief-lead__toc-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dispatch-ink);
+}
+.brief-lead__toc-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--dispatch-dim);
+  text-decoration: none;
+  transition: color var(--dur) var(--ease);
+}
+.brief-lead__toc-row:hover { color: var(--dispatch-ink); text-decoration: none; }
+.brief-lead__toc-index { font-family: var(--font-mono); color: var(--dispatch-quiet); }
 
 /* Mobile fact strip */
 
@@ -862,6 +891,10 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 .radar-rail {
   display: flex;
   flex-direction: column;
+  /* The rail is usually shorter than the chart column; without align-self the
+     column divider runs the full row height and frames a void below the
+     rail's content. Start-aligned, the rule ends where the content ends. */
+  align-self: start;
   border-left: 1px solid var(--rule);
   padding-left: 44px;
   min-width: 0;
@@ -938,7 +971,8 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 /* Recurrence small multiples: shared-scale panels, one per problem area. */
 .recurrence-multiples {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 260px));
+  justify-content: start;
   gap: 20px 24px;
 }
 .recurrence-panel { margin: 0; min-width: 0; }
@@ -951,7 +985,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   margin-bottom: 4px;
 }
 .recurrence-panel__head .num-quiet { margin-left: auto; font-family: var(--font-mono); color: var(--dispatch-quiet); }
-.recurrence-panel svg { display: block; width: 100%; max-width: 100%; height: auto; }
+.recurrence-panel svg { display: block; width: 100%; max-width: 300px; height: auto; }
 
 .radar-health {
   font-family: var(--font-mono);
@@ -1219,7 +1253,6 @@ a.wire-item__title:hover { color: var(--dispatch-ink); }
 
 @media (max-width: 1199px) and (min-width: 900px) {
   .brief-lead { grid-template-columns: 1fr; gap: 40px; }
-  .brief-lead__rail { display: grid; grid-template-columns: 1fr 1fr; gap: 0 48px; align-items: start; }
   .pulse-grid { grid-template-columns: 1fr; gap: 32px; }
   .pulse-stats { flex-direction: row; border-left: 0; padding-left: 0; border-top: 1px solid var(--rule); }
   .pulse-stat { flex: 1; border-bottom: 0; border-right: 1px solid var(--rule-faint); padding: 18px 24px 4px 0; }
@@ -1383,12 +1416,16 @@ a.wire-item__title:hover { color: var(--dispatch-ink); }
 .issue-minors {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  row-gap: 36px;
   border-top: 1px solid var(--rule);
   padding: 34px 0 48px;
 }
 
 .issue-minor { display: flex; flex-direction: column; gap: 12px; padding-right: 52px; min-width: 0; }
-.issue-minor + .issue-minor { border-left: 1px solid var(--rule); padding-right: 0; padding-left: 52px; }
+/* Only second-column items carry the divider, so a row-2 col-1 item never reads
+   as nested under the card above it. */
+.issue-minors > .issue-minor:nth-child(even) { border-left: 1px solid var(--rule); padding-right: 0; padding-left: 52px; }
+.issue-minors > .issue-minor:nth-child(odd) { border-left: 0; padding-left: 0; }
 .issue-minor__summary { font-size: 14.5px; line-height: 1.6; color: var(--dispatch-dim); text-wrap: pretty; }
 
 .issue-watch-note {
@@ -1414,9 +1451,9 @@ a.wire-item__title:hover { color: var(--dispatch-ink); }
   .issue-rail { border-left: 0; padding-left: 0; }
   .platform-meter--wide { grid-template-columns: 1fr; gap: 4px; }
   .platform-meter--wide .platform-meter__track { display: none; }
-  .issue-minors { grid-template-columns: 1fr; padding: 0; border-top: 0; }
+  .issue-minors { grid-template-columns: 1fr; row-gap: 0; padding: 0; border-top: 0; }
   .issue-minor { border-top: 1px solid var(--rule); padding: 24px 0 26px; }
-  .issue-minor + .issue-minor { border-left: 0; padding-left: 0; }
+  .issue-minors > .issue-minor:nth-child(even) { border-left: 0; padding-left: 0; }
   .issue-entry-row .tap-btn { width: 100%; justify-content: center; min-height: 44px; }
   .issue-minor .tap-btn { width: 100%; justify-content: center; min-height: 44px; }
 

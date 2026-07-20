@@ -45,6 +45,11 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "The page never mentions Crimson Desert, so it was dropped before any other screening.",
     summaryLabel: "off-topic",
   },
+  reject_dedupe_read_failed: {
+    label: "Reject dedupe read failed",
+    detail: "The scanner could not check the rejected pile for duplicates; rejected candidates were stored as usual.",
+    summaryLabel: "reject dedupe read failed",
+  },
   rescue_memory_read_failed: {
     label: "Rescue memory read failed",
     detail: "The scanner could not check whether rejected candidates were previously rescued leads; they went to the rejected pile as usual.",

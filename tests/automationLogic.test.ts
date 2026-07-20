@@ -31,6 +31,26 @@ describe("automation dedupe", () => {
       semanticFingerprint("fps   drops since 1.13", "performance"),
     );
   });
+
+  it("collapses rephrasings of the same complaint to one fingerprint (Xbox glitch dup)", () => {
+    expect(
+      semanticFingerprint(
+        "Since the 1.14.00 patch, I’ve been experiencing constant graphics glitches on the Xbox.",
+        "graphics_visual",
+      ),
+    ).toBe(semanticFingerprint("Since the 1.14.00 patch, constant graphics glitches on Xbox", "graphics_visual"));
+  });
+
+  it("keeps distinct issues on distinct fingerprints", () => {
+    expect(semanticFingerprint("Graphics glitches on Xbox", "graphics_visual")).not.toBe(
+      semanticFingerprint("Audio missing on Xbox", "graphics_visual"),
+    );
+  });
+
+  it("falls back to the plain normalized title when stopwords strip everything", () => {
+    expect(semanticFingerprint("The Update", "other")).toBe(semanticFingerprint("the update", "other"));
+    expect(semanticFingerprint("The Update", "other")).not.toBe(semanticFingerprint("", "other"));
+  });
 });
 
 describe("automation extraction", () => {

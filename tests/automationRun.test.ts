@@ -3481,7 +3481,7 @@ describe("runAutomationMonitor", () => {
           source_type: "web_search",
           source_domain: "example.com",
           canonical_url: "https://example.com/stale-fps",
-          semantic_fingerprint: "8d641d5b7955407f77fbce6d53665716d5b292f614e545a4220ad6c54d0c99f9",
+          semantic_fingerprint: semanticFingerprint("FPS regression since 1.13", "performance"),
           cluster_id: "cluster-fps",
           category: "performance",
           confidence: "medium",
