@@ -185,8 +185,10 @@ const FIX_CLAIM_NOUN = String.raw`(?:black ?screens?|infinite (?:load|loading)|s
 // strip and masquerade as a live complaint.
 const FIX_CLAIM_NOUN_SERIES = String.raw`${FIX_CLAIM_NOUN}(?:\s*(?:[,/&]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${FIX_CLAIM_NOUN})*`;
 const FIX_CLAIM_SYMPTOM = new RegExp(String.raw`\b${FIX_CLAIM_VERB}\b${FIX_CLAIM_GLUE}\s+${FIX_CLAIM_NOUN_SERIES}\b`, "i");
+const BARE_SYMPTOM_NOUN_FIRST = String.raw`(?:errors?|glitch(?:es)?)`;
+const BARE_SYMPTOM_NOUN_FIRST_SERIES = String.raw`${BARE_SYMPTOM_NOUN_FIRST}(?:\s*(?:[,/&]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${BARE_SYMPTOM_NOUN_FIRST})*`;
 const BARE_SYMPTOM_NOUN_FIRST_FIX_CLAIM = new RegExp(
-  String.raw`\b(?:errors?|glitch(?:es)?)\s+${FIX_CLAIM_VERB}\b`,
+  String.raw`\b${BARE_SYMPTOM_NOUN_FIRST_SERIES}\s+${FIX_CLAIM_VERB}\b`,
   "i",
 );
 

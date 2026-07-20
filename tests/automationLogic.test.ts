@@ -1350,6 +1350,7 @@ describe("automation relevance", () => {
       for (const title of [
         "Crimson Desert 1.14.00 update brings error fixes",
         "Crimson Desert 1.14.00 update brings glitch fixes",
+        "Crimson Desert 1.14.00 update brings error and glitch fixes",
       ]) {
         expect(
           preScreenCandidate(
