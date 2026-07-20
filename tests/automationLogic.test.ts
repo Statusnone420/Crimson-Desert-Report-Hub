@@ -1303,6 +1303,16 @@ describe("automation relevance", () => {
       ).toEqual({ keep: true });
     });
 
+    it("rejects negated bare symptoms (runs with no errors / no glitches)", () => {
+      expect(
+        preScreenCandidate({
+          title: "Crimson Desert runs with no errors after the patch",
+          snippet: "Smooth session, no glitches on my end.",
+          sourceDomain: "reddit.com",
+        }),
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
+    });
+
     it("rejects a bugs-and-glitches marketing announcement despite the new bare symptom patterns", () => {
       expect(
         preScreenCandidate(

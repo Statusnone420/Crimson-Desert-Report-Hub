@@ -120,9 +120,12 @@ const UNSUPPORTED_SOURCE_CONTEXT_PATTERNS = [
   /\b(?:repacks?|pirat(?:e|ing|ed|es)|rin forum|clean steam files)\b/i,
 ] as const;
 
+// Negation wrapper for the SAME bare nouns the symptom list recognizes — when a
+// noun joins SYMPTOM_PATTERNS as a standalone matcher, its negated form must be
+// recognized here or "runs with no <noun>" reads as a complaint.
 const NO_ISSUE_PATTERNS = [
-  /\bno (?:reported |known )?(?:issues?|bugs?|crashes?|problems?)\b/i,
-  /\bwithout (?:reported |known )?(?:issues?|bugs?|crashes?|problems?)\b/i,
+  /\bno (?:reported |known )?(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag)\b/i,
+  /\bwithout (?:reported |known |any )?(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag)\b/i,
 ] as const;
 
 const CLAIMED_FIX_PATTERNS = [
@@ -400,9 +403,10 @@ export function shouldKeepExtractedSignal(
     // A real complaint with no category keyword (cross-save failures, boss-fight
     // bugs) still deserves tracking under "other" — this gate exists to drop
     // non-complaints, not uncategorizable complaints. "Complaint" keeps its ONE
-    // definition: the shared SYMPTOM_PATTERNS list via hasComplaintSymptom.
+    // definition: the shared SYMPTOM_PATTERNS list via hasComplaintSymptom,
+    // with the same no-issue negation guard the pre-screen applies.
     const text = compact(sourceText ?? `${extraction.issueTitle} ${extraction.summary}`);
-    if (hasComplaintSymptom(text)) return { keep: true };
+    if (hasComplaintSymptom(text) && !saysNoIssue(text)) return { keep: true };
     return { keep: false, reason: "category_other" };
   }
   return { keep: true };

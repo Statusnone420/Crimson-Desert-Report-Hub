@@ -1691,30 +1691,43 @@ async function persistRejectedCandidates(
   if (candidates.length === 0) return;
   // Dedupe against the un-expired reject pile: the same page resurfaces in
   // search run after run (one patch-notes mirror was stored 7×). Refresh the
-  // existing row's retention window instead of stacking duplicates. Best-effort
-  // for the same reason as above.
+  // existing row — retention window AND current classification (reason, title,
+  // snippet), so a re-screen that changes the reason is reflected — instead of
+  // stacking duplicates. Same commitment rule as above: a URL is suppressed
+  // only after its refresh succeeds.
+  const refreshedUrls = new Set<string>();
   try {
-    const urls = [...new Set(candidates.map((candidate) => candidate.url))];
+    const byUrl = new Map(candidates.map((candidate) => [candidate.url, candidate]));
     const { data, error } = await supabase
       .from("automation_rejected_candidates")
       .select("id, url")
-      .in("url", urls)
+      .in("url", [...byUrl.keys()])
       .gt("expires_at", now.toISOString());
     if (error) throw new Error(error.message);
-    const existing = ((data ?? []) as { id: string; url: string }[]);
-    if (existing.length > 0) {
-      const existingUrls = new Set(existing.map((row) => row.url));
-      candidates = candidates.filter((candidate) => !existingUrls.has(candidate.url));
-      const refreshedExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const refreshedExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    for (const row of (data ?? []) as { id: string; url: string }[]) {
+      const candidate = byUrl.get(row.url);
+      if (!candidate || refreshedUrls.has(row.url)) continue;
       const { error: refreshError } = await supabase
         .from("automation_rejected_candidates")
-        .update({ expires_at: refreshedExpiry })
-        .in("id", existing.map((row) => row.id));
+        .update({
+          run_id: runId,
+          title: candidate.title,
+          snippet: candidate.snippet,
+          reason: candidate.reason,
+          source_published_at: candidate.sourcePublishedAt ?? null,
+          expires_at: refreshedExpiry,
+        })
+        .eq("id", row.id);
       if (refreshError) throw new Error(refreshError.message);
+      refreshedUrls.add(row.url);
     }
   } catch (error) {
     result.skips.push("reject_dedupe_read_failed");
     void error;
+  }
+  if (refreshedUrls.size > 0) {
+    candidates = candidates.filter((candidate) => !refreshedUrls.has(candidate.url));
   }
   if (candidates.length === 0) return;
   const rows = candidates.slice(0, MAX_REJECTED_CANDIDATES_PER_RUN).map((candidate) => ({
