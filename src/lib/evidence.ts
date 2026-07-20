@@ -16,6 +16,18 @@ export function needsFullIssueCard(cluster: {
   );
 }
 
+const PIPELINE_NOTE = /\s*\(body retained for 48h moderator review\)\s*$/i;
+
+export function displayDescription(
+  title: string,
+  description: string | null | undefined,
+): string | null {
+  const cleaned = (description ?? "").replace(PIPELINE_NOTE, "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+  if (cleaned.toLowerCase() === title.replace(/\s+/g, " ").trim().toLowerCase()) return null;
+  return cleaned;
+}
+
 export function splitWatchlistByCandidates<T extends { candidateSignalCount: number }>(
   watchlist: T[],
 ): { candidates: T[]; monitored: T[] } {

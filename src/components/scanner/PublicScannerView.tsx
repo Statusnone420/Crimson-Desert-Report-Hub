@@ -72,7 +72,7 @@ export function PublicScannerView({
       key: "published",
       label: "Published issues",
       value: data.published,
-      caption: "Full cards with a report or reviewed link",
+      caption: "Full cards on the issue board — player evidence, a confirmation signal, or a reviewed link",
       valueClass: "stat-band__value stat-band__value--crimson",
     },
   ];

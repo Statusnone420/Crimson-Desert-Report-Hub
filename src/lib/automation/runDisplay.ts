@@ -40,6 +40,16 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "A thin current-patch source was kept private for corroboration instead of being discarded or published.",
     summaryLabel: "candidate rescued",
   },
+  off_topic: {
+    label: "Off-topic",
+    detail: "The page never mentions Crimson Desert, so it was dropped before any other screening.",
+    summaryLabel: "off-topic",
+  },
+  rescued_signal_reobserved: {
+    label: "Rescued lead seen again",
+    detail: "A previously rescued lead reappeared in search; its freshness was updated instead of re-rejecting it.",
+    summaryLabel: "rescued lead seen again",
+  },
   llm_budget_capped: {
     label: "LLM cap reached",
     detail: "The scanner reached its monthly DeepSeek cap; deterministic scanning and patch maintenance continue.",
@@ -214,7 +224,8 @@ export function summarizeRunMessages(skips: string[], errors: string[]) {
 const DROP_SKIP_PLAIN: Record<string, string> = {
   wrong_patch: "about a different patch",
   source_not_issue_report: "not a bug report",
-  category_other: "off-topic, not a bug",
+  category_other: "not sortable into a bug area",
+  off_topic: "not about Crimson Desert",
   duplicate: "a duplicate of something we already have",
   reddit_disabled: "Reddit source is off",
   openrouter_invalid_json: "an AI read failed (used a fallback)",
@@ -245,7 +256,7 @@ export type PlainScan = {
   droppedBreakdown: { label: string; count: number }[];
 };
 
-const DROP_CODES = ["wrong_patch", "source_not_issue_report", "category_other"] as const;
+const DROP_CODES = ["wrong_patch", "source_not_issue_report", "category_other", "off_topic"] as const;
 
 /** Turn a run row into plain-language counts for the "last scan, in plain English" panel. */
 export function describeScanPlain(run: PlainScanRun): PlainScan {

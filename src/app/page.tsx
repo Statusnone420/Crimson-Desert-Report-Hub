@@ -15,7 +15,7 @@ import { categoryChartColor, chartCategories } from "@/lib/categoryColors";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { uniqueClaimAttributions } from "@/lib/claims";
 import { composeDispatchBrief, formatWeeklyDelta, weeklyDeltaSentence } from "@/lib/dispatchBrief";
-import { needsFullIssueCard } from "@/lib/evidence";
+import { displayDescription, needsFullIssueCard } from "@/lib/evidence";
 import { getTrackedPatchEditionCount } from "@/lib/officialPatch.server";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import { getPatchRadarData } from "@/lib/radar.server";
@@ -690,7 +690,9 @@ export default async function DispatchHomePage() {
                   <p className="board-secondary__meta dispatch-mobile-only">
                     {leadStory.directReportCount} reports · {leadStory.confirmations.totalCount} taps
                   </p>
-                  <p className="board-lead__summary">{leadStory.description}</p>
+                  {displayDescription(leadStory.title, leadStory.description) ? (
+                    <p className="board-lead__summary">{displayDescription(leadStory.title, leadStory.description)}</p>
+                  ) : null}
                   <div className="dispatch-desktop-only">{platformMeters(leadStory)}</div>
                   {tapControl(leadStory)}
                 </article>
@@ -699,7 +701,9 @@ export default async function DispatchHomePage() {
                 <article key={cluster.id} className="board-secondary">
                   {statusLine(cluster, false)}
                   <h3 className="board-secondary__title">{cluster.title}</h3>
-                  <p className="board-secondary__summary">{cluster.description}</p>
+                  {displayDescription(cluster.title, cluster.description) ? (
+                    <p className="board-secondary__summary">{displayDescription(cluster.title, cluster.description)}</p>
+                  ) : null}
                   <p className="board-secondary__meta">
                     {cluster.directReportCount} reports · {cluster.confirmations.totalCount} taps ·{" "}
                     {(CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category).toLowerCase()}

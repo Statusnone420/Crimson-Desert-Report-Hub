@@ -2,6 +2,7 @@ import "server-only";
 
 import { unstable_cache } from "next/cache";
 import { countBy, rankClusters } from "@/lib/aggregates";
+import { needsFullIssueCard } from "@/lib/evidence";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
 import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
@@ -1013,11 +1014,11 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       if (report.cluster_id) approvedReportClusters.add(report.cluster_id);
     }
 
-    const { data: clusterData } = await supabase.from("issue_clusters").select("id").eq("is_public", true);
-    let published = 0;
-    for (const cluster of (clusterData ?? []) as { id: string }[]) {
-      if (publicSignalClusters.has(cluster.id) || approvedReportClusters.has(cluster.id)) published += 1;
-    }
+    // One definition of "published" for every surface: the same full-card gate
+    // the issue board and homepage use (needsFullIssueCard on decorated clusters).
+    // Counting from raw sets here previously disagreed with the board.
+    const { clusters: decoratedClusters } = await getIssuesDataUncached();
+    const published = decoratedClusters.filter(needsFullIssueCard).length;
 
     // Awaiting = current-patch eligible private-lead clusters not backed by a
     // public link or approved report, including clusters not yet public.

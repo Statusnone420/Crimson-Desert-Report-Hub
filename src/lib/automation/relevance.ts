@@ -1,8 +1,14 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
+import { domainTier } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
 import { CURRENT_PATCH } from "@/lib/constants";
 
-export type RelevanceSkipReason = "category_other" | "source_not_issue_report" | "wrong_patch" | "stale_source";
+export type RelevanceSkipReason =
+  | "category_other"
+  | "source_not_issue_report"
+  | "wrong_patch"
+  | "stale_source"
+  | "off_topic";
 
 /**
  * Observation genres: named non-complaint genres the pre-screen already
@@ -54,6 +60,23 @@ const SYMPTOM_PATTERNS = [
   /\b(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b.{0,50}\b(?:missing|gone|muted|silent|broken|cut(?:s|ting)? out|doesn'?t play|not playing|desync(?:ed)?|out of sync)\b/i,
   /\b(?:quests?|missions?|objectives?|npcs?|cutscenes?|dialogue)\b.{0,60}\b(?:stuck|blocked|frozen|missing|broken|bugged|softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete|not progressing|not spawning)\b/i,
   /\b(?:softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete)\b/i,
+  // Cross-save / save-data failures — the launch feature of 1.14.00. These carry no
+  // legacy symptom noun ("Cross-save not working?", "Cross Save error PS5 Pro"), which
+  // is exactly how real complaints were falling out as "not an issue report".
+  /\bcross[- ]?save\b.{0,60}\b(?:errors?|fail(?:s|ed|ing)?|broken|not working|won'?t work|can'?t|cannot|crash(?:es|ed|ing)?|missing|lost|stuck)\b/i,
+  /\b(?:errors?|fail(?:s|ed|ing)?|broken|crash(?:es|ed|ing)?|missing|lost)\b.{0,60}\bcross[- ]?save\b/i,
+  /\b(?:save|saves|save (?:file|data|slot)|progress)\b.{0,50}\b(?:lost|missing|corrupt(?:ed)?|gone|wiped|deleted|won'?t (?:load|sync)|not (?:loading|syncing))\b/i,
+  // Generic complaint shapes with no symptom noun at all: "not working", bare
+  // "error(s)", bare "glitch(es)", "still broken/angry/unplayable", and the
+  // question-form openers players actually use. Recall-biased on purpose — the
+  // promotion guard, not this list, is the precision boundary.
+  /\b(?:won't|will not|doesn't|does not|can't|cannot|not|stopped)\s+work(?:ing)?\b/i,
+  /\berrors?\b/i,
+  /\bglitch(?:es|ed|y|ing)?\b/i,
+  /\bstill\s+(?:broken|bugged|glitched|angry|happening|unplayable|not (?:working|fixed))\b/i,
+  /\bunplayable\b/i,
+  /\b(?:am i the only one|is it just me|anyone else)\b.{0,80}\b(?:problems?|issues?|bugs?|glitch(?:es)?|broken|crash(?:es|ing)?|errors?|not working)\b/i,
+  /\b(?:graphical|graphics|visual|texture)\s+(?:problems?|issues?|bugs?)\b/i,
 ] as const;
 
 // The press subset of BROAD_CONTENT_PATTERNS: coverage worth keeping as an
@@ -206,6 +229,20 @@ function hasSymptomLanguage(text: string): boolean {
   return matchesAny(text, SYMPTOM_PATTERNS);
 }
 
+// Broad-query discovery (e.g. "r/CrimsonDesert" matching the R programming
+// language) drags in pages about entirely different subjects. On an UNKNOWN
+// domain, a candidate must mention the game — by name (incl. the Chinese/Korean
+// store names), community (CDguides), or publisher — somewhere in its title,
+// snippet, or URL to enter the funnel. Trusted community/press domains are
+// exempt: Steam discussion URLs are numeric app paths that cannot carry the
+// name, and every observed contamination case came from an unknown domain.
+const GAME_CONTEXT_PATTERN = /crimson\s?desert|crimsondesert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
+
+function isOffTopicForUnknownDomain(input: CandidatePreScreenInput, sourceText: string): boolean {
+  if (domainTier(input.sourceDomain) === "trusted") return false;
+  return !GAME_CONTEXT_PATTERN.test(`${sourceText} ${input.url ?? ""}`);
+}
+
 function saysNoIssue(text: string): boolean {
   return matchesAny(text, NO_ISSUE_PATTERNS);
 }
@@ -293,6 +330,9 @@ export function preScreenCandidate(
   options: { currentPatchVersion?: string; currentPatchPublishedAt?: string | null } = {},
 ): SignalRelevanceDecision {
   const sourceText = compact(`${input.title} ${input.snippet}`);
+  if (isOffTopicForUnknownDomain(input, sourceText)) {
+    return { keep: false, reason: "off_topic" };
+  }
   if (hasUnsupportedSourceContext(input)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
@@ -348,8 +388,17 @@ export function preScreenCandidate(
 }
 
 /** Post-extraction gate. Runs AFTER extraction (deterministic or LLM). */
-export function shouldKeepExtractedSignal(extraction: ExtractionResult): SignalRelevanceDecision {
+export function shouldKeepExtractedSignal(
+  extraction: ExtractionResult,
+  sourceText?: string,
+): SignalRelevanceDecision {
   if (extraction.category === "other") {
+    // A real complaint with no category keyword (cross-save failures, boss-fight
+    // bugs) still deserves tracking under "other" — this gate exists to drop
+    // non-complaints, not uncategorizable complaints. "Complaint" keeps its ONE
+    // definition: the shared SYMPTOM_PATTERNS list via hasComplaintSymptom.
+    const text = compact(sourceText ?? `${extraction.issueTitle} ${extraction.summary}`);
+    if (hasComplaintSymptom(text)) return { keep: true };
     return { keep: false, reason: "category_other" };
   }
   return { keep: true };

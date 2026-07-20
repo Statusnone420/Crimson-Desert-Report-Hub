@@ -401,7 +401,7 @@ export async function runRedditMonitor(formData: FormData): Promise<void> {
           source: "reddit",
           source_url: `https://www.reddit.com${post.permalink}`,
           external_id_hash: externalIdHash("reddit", post.id),
-          summary: summarize(post.title, body),
+          summary: summarize(post.title),
           extracted_facts: { subreddit, classified: category },
           category,
           confidence,

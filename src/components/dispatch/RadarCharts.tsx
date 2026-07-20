@@ -267,7 +267,7 @@ export function RadarScreen({
               textAnchor="middle"
               dominantBaseline="middle"
               fontFamily="var(--font-mono)"
-              fontSize="8.5"
+              fontSize="9.5"
               letterSpacing="0.06em"
               fill="var(--dispatch-quiet)"
             >
@@ -295,8 +295,8 @@ export function RadarScreen({
               r={blipR.toFixed(1)}
               fill={point.isPublic ? sector.color : "none"}
               stroke={sector.color}
-              strokeWidth={point.isPublic ? 0 : 1.5}
-              opacity={point.isPublic ? 1 : 0.75}
+              strokeWidth={point.isPublic ? 0 : 1.8}
+              opacity={point.isPublic ? 1 : 0.9}
             >
               <title>{`${sector.label} lead · ${seenLabel} · seen ${point.seenCount}× total${point.isPublic ? " · published" : " · private"}`}</title>
             </circle>
@@ -320,7 +320,7 @@ export function RadarScreen({
         y={cy + 12}
         textAnchor="middle"
         fontFamily="var(--font-mono)"
-        fontSize="7.5"
+        fontSize="8.5"
         letterSpacing="0.1em"
         fill="var(--dispatch-quiet)"
       >
@@ -503,7 +503,9 @@ export function CategorySparklines({
   width: number;
 }) {
   if (weeks.length < 2 || categories.length === 0) return null;
-  const height = 26;
+  // 48px of drawable height (was 26): at 26px the entire series lived in a
+  // 20px band and read as a flat dash on desktop monitors.
+  const height = 48;
   const sharedMax = Math.max(
     1,
     ...weeks.flatMap((week) => categories.map(({ category }) => week.counts[category] ?? 0)),
@@ -531,7 +533,7 @@ export function CategorySparklines({
               role="img"
               aria-label={`${cat.label}: ${values.join(", ")} still-tracked leads first seen per week, oldest first.`}
             >
-              <polyline points={pointsAttr} fill="none" stroke={cat.color} strokeWidth="2" strokeLinejoin="round" />
+              <polyline points={pointsAttr} fill="none" stroke={cat.color} strokeWidth="2.5" strokeLinejoin="round" />
             </svg>
             <span className="cat-sparklines__count num-quiet">{total}</span>
           </div>
@@ -556,10 +558,12 @@ export function RecurrenceSmallMultiples({
   if (points.length === 0) return null;
   const maxDays = Math.max(1, ...points.map((p) => p.daysTracked));
   const maxSeen = Math.max(2, ...points.map((p) => p.seenCount));
-  const w = 168;
-  const h = 96;
-  const padL = 8;
-  const padB = 16;
+  // Larger canvas + a labeled y-axis (was 168×96 with 8.5px type and no y
+  // numbers): the panels also scale up to their grid cell via CSS width:100%.
+  const w = 220;
+  const h = 128;
+  const padL = 26;
+  const padB = 18;
   const plotW = w - padL - 8;
   const plotH = h - padB - 8;
 
@@ -596,7 +600,7 @@ export function RecurrenceSmallMultiples({
               {[...grouped.values()].map(({ point, count }) => {
                 const x = padL + (point.daysTracked / maxDays) * (plotW - 8) + 4;
                 const y = 8 + plotH - ((point.seenCount - 1) / (maxSeen - 1)) * (plotH - 8) - 4;
-                const radius = Math.min(7, 2.5 * Math.sqrt(count));
+                const radius = Math.min(9, 3.25 * Math.sqrt(count));
                 return (
                   <circle
                     key={`${point.daysTracked}:${point.seenCount}:${point.isPublic}`}
@@ -605,18 +609,24 @@ export function RecurrenceSmallMultiples({
                     r={radius.toFixed(1)}
                     fill={point.isPublic ? cat.color : "none"}
                     stroke={cat.color}
-                    strokeWidth={point.isPublic ? 0 : 1.2}
-                    opacity={point.isPublic ? 1 : 0.75}
+                    strokeWidth={point.isPublic ? 0 : 1.8}
+                    opacity={point.isPublic ? 1 : 0.9}
                   >
                     <title>{`${count === 1 ? "1 lead" : `${count} leads`} · seen ${point.seenCount}× · tracked ${point.daysTracked}d${point.isPublic ? " · published" : " · private"}`}</title>
                   </circle>
                 );
               })}
-              <text x={padL} y={h - 4} fontFamily="var(--font-mono)" fontSize="8.5" fill="var(--dispatch-quiet)">
+              <text x={padL} y={h - 4} fontFamily="var(--font-mono)" fontSize="11" fill="var(--dispatch-quiet)">
                 0D
               </text>
-              <text x={w - 4} y={h - 4} textAnchor="end" fontFamily="var(--font-mono)" fontSize="8.5" fill="var(--dispatch-quiet)">
+              <text x={w - 4} y={h - 4} textAnchor="end" fontFamily="var(--font-mono)" fontSize="11" fill="var(--dispatch-quiet)">
                 {maxDays}D
+              </text>
+              <text x={padL - 5} y={14} textAnchor="end" fontFamily="var(--font-mono)" fontSize="11" fill="var(--dispatch-quiet)">
+                {maxSeen}×
+              </text>
+              <text x={padL - 5} y={8 + plotH} textAnchor="end" fontFamily="var(--font-mono)" fontSize="11" fill="var(--dispatch-quiet)">
+                1×
               </text>
             </svg>
           </figure>

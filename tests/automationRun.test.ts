@@ -1442,7 +1442,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops since 1.13",
         url: "https://example.com/orphan-fps",
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -1492,7 +1492,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops since 1.13",
         url: "https://example.com/raced-fps",
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -1557,7 +1557,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops since 1.13",
         url,
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -1586,7 +1586,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops first",
         url: "https://example.com/partial-first",
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -1594,7 +1594,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops second",
         url: "https://example.com/partial-second",
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",

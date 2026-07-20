@@ -684,6 +684,12 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--dispatch-quiet);
+  /* The copy cell stretches to the rail's height; at low data volume that left
+     a dead band under this line. Anchoring it to the cell's bottom edge, over
+     its own hairline, turns the leftover height into deliberate structure. */
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule-faint);
 }
 
 /* Record rail (THE RECORD / IN THIS EDITION) */
@@ -698,7 +704,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   color: var(--dispatch-ink);
 }
 
-.record-block__header--again { margin-top: 26px; }
+.record-block__header--again { margin-top: 20px; }
 
 .record-block__row {
   display: flex;
@@ -926,13 +932,13 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   font-size: 12.5px;
   color: var(--dispatch-muted);
 }
-.cat-sparklines__row svg { display: block; max-width: 100%; height: auto; }
+.cat-sparklines__row svg { display: block; width: 100%; max-width: 100%; height: auto; }
 .cat-sparklines__count { font-family: var(--font-mono); font-size: 12px; text-align: right; }
 
 /* Recurrence small multiples: shared-scale panels, one per problem area. */
 .recurrence-multiples {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 20px 24px;
 }
 .recurrence-panel { margin: 0; min-width: 0; }
@@ -945,7 +951,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   margin-bottom: 4px;
 }
 .recurrence-panel__head .num-quiet { margin-left: auto; font-family: var(--font-mono); color: var(--dispatch-quiet); }
-.recurrence-panel svg { display: block; max-width: 100%; height: auto; }
+.recurrence-panel svg { display: block; width: 100%; max-width: 100%; height: auto; }
 
 .radar-health {
   font-family: var(--font-mono);

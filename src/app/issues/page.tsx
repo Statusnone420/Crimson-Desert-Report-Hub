@@ -4,7 +4,7 @@ import { PublicShell } from "@/components/dispatch/Chrome";
 import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS, PLATFORM_LABELS, PLATFORMS } from "@/lib/constants";
 import { DISPLAY_THRESHOLD_NETWORKS } from "@/lib/readout";
-import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
+import { displayDescription, hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 
@@ -248,7 +248,9 @@ export default async function IssuesPage() {
               >
                 {leadEntry.readout.sentence}
               </blockquote>
-              <p className="issue-summary">{leadEntry.description}</p>
+              {displayDescription(leadEntry.title, leadEntry.description) ? (
+                <p className="issue-summary">{displayDescription(leadEntry.title, leadEntry.description)}</p>
+              ) : null}
               {excerpts({ cluster: leadEntry })}
               {platformTallies({ cluster: leadEntry })}
               {leadEntry.readout.poll === null ? confirmStrip({ cluster: leadEntry }) : null}
@@ -271,7 +273,9 @@ export default async function IssuesPage() {
               >
                 {cluster.readout.sentence}
               </blockquote>
-              <p className="issue-summary">{cluster.description}</p>
+              {displayDescription(cluster.title, cluster.description) ? (
+                <p className="issue-summary">{displayDescription(cluster.title, cluster.description)}</p>
+              ) : null}
               {excerpts({ cluster, limit: 2 })}
             </div>
             {verdictRail({ cluster })}
@@ -284,7 +288,9 @@ export default async function IssuesPage() {
               <article key={cluster.id} className="issue-minor" aria-label={cluster.title}>
                 {statusLine({ cluster })}
                 <h2 className="issue-title issue-title--minor">{cluster.title}</h2>
-                <p className="issue-minor__summary">{cluster.description}</p>
+                {displayDescription(cluster.title, cluster.description) ? (
+                  <p className="issue-minor__summary">{displayDescription(cluster.title, cluster.description)}</p>
+                ) : null}
                 {excerpts({ cluster, limit: 1 })}
                 {confirmStrip({ cluster })}
               </article>
