@@ -123,9 +123,11 @@ const UNSUPPORTED_SOURCE_CONTEXT_PATTERNS = [
 // Negation wrapper for the SAME bare nouns the symptom list recognizes — when a
 // noun joins SYMPTOM_PATTERNS as a standalone matcher, its negated form must be
 // recognized here or "runs with no <noun>" reads as a complaint.
+const NO_ISSUE_NOUN = String.raw`(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag)`;
+const NO_ISSUE_NOUN_SERIES = String.raw`${NO_ISSUE_NOUN}(?:\s*(?:[,/]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${NO_ISSUE_NOUN})*`;
 const NO_ISSUE_PATTERNS = [
-  /\bno (?:reported |known )?(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag)\b/i,
-  /\bwithout (?:reported |known |any )?(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag)\b/i,
+  new RegExp(String.raw`\bno (?:reported |known )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
+  new RegExp(String.raw`\bwithout (?:reported |known |any )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
 ] as const;
 
 const CLAIMED_FIX_PATTERNS = [
@@ -256,7 +258,12 @@ function isOffTopicForUnknownDomain(input: CandidatePreScreenInput, sourceText: 
 }
 
 function saysNoIssue(text: string): boolean {
-  return matchesAny(text, NO_ISSUE_PATTERNS);
+  if (!matchesAny(text, NO_ISSUE_PATTERNS)) return false;
+  const withoutNoIssueCopy = NO_ISSUE_PATTERNS.reduce(
+    (value, pattern) => value.replace(new RegExp(pattern.source, "gi"), " "),
+    text,
+  );
+  return !hasComplaintSymptom(withoutNoIssueCopy);
 }
 
 function isBroadContentTitle(title: string): boolean {

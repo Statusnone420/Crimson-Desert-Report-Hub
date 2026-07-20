@@ -1304,13 +1304,33 @@ describe("automation relevance", () => {
     });
 
     it("rejects negated bare symptoms (runs with no errors / no glitches)", () => {
-      expect(
-        preScreenCandidate({
+      for (const candidate of [
+        {
           title: "Crimson Desert runs with no errors after the patch",
           snippet: "Smooth session, no glitches on my end.",
-          sourceDomain: "reddit.com",
-        }),
-      ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
+        },
+        {
+          title: "Crimson Desert has no errors or glitches after the patch",
+          snippet: "Smooth session on my end.",
+        },
+      ]) {
+        expect(
+          preScreenCandidate({ ...candidate, sourceDomain: "reddit.com" }),
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
+
+    it("keeps a live complaint after a negated before-state", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert stutter after 1.14",
+            snippet: "No stutter before 1.14; now Crimson Desert stutters every fight.",
+            sourceDomain: "reddit.com",
+          },
+          { currentPatchVersion: "1.14.00" },
+        ),
+      ).toEqual({ keep: true });
     });
 
     it("rejects a bugs-and-glitches marketing announcement despite the new bare symptom patterns", () => {
