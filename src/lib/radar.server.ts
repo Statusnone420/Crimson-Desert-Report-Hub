@@ -113,8 +113,26 @@ export type PatchRadarData = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_WINDOW_DAYS = 30;
+const RADAR_PAGE_SIZE = 1000;
 const RECURRENCE_POINT_CAP = 200;
 const WEEKLY_WINDOW_WEEKS = 12;
+
+type RadarPageResult<T> = { data: T[] | null; error: { message: string } | null };
+
+/** Exhaustive paged read so radar aggregates never silently stop at the API row cap. */
+export async function fetchAllRadarRows<T>(
+  label: string,
+  page: (from: number, to: number) => PromiseLike<RadarPageResult<T>>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += RADAR_PAGE_SIZE) {
+    const { data, error } = await page(from, from + RADAR_PAGE_SIZE - 1);
+    if (error) throw new Error(`${label} read failed: ${error.message}`);
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < RADAR_PAGE_SIZE) return rows;
+  }
+}
 
 function emptyEligibility(): Record<CurrentPatchEligibilityReason, number> {
   return {
@@ -193,6 +211,8 @@ function isTrackedLead(row: RadarSignalRow): boolean {
 export function composePatchRadarData(input: {
   signals: RadarSignalRow[];
   runs: RadarRunRow[];
+  /** Latest terminal run fetched outside the chart window for health reporting. */
+  latestTerminalRun?: RadarRunRow | null;
   patch: { version: string; publishedAt: string | null };
   paused: boolean;
   cadenceMinutes: number;
@@ -343,7 +363,11 @@ export function composePatchRadarData(input: {
   const realRuns = input.runs
     .filter((run) => run.mode !== "dry_run")
     .sort((a, b) => (parseTime(b.started_at) ?? 0) - (parseTime(a.started_at) ?? 0));
-  const lastTerminal = realRuns.find((run) => ["success", "partial", "failed"].includes(run.status)) ?? null;
+  const terminalCandidates = [
+    ...(input.latestTerminalRun && input.latestTerminalRun.mode !== "dry_run" ? [input.latestTerminalRun] : []),
+    ...realRuns,
+  ];
+  const lastTerminal = terminalCandidates.find((run) => ["success", "partial", "failed"].includes(run.status)) ?? null;
   const weekReal = realRuns.filter((run) => (parseTime(run.started_at) ?? 0) >= weekAgo);
   const runs7d = {
     succeeded: weekReal.filter((run) => run.status === "success" || run.status === "partial").length,
@@ -412,20 +436,32 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
   try {
     const supabase = createServiceClient();
     const currentPatch = await radarPatchContext(supabase);
+    const signalSelect =
+      "cluster_id, category, confidence, public_status, first_seen_at, last_seen_at, observed_at, seen_count, source_published_at, title, summary, source_url, extracted_facts";
+    const runSelect =
+      "started_at, status, mode, intent, search_queries_used, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved";
 
-    const [signalsRes, runsRes, control, reportsRes, tapsRes] = await Promise.all([
-      supabase
-        .from("source_signals")
-        .select(
-          "cluster_id, category, confidence, public_status, first_seen_at, last_seen_at, observed_at, seen_count, source_published_at, title, summary, source_url, extracted_facts",
-        ),
+    const [signals, runsRes, latestTerminalRunRes, control, reportsRes, tapsRes] = await Promise.all([
+      fetchAllRadarRows<RadarSignalRow>("radar source signals", (from, to) =>
+        supabase
+          .from("source_signals")
+          .select(signalSelect)
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
       supabase
         .from("automation_runs")
-        .select(
-          "started_at, status, mode, intent, search_queries_used, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved",
-        )
+        .select(runSelect)
         .gte("started_at", new Date(Date.now() - DAILY_WINDOW_DAYS * DAY_MS).toISOString())
         .order("started_at", { ascending: false }),
+      supabase
+        .from("automation_runs")
+        .select(runSelect)
+        .neq("mode", "dry_run")
+        .in("status", ["success", "partial", "failed"])
+        .order("started_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(1),
       getAutomationControlState(supabase as unknown as AutomationSettingsClient),
       supabase
         .from("bug_reports")
@@ -433,11 +469,12 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
         .eq("moderation_status", "approved"),
       supabase.from("issue_confirmations").select("id", { count: "exact", head: true }),
     ]);
-    if (signalsRes.error || runsRes.error) return emptyPatchRadarData(currentPatch);
+    if (runsRes.error || latestTerminalRunRes.error) return emptyPatchRadarData(currentPatch);
 
     return composePatchRadarData({
-      signals: (signalsRes.data ?? []) as RadarSignalRow[],
+      signals,
       runs: (runsRes.data ?? []) as RadarRunRow[],
+      latestTerminalRun: (latestTerminalRunRes.data?.[0] as RadarRunRow | undefined) ?? null,
       patch: currentPatch,
       paused: control.paused,
       cadenceMinutes: control.minIntervalMinutes,

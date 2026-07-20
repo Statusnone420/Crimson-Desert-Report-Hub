@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   composePatchRadarData,
   emptyPatchRadarData,
+  fetchAllRadarRows,
   type RadarRunRow,
   type RadarSignalRow,
 } from "@/lib/radar.server";
@@ -235,6 +236,17 @@ describe("composePatchRadarData health and observability", () => {
     expect(data.health.nextEligibleAt).not.toBeNull();
   });
 
+  it("keeps the latest terminal scan when the chart window has no recent runs", () => {
+    const data = compose({
+      runs: [],
+      latestTerminalRun: run({ started_at: "2026-05-01T08:00:00Z", status: "success" }),
+    });
+
+    expect(data.health.lastScanAt).toBe("2026-05-01T08:00:00Z");
+    expect(data.health.lastScanStatus).toBe("success");
+    expect(data.health.runs7d).toEqual({ succeeded: 0, skipped: 0, failed: 0 });
+  });
+
   it("reports no next eligible scan while paused", () => {
     const data = compose({ paused: true });
     expect(data.health.nextEligibleAt).toBeNull();
@@ -266,6 +278,29 @@ describe("composePatchRadarData health and observability", () => {
     expect(data.eligibility.current_patch).toBe(1);
     expect(data.eligibility.wrong_patch).toBe(1);
     expect(data.eligibility.unknown_source_freshness).toBe(1);
+  });
+});
+
+describe("fetchAllRadarRows", () => {
+  it("continues paging after a full API page", async () => {
+    const calls: Array<[number, number]> = [];
+    const rows = await fetchAllRadarRows<{ id: number }>("source signals", async (from, to) => {
+      calls.push([from, to]);
+      return {
+        data:
+          from === 0
+            ? Array.from({ length: 1000 }, (_, id) => ({ id }))
+            : [{ id: 1000 }],
+        error: null,
+      };
+    });
+
+    expect(calls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    expect(rows).toHaveLength(1001);
+    expect(rows.at(-1)).toEqual({ id: 1000 });
   });
 });
 
