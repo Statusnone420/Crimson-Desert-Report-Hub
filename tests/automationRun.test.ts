@@ -2652,6 +2652,43 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("refreshes observed_at when a rescued signal is re-observed as a reject", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      source_signals: [
+        {
+          id: "signal-rescued",
+          canonical_url: "https://example.com/rescued-rejection",
+          seen_count: 1,
+          observed_at: "2026-06-01T12:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch notes",
+        url: "https://example.com/rescued-rejection",
+        snippet: "Official update details.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsReobserved).toBe(1);
+    expect(rejectedCandidateRows()).toEqual([]);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      observed_at: "2026-07-05T12:00:00.000Z",
+      last_seen_at: "2026-07-05T12:00:00.000Z",
+    });
+  });
+
   it("records a re-observation event in the ledger when the table exists", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;

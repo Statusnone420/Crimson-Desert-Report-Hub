@@ -1668,6 +1668,7 @@ async function persistRejectedCandidates(
       const { error: updateError } = await supabase
         .from("source_signals")
         .update({
+          observed_at: now.toISOString(),
           last_seen_at: now.toISOString(),
           seen_count: Number(row.seen_count ?? 1) + 1,
           last_seen_run_id: runId,
