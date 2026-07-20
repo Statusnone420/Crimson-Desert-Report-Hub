@@ -36,6 +36,17 @@ This is the maintainer's resume-cold note. It records the current product shape 
 - Revisit cadence or provider allocation only with a fresh budget review; do not solve a discovery concern by silently raising the Tavily or OpenRouter caps.
 - Consider a formal contributor/admin identity model only if shared-password operations become a real bottleneck.
 
+### 2026-07-20 audit P3s — resolved
+
+All parked P3s from the July 20 full-site audit were closed the same day. What remains below is the record, not a to-do list.
+
+- **Unindexed foreign keys**: covering indexes added for `automation_rejected_candidates.run_id` and `signal_observation_events.run_id` (`20260720202450_fk_covering_indexes_run_id.sql`, applied to production).
+- **Unused indexes** flagged by the advisor: reviewed and deliberately retained — every flagged table is tiny (hundreds of rows at most), several indexes serve brand-new features (`signal_observation_events` shipped the same week), and dropping them saves nothing measurable. Re-check the advisor after a month of traffic before removing any.
+- **RLS enabled with no policies** on service-role-only tables (`issue_confirmations`, `patch_observations`, etc.): intentional default-deny — documented so the advisor INFO notices are not re-investigated from scratch.
+- **Rejected-candidate duplication**: `persistRejectedCandidates` now dedupes against the un-expired reject pile by URL and refreshes the existing row's retention window instead of stacking duplicates.
+- **Tracked-lead count vs raw signal rows**: the radar reports fewer tracked leads than raw non-hidden `source_signals` rows because stale/unsupported/wrong-patch rows are excluded by `isCurrentPatchRadarLead`. Expected, not a bug.
+- **Near-duplicate cluster fingerprints**: `semanticFingerprint` now strips patch-version tokens and narration filler (articles, first-person framing) so rephrasings of one complaint share a fingerprint. Note: stored fingerprints predate this change, so an old signal re-encountered under new wording can still route fresh — URL-level dedupe still catches exact re-observations.
+
 ### Do not reopen casually
 
 - Reddit API access, direct subreddit monitoring, raw public complaint feeds, analytics trackers, and verdict language are outside the product contract.

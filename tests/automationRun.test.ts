@@ -1442,7 +1442,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops since 1.13",
         url: "https://example.com/orphan-fps",
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -1492,7 +1492,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops since 1.13",
         url: "https://example.com/raced-fps",
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -1557,7 +1557,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops since 1.13",
         url,
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -1586,7 +1586,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops first",
         url: "https://example.com/partial-first",
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -1594,7 +1594,7 @@ describe("runAutomationMonitor", () => {
       {
         title: "FPS drops second",
         url: "https://example.com/partial-second",
-        snippet: "Players report FPS drops and stutter on Steam.",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
         sourceDomain: "example.com",
         observedAt: "2026-07-05T12:00:00.000Z",
         sourcePublishedAt: "2026-07-05T11:00:00.000Z",
@@ -2652,6 +2652,108 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("refreshes observed_at when a rescued signal is re-observed as a reject", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      source_signals: [
+        {
+          id: "signal-rescued",
+          canonical_url: "https://example.com/rescued-rejection",
+          seen_count: 1,
+          observed_at: "2026-06-01T12:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch notes",
+        url: "https://example.com/rescued-rejection",
+        snippet: "Official update details.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsReobserved).toBe(1);
+    expect(rejectedCandidateRows()).toEqual([]);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      observed_at: "2026-07-05T12:00:00.000Z",
+      last_seen_at: "2026-07-05T12:00:00.000Z",
+    });
+  });
+
+  it("refreshes a rescued signal's cluster when re-observation makes its sources current", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-rescued",
+          category: "performance",
+          auto_public: false,
+          is_public: false,
+          visibility_revision: 0,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-rescued",
+          cluster_id: "cluster-rescued",
+          canonical_url: "https://example.com/rescued-rejection",
+          source_domain: "dsogaming.com",
+          title: "Crimson Desert patch 1.13 FPS regression",
+          summary: "Frame rate drops after patch 1.13.00.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          observed_at: "2026-06-01T12:00:00.000Z",
+          seen_count: 1,
+          public_status: "private",
+        },
+        {
+          id: "signal-corroborating",
+          cluster_id: "cluster-rescued",
+          canonical_url: "https://example.net/current-stutter",
+          source_domain: "example.net",
+          title: "Crimson Desert patch 1.13 stutter",
+          summary: "Stutter persists after patch 1.13.00.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          seen_count: 1,
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch notes",
+        url: "https://example.com/rescued-rejection",
+        snippet: "Official update details.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result).toMatchObject({ signalsReobserved: 1, clustersPromoted: 1 });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      auto_public: true,
+      is_public: true,
+      public_signal_count: 2,
+    });
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+  });
+
   it("records a re-observation event in the ledger when the table exists", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -3481,7 +3583,7 @@ describe("runAutomationMonitor", () => {
           source_type: "web_search",
           source_domain: "example.com",
           canonical_url: "https://example.com/stale-fps",
-          semantic_fingerprint: "8d641d5b7955407f77fbce6d53665716d5b292f614e545a4220ad6c54d0c99f9",
+          semantic_fingerprint: semanticFingerprint("FPS regression since 1.13", "performance"),
           cluster_id: "cluster-fps",
           category: "performance",
           confidence: "medium",

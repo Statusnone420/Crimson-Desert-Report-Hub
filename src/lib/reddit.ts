@@ -95,8 +95,10 @@ export function classifySignal(text: string): { category: Category; confidence: 
   return { category: "other", confidence: "low" };
 }
 
-export function summarize(title: string, body: string): string {
+export function summarize(title: string): string {
+  // Raw bodies stay private (raw_text + raw_expires_at); the summary must be
+  // publishable on its own, so it is built from the title alone and never
+  // mentions the moderation pipeline.
   const flatTitle = title.replace(/\s+/g, " ").trim() || "Untitled Reddit post";
-  const flat = body.trim() ? `${flatTitle} (body retained for 48h moderator review)` : flatTitle;
-  return flat.length <= 280 ? flat : `${flat.slice(0, 277)}...`;
+  return flatTitle.length <= 280 ? flatTitle : `${flatTitle.slice(0, 277)}...`;
 }

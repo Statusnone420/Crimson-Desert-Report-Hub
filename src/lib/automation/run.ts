@@ -326,7 +326,7 @@ function lastObservedAt(rows: SourceSignalRow[]): string | null {
 }
 
 const RESCUE_EXCLUDED_CONTENT = /\b(?:patch notes?|benchmark|performance test|how to fix|troubleshooting|settings guide|gameplay|trailer|walkthrough|first look)\b/i;
-const RESCUE_CONTEXT = /\b(?:discussion|comments?|thread|feedback|player|players|report|reports|bug|issue|body retained|moderator review|latest patch|current patch|new patch)\b/i;
+const RESCUE_CONTEXT = /\b(?:discussion|comments?|thread|feedback|player|players|report|reports|bug|issue|latest patch|current patch|new patch)\b/i;
 
 function isBorderlineRescueCandidate(
   signal: SourceInput,
@@ -785,7 +785,7 @@ async function prepareSignals(
         if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
         recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
-        const relevance = shouldKeepExtractedSignal(extraction);
+        const relevance = shouldKeepExtractedSignal(extraction, `${signal.title} ${effectiveBody}`);
         if (relevance.keep) {
           result.skips.push("candidate_rescued");
           result.candidatesRescued += 1;
@@ -844,7 +844,7 @@ async function prepareSignals(
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
     recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
-    const relevance = shouldKeepExtractedSignal(extraction);
+    const relevance = shouldKeepExtractedSignal(extraction, `${signal.title} ${signal.body}`);
     if (!relevance.keep) {
       result.skips.push(relevance.reason);
       rejected.push({
@@ -1642,9 +1642,110 @@ async function persistRejectedCandidates(
   runId: string,
   rejected: RejectedCandidate[],
   result: AutomationResult,
+  now: Date,
 ): Promise<void> {
   if (rejected.length === 0) return;
-  const rows = rejected.slice(0, MAX_REJECTED_CANDIDATES_PER_RUN).map((candidate) => ({
+  // Rescue memory: a URL that already lives in source_signals (typically via an
+  // admin rescue) is a tracked lead — re-rejecting it would contradict the
+  // operator's decision every run. Record a re-observation instead so the
+  // lead's freshness reflects that the scanner saw it again. Best-effort: a URL
+  // leaves the rejected pile ONLY after its re-observation fully commits, so a
+  // mid-loop failure cannot lose candidates from both paths.
+  const reobservedUrls = new Set<string>();
+  const reobservedByCluster = new Map<string, string[]>();
+  const markReobserved = (url: string) => {
+    reobservedUrls.add(url);
+    result.signalsReobserved += 1;
+    result.skips.push("rescued_signal_reobserved");
+  };
+  try {
+    const urls = [...new Set(rejected.map((candidate) => candidate.url))];
+    const { data, error } = await supabase
+      .from("source_signals")
+      .select("id, canonical_url, cluster_id, seen_count")
+      .in("canonical_url", urls);
+    if (error) throw new Error(error.message);
+    const tracked = new Map(
+      ((data ?? []) as { id: string; canonical_url: string | null; cluster_id: string | null; seen_count: number | null }[])
+        .filter((row) => row.canonical_url)
+        .map((row) => [row.canonical_url as string, row]),
+    );
+    for (const [url, row] of tracked) {
+      const { error: updateError } = await supabase
+        .from("source_signals")
+        .update({
+          observed_at: now.toISOString(),
+          last_seen_at: now.toISOString(),
+          seen_count: Number(row.seen_count ?? 1) + 1,
+          last_seen_run_id: runId,
+        })
+        .eq("id", row.id);
+      if (updateError) throw new Error(updateError.message);
+      await recordReobservationEvent(supabase, row.id, runId, now);
+      if (row.cluster_id) {
+        const clusterUrls = reobservedByCluster.get(row.cluster_id) ?? [];
+        clusterUrls.push(url);
+        reobservedByCluster.set(row.cluster_id, clusterUrls);
+      } else {
+        markReobserved(url);
+      }
+    }
+    for (const [clusterId, clusterUrls] of reobservedByCluster) {
+      if (await refreshClusterStats(supabase, clusterId, now)) result.clustersPromoted += 1;
+      for (const url of clusterUrls) markReobserved(url);
+    }
+  } catch (error) {
+    // Best-effort bookkeeping only — a failed read or update must not degrade
+    // the run status; URLs not yet re-observed fall through to the rejected
+    // pile below exactly as they would have without this block.
+    result.skips.push("rescue_memory_read_failed");
+    void error;
+  }
+  let candidates =
+    reobservedUrls.size > 0 ? rejected.filter((candidate) => !reobservedUrls.has(candidate.url)) : rejected;
+  if (candidates.length === 0) return;
+  // Dedupe against the un-expired reject pile: the same page resurfaces in
+  // search run after run (one patch-notes mirror was stored 7×). Refresh the
+  // existing row — retention window AND current classification (reason, title,
+  // snippet), so a re-screen that changes the reason is reflected — instead of
+  // stacking duplicates. Same commitment rule as above: a URL is suppressed
+  // only after its refresh succeeds.
+  const refreshedUrls = new Set<string>();
+  try {
+    const byUrl = new Map(candidates.map((candidate) => [candidate.url, candidate]));
+    const { data, error } = await supabase
+      .from("automation_rejected_candidates")
+      .select("id, url")
+      .in("url", [...byUrl.keys()])
+      .gt("expires_at", now.toISOString());
+    if (error) throw new Error(error.message);
+    const refreshedExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    for (const row of (data ?? []) as { id: string; url: string }[]) {
+      const candidate = byUrl.get(row.url);
+      if (!candidate || refreshedUrls.has(row.url)) continue;
+      const { error: refreshError } = await supabase
+        .from("automation_rejected_candidates")
+        .update({
+          run_id: runId,
+          title: candidate.title,
+          snippet: candidate.snippet,
+          reason: candidate.reason,
+          source_published_at: candidate.sourcePublishedAt ?? null,
+          expires_at: refreshedExpiry,
+        })
+        .eq("id", row.id);
+      if (refreshError) throw new Error(refreshError.message);
+      refreshedUrls.add(row.url);
+    }
+  } catch (error) {
+    result.skips.push("reject_dedupe_read_failed");
+    void error;
+  }
+  if (refreshedUrls.size > 0) {
+    candidates = candidates.filter((candidate) => !refreshedUrls.has(candidate.url));
+  }
+  if (candidates.length === 0) return;
+  const rows = candidates.slice(0, MAX_REJECTED_CANDIDATES_PER_RUN).map((candidate) => ({
     run_id: runId,
     title: candidate.title,
     url: candidate.url,
@@ -1811,7 +1912,7 @@ async function executeAutomationRun(
   }
 
   if (mode !== "dry_run") {
-    await persistRejectedCandidates(supabase, runId, rejected, result);
+    await persistRejectedCandidates(supabase, runId, rejected, result, now);
     await deleteExpiredRejectedCandidates(supabase, now, result);
   }
 

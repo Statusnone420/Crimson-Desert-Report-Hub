@@ -156,7 +156,7 @@ const signals = [
     semantic_fingerprint: "mock-fps",
     cluster_id: clusterIds.fps,
     public_status: "public",
-    summary: "FPS drops since patch 1.13 (body retained for 48h moderator review)",
+    summary: "FPS drops since patch 1.13",
     category: "performance",
     confidence: "medium",
     observed_at: isoMinutesAgo(12),

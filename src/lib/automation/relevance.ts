@@ -1,8 +1,14 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
+import { domainTier } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
 import { CURRENT_PATCH } from "@/lib/constants";
 
-export type RelevanceSkipReason = "category_other" | "source_not_issue_report" | "wrong_patch" | "stale_source";
+export type RelevanceSkipReason =
+  | "category_other"
+  | "source_not_issue_report"
+  | "wrong_patch"
+  | "stale_source"
+  | "off_topic";
 
 /**
  * Observation genres: named non-complaint genres the pre-screen already
@@ -54,6 +60,23 @@ const SYMPTOM_PATTERNS = [
   /\b(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b.{0,50}\b(?:missing|gone|muted|silent|broken|cut(?:s|ting)? out|doesn'?t play|not playing|desync(?:ed)?|out of sync)\b/i,
   /\b(?:quests?|missions?|objectives?|npcs?|cutscenes?|dialogue)\b.{0,60}\b(?:stuck|blocked|frozen|missing|broken|bugged|softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete|not progressing|not spawning)\b/i,
   /\b(?:softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete)\b/i,
+  // Cross-save / save-data failures — the launch feature of 1.14.00. These carry no
+  // legacy symptom noun ("Cross-save not working?", "Cross Save error PS5 Pro"), which
+  // is exactly how real complaints were falling out as "not an issue report".
+  /\bcross[- ]?save\b.{0,60}\b(?:errors?|fail(?:s|ed|ing)?|broken|not working|won'?t work|can'?t|cannot|crash(?:es|ed|ing)?|missing|lost|stuck)\b/i,
+  /\b(?:errors?|fail(?:s|ed|ing)?|broken|crash(?:es|ed|ing)?|missing|lost)\b.{0,60}\bcross[- ]?save\b/i,
+  /\b(?:save|saves|save (?:file|data|slot)|progress)\b.{0,50}\b(?:lost|missing|corrupt(?:ed)?|gone|wiped|deleted|won'?t (?:load|sync)|not (?:loading|syncing))\b/i,
+  // Generic complaint shapes with no symptom noun at all: "not working", bare
+  // "error(s)", bare "glitch(es)", "still broken/angry/unplayable", and the
+  // question-form openers players actually use. Recall-biased on purpose — the
+  // promotion guard, not this list, is the precision boundary.
+  /\b(?:won't|will not|doesn't|does not|can't|cannot|not|stopped)\s+work(?:ing)?\b/i,
+  /\berrors?\b/i,
+  /\bglitch(?:es|ed|y|ing)?\b/i,
+  /\bstill\s+(?:broken|bugged|glitched|angry|happening|unplayable|not (?:working|fixed))\b/i,
+  /\bunplayable\b/i,
+  /\b(?:am i the only one|is it just me|anyone else)\b.{0,80}\b(?:problems?|issues?|bugs?|glitch(?:es)?|broken|crash(?:es|ing)?|errors?|not working)\b/i,
+  /\b(?:graphical|graphics|visual|texture)\s+(?:problems?|issues?|bugs?)\b/i,
 ] as const;
 
 // The press subset of BROAD_CONTENT_PATTERNS: coverage worth keeping as an
@@ -97,9 +120,14 @@ const UNSUPPORTED_SOURCE_CONTEXT_PATTERNS = [
   /\b(?:repacks?|pirat(?:e|ing|ed|es)|rin forum|clean steam files)\b/i,
 ] as const;
 
+// Negation wrapper for the SAME bare nouns the symptom list recognizes — when a
+// noun joins SYMPTOM_PATTERNS as a standalone matcher, its negated form must be
+// recognized here or "runs with no <noun>" reads as a complaint.
+const NO_ISSUE_NOUN = String.raw`(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag)`;
+const NO_ISSUE_NOUN_SERIES = String.raw`${NO_ISSUE_NOUN}(?:\s*(?:[,/]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${NO_ISSUE_NOUN})*`;
 const NO_ISSUE_PATTERNS = [
-  /\bno (?:reported |known )?(?:issues?|bugs?|crashes?|problems?)\b/i,
-  /\bwithout (?:reported |known )?(?:issues?|bugs?|crashes?|problems?)\b/i,
+  new RegExp(String.raw`\bno (?:reported |known )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
+  new RegExp(String.raw`\bwithout (?:reported |known |any )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
 ] as const;
 
 const CLAIMED_FIX_PATTERNS = [
@@ -150,9 +178,19 @@ const STUTTER_HITCH_COMPLAINT = /\b(?:stutters|stuttering|hitches|hitching)\b(?!
 // real precision boundary), never false-drops, so erring broad here is safe. Crash/freeze/
 // hang fix-LISTS (coordination, "fix for crash issues") stay with CRASH_FREEZE_HANG_FIX_LIST.
 const FIX_CLAIM_VERB = String.raw`(?:fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|address(?:es|ed|ing)?|reduc(?:e|es|ed|ing)|eliminat(?:e|es|ed|ing)|correct(?:s|ed|ing)?)`;
-const FIX_CLAIM_GLUE = String.raw`(?:\s+(?:a|an|the|some|any|all|various|multiple|several|reported|known))?(?:\s+(?:bug|bugs|issue|issues|problem|problems|glitch|glitches))?(?:\s+(?:with|for))?(?:\s+(?:a|an|the))?(?:\s+(?:broken|missing|lost|muted|silent|slow|stuck|frozen|glitchy|bugged|black|infinite|input|unresponsive|awful|bad|poor|terrible|horrible|worse))?`;
-const FIX_CLAIM_NOUN = String.raw`(?:black ?screens?|infinite (?:load|loading)|stuck (?:on|at) (?:load|loading|boot)|loading times?|frame ?times?(?:\s+spikes?)?|(?:fps|frame ?rates?|framerate)(?:\s+drops?)?|drops?|stutters?|stuttering|hitch(?:es|ing)?|lag(?:s|gy|ging)?|lock ?ups?|locks? up|input locks?|unresponsive(?:ness)?|controls?|artifacts?|ghosting|flicker(?:ing)?|texture ?shimmer|screen tearing|rendering|lighting|shadows?|visuals?|pop.?ins?|audio|sounds?|music|voice(?:s|\s?lines?)?|sfx|quests?|missions?|objectives?|npcs?|cutscenes?|dialogue|softlocks?|performance)`;
-const FIX_CLAIM_SYMPTOM = new RegExp(String.raw`\b${FIX_CLAIM_VERB}\b${FIX_CLAIM_GLUE}\s+${FIX_CLAIM_NOUN}\b`, "i");
+const FIX_CLAIM_GLUE = String.raw`(?:\s+(?:a|an|the|some|any|all|various|multiple|several|numerous|many|reported|known))?(?:\s+(?:bug|bugs|issue|issues|problem|problems|glitch|glitches))?(?:\s+(?:with|for))?(?:\s+(?:a|an|the))?(?:\s+(?:broken|missing|lost|muted|silent|slow|stuck|frozen|glitchy|bugged|black|infinite|input|unresponsive|awful|bad|poor|terrible|horrible|worse))?`;
+const FIX_CLAIM_NOUN = String.raw`(?:black ?screens?|infinite (?:load|loading)|stuck (?:on|at) (?:load|loading|boot)|loading times?|frame ?times?(?:\s+spikes?)?|(?:fps|frame ?rates?|framerate)(?:\s+drops?)?|drops?|stutters?|stuttering|hitch(?:es|ing)?|lag(?:s|gy|ging)?|lock ?ups?|locks? up|input locks?|unresponsive(?:ness)?|controls?|artifacts?|ghosting|flicker(?:ing)?|texture ?shimmer|screen tearing|rendering|lighting|shadows?|visuals?|pop.?ins?|audio|sounds?|music|voice(?:s|\s?lines?)?|sfx|quests?|missions?|objectives?|npcs?|cutscenes?|dialogue|softlocks?|performance|errors?|glitch(?:es|ing)?|bugs?|cross[- ]?saves?|saves?|unplayable)`;
+// Advertised symptoms arrive as coordinated lists ("fixes numerous bugs, errors
+// and glitches") — strip the whole series, or the trailing nouns survive the
+// strip and masquerade as a live complaint.
+const FIX_CLAIM_NOUN_SERIES = String.raw`${FIX_CLAIM_NOUN}(?:\s*(?:[,/&]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${FIX_CLAIM_NOUN})*`;
+const FIX_CLAIM_SYMPTOM = new RegExp(String.raw`\b${FIX_CLAIM_VERB}\b${FIX_CLAIM_GLUE}\s+${FIX_CLAIM_NOUN_SERIES}\b`, "i");
+const BARE_SYMPTOM_NOUN_FIRST = String.raw`(?:errors?|glitch(?:es)?)`;
+const BARE_SYMPTOM_NOUN_FIRST_SERIES = String.raw`${BARE_SYMPTOM_NOUN_FIRST}(?:\s*(?:[,/&]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${BARE_SYMPTOM_NOUN_FIRST})*`;
+const BARE_SYMPTOM_NOUN_FIRST_FIX_CLAIM = new RegExp(
+  String.raw`\b${BARE_SYMPTOM_NOUN_FIRST_SERIES}\s+${FIX_CLAIM_VERB}\b`,
+  "i",
+);
 
 // Positive marketing/announcement phrasing (a patch "includes/adds/brings a fix", ships
 // "performance fixes", "improves/optimizes FPS", targets a "stable N fps"). Positive
@@ -206,8 +244,28 @@ function hasSymptomLanguage(text: string): boolean {
   return matchesAny(text, SYMPTOM_PATTERNS);
 }
 
+// Broad-query discovery (e.g. "r/CrimsonDesert" matching the R programming
+// language) drags in pages about entirely different subjects. On an UNKNOWN
+// domain, a candidate must mention the game — by name (including common URL
+// separators and the Chinese/Korean store names), community (CDguides), or publisher —
+// somewhere in its title,
+// snippet, or URL to enter the funnel. Trusted community/press domains are
+// exempt: Steam discussion URLs are numeric app paths that cannot carry the
+// name, and every observed contamination case came from an unknown domain.
+const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
+
+function isOffTopicForUnknownDomain(input: CandidatePreScreenInput, sourceText: string): boolean {
+  if (domainTier(input.sourceDomain) === "trusted") return false;
+  return !GAME_CONTEXT_PATTERN.test(`${sourceText} ${input.url ?? ""}`);
+}
+
 function saysNoIssue(text: string): boolean {
-  return matchesAny(text, NO_ISSUE_PATTERNS);
+  if (!matchesAny(text, NO_ISSUE_PATTERNS)) return false;
+  const withoutNoIssueCopy = NO_ISSUE_PATTERNS.reduce(
+    (value, pattern) => value.replace(new RegExp(pattern.source, "gi"), " "),
+    text,
+  );
+  return !hasComplaintSymptom(withoutNoIssueCopy);
 }
 
 function isBroadContentTitle(title: string): boolean {
@@ -244,7 +302,8 @@ function isClaimedFixNotReport(text: string): boolean {
 function stripFixClaimCopy(text: string): string {
   return text
     .replace(new RegExp(CRASH_FREEZE_HANG_FIX_LIST.source, "gi"), " ")
-    .replace(new RegExp(FIX_CLAIM_SYMPTOM.source, "gi"), " ");
+    .replace(new RegExp(FIX_CLAIM_SYMPTOM.source, "gi"), " ")
+    .replace(new RegExp(BARE_SYMPTOM_NOUN_FIRST_FIX_CLAIM.source, "gi"), " ");
 }
 
 // A real complaint is present iff, after stripping fix-claim copy, the text still
@@ -293,6 +352,9 @@ export function preScreenCandidate(
   options: { currentPatchVersion?: string; currentPatchPublishedAt?: string | null } = {},
 ): SignalRelevanceDecision {
   const sourceText = compact(`${input.title} ${input.snippet}`);
+  if (isOffTopicForUnknownDomain(input, sourceText)) {
+    return { keep: false, reason: "off_topic" };
+  }
   if (hasUnsupportedSourceContext(input)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
@@ -348,8 +410,18 @@ export function preScreenCandidate(
 }
 
 /** Post-extraction gate. Runs AFTER extraction (deterministic or LLM). */
-export function shouldKeepExtractedSignal(extraction: ExtractionResult): SignalRelevanceDecision {
+export function shouldKeepExtractedSignal(
+  extraction: ExtractionResult,
+  sourceText?: string,
+): SignalRelevanceDecision {
   if (extraction.category === "other") {
+    // A real complaint with no category keyword (cross-save failures, boss-fight
+    // bugs) still deserves tracking under "other" — this gate exists to drop
+    // non-complaints, not uncategorizable complaints. "Complaint" keeps its ONE
+    // definition: the shared SYMPTOM_PATTERNS list via hasComplaintSymptom,
+    // with the same no-issue negation guard the pre-screen applies.
+    const text = compact(sourceText ?? `${extraction.issueTitle} ${extraction.summary}`);
+    if (hasComplaintSymptom(text) && !saysNoIssue(text)) return { keep: true };
     return { keep: false, reason: "category_other" };
   }
   return { keep: true };

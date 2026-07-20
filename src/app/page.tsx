@@ -15,7 +15,7 @@ import { categoryChartColor, chartCategories } from "@/lib/categoryColors";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { uniqueClaimAttributions } from "@/lib/claims";
 import { composeDispatchBrief, formatWeeklyDelta, weeklyDeltaSentence } from "@/lib/dispatchBrief";
-import { needsFullIssueCard } from "@/lib/evidence";
+import { displayDescription, needsFullIssueCard } from "@/lib/evidence";
 import { getTrackedPatchEditionCount } from "@/lib/officialPatch.server";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import { getPatchRadarData } from "@/lib/radar.server";
@@ -174,13 +174,12 @@ export default async function DispatchHomePage() {
   if (wire.length > 0) sectionIds.push("wire");
   const sectionNo = (id: string): string => String(sectionIds.indexOf(id) + 1).padStart(2, "0");
 
+  // Short names on purpose: the TOC is now a single-line strip closing the
+  // hero band, and the descriptive detail lives in each section's own header.
   const tocLabels: Record<string, string> = {
-    pulse: `Patch Pulse — signal since ${mediumDate(patch.publishedAt) ?? patch.version}`,
-    radar: "The radar — what the scanner is tracking",
-    board:
-      top3.length > 0
-        ? `The issue board, top ${top3.length === 3 ? "three" : top3.length === 2 ? "two" : "story"}`
-        : "The issue board",
+    pulse: "Patch Pulse",
+    radar: "The radar",
+    board: "The issue board",
     claims: "The claims record",
     wire: "From the wire",
   };
@@ -354,16 +353,16 @@ export default async function DispatchHomePage() {
                 </span>
               </div>
             </div>
-            <div>
-              <h2 className="record-block__header record-block__header--again">In This Edition</h2>
-              {tocRows.map((row) => (
-                <a key={row.href} href={row.href} className="record-block__toc-row">
-                  <span>{row.label}</span>
-                  <span className="record-block__index">{row.index}</span>
-                </a>
-              ))}
-            </div>
           </div>
+          <nav className="brief-lead__toc dispatch-desktop-only" aria-label="In this edition">
+            <span className="brief-lead__toc-label">In This Edition</span>
+            {tocRows.map((row) => (
+              <a key={row.href} href={row.href} className="brief-lead__toc-row">
+                <span>{row.label}</span>
+                <span className="brief-lead__toc-index">{row.index}</span>
+              </a>
+            ))}
+          </nav>
         </section>
 
         {/* Patch Pulse */}
@@ -690,7 +689,9 @@ export default async function DispatchHomePage() {
                   <p className="board-secondary__meta dispatch-mobile-only">
                     {leadStory.directReportCount} reports · {leadStory.confirmations.totalCount} taps
                   </p>
-                  <p className="board-lead__summary">{leadStory.description}</p>
+                  {displayDescription(leadStory.title, leadStory.description) ? (
+                    <p className="board-lead__summary">{displayDescription(leadStory.title, leadStory.description)}</p>
+                  ) : null}
                   <div className="dispatch-desktop-only">{platformMeters(leadStory)}</div>
                   {tapControl(leadStory)}
                 </article>
@@ -699,7 +700,9 @@ export default async function DispatchHomePage() {
                 <article key={cluster.id} className="board-secondary">
                   {statusLine(cluster, false)}
                   <h3 className="board-secondary__title">{cluster.title}</h3>
-                  <p className="board-secondary__summary">{cluster.description}</p>
+                  {displayDescription(cluster.title, cluster.description) ? (
+                    <p className="board-secondary__summary">{displayDescription(cluster.title, cluster.description)}</p>
+                  ) : null}
                   <p className="board-secondary__meta">
                     {cluster.directReportCount} reports · {cluster.confirmations.totalCount} taps ·{" "}
                     {(CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category).toLowerCase()}

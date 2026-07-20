@@ -131,6 +131,57 @@ describe("previewAutomationSearch", () => {
     );
   });
 
+  it("uses URL context when pre-screening unknown-domain preview results", async () => {
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Players report a regression",
+        url: "https://example.net/crimson-desert-fps-drops?utm_source=search",
+        snippet: "FPS drops after patch 1.13.00.",
+        sourceDomain: "example.net",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    const { previewAutomationSearch } = await import("@/lib/automation/preview");
+
+    const result = await previewAutomationSearch({ maxQueries: 1 });
+
+    expect(result.previews[0]).toMatchObject({
+      url: "https://example.net/crimson-desert-fps-drops",
+      relevance: { keep: true },
+    });
+  });
+
+  it("keeps an other-category preview when its snippet contains a cross-save failure", async () => {
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Cross-save question",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/cross-save",
+        snippet: "Cross-save fails to sync between PS5 and PC.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => ({
+      issueTitle: candidate.title,
+      category: "other",
+      platform: null,
+      confidence: "low",
+      summary: candidate.title,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+    }));
+    const { previewAutomationSearch } = await import("@/lib/automation/preview");
+
+    const result = await previewAutomationSearch({ maxQueries: 1 });
+
+    expect(result.previews[0]).toMatchObject({
+      extraction: { category: "other", issueTitle: "Cross-save question", summary: "Cross-save question" },
+      relevance: { keep: true },
+    });
+  });
+
   it("keeps every eligible preview result on deterministic extraction", async () => {
     mocks.tavilySearch.mockResolvedValue([
       {

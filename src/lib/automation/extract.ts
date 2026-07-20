@@ -177,7 +177,7 @@ export function deterministicExtract(candidate: SourceCandidate): ExtractedSigna
     category: classified.category,
     platform,
     confidence: classified.confidence,
-    summary: summarize(issueTitle, candidate.snippet),
+    summary: summarize(issueTitle),
     clusterSlug: null,
   };
 }

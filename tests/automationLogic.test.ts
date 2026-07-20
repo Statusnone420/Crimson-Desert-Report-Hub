@@ -31,6 +31,26 @@ describe("automation dedupe", () => {
       semanticFingerprint("fps   drops since 1.13", "performance"),
     );
   });
+
+  it("collapses rephrasings of the same complaint to one fingerprint (Xbox glitch dup)", () => {
+    expect(
+      semanticFingerprint(
+        "Since the 1.14.00 patch, I’ve been experiencing constant graphics glitches on the Xbox.",
+        "graphics_visual",
+      ),
+    ).toBe(semanticFingerprint("Since the 1.14.00 patch, constant graphics glitches on Xbox", "graphics_visual"));
+  });
+
+  it("keeps distinct issues on distinct fingerprints", () => {
+    expect(semanticFingerprint("Graphics glitches on Xbox", "graphics_visual")).not.toBe(
+      semanticFingerprint("Audio missing on Xbox", "graphics_visual"),
+    );
+  });
+
+  it("falls back to the plain normalized title when stopwords strip everything", () => {
+    expect(semanticFingerprint("The Update", "other")).toBe(semanticFingerprint("the update", "other"));
+    expect(semanticFingerprint("The Update", "other")).not.toBe(semanticFingerprint("", "other"));
+  });
 });
 
 describe("automation extraction", () => {
@@ -1216,7 +1236,7 @@ describe("automation relevance", () => {
           {
             title: "Patch 1.13.01 released, but crashes still happen",
             snippet: "After the hotfix, crashes still happen when loading the map.",
-            sourceDomain: "example.com",
+            sourceDomain: "reddit.com",
             sourcePublishedAt: "2026-07-08",
           },
           { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
@@ -1230,11 +1250,154 @@ describe("automation relevance", () => {
           {
             title: "Game crashes on map open",
             snippet: "since patch 1.12",
-            sourceDomain: "example.com",
+            sourceDomain: "reddit.com",
           },
           { currentPatchVersion: "1.13.00" },
         ),
       ).toMatchObject({ keep: false, reason: "wrong_patch" });
+    });
+
+    it("keeps a cross-save failure with no legacy symptom noun (1.14.00 regression)", () => {
+      expect(
+        preScreenCandidate({
+          title: "Cross-save not working? : r/CrimsonDesert",
+          snippet: "Tried linking my account and my save never shows up on PS5.",
+          sourceDomain: "reddit.com",
+        }),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a bare error-report title (Cross Save error PS5 Pro regression)", () => {
+      expect(
+        preScreenCandidate({
+          title: "Cross Save error PS5 Pro : r/CDguides",
+          snippet: "",
+          sourceDomain: "reddit.com",
+        }),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps a boss-still-broken complaint with no symptom noun (elephant regression)", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "The Elephant is still angry(Patch 1.14.00)",
+            snippet: "Boss behaves exactly like before the patch.",
+            sourceDomain: "reddit.com",
+          },
+          { currentPatchVersion: "1.14.00" },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("keeps question-form complaints (am I the only one having graphical problems)", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Am i the only one having graphical problems?",
+            snippet: "Textures flash on my Xbox after 1.14.",
+            sourceDomain: "reddit.com",
+          },
+          { currentPatchVersion: "1.14.00" },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("rejects negated bare symptoms (runs with no errors / no glitches)", () => {
+      for (const candidate of [
+        {
+          title: "Crimson Desert runs with no errors after the patch",
+          snippet: "Smooth session, no glitches on my end.",
+        },
+        {
+          title: "Crimson Desert has no errors or glitches after the patch",
+          snippet: "Smooth session on my end.",
+        },
+      ]) {
+        expect(
+          preScreenCandidate({ ...candidate, sourceDomain: "reddit.com" }),
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
+      }
+    });
+
+    it("keeps a live complaint after a negated before-state", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert stutter after 1.14",
+            snippet: "No stutter before 1.14; now Crimson Desert stutters every fight.",
+            sourceDomain: "reddit.com",
+          },
+          { currentPatchVersion: "1.14.00" },
+        ),
+      ).toEqual({ keep: true });
+    });
+
+    it("rejects a bugs-and-glitches marketing announcement despite the new bare symptom patterns", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crimson Desert 1.14 Update Fixes Numerous Bugs & Glitches",
+            snippet: "The patch improves performance and fixes several errors and glitches.",
+            sourceDomain: "dsogaming.com",
+          },
+          { currentPatchVersion: "1.14.00" },
+        ),
+      ).toMatchObject({ keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" });
+    });
+
+    it("rejects noun-first error and glitch fix announcements", () => {
+      for (const title of [
+        "Crimson Desert 1.14.00 update brings error fixes",
+        "Crimson Desert 1.14.00 update brings glitch fixes",
+        "Crimson Desert 1.14.00 update brings error and glitch fixes",
+      ]) {
+        expect(
+          preScreenCandidate(
+            {
+              title,
+              snippet: "The update ships today.",
+              sourceDomain: "dsogaming.com",
+            },
+            { currentPatchVersion: "1.14.00" },
+          ),
+        ).toMatchObject({ keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" });
+      }
+    });
+
+    it("rejects an unknown-domain page that never mentions the game as off_topic", () => {
+      expect(
+        preScreenCandidate({
+          title: "Is R Worth Learning in 2026? The Honest Answer [Data]",
+          snippet: "R still has errors and crashes in some IDE workflows.",
+          url: "https://r-statistics.co/r-worth-learning",
+          sourceDomain: "r-statistics.co",
+        }),
+      ).toMatchObject({ keep: false, reason: "off_topic" });
+    });
+
+    it("recognizes hyphenated and underscored game-name URL slugs on unknown domains", () => {
+      for (const slug of ["crimson-desert", "crimson_desert"]) {
+        expect(
+          preScreenCandidate({
+            title: "FPS drops after the latest patch",
+            snippet: "Stutters whenever I enter the city.",
+            url: `https://forum.example.com/${slug}-fps-drops`,
+            sourceDomain: "forum.example.com",
+          }),
+        ).toEqual({ keep: true });
+      }
+    });
+
+    it("does not apply the off-topic guard to trusted community domains", () => {
+      expect(
+        preScreenCandidate({
+          title: "Game crashes after the new update",
+          snippet: "Crashes to desktop every time I open the map.",
+          url: "https://steamcommunity.com/app/000000/discussions/0/1",
+          sourceDomain: "steamcommunity.com",
+        }),
+      ).toEqual({ keep: true });
     });
 
     it("rejects titles and snippets with no symptom language", () => {
@@ -1242,7 +1405,7 @@ describe("automation relevance", () => {
         preScreenCandidate({
           title: "Nice scenery tour",
           snippet: "beautiful vistas",
-          sourceDomain: "example.com",
+          sourceDomain: "reddit.com",
         }),
       ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
@@ -1252,7 +1415,7 @@ describe("automation relevance", () => {
         preScreenCandidate({
           title: "FPS drops hard in combat",
           snippet: "since 1.13 stutters constantly",
-          sourceDomain: "example.com",
+          sourceDomain: "reddit.com",
         }),
       ).toEqual({ keep: true });
     });
@@ -1275,7 +1438,7 @@ describe("automation relevance", () => {
         preScreenCandidate({
           title: "No crashes for me",
           snippet: "runs without issues",
-          sourceDomain: "example.com",
+          sourceDomain: "reddit.com",
         }),
       ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
@@ -1400,7 +1563,7 @@ describe("automation relevance", () => {
           {
             title: "map crash after 1.13.00",
             snippet: "they fixed an issue where the map crashes, but the crash is back on 1.13.00",
-            sourceDomain: "example.com",
+            sourceDomain: "reddit.com",
             sourcePublishedAt: null,
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
@@ -1414,7 +1577,7 @@ describe("automation relevance", () => {
           {
             title: "FPS drops after 1.13.00",
             snippet: "they fixed an issue where FPS drops happen, but the FPS drops are back on 1.13.00",
-            sourceDomain: "example.com",
+            sourceDomain: "reddit.com",
             sourcePublishedAt: null,
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
@@ -1428,7 +1591,7 @@ describe("automation relevance", () => {
           {
             title: "CTD is back after 1.13.00",
             snippet: "they fixed an issue where the game crashed in Photo Mode",
-            sourceDomain: "example.com",
+            sourceDomain: "reddit.com",
             sourcePublishedAt: null,
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
@@ -1442,7 +1605,7 @@ describe("automation relevance", () => {
           {
             title: "map crash after 1.13.00",
             snippet: "they supposedly fixed an issue where the map crashes but it still crashes every time on 1.13.00",
-            sourceDomain: "example.com",
+            sourceDomain: "reddit.com",
             sourcePublishedAt: null,
           },
           { currentPatchVersion: "1.13.00", currentPatchPublishedAt: null },
@@ -2140,6 +2303,26 @@ describe("automation relevance", () => {
           llmCostUsd: 0,
         }),
       ).toMatchObject({ keep: false, reason: "category_other" });
+    });
+
+    it("keeps an other-category extraction when the source text is a real complaint", () => {
+      expect(
+        shouldKeepExtractedSignal(
+          {
+            issueTitle: "Cross Save error PS5 Pro",
+            category: "other",
+            platform: "ps5_pro",
+            confidence: "low",
+            summary: "Cross Save error PS5 Pro",
+            clusterSlug: null,
+            extractionProvider: "deterministic",
+            extractionModel: null,
+            llmCallsUsed: 0,
+            llmCostUsd: 0,
+          },
+          "Cross Save error PS5 Pro : r/CDguides — save never syncs and errors out",
+        ),
+      ).toEqual({ keep: true });
     });
 
     it("keeps an extraction classified with a real category", () => {

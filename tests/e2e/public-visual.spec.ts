@@ -69,23 +69,31 @@ async function signInAsAdmin(page: Page) {
 }
 
 async function openAdminSignIn(page: Page) {
-  const adminButton = page.getByRole("button", { name: "Admin" });
   const passwordInput = page.getByLabel("Admin password");
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    await adminButton.scrollIntoViewIfNeeded();
-    await adminButton.focus();
-    await page.keyboard.press("Enter");
+    try {
+      const adminButton = page.getByRole("button", { name: "Admin" });
+      await adminButton.scrollIntoViewIfNeeded();
+      await adminButton.press("Enter");
+    } catch (error) {
+      if (attempt === 4) throw error;
+      continue;
+    }
     if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) return;
   }
   await expect(passwordInput).toBeVisible();
 }
 
 async function openAdminPageFromFooter(page: Page) {
-  const adminButton = page.getByRole("button", { name: "Admin" });
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    await adminButton.scrollIntoViewIfNeeded();
-    await adminButton.focus();
-    await page.keyboard.press("Enter");
+    try {
+      const adminButton = page.getByRole("button", { name: "Admin" });
+      await adminButton.scrollIntoViewIfNeeded();
+      await adminButton.press("Enter");
+    } catch (error) {
+      if (attempt === 4) throw error;
+      continue;
+    }
     if (await page.waitForURL(/\/admin$/, { timeout: 1_000 }).then(() => true, () => false)) return;
   }
   await expect(page).toHaveURL(/\/admin$/);
@@ -743,7 +751,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Rejected archive" })).toBeVisible();
     await expect(page.getByLabel("Search recent archive")).toBeVisible();
-    await page.getByLabel("Search recent archive").fill("off-topic, not a bug");
+    await page.getByLabel("Search recent archive").fill("not sortable into a bug area");
     await expect(page.getByText("New armor set locations guide")).toBeVisible();
     await expect(page.getByText("Patch 1.13 full notes mirror")).toHaveCount(0);
     await expect(page.getByRole("status")).toContainText("matching candidates");
