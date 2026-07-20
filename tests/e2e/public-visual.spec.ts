@@ -855,15 +855,14 @@ test.describe("public surface visual regression", () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/report");
 
-      // Below 900px the assistant rail sits behind a disclosure. SSR starts
-      // it open before the viewport store hydrates, so only press Enter when
-      // it is actually closed; an unconditional keypress races hydration and
-      // closes the rail on CI.
+      // Below 900px the assistant rail starts collapsed after the viewport
+      // store hydrates. Wait for that controlled mobile state before opening
+      // it; reading the SSR-open state is the hydration race this test covers.
       const assistantRail = page.locator("details.assistant-rail");
       const assistantSummary = assistantRail.locator("> summary");
+      await expect(assistantRail).not.toHaveAttribute("open");
       await assistantSummary.focus();
-      const isOpen = await assistantRail.evaluate((element) => (element as HTMLDetailsElement).open);
-      if (!isOpen) await page.keyboard.press("Enter");
+      await page.keyboard.press("Enter");
       await expect(assistantRail).toHaveAttribute("open", "");
 
       const fileInput = page.locator("#save_import");
