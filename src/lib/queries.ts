@@ -1051,26 +1051,147 @@ export const getPublicScannerData = unstable_cache(getPublicScannerDataUncached,
 
 export type DailySignalDay = { day: string; reports: number; taps: number; keptLeads: number };
 
+type DailyReportRollupRow = { created_at: string; patch_version: string | null };
+type DailyTapRollupRow = { created_at: string; patch_family: string | null };
+type DailyKeptLeadRollupRow = {
+  started_at: string;
+  signals_inserted: number | null;
+  mode: string | null;
+  intent: string | null;
+  search_queries_used: number | null;
+};
+
+const DAILY_SIGNAL_ROLLUP_PAGE_SIZE = 1000;
+
+type DailySignalRollupPage<T> = {
+  data: T[] | null;
+  error: { message: string } | null;
+};
+
+/** Exhaustive paged read so the Patch Pulse rollup never silently truncates. */
+export async function fetchAllDailySignalRollupRows<T>(
+  label: string,
+  page: (from: number, to: number) => PromiseLike<DailySignalRollupPage<T>>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += DAILY_SIGNAL_ROLLUP_PAGE_SIZE) {
+    const { data, error } = await page(from, from + DAILY_SIGNAL_ROLLUP_PAGE_SIZE - 1);
+    if (error) throw new Error(`${label} read failed: ${error.message}`);
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < DAILY_SIGNAL_ROLLUP_PAGE_SIZE) return rows;
+  }
+}
+
+function dayKey(value: string): string | null {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return null;
+  return new Date(time).toISOString().slice(0, 10);
+}
+
+function addDays(day: string, offset: number): string {
+  const time = new Date(`${day}T00:00:00.000Z`).getTime();
+  return new Date(time + offset * 86_400_000).toISOString().slice(0, 10);
+}
+
+function countByDay(rows: { created_at: string }[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const day = dayKey(row.created_at);
+    if (day) counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function composeDailySignalRollup(input: {
+  today: string;
+  currentPatch: PatchContext;
+  reports: DailyReportRollupRow[];
+  taps: DailyTapRollupRow[];
+  runs: DailyKeptLeadRollupRow[];
+}): DailySignalDay[] {
+  const currentFamily = patchFamilyKey(input.currentPatch.version);
+  const publishedDay = input.currentPatch.publishedAt ? dayKey(input.currentPatch.publishedAt) : null;
+  const fallbackStart = addDays(input.today, -30);
+  const boundedStart = publishedDay && publishedDay > fallbackStart ? publishedDay : fallbackStart;
+  const startDay = boundedStart < input.today ? boundedStart : input.today;
+
+  const reportCounts = countByDay(
+    input.reports.filter(
+      (row) => row.patch_version && currentFamily && patchFamilyKey(row.patch_version) === currentFamily,
+    ),
+  );
+  const tapCounts = countByDay(input.taps.filter((row) => row.patch_family === currentFamily));
+  const keptLeadCounts = new Map<string, number>();
+  for (const run of input.runs) {
+    if (run.mode === "dry_run") continue;
+    if (run.mode === "manual" && run.intent === "rescue_candidate" && (run.search_queries_used ?? 0) === 0) continue;
+    const day = dayKey(run.started_at);
+    if (day) keptLeadCounts.set(day, (keptLeadCounts.get(day) ?? 0) + (run.signals_inserted ?? 0));
+  }
+
+  const days: DailySignalDay[] = [];
+  for (let day = startDay; day <= input.today; day = addDays(day, 1)) {
+    days.push({
+      day,
+      reports: reportCounts.get(day) ?? 0,
+      taps: tapCounts.get(day) ?? 0,
+      keptLeads: keptLeadCounts.get(day) ?? 0,
+    });
+  }
+  return days;
+}
+
 /**
- * Aggregate-only read of the daily_signal_rollup view (Patch Pulse chart).
- * Returns null when the view is unreadable (missing config or migration not
- * applied) so the page can say "series unavailable" instead of faking zeros.
+ * Aggregate-only Patch Pulse chart data. This stays in the server-only data
+ * access layer and uses the service role to avoid a public security-definer
+ * view while still returning only day-level DTOs to the page.
  */
 async function getDailySignalRollupUncached(): Promise<DailySignalDay[] | null> {
   if (!hasSupabaseServiceConfig()) return null;
   try {
     const supabase = createServiceClient();
-    const { data, error } = await supabase
-      .from("daily_signal_rollup")
-      .select("day, reports, taps, kept_leads")
-      .order("day", { ascending: true });
-    if (error) return null;
-    return ((data ?? []) as { day: string; reports: number; taps: number; kept_leads: number }[]).map((row) => ({
-      day: row.day,
-      reports: row.reports ?? 0,
-      taps: row.taps ?? 0,
-      keptLeads: row.kept_leads ?? 0,
-    }));
+    const currentPatch = await getCurrentPatchMetadata(supabase);
+    const today = new Date().toISOString().slice(0, 10);
+    const since = `${addDays(today, -30)}T00:00:00.000Z`;
+    const [reports, taps, runs] = await Promise.all([
+      fetchAllDailySignalRollupRows<DailyReportRollupRow>("daily reports", (from, to) =>
+        supabase
+          .from("bug_reports")
+          .select("created_at, patch_version")
+          .eq("moderation_status", "approved")
+          .gte("created_at", since)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+      fetchAllDailySignalRollupRows<DailyTapRollupRow>("daily confirmations", (from, to) =>
+        supabase
+          .from("issue_confirmations")
+          .select("created_at, patch_family")
+          .gte("created_at", since)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+      fetchAllDailySignalRollupRows<DailyKeptLeadRollupRow>("daily automation runs", (from, to) =>
+        supabase
+          .from("automation_runs")
+          .select("started_at, signals_inserted, mode, intent, search_queries_used")
+          .in("status", ["success", "partial"])
+          .gte("started_at", since)
+          .order("started_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+    ]);
+    return composeDailySignalRollup({
+      today,
+      currentPatch,
+      reports,
+      taps,
+      runs,
+    });
   } catch {
     return null;
   }
