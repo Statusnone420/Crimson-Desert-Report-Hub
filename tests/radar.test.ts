@@ -264,7 +264,7 @@ describe("composePatchRadarData health and observability", () => {
     expect(data.dateCoverage).toEqual({ withSourceDate: 1, tracked: 3 });
   });
 
-  it("distributes current-patch eligibility reasons over tracked leads", () => {
+  it("reports current-patch eligibility for radar-eligible leads", () => {
     const data = compose({
       signals: [
         signal(), // mentions 1.14.00 -> current_patch
@@ -276,8 +276,30 @@ describe("composePatchRadarData health and observability", () => {
       ],
     });
     expect(data.eligibility.current_patch).toBe(1);
-    expect(data.eligibility.wrong_patch).toBe(1);
+    expect(data.eligibility.wrong_patch).toBe(0);
     expect(data.eligibility.unknown_source_freshness).toBe(1);
+  });
+
+  it("keeps stale and wrong-patch private leads out of current radar aggregates", () => {
+    const data = compose({
+      signals: [
+        signal(),
+        signal({
+          title: "old patch complaint",
+          summary: "since patch 1.12.00 everything broke",
+        }),
+        signal({
+          public_status: "public",
+          title: "old public complaint",
+          summary: "the game still stutters",
+          source_published_at: "2026-07-01T00:00:00Z",
+        }),
+      ],
+    });
+
+    expect(data.recurring.trackedLeads).toBe(1);
+    expect(data.categories).toEqual([{ category: "performance", tracked: 1, new7d: 1 }]);
+    expect(data.recurrence).toHaveLength(1);
   });
 });
 
