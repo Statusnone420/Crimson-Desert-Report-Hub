@@ -1337,6 +1337,19 @@ describe("automation relevance", () => {
       ).toMatchObject({ keep: false, reason: "off_topic" });
     });
 
+    it("recognizes hyphenated and underscored game-name URL slugs on unknown domains", () => {
+      for (const slug of ["crimson-desert", "crimson_desert"]) {
+        expect(
+          preScreenCandidate({
+            title: "FPS drops after the latest patch",
+            snippet: "Stutters whenever I enter the city.",
+            url: `https://forum.example.com/${slug}-fps-drops`,
+            sourceDomain: "forum.example.com",
+          }),
+        ).toEqual({ keep: true });
+      }
+    });
+
     it("does not apply the off-topic guard to trusted community domains", () => {
       expect(
         preScreenCandidate({

@@ -238,12 +238,13 @@ function hasSymptomLanguage(text: string): boolean {
 
 // Broad-query discovery (e.g. "r/CrimsonDesert" matching the R programming
 // language) drags in pages about entirely different subjects. On an UNKNOWN
-// domain, a candidate must mention the game — by name (incl. the Chinese/Korean
-// store names), community (CDguides), or publisher — somewhere in its title,
+// domain, a candidate must mention the game — by name (including common URL
+// separators and the Chinese/Korean store names), community (CDguides), or publisher —
+// somewhere in its title,
 // snippet, or URL to enter the funnel. Trusted community/press domains are
 // exempt: Steam discussion URLs are numeric app paths that cannot carry the
 // name, and every observed contamination case came from an unknown domain.
-const GAME_CONTEXT_PATTERN = /crimson\s?desert|crimsondesert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
+const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
 
 function isOffTopicForUnknownDomain(input: CandidatePreScreenInput, sourceText: string): boolean {
   if (domainTier(input.sourceDomain) === "trusted") return false;
