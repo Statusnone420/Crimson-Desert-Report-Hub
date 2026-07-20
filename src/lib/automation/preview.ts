@@ -60,6 +60,7 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
         {
           title: result.title,
           snippet: result.snippet,
+          url,
           sourceDomain: result.sourceDomain,
           sourcePublishedAt: result.sourcePublishedAt ?? null,
         },

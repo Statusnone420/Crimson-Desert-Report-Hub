@@ -1652,15 +1652,21 @@ async function persistRejectedCandidates(
   // leaves the rejected pile ONLY after its re-observation fully commits, so a
   // mid-loop failure cannot lose candidates from both paths.
   const reobservedUrls = new Set<string>();
+  const reobservedByCluster = new Map<string, string[]>();
+  const markReobserved = (url: string) => {
+    reobservedUrls.add(url);
+    result.signalsReobserved += 1;
+    result.skips.push("rescued_signal_reobserved");
+  };
   try {
     const urls = [...new Set(rejected.map((candidate) => candidate.url))];
     const { data, error } = await supabase
       .from("source_signals")
-      .select("id, canonical_url, seen_count")
+      .select("id, canonical_url, cluster_id, seen_count")
       .in("canonical_url", urls);
     if (error) throw new Error(error.message);
     const tracked = new Map(
-      ((data ?? []) as { id: string; canonical_url: string | null; seen_count: number | null }[])
+      ((data ?? []) as { id: string; canonical_url: string | null; cluster_id: string | null; seen_count: number | null }[])
         .filter((row) => row.canonical_url)
         .map((row) => [row.canonical_url as string, row]),
     );
@@ -1676,9 +1682,17 @@ async function persistRejectedCandidates(
         .eq("id", row.id);
       if (updateError) throw new Error(updateError.message);
       await recordReobservationEvent(supabase, row.id, runId, now);
-      reobservedUrls.add(url);
-      result.signalsReobserved += 1;
-      result.skips.push("rescued_signal_reobserved");
+      if (row.cluster_id) {
+        const clusterUrls = reobservedByCluster.get(row.cluster_id) ?? [];
+        clusterUrls.push(url);
+        reobservedByCluster.set(row.cluster_id, clusterUrls);
+      } else {
+        markReobserved(url);
+      }
+    }
+    for (const [clusterId, clusterUrls] of reobservedByCluster) {
+      if (await refreshClusterStats(supabase, clusterId, now)) result.clustersPromoted += 1;
+      for (const url of clusterUrls) markReobserved(url);
     }
   } catch (error) {
     // Best-effort bookkeeping only — a failed read or update must not degrade

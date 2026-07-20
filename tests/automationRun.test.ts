@@ -2689,6 +2689,71 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("refreshes a rescued signal's cluster when re-observation makes its sources current", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-rescued",
+          category: "performance",
+          auto_public: false,
+          is_public: false,
+          visibility_revision: 0,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-rescued",
+          cluster_id: "cluster-rescued",
+          canonical_url: "https://example.com/rescued-rejection",
+          source_domain: "dsogaming.com",
+          title: "Crimson Desert patch 1.13 FPS regression",
+          summary: "Frame rate drops after patch 1.13.00.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          observed_at: "2026-06-01T12:00:00.000Z",
+          seen_count: 1,
+          public_status: "private",
+        },
+        {
+          id: "signal-corroborating",
+          cluster_id: "cluster-rescued",
+          canonical_url: "https://example.net/current-stutter",
+          source_domain: "example.net",
+          title: "Crimson Desert patch 1.13 stutter",
+          summary: "Stutter persists after patch 1.13.00.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          seen_count: 1,
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch notes",
+        url: "https://example.com/rescued-rejection",
+        snippet: "Official update details.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result).toMatchObject({ signalsReobserved: 1, clustersPromoted: 1 });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      auto_public: true,
+      is_public: true,
+      public_signal_count: 2,
+    });
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+  });
+
   it("records a re-observation event in the ledger when the table exists", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
