@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, scryptSync, timingSafeEqual } from "node:crypto";
 
 export const ADMIN_COOKIE = "cd_admin";
 const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000;
@@ -25,10 +25,10 @@ export function verifySessionToken(token: string | undefined, secret: string): b
 
 export function passwordMatches(candidate: string, actual: string, comparisonSecret: string): boolean {
   if (!comparisonSecret) throw new Error("comparison secret required");
-  // These digests are transient fixed-length comparison buffers, not stored
-  // password verifiers. Keying them prevents an offline reusable hash if they
-  // are ever exposed while retaining timing-safe equality for unequal lengths.
-  const a = createHmac("sha256", comparisonSecret).update(candidate).digest();
-  const b = createHmac("sha256", comparisonSecret).update(actual).digest();
+  // Derive transient, fixed-length comparison buffers with a password KDF.
+  // The server-only session secret is a stable application salt; no verifier
+  // or reusable fast password digest is stored.
+  const a = scryptSync(candidate, comparisonSecret, 64);
+  const b = scryptSync(actual, comparisonSecret, 64);
   return timingSafeEqual(a, b);
 }
