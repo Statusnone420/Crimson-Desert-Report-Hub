@@ -1,8 +1,14 @@
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
-import { CategorySparklines, RecurrenceSmallMultiples, SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
-import { categoryChartColor, chartCategories } from "@/lib/categoryColors";
+import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
+import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS } from "@/lib/constants";
+import {
+  formatSignedReviewDelta,
+  platformUnavailableMessage,
+  reviewDeltaTone,
+  twitchCoverageLabel,
+} from "@/lib/platformPulseDisplay";
 import type { IntegrationStatus } from "@/lib/env";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import type { DecoratedCluster, PublicScannerData } from "@/lib/queries";
@@ -15,6 +21,16 @@ function timeAgo(iso: string): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function compactNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function pulseDay(day: string): string {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(
+    new Date(`${day}T00:00:00Z`),
+  );
 }
 
 export function PublicScannerView({
@@ -32,6 +48,21 @@ export function PublicScannerView({
 }) {
   const patchFamily = patchFamilyKey(patchVersion) ?? patchVersion;
   const visibleLeadQuestions = leadQuestions.slice(0, 4);
+  const maxTracked = Math.max(1, ...radar.categories.map((bucket) => bucket.tracked));
+  const latestSteam = data.steamPulse[data.steamPulse.length - 1] ?? null;
+  const maxSteamDelta = Math.max(1, ...data.steamPulse.map((point) => Math.abs(point.reviewCountDelta ?? 0)));
+  const platformContext = data.platformContext;
+  const pulseReadFailureMessages = data.pulseReadFailures.map((lane) =>
+    lane === "steam"
+      ? "Steam Pulse is temporarily unavailable."
+      : "IGDB and Twitch context is temporarily unavailable.",
+  );
+  const platformUnavailability = platformContext
+    ? [
+        platformUnavailableMessage("IGDB", platformContext.igdbStatus),
+        platformUnavailableMessage("Twitch", platformContext.twitchStatus),
+      ].filter(Boolean)
+    : [];
 
   // No fabricated schedule: the status block shows only what run history
   // records — state and last check. There is no stored "next check" time.
@@ -84,8 +115,8 @@ export function PublicScannerView({
           <p className="dispatch-kicker">The Observatory · Public source radar</p>
           <h1 className="dispatch-pagehead__title">How the radar reads the web</h1>
           <p className="dispatch-pagehead__dek">
-            Crimson Desert {patchVersion} web chatter, filtered into source health, mapped leads, and published
-            links. A lead is a rumor with a link — players can add a confirmation signal on the Issue Board.
+            Public pages about Crimson Desert {patchVersion}, screened into private candidates, mapped leads, and
+            reviewed links. A radar lead is context with a source — never player evidence on its own.
           </p>
         </div>
         <div className="obs-scheduler">
@@ -98,6 +129,12 @@ export function PublicScannerView({
         </div>
       </header>
 
+      <div className="brief-band__kicker-row" style={{ marginBottom: 18 }}>
+        <h2 className="dispatch-kicker">The publication funnel · 7 days</h2>
+        <span className="brief-band__caption dispatch-desktop-only">
+          every public candidate lands in one of these four states
+        </span>
+      </div>
       <div className="stat-band" aria-label="Source radar funnel">
         {funnel.map((step) => (
           <div key={step.key} className="stat-band__cell">
@@ -109,43 +146,47 @@ export function PublicScannerView({
       </div>
 
       {radar.connected && radar.recurring.trackedLeads > 0 ? (
-        <section className="obs-questions" aria-label="The radar's working set">
+        <section className="obs-intelligence" aria-label="Current radar working set">
           <div className="obs-questions__header">
-            <h2 className="dispatch-kicker">The radar&apos;s working set</h2>
+            <div>
+              <p className="dispatch-kicker">What is showing up</p>
+              <h2 className="obs-section-title">Ranked problem areas</h2>
+            </div>
             <p className="obs-questions__note">
-              Counts and positions only. Lead titles, links, and rejected candidates stay private until
-              corroboration publishes them.
+              One readable view of the private and published working set. Counts are scanner leads, not people.
             </p>
           </div>
-          <div className="radar-grid" style={{ marginTop: 0 }}>
-            <div className="radar-main">
-              <div>
-                <p className="brief-band__caption" style={{ marginBottom: 8 }}>
-                  Recurrence by problem area — one panel per area, all on shared scales. Right means tracked
-                  longer; higher means seen in more scans. Solid dots are published leads, hollow dots private.
-                </p>
-                <RecurrenceSmallMultiples
-                  points={radar.recurrence}
-                  categories={chartCategories(radar.recurrence.map((point) => point.category))}
-                />
+          <div className="obs-intelligence__grid">
+            <ol className="obs-ranked" aria-label="Tracked radar leads ranked by problem area">
+              {radar.categories.map((bucket, index) => (
+                <li key={bucket.category} className="obs-ranked__row">
+                  <span className="obs-ranked__rank">{String(index + 1).padStart(2, "0")}</span>
+                  <span className="obs-ranked__label">
+                    {CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category}
+                  </span>
+                  <span className="obs-ranked__track" aria-hidden="true">
+                    <i
+                      style={{
+                        width: `${Math.max(3, (bucket.tracked / maxTracked) * 100)}%`,
+                        backgroundColor: categoryChartColor(bucket.category),
+                      }}
+                    />
+                  </span>
+                  <span className="obs-ranked__count">
+                    {bucket.tracked} tracked{bucket.new7d > 0 ? ` · ${bucket.new7d} new` : ""}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <aside className="obs-readout" aria-label="Radar working set summary">
+              <div className="obs-readout__stats">
+                <div><b>{radar.recurring.trackedLeads}</b><span>tracked leads</span></div>
+                <div><b>{radar.recurring.recurringLeads}</b><span>seen again</span></div>
+                <div><b>{radar.window.newLeads7d}</b><span>new this week</span></div>
               </div>
-              {radar.weekly.length > 1 ? (
-                <div>
-                  <p className="brief-band__caption" style={{ marginBottom: 8 }}>
-                    Still-tracked leads first seen per week by problem area — each line wears its area&apos;s color:
-                  </p>
-                  <CategorySparklines
-                    weeks={radar.weekly}
-                    categories={chartCategories(radar.weekly.flatMap((week) => Object.keys(week.counts)))}
-                    width={330}
-                  />
-                </div>
-              ) : null}
               {radar.funnel7d.reviewed > 0 ? (
-                <div>
-                  <p className="brief-band__caption" style={{ marginBottom: 8 }}>
-                    What happened to the {radar.funnel7d.reviewed} candidates reviewed this week:
-                  </p>
+                <div className="obs-readout__funnel">
+                  <p className="mono-label">Where this week&apos;s candidates went</p>
                   <SegmentedFunnelBar
                     reviewed={radar.funnel7d.reviewed}
                     kept={radar.funnel7d.kept}
@@ -154,46 +195,113 @@ export function PublicScannerView({
                   />
                 </div>
               ) : null}
-            </div>
-            <aside className="radar-rail" aria-label="Working set composition">
-              <div>
-                <div className="mono-label" style={{ marginBottom: 10 }}>
-                  Tracked leads by category
-                </div>
-                <div className="cat-legend">
-                  {radar.categories.map((bucket) => (
-                    <div key={bucket.category} className="cat-legend__row">
-                      <span>
-                        <i
-                          className="cat-swatch"
-                          style={{ background: categoryChartColor(bucket.category) }}
-                          aria-hidden="true"
-                        />
-                        {CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category}
-                      </span>
-                      <span className="num-quiet">
-                        {bucket.tracked}
-                        {bucket.new7d > 0 ? ` (+${bucket.new7d} this week)` : ""}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="radar-health" aria-label="Source-date coverage">
+              <div className="radar-health" aria-label="Source-date and patch coverage">
+                <div>Real publication dates: {radar.dateCoverage.withSourceDate}/{radar.dateCoverage.tracked}</div>
                 <div>
-                  Source dates: {radar.dateCoverage.withSourceDate} of {radar.dateCoverage.tracked} leads
-                </div>
-                <div>
-                  Patch match: {radar.eligibility.current_patch} explicit · {radar.eligibility.fresh_language}{" "}
-                  fresh language · {radar.eligibility.unknown_source_freshness} unknown freshness
+                  Explicit patch matches: {radar.eligibility.current_patch} · freshness inferred: {radar.eligibility.fresh_language}
                 </div>
               </div>
               <p className="radar-note">
-                &ldquo;Seen&rdquo; times are scanner observations — when the radar found a page, not when it was
-                posted. The search provider rarely supplies publication dates, so the radar never guesses them.
+                Discovery time is not publication time. When a source omits its date, the radar says so instead of guessing.
               </p>
             </aside>
           </div>
+        </section>
+      ) : null}
+
+      {latestSteam || platformContext || pulseReadFailureMessages.length > 0 ? (
+        <section className="context-pulse" aria-label="Platform context, not evidence">
+          <div className="obs-questions__header">
+            <div>
+              <p className="dispatch-kicker dispatch-kicker--blue">Platform pulse</p>
+              <h2 className="obs-section-title">Context, not evidence</h2>
+            </div>
+            <p className="obs-questions__note">
+              Public platform activity can help time a change. It never becomes a player report or proves an issue.
+            </p>
+          </div>
+          <div className="context-pulse__grid">
+            {latestSteam ? (
+              <article className="context-card context-card--steam">
+                <div className="context-card__heading">
+                  <div><p className="mono-label">Steam Pulse</p><h3>Review activity</h3></div>
+                  <span>Updated {timeAgo(latestSteam.collectedAt)}</span>
+                </div>
+                <div className="context-card__stats">
+                  <div><b>{compactNumber(latestSteam.totalReviews)}</b><span>total reviews</span></div>
+                  <div><b>{latestSteam.positivePercentage.toFixed(0)}%</b><span>positive</span></div>
+                  <div>
+                    <b className={`steam-pulse-chart__delta steam-pulse-chart__delta--${reviewDeltaTone(latestSteam.reviewCountDelta)}`}>
+                      {formatSignedReviewDelta(latestSteam.reviewCountDelta)}
+                    </b>
+                    <span>{latestSteam.reviewCountDelta === null ? "baseline not established" : "since previous recorded day"}</span>
+                  </div>
+                </div>
+                {data.steamPulse.length > 1 ? (
+                  <div
+                    className="steam-pulse-chart"
+                    role="img"
+                    aria-label={`Steam review-count changes between recorded days. Latest change: ${formatSignedReviewDelta(latestSteam.reviewCountDelta)}.`}
+                  >
+                    {data.steamPulse.map((point) => (
+                      <div key={point.snapshotDay} className="steam-pulse-chart__day">
+                        <span className="steam-pulse-chart__plot" aria-hidden="true">
+                          {point.reviewCountDelta === null ? null : (
+                            <i
+                              className={`steam-pulse-chart__bar steam-pulse-chart__bar--${reviewDeltaTone(point.reviewCountDelta)}`}
+                              style={{
+                                height: `${Math.max(4, (Math.abs(point.reviewCountDelta) / maxSteamDelta) * 100)}%`,
+                              }}
+                            />
+                          )}
+                        </span>
+                        <small>{pulseDay(point.snapshotDay)}</small>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="context-card__note">
+                  Latest sample screened {latestSteam.reviewsScanned} changed reviews, found {latestSteam.issueLanguageCount} with issue language,
+                  and retained {latestSteam.leadsRetained} private radar {latestSteam.leadsRetained === 1 ? "lead" : "leads"}.
+                </p>
+              </article>
+            ) : null}
+            {platformContext ? (
+              <article className="context-card context-card--platform">
+                <div className="context-card__heading">
+                  <div><p className="mono-label">IGDB + Twitch</p><h3>Release and interest at capture</h3></div>
+                  <span>Captured {timeAgo(platformContext.capturedAt)}</span>
+                </div>
+                <div className="context-card__stats">
+                  <div><b>{platformContext.liveStreams == null ? "—" : compactNumber(platformContext.liveStreams)}</b><span>live streams at capture</span></div>
+                  <div><b>{platformContext.liveViewers == null ? "—" : compactNumber(platformContext.liveViewers)}</b><span>viewers at capture</span></div>
+                  <div><b>{platformContext.platforms.length || "—"}</b><span>listed platforms</span></div>
+                </div>
+                {platformUnavailability.length > 0 ? (
+                  <div className="context-card__status-list">
+                    {platformUnavailability.map((message) => (
+                      <p key={message} className="context-card__status-item">
+                        {message}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+                <dl className="context-card__facts">
+                  <div><dt>Release</dt><dd>{platformContext.releaseAt ? pulseDay(platformContext.releaseAt.slice(0, 10)) : "Not listed"}</dd></div>
+                  <div><dt>Platforms</dt><dd>{platformContext.platforms.join(" · ") || "Not listed"}</dd></div>
+                  <div><dt>Coverage</dt><dd>{twitchCoverageLabel(platformContext.twitchComplete)}</dd></div>
+                </dl>
+                <p className="context-card__note">No channel identities, stream titles, or viewer history are stored here.</p>
+              </article>
+            ) : null}
+          </div>
+          {pulseReadFailureMessages.length > 0 ? (
+            <div className="context-card__status-list" role="status">
+              {pulseReadFailureMessages.map((message) => (
+                <p key={message} className="context-card__status-item">{message}</p>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -247,7 +355,7 @@ export function PublicScannerView({
                   <ConfirmButtons
                     clusterId={cluster.id}
                     storageScope={patchFamily}
-                    question="Do you have this?"
+                    question="Player check-in · Affecting you?"
                     kinds={["have_it"]}
                     counts={{ have_it: cluster.confirmations.byKind.have_it.count }}
                   />

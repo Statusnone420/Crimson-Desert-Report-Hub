@@ -8,13 +8,15 @@ Every public surface must also feel complete at N=0. Empty states describe what 
 
 ## Visual Style
 
-- Dark neutral background.
+- Dark neutral background with a restrained tonal ramp: canvas, inset (`--dispatch-inset`), and one raised tone (`--dispatch-raised`). The raised tier is reserved for decision surfaces, provenance, and grouped intelligence (flagged admin queue, the observatory footnote); it never wraps paragraphs into cards.
 - Crimson as the primary action and issue-severity color.
 - Amber for caution or claimed-fix states.
 - Green on public issue readouts is reserved for players saying a fix worked for them. Silence is never green.
 - Blue for links and informational states.
-- Modest 8px panel radius.
+- Modest 4px radius on buttons and raised panels; nothing else is rounded.
+- Rules and hairlines carry hierarchy by default; tonal containment is the exception.
 - No glassmorphism, decorative gradients, official game assets, or oversized hero layout.
+- Mono type carries machine facts and provenance (source, classification, publication state); it is not used as tiny low-contrast decoration.
 
 ## UI Principles
 

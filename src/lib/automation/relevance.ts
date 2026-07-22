@@ -244,19 +244,23 @@ function hasSymptomLanguage(text: string): boolean {
   return matchesAny(text, SYMPTOM_PATTERNS);
 }
 
-// Broad-query discovery (e.g. "r/CrimsonDesert" matching the R programming
-// language) drags in pages about entirely different subjects. On an UNKNOWN
-// domain, a candidate must mention the game — by name (including common URL
-// separators and the Chinese/Korean store names), community (CDguides), or publisher —
-// somewhere in its title,
-// snippet, or URL to enter the funnel. Trusted community/press domains are
-// exempt: Steam discussion URLs are numeric app paths that cannot carry the
-// name, and every observed contamination case came from an unknown domain.
+// Broad-query discovery (e.g. a generic Reddit result) drags in pages about
+// entirely different subjects. Source reputation and topic relevance are
+// deliberately separate: a trusted host can still carry an unrelated page.
 const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
+const KNOWN_GAME_SOURCE_PATTERN = /(?:steamcommunity\.com\/(?:app|games)\/3321460|store\.steampowered\.com\/(?:app|appreviews)\/3321460)(?:[/?#]|$)/i;
 
-function isOffTopicForUnknownDomain(input: CandidatePreScreenInput, sourceText: string): boolean {
-  if (domainTier(input.sourceDomain) === "trusted") return false;
-  return !GAME_CONTEXT_PATTERN.test(`${sourceText} ${input.url ?? ""}`);
+export function hasCrimsonDesertContext(
+  input: Pick<CandidatePreScreenInput, "title" | "snippet" | "url" | "sourceDomain">,
+): boolean {
+  const context = `${input.title} ${input.snippet} ${input.url ?? ""}`;
+  if (GAME_CONTEXT_PATTERN.test(context) || KNOWN_GAME_SOURCE_PATTERN.test(input.url ?? "")) return true;
+
+  // The scanner and every persisted row carry a URL, so real intake always
+  // takes the strict path above. Keep URL-less trusted-provider inputs usable
+  // for direct classifier calls and historical fixtures that cannot establish
+  // page context on their own.
+  return !input.url && domainTier(input.sourceDomain) === "trusted";
 }
 
 function saysNoIssue(text: string): boolean {
@@ -352,7 +356,7 @@ export function preScreenCandidate(
   options: { currentPatchVersion?: string; currentPatchPublishedAt?: string | null } = {},
 ): SignalRelevanceDecision {
   const sourceText = compact(`${input.title} ${input.snippet}`);
-  if (isOffTopicForUnknownDomain(input, sourceText)) {
+  if (!hasCrimsonDesertContext(input)) {
     return { keep: false, reason: "off_topic" };
   }
   if (hasUnsupportedSourceContext(input)) {

@@ -1389,12 +1389,12 @@ describe("automation relevance", () => {
       }
     });
 
-    it("does not apply the off-topic guard to trusted community domains", () => {
+    it("recognizes the known Crimson Desert Steam app path without relying on host reputation", () => {
       expect(
         preScreenCandidate({
           title: "Game crashes after the new update",
           snippet: "Crashes to desktop every time I open the map.",
-          url: "https://steamcommunity.com/app/000000/discussions/0/1",
+          url: "https://steamcommunity.com/app/3321460/discussions/0/1",
           sourceDomain: "steamcommunity.com",
         }),
       ).toEqual({ keep: true });

@@ -17,6 +17,7 @@ import { uniqueClaimAttributions } from "@/lib/claims";
 import { composeDispatchBrief, formatWeeklyDelta, weeklyDeltaSentence } from "@/lib/dispatchBrief";
 import { displayDescription, needsFullIssueCard } from "@/lib/evidence";
 import { getTrackedPatchEditionCount } from "@/lib/officialPatch.server";
+import { formatSignedReviewDelta, platformUnavailableMessage, reviewDeltaTone } from "@/lib/platformPulseDisplay";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getDashboardData, getDailySignalRollup, getPublicScannerData } from "@/lib/queries";
@@ -45,6 +46,10 @@ function mediumDate(iso: string | null): string | null {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return null;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
+
+function compactNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
 function officialHost(url: string): string {
@@ -149,6 +154,33 @@ export default async function DispatchHomePage() {
   const boardClusters = d.topClusters.filter(needsFullIssueCard);
   const top3 = boardClusters.slice(0, 3);
   const [leadStory, ...secondaryStories] = top3;
+  const topWatch = leadStory ?? d.topClusters[0] ?? null;
+  const contestedSubject = mostContested?.title.replace(
+    /\s+(?:persists|continues)(?:\s+after\s+(?:the\s+)?fix)?$/i,
+    "",
+  );
+  const heroHeadline = mostContested
+    ? `${contestedSubject} remains contested in ${patch.version}.`
+    : topWatch
+      ? `${topWatch.title} leads the ${patch.version} watchlist.`
+      : `Patch ${patch.version} is live. Here’s what changed and what to watch.`;
+  const heroDek = topWatch
+    ? `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
+    : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
+  const latestSteamPulse = radar.steamPulse[radar.steamPulse.length - 1] ?? null;
+  const platformPulse = radar.platformContext;
+  const platformPulseUnavailableMessages = platformPulse
+    ? [
+        platformUnavailableMessage("IGDB", platformPulse.igdbStatus),
+        platformUnavailableMessage("Twitch", platformPulse.twitchStatus),
+      ].filter(Boolean)
+    : [];
+  const pulseReadFailureMessages = radar.pulseReadFailures.map((lane) =>
+    lane === "steam"
+      ? "Steam Pulse is temporarily unavailable."
+      : "IGDB and Twitch context is temporarily unavailable.",
+  );
+  const showContextBand = Boolean(latestSteamPulse || platformPulse || pulseReadFailureMessages.length > 0);
 
   const verdictsElsewhere = verifying.length > 0 && claimRows.every((row) => row.attributed === null);
   const mobileClaimRow =
@@ -169,6 +201,7 @@ export default async function DispatchHomePage() {
   // modules close ranks without leaving gaps in the numbering.
   const sectionIds: string[] = ["pulse"];
   if (showRadarBand) sectionIds.push("radar");
+  if (showContextBand) sectionIds.push("context");
   sectionIds.push("board");
   if (claimRows.length > 0) sectionIds.push("claims");
   if (wire.length > 0) sectionIds.push("wire");
@@ -179,6 +212,7 @@ export default async function DispatchHomePage() {
   const tocLabels: Record<string, string> = {
     pulse: "Patch Pulse",
     radar: "The radar",
+    context: "Platform pulse",
     board: "The issue board",
     claims: "The claims record",
     wire: "From the wire",
@@ -288,27 +322,8 @@ export default async function DispatchHomePage() {
         <section className="brief-lead" aria-label="Lead story">
           <div className="brief-lead__copy">
             <p className="dispatch-kicker">{brief.kicker}</p>
-            <h2 className="brief-lead__headline">{brief.headline}</h2>
-            <p className="brief-lead__dek">{brief.dek}</p>
-            <p className="brief-lead__meta dispatch-desktop-only">
-              {d.total} player report{d.total === 1 ? "" : "s"} · {totalTaps} player tap{totalTaps === 1 ? "" : "s"} ·{" "}
-              {radarData.connected
-                ? `${radarData.window.newLeads7d} new radar leads (7d)`
-                : `${radar.keptThisWeek} kept leads`}{" "}
-              ·{" "}
-              {d.latestReportAt
-                ? `updated ${timeAgo(d.latestReportAt)}`
-                : radarData.connected && radarData.health.lastScanAt
-                  ? `last scan ${relativeTimeShort(radarData.health.lastScanAt)}`
-                  : "no reports yet"}
-            </p>
-            <div className="brief-fact-strip dispatch-mobile-only">
-              <span>{d.total} reports</span>
-              <span>{totalTaps} taps</span>
-              <span>
-                {d.claimedFixes.length} claims · {contestedClusters.length} contested
-              </span>
-            </div>
+            <h2 className="brief-lead__headline">{heroHeadline}</h2>
+            <p className="brief-lead__dek">{heroDek}</p>
           </div>
           <div className="brief-lead__rail">
             <div>
@@ -353,6 +368,36 @@ export default async function DispatchHomePage() {
                 </span>
               </div>
             </div>
+          </div>
+          <div className="brief-lead__actions" aria-label="Start with the current patch">
+            <a className="brief-lead__action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">
+              <span>What changed</span>
+              <strong>{d.claimedFixes.length} official fix {d.claimedFixes.length === 1 ? "claim" : "claims"}</strong>
+              <i aria-hidden="true">↗</i>
+            </a>
+            <Link className="brief-lead__action" href="/issues">
+              <span>What appears broken</span>
+              <strong>{topWatch?.title ?? "No published player issue yet"}</strong>
+              <i aria-hidden="true">→</i>
+            </Link>
+            <Link className="brief-lead__action" href="/report">
+              <span>What to check</span>
+              <strong>Compare your result or file a structured report</strong>
+              <i aria-hidden="true">→</i>
+            </Link>
+          </div>
+          <p className="brief-lead__meta dispatch-desktop-only">
+            {d.claimedFixes.length} official claims · {boardClusters.length} published issues · {radarData.recurring.trackedLeads} tracked radar leads ·{" "}
+            {radarData.connected && radarData.health.lastScanAt
+              ? `last scan ${relativeTimeShort(radarData.health.lastScanAt)}`
+              : d.latestReportAt
+                ? `updated ${timeAgo(d.latestReportAt)}`
+                : "awaiting first source run"}
+          </p>
+          <div className="brief-fact-strip dispatch-mobile-only">
+            <span>{d.claimedFixes.length} claims</span>
+            <span>{boardClusters.length} issues</span>
+            <span>{radarData.recurring.trackedLeads} radar leads</span>
           </div>
           <nav className="brief-lead__toc dispatch-desktop-only" aria-label="In this edition">
             <span className="brief-lead__toc-label">In This Edition</span>
@@ -659,6 +704,86 @@ export default async function DispatchHomePage() {
           </section>
         ) : null}
 
+        {showContextBand ? (
+          <section id="context" className="brief-band" aria-label="Platform pulse, context not evidence">
+            <div className="brief-band__header">
+              <div>
+                <h2 className="dispatch-kicker dispatch-kicker--blue">{sectionNo("context")} · Platform Pulse</h2>
+                <p className="pulse-headline pulse-headline--compact">Useful context that never becomes evidence.</p>
+              </div>
+              <span className="brief-band__note dispatch-desktop-only">
+                Steam review movement and point-in-time Twitch interest stay visibly separate from player reports.
+              </span>
+            </div>
+            <div className="context-pulse__grid context-pulse__grid--brief">
+              {latestSteamPulse ? (
+                <article className="context-card context-card--steam">
+                  <div className="context-card__heading">
+                    <div>
+                      <p className="mono-label">Steam Pulse</p>
+                      <h3>
+                        {latestSteamPulse.reviewCountDelta === null
+                          ? "Review baseline recorded"
+                          : latestSteamPulse.reviewCountDelta > 0
+                            ? "Review count is rising"
+                            : latestSteamPulse.reviewCountDelta < 0
+                              ? "Review count changed"
+                              : "Review count is steady"}
+                      </h3>
+                    </div>
+                    <span>Updated {timeAgo(latestSteamPulse.collectedAt)}</span>
+                  </div>
+                  <div className="context-card__stats">
+                    <div><b>{compactNumber(latestSteamPulse.totalReviews)}</b><span>total reviews</span></div>
+                    <div><b>{latestSteamPulse.positivePercentage.toFixed(0)}%</b><span>positive</span></div>
+                    <div>
+                      <b className={`steam-pulse-chart__delta steam-pulse-chart__delta--${reviewDeltaTone(latestSteamPulse.reviewCountDelta)}`}>
+                        {formatSignedReviewDelta(latestSteamPulse.reviewCountDelta)}
+                      </b>
+                      <span>{latestSteamPulse.reviewCountDelta === null ? "baseline not established" : "since previous recorded day"}</span>
+                    </div>
+                  </div>
+                  <p className="context-card__note">
+                    Latest sample screened {latestSteamPulse.reviewsScanned} changed reviews and retained {latestSteamPulse.leadsRetained} private radar {latestSteamPulse.leadsRetained === 1 ? "lead" : "leads"}. Review text is not counted as a player report.
+                  </p>
+                </article>
+              ) : null}
+              {platformPulse ? (
+                <article className="context-card context-card--platform">
+                  <div className="context-card__heading">
+                    <div><p className="mono-label">IGDB + Twitch</p><h3>Live interest at capture</h3></div>
+                    <span>Captured {timeAgo(platformPulse.capturedAt)}</span>
+                  </div>
+                  <div className="context-card__stats">
+                    <div><b>{platformPulse.liveStreams == null ? "—" : compactNumber(platformPulse.liveStreams)}</b><span>live streams at capture</span></div>
+                    <div><b>{platformPulse.liveViewers == null ? "—" : compactNumber(platformPulse.liveViewers)}</b><span>viewers at capture</span></div>
+                    <div><b>{platformPulse.platforms.length || "—"}</b><span>listed platforms</span></div>
+                  </div>
+                  {platformPulseUnavailableMessages.length > 0 ? (
+                    <div className="context-card__status-list">
+                      {platformPulseUnavailableMessages.map((message) => (
+                        <p key={message} className="context-card__status-item">
+                          {message}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                  <p className="context-card__note">
+                    This is a point-in-time count, not historical watch time. No channel identities, stream titles, or viewer histories are stored.
+                  </p>
+                </article>
+              ) : null}
+            </div>
+            {pulseReadFailureMessages.length > 0 ? (
+              <div className="context-card__status-list" role="status">
+                {pulseReadFailureMessages.map((message) => (
+                  <p key={message} className="context-card__status-item">{message}</p>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         {/* Issue board */}
         <section id="board" className="brief-band" aria-label="The issue board">
           <div className="brief-band__header">
@@ -721,10 +846,13 @@ export default async function DispatchHomePage() {
         {/* Claims record */}
         {claimRows.length > 0 ? (
           <section id="claims" className="brief-band" aria-label="The claims record">
-            <h2 className="dispatch-kicker">{sectionNo("claims")} · The Claims Record</h2>
-            <p className="claims-intro">
-              What {patch.version} claims to fix, against what players say. The board never decides for them.
-            </p>
+            <div className="brief-band__header">
+              <h2 className="dispatch-kicker">{sectionNo("claims")} · The Claims Record</h2>
+              <span className="brief-band__note dispatch-desktop-only">
+                What {patch.version} claims to fix, against what players say. The board never decides for them.
+              </span>
+            </div>
+            <div className="claim-rows">
             {claimRows.map((row, index) => (
               <div
                 key={`${row.claim.fixText}-${index}`}
@@ -756,6 +884,7 @@ export default async function DispatchHomePage() {
                 </div>
               </div>
             ))}
+            </div>
           </section>
         ) : null}
 
@@ -794,7 +923,7 @@ export default async function DispatchHomePage() {
         ) : null}
 
         {/* Observatory footnote — the page's only box */}
-        <div className="dispatch-inset-box observatory-footnote">
+        <div className="dispatch-inset-box observatory-footnote surface-raised">
           <div>
             <p className="observatory-footnote__label">From the Observatory</p>
             <p className="observatory-footnote__copy dispatch-desktop-only">

@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   syncOfficialPatchNote: vi.fn(),
   tavilySearch: vi.fn(),
   tavilyExtract: vi.fn(),
+  fetchSteamReviewBatch: vi.fn(),
+  fetchCrimsonDesertPlatformContext: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -55,6 +57,18 @@ vi.mock("@/lib/automation/claimMapping", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/automation/steam", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/steam")>();
+  return {
+    ...actual,
+    fetchSteamReviewBatch: mocks.fetchSteamReviewBatch,
+  };
+});
+
+vi.mock("@/lib/platform/igdb", () => ({
+  fetchCrimsonDesertPlatformContext: mocks.fetchCrimsonDesertPlatformContext,
+}));
+
 vi.mock("@/lib/officialPatch.server", () => ({
   CURRENT_PATCH_TAG: "current-patch",
   PUBLIC_DASHBOARD_TAG: "public-dashboard",
@@ -68,8 +82,12 @@ type Row = Record<string, unknown>;
 type TableName =
   | "automation_runs"
   | "automation_rejected_candidates"
+  | "scanner_feedback_rules"
   | "official_patch_notes"
   | "source_signals"
+  | "steam_review_receipts"
+  | "steam_pulse_snapshots"
+  | "platform_context_snapshots"
   | "signal_observation_events"
   | "issue_clusters"
   | "bug_reports"
@@ -87,8 +105,12 @@ type Filter =
 const tables: Record<TableName, Row[]> = {
   automation_runs: [],
   automation_rejected_candidates: [],
+  scanner_feedback_rules: [],
   official_patch_notes: [],
   source_signals: [],
+  steam_review_receipts: [],
+  steam_pulse_snapshots: [],
+  platform_context_snapshots: [],
   signal_observation_events: [],
   issue_clusters: [],
   bug_reports: [],
@@ -99,14 +121,15 @@ const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "del
 let idSeq = 1;
 let openRouterAttempts = 0;
 let selectFailure: { table: TableName; message: string; columns?: string } | null = null;
-let updateFailure: { table: TableName; message: string } | null = null;
+let insertFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
+let updateFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
 let beforeUpdate: ((table: TableName, patch: Row, filters: Filter[]) => void) | null = null;
 let beforeSelect: ((table: TableName) => void) | null = null;
 let beforeVisibilityRefreshRpc: ((args: Record<string, unknown>) => void) | null = null;
 let visibilityRefreshFailure: string | null = null;
 let issueClusterInsertRace: { slug: string; row: Row } | null = null;
-let sourceSignalInsertFailure: { title: string; message: string } | null = null;
+let sourceSignalInsertFailure: { title?: string; externalHash?: string; message: string } | null = null;
 let observationEventInsertFailure: string | null = null;
 
 const officialPatchFixture = {
@@ -126,6 +149,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   idSeq = 1;
   openRouterAttempts = 0;
   selectFailure = null;
+  insertFailure = null;
   updateFailure = null;
   deleteFailure = null;
   beforeUpdate = null;
@@ -307,12 +331,23 @@ class FakeQuery {
     if (
       this.table === "source_signals" &&
       sourceSignalInsertFailure &&
-      this.insertRows!.some((row) => row.title === sourceSignalInsertFailure!.title)
+      this.insertRows!.some(
+        (row) =>
+          (sourceSignalInsertFailure!.title !== undefined && row.title === sourceSignalInsertFailure!.title) ||
+          (sourceSignalInsertFailure!.externalHash !== undefined &&
+            row.external_id_hash === sourceSignalInsertFailure!.externalHash),
+      )
     ) {
       return { data: null, error: { message: sourceSignalInsertFailure.message } };
     }
     if (this.table === "signal_observation_events" && observationEventInsertFailure) {
       return { data: null, error: { message: observationEventInsertFailure } };
+    }
+    if (
+      insertFailure?.table === this.table &&
+      (!insertFailure.column || this.insertRows!.some((row) => insertFailure!.column! in row))
+    ) {
+      return { data: null, error: { code: insertFailure.code, message: insertFailure.message } };
     }
     const inserted = this.insertRows!.map((row) => {
       const next = {
@@ -349,8 +384,11 @@ class FakeQuery {
   }
 
   private executeUpdate() {
-    if (updateFailure?.table === this.table) {
-      return { data: null, error: { message: updateFailure.message } };
+    if (
+      updateFailure?.table === this.table &&
+      (!updateFailure.column || updateFailure.column in this.patch!)
+    ) {
+      return { data: null, error: { code: updateFailure.code, message: updateFailure.message } };
     }
     beforeUpdate?.(this.table, this.patch!, [...this.filters]);
     const rows = this.filteredRows();
@@ -484,6 +522,12 @@ function configureProviders() {
   // Recon is off by default: no full-page text unless a test opts in. Existing
   // borderline behavior (extract on the thin snippet) must be unchanged.
   mocks.tavilyExtract.mockResolvedValue(null);
+  mocks.fetchSteamReviewBatch.mockResolvedValue({ reviews: [], totals: { totalReviews: 0, totalPositive: 0, totalNegative: 0 }, cursor: null });
+  mocks.fetchCrimsonDesertPlatformContext.mockResolvedValue({
+    capturedAt: "2026-07-05T12:00:00.000Z",
+    igdb: { status: "absent", data: null, error: null },
+    twitch: { status: "absent", data: null, error: null },
+  });
   mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
     const text = `${candidate.title} ${candidate.snippet}`;
     const isCrash = /map crash/i.test(text);
@@ -528,6 +572,9 @@ beforeEach(() => {
   process.env.OPENROUTER_AUTOMATION_MODEL = "deepseek/deepseek-v4-flash";
   process.env.OPENROUTER_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
   delete process.env.CRON_SECRET;
+  delete process.env.STEAM_PULSE_ENABLED;
+  delete process.env.TWITCH_CLIENT_ID;
+  delete process.env.TWITCH_CLIENT_SECRET;
   delete process.env.VERCEL_ENV;
 });
 
@@ -2034,6 +2081,192 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("stores rejected candidates through the legacy schema when feedback columns are missing", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    insertFailure = {
+      table: "automation_rejected_candidates",
+      column: "feedback_rule_id",
+      code: "PGRST204",
+      message: "Could not find the feedback_rule_id column of automation_rejected_candidates in the schema cache",
+    };
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/legacy-reject",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.status).not.toBe("failed");
+    expect(result.errors).not.toContain(expect.stringContaining("rejected candidates insert failed"));
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({ url: "https://example.com/legacy-reject", reason: "source_not_issue_report" }),
+    ]);
+    expect(rejectedCandidateRows()[0]).not.toHaveProperty("feedback_rule_id");
+  });
+
+  it("refreshes a legacy rejected candidate without the feedback column", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "legacy-rejected",
+          run_id: "old-run",
+          title: "Old title",
+          url: "https://example.com/legacy-refresh",
+          source_domain: "example.com",
+          snippet: "Old snippet",
+          reason: "source_not_issue_report",
+          created_at: "2026-07-20T12:00:00.000Z",
+          expires_at: "2026-07-29T12:00:00.000Z",
+          rescued_at: null,
+        },
+      ],
+    });
+    updateFailure = {
+      table: "automation_rejected_candidates",
+      column: "feedback_rule_id",
+      code: "PGRST204",
+      message: "Could not find the feedback_rule_id column of automation_rejected_candidates in the schema cache",
+    };
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/legacy-refresh",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.status).not.toBe("failed");
+    expect(rejectedCandidateRows()).toHaveLength(1);
+    expect(rejectedCandidateRows()[0]).toMatchObject({
+      id: "legacy-rejected",
+      title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+      run_id: tables.automation_runs[0].id,
+    });
+    expect(rejectedCandidateRows()[0]).not.toHaveProperty("feedback_rule_id");
+  });
+
+  it("blocks a normally relevant candidate when an operator feedback rule matches", async () => {
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-protonmail",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes after the update",
+        url: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp?utm_source=search",
+        snippet: "Crimson Desert crashes every time I open the map.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(0);
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({
+        reason: "off_topic",
+        feedback_rule_id: "rule-protonmail",
+      }),
+    ]);
+    expect(tables.automation_runs[0]).toMatchObject({ operator_rules_matched: 1 });
+  });
+
+  it("keeps legacy scanning active when the feedback-rules table is not migrated yet", async () => {
+    selectFailure = {
+      table: "scanner_feedback_rules",
+      message: "relation scanner_feedback_rules does not exist",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.status).not.toBe("failed");
+    expect(result.errors).not.toContain(expect.stringContaining("feedback rules"));
+  });
+
+  it("lets a Relevant exact-URL rule bypass the automated relevance rejection", async () => {
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-manual-relevant",
+          action: "allow",
+          decision: "relevant",
+          scope_type: "exact_url",
+          scope_value: "https://example.com/operator-reviewed-page",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch notes",
+        url: "https://example.com/operator-reviewed-page",
+        snippet: "Operator verified this page contains a real crash report.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockResolvedValue({
+      issueTitle: "Map crash after patch",
+      category: "crash_startup",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: "A reviewed source reports a map crash after the patch.",
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_allowed");
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ title: "Crimson Desert patch notes" });
+  });
+
   it("dry runs record zero rejected candidates even when candidates fail pre-screen", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -2370,8 +2603,8 @@ describe("runAutomationMonitor", () => {
           source_type: "web_search",
           source_url: "https://steamcommunity.com/app/old",
           canonical_url: "https://steamcommunity.com/app/old",
-          title: "MASSIVE frame drops and stuttering after 1.04",
-          summary: "Players discuss frame drops after patch 1.04.",
+          title: "Crimson Desert massive frame drops and stuttering after 1.04",
+          summary: "Players discuss Crimson Desert frame drops after patch 1.04.",
           source_domain: "steamcommunity.com",
           source_published_at: "2026-05-01T12:00:00.000Z",
           semantic_fingerprint: "old-fps",
@@ -2477,6 +2710,58 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("hides legacy public rows that never mention Crimson Desert", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-off-topic",
+          slug: "off-topic",
+          title: "Off-topic legacy row",
+          category: "other",
+          description: "A trusted-domain row that is unrelated to the game.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-protonmail",
+          cluster_id: "cluster-off-topic",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/ProtonMail/comments/example/mcp",
+          canonical_url: "https://www.reddit.com/r/ProtonMail/comments/example/mcp",
+          source_domain: "reddit.com",
+          title: "Any plans for MCP?",
+          summary: "Proton rolled out an AI product called Lumo.",
+          source_published_at: null,
+          category: "other",
+          confidence: "low",
+          observed_at: "2026-07-22T08:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ public_status: "hidden", promotion_reason: "off_topic" });
+    expect(tables.issue_clusters[0]).toMatchObject({ public_signal_count: 0, auto_public: false, is_public: false });
+  });
+
   it("quarantines stale public source links beyond the first audit page", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -2518,8 +2803,8 @@ describe("runAutomationMonitor", () => {
           source_type: "web_search",
           source_url: "https://steamcommunity.com/app/old",
           canonical_url: "https://steamcommunity.com/app/old",
-          title: "MASSIVE frame drops and stuttering after 1.04",
-          summary: "Players discuss frame drops after patch 1.04.",
+          title: "Crimson Desert massive frame drops and stuttering after 1.04",
+          summary: "Players discuss Crimson Desert frame drops after patch 1.04.",
           source_domain: "steamcommunity.com",
           source_published_at: "2026-05-01T12:00:00.000Z",
           semantic_fingerprint: "old-fps",
@@ -3505,8 +3790,8 @@ describe("runAutomationMonitor", () => {
           source_type: "web_search",
           source_url: "https://steamcommunity.com/app/crash-old",
           canonical_url: "https://steamcommunity.com/app/crash-old",
-          title: "Game crashes on startup after 1.04",
-          summary: "Players report startup crashes on patch 1.04.",
+          title: "Crimson Desert crashes on startup after 1.04",
+          summary: "Players report Crimson Desert startup crashes on patch 1.04.",
           source_domain: "steamcommunity.com",
           source_published_at: "2026-05-01T12:00:00.000Z",
           semantic_fingerprint: "crash-hang-stale",
@@ -3612,7 +3897,8 @@ describe("runAutomationMonitor", () => {
     expect(result.signalsInserted).toBe(1);
     expect(result.clustersPromoted).toBe(0);
     expect(sourceSignalRows()).toHaveLength(2);
-    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["private", "private"]);
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["hidden", "private"]);
+    expect(sourceSignalRows()[0]).toMatchObject({ promotion_reason: "off_topic" });
     expect(tables.issue_clusters[0]).toMatchObject({
       signal_count: 2,
       public_signal_count: 0,
@@ -4407,5 +4693,346 @@ describe("cron source preview route", () => {
       },
     });
     expect(previewAutomationSearch).toHaveBeenCalledWith({ maxQueries: 2 });
+  });
+});
+
+describe("Steam Pulse intake", () => {
+  it("keeps Steam review text private even when its cluster is public from a direct report", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-steam",
+          slug: "steam-stutter",
+          title: "Steam stutter",
+          category: "performance",
+          auto_public: false,
+          is_public: false,
+          visibility_revision: 0,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-steam",
+          cluster_id: "cluster-steam",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Steam stutter after patch 1.13.00",
+          moderation_status: "approved",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-steam",
+          cluster_id: "cluster-steam",
+          source: "steam_review",
+          source_type: "steam_review",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          canonical_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          source_domain: "store.steampowered.com",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Crimson Desert stutters after patch 1.13.00.",
+          raw_text: "Private Steam review text.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-steam", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ is_public: true, direct_report_count: 1, public_signal_count: 0 });
+    expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "source_context_only" });
+  });
+
+  it("keeps identities out of storage, retains only issue leads, and writes aggregate context", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+
+    const issueHash = externalIdHash("steam_review", "recommendation-issue");
+    const praiseHash = externalIdHash("steam_review", "recommendation-praise");
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash: issueHash,
+          reviewText: "Since patch 1.13 the game stutters and crashes every ten minutes on Steam.",
+          sourceCreatedAt: "2026-07-05T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 420,
+        },
+        {
+          recommendationHash: praiseHash,
+          reviewText: "Crimson Desert works great for me and I have no issues.",
+          sourceCreatedAt: "2026-07-05T10:05:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:35:00.000Z",
+          votedUp: true,
+          playtimeAtReviewMinutes: 180,
+        },
+      ],
+      totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
+      cursor: "next-page",
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(1);
+    const steamSignals = tables.source_signals.filter((row) => row.source === "steam_review");
+    expect(steamSignals).toHaveLength(1);
+    expect(steamSignals[0]).toMatchObject({
+      source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+      raw_text: "Since patch 1.13 the game stutters and crashes every ten minutes on Steam.",
+      public_status: "private",
+      extracted_facts: {
+        steamVotedUp: false,
+        playtimeAtReviewMinutes: 420,
+        sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+      },
+    });
+
+    expect(tables.steam_review_receipts).toHaveLength(2);
+    expect(tables.steam_review_receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ recommendation_hash: issueHash, voted_up: false }),
+        expect.objectContaining({ recommendation_hash: praiseHash, voted_up: true }),
+      ]),
+    );
+    for (const receipt of tables.steam_review_receipts) {
+      expect(receipt).not.toHaveProperty("review_text");
+      expect(receipt).not.toHaveProperty("author");
+      expect(receipt).not.toHaveProperty("steam_id");
+    }
+
+    expect(tables.steam_pulse_snapshots).toHaveLength(1);
+    expect(tables.steam_pulse_snapshots[0]).toMatchObject({
+      total_reviews: 1_250,
+      total_positive: 1_000,
+      total_negative: 250,
+      positive_percentage: 80,
+      reviews_scanned: 2,
+      issue_language_count: 1,
+      leads_retained: 1,
+    });
+    expect(rejectedCandidateRows()).toHaveLength(0);
+  });
+
+  it("acknowledges only classified or successfully persisted reviews after a partial write", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+
+    const firstHash = externalIdHash("steam_review", "recommendation-first");
+    const retryHash = externalIdHash("steam_review", "recommendation-retry");
+    sourceSignalInsertFailure = { externalHash: retryHash, message: "second Steam signal write failed" };
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash: firstHash,
+          reviewText: "Crimson Desert stutters constantly after patch 1.13 on Steam.",
+          sourceCreatedAt: "2026-07-05T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 420,
+        },
+        {
+          recommendationHash: retryHash,
+          reviewText: "Crimson Desert crashes every ten minutes after patch 1.13 on Steam.",
+          sourceCreatedAt: "2026-07-05T10:05:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:35:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 180,
+        },
+      ],
+      totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
+      cursor: "next-page",
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.signalsPrepared).toBe(2);
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.steam_review_receipts).toEqual([
+      expect.objectContaining({ recommendation_hash: firstHash }),
+    ]);
+    expect(tables.steam_review_receipts).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ recommendation_hash: retryHash })]),
+    );
+    expect(tables.steam_pulse_snapshots[0]).toMatchObject({
+      reviews_scanned: 2,
+      issue_language_count: 2,
+      leads_retained: 1,
+    });
+  });
+
+  it("keeps the daily review delta anchored to the prior day across same-day refreshes", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    resetDb({
+      steam_pulse_snapshots: [
+        {
+          snapshot_day: "2026-07-04",
+          collected_at: "2026-07-04T23:00:00.000Z",
+          total_reviews: 1_235,
+          total_positive: 986,
+          total_negative: 249,
+          positive_percentage: 79.8,
+          review_count_delta: 5,
+          reviews_scanned: 0,
+          issue_language_count: 0,
+          leads_retained: 0,
+        },
+        {
+          snapshot_day: "2026-07-05",
+          collected_at: "2026-07-05T05:00:00.000Z",
+          total_reviews: 1_240,
+          total_positive: 990,
+          total_negative: 250,
+          positive_percentage: 79.8,
+          review_count_delta: 4,
+          reviews_scanned: 0,
+          issue_language_count: 0,
+          leads_retained: 0,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [],
+      totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
+      cursor: null,
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(tables.steam_pulse_snapshots).toHaveLength(2);
+    expect(tables.steam_pulse_snapshots[1]).toMatchObject({
+      collected_at: "2026-07-05T12:00:00.000Z",
+      total_reviews: 1_250,
+      review_count_delta: 15,
+    });
+  });
+
+  it("finalizes against the legacy run ledger before the feedback migration is applied", async () => {
+    updateFailure = {
+      table: "automation_runs",
+      column: "operator_rules_matched",
+      code: "PGRST204",
+      message: "Could not find the operator_rules_matched column of automation_runs in the schema cache",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.errors).not.toContain(expect.stringContaining("finalize"));
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: expect.not.stringMatching(/^running$/),
+      finished_at: expect.any(String),
+    });
+    expect(tables.automation_runs[0]).not.toHaveProperty("operator_rules_matched");
+  });
+});
+
+describe("Platform Pulse intake", () => {
+  it("persists public metadata and live aggregates without provider credentials or channel identity", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    mocks.fetchCrimsonDesertPlatformContext.mockResolvedValue({
+      capturedAt: "2026-07-05T12:00:00.000Z",
+      igdb: {
+        status: "ok",
+        error: null,
+        data: {
+          id: 77,
+          name: "Crimson Desert",
+          slug: "crimson-desert",
+          summary: "Public IGDB metadata.",
+          firstReleaseDate: "2026-03-19T00:00:00.000Z",
+          platforms: ["PC", "PlayStation 5"],
+        },
+      },
+      twitch: {
+        status: "ok",
+        error: null,
+        data: { liveStreamCount: 14, liveViewerCount: 932, isComplete: true },
+      },
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(tables.platform_context_snapshots).toHaveLength(1);
+    expect(tables.platform_context_snapshots[0]).toMatchObject({
+      igdb_status: "ok",
+      igdb_game_id: 77,
+      igdb_name: "Crimson Desert",
+      igdb_platforms: ["PC", "PlayStation 5"],
+      twitch_status: "ok",
+      twitch_live_streams: 14,
+      twitch_live_viewers: 932,
+      twitch_complete: true,
+    });
+    const serialized = JSON.stringify(tables.platform_context_snapshots);
+    expect(serialized).not.toContain("fixture-client-secret");
+    expect(serialized).not.toContain("channel");
+    expect(serialized).not.toContain("stream_title");
+  });
+
+  it("keeps a missing pre-migration platform table as a safe compatibility skip", async () => {
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    selectFailure = {
+      table: "platform_context_snapshots",
+      message: "relation platform_context_snapshots does not exist",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("platform_context_schema_unavailable");
+    expect(result.errors).not.toContain(expect.stringContaining("Platform context"));
+  });
+
+  it("marks unexpected platform persistence failures partial and records the error", async () => {
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    selectFailure = { table: "platform_context_snapshots", message: "permission denied" };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.skips).toContain("platform_context_failed");
+    expect(result.errors).toContain("platform context recency read failed: permission denied");
   });
 });

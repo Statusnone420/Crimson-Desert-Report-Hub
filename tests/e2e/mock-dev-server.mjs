@@ -27,6 +27,7 @@ const clusterIds = {
   map: "00000000-0000-4000-8000-000000000002",
   mount: "00000000-0000-4000-8000-000000000003",
   ghosting: "00000000-0000-4000-8000-000000000004",
+  visibilityOverride: "00000000-0000-4000-8000-000000000005",
 };
 
 const clusters = [
@@ -72,6 +73,19 @@ const clusters = [
     confidence: "low",
     is_public: true,
   },
+  {
+    id: clusterIds.visibilityOverride,
+    slug: "xbox-graphics-duplicate",
+    title: "Constant graphics glitches on Xbox since patch 1.13",
+    category: "graphics_visual",
+    description: "A duplicate cluster held out of public view while its reports are consolidated.",
+    fix_status: "reported",
+    confidence: "low",
+    is_public: false,
+    admin_visibility_override: "force_hidden",
+    admin_visibility_reason: "Temporary duplicate hold while the Xbox graphics reports are consolidated.",
+    admin_visibility_changed_at: isoMinutesAgo(95),
+  },
 ];
 
 const reportSeed = [
@@ -115,8 +129,10 @@ bugReports.push({
   severity: "medium",
   frequency: "often",
   issue_title: "Pending visual test report",
-  description: "Pending report stays private.",
-  repro_steps: null,
+  description: "After 20–30 minutes in open-field combat, frame time spikes and FPS falls from 60 into the low 30s. Restarting the game clears it temporarily.",
+  repro_steps: "Load the same save on PC (Steam), ride from the city into open terrain, and continue combat for about 25 minutes.",
+  hardware_specs: "Ryzen 7 7800X3D · RTX 4070 Super · 32 GB RAM · driver 576.80",
+  evidence_url: "https://video.example.com/private-performance-capture",
   moderation_status: "pending",
   cluster_id: null,
   duplicate_fingerprint: "mock-pending-fingerprint",
@@ -209,14 +225,14 @@ const signals = [
     id: "signal-private-mapped",
     source: "web_search",
     source_type: "web_search",
-    source_url: "https://forum.example.com/mount-input-rumor",
-    canonical_url: "https://forum.example.com/mount-input-rumor",
-    title: "Possible mount input lockup",
+    source_url: "https://forum.example.com/crimson-desert/mount-input-rumor",
+    canonical_url: "https://forum.example.com/crimson-desert/mount-input-rumor",
+    title: "Possible Crimson Desert mount input lockup",
     source_domain: "forum.example.com",
     semantic_fingerprint: "mock-mount-private",
     cluster_id: clusterIds.mount,
     public_status: "private",
-    summary: "Private mapped candidate used to prove public question rendering without exposing the URL.",
+    summary: "Private Crimson Desert candidate used to prove public question rendering without exposing the URL.",
     category: "controls_gameplay",
     confidence: "low",
     observed_at: isoMinutesAgo(20),
@@ -512,6 +528,45 @@ const patchObservations = [
   },
 ];
 
+const steamPulseSnapshots = [
+  ["2026-07-14", 12408, 31, 9, 3],
+  ["2026-07-15", 12442, 34, 11, 4],
+  ["2026-07-16", 12468, 26, 7, 2],
+  ["2026-07-17", 12511, 43, 14, 5],
+  ["2026-07-18", 12540, 29, 8, 3],
+  ["2026-07-19", 12578, 38, 12, 4],
+].map(([snapshotDay, totalReviews, delta, issueLanguageCount, leadsRetained]) => ({
+  snapshot_day: snapshotDay,
+  collected_at: `${snapshotDay}T23:20:00.000Z`,
+  total_reviews: totalReviews,
+  total_positive: Math.round(totalReviews * 0.724),
+  total_negative: totalReviews - Math.round(totalReviews * 0.724),
+  positive_percentage: 72.4,
+  review_count_delta: delta,
+  reviews_scanned: Math.min(100, delta + 20),
+  issue_language_count: issueLanguageCount,
+  leads_retained: leadsRetained,
+}));
+
+const platformContextSnapshots = [
+  {
+    captured_at: isoMinutesAgo(35),
+    igdb_status: "ok",
+    igdb_game_id: 121752,
+    igdb_name: "Crimson Desert",
+    igdb_slug: "crimson-desert",
+    igdb_summary: "Mock public metadata for visual tests.",
+    igdb_first_release_at: "2026-07-08T00:00:00.000Z",
+    igdb_platforms: ["PC", "PlayStation 5", "Xbox Series X|S"],
+    twitch_status: "ok",
+    twitch_live_streams: 184,
+    twitch_live_viewers: 12840,
+    twitch_complete: true,
+  },
+];
+
+const scannerFeedbackRules = [];
+
 /**
  * Preview seed override: when PREVIEW_SEED_FILE points at a JSON file, its
  * table arrays replace the built-in Playwright seed in place. This is the
@@ -534,6 +589,9 @@ if (previewSeedFile) {
     official_patch_notes: officialPatchNotes,
     official_patch_claimed_fixes: officialPatchClaimedFixes,
     patch_observations: patchObservations,
+    steam_pulse_snapshots: steamPulseSnapshots,
+    platform_context_snapshots: platformContextSnapshots,
+    scanner_feedback_rules: scannerFeedbackRules,
   };
   const seed = JSON.parse(readFileSync(previewSeedFile, "utf8"));
   for (const [table, rows] of Object.entries(seed)) {
@@ -665,6 +723,10 @@ function filterRows(table, url) {
   if (order?.startsWith("published_at.desc")) {
     rows.sort((a, b) => new Date(b.published_at ?? 0).getTime() - new Date(a.published_at ?? 0).getTime());
   }
+  if (order?.startsWith("snapshot_day.desc")) rows.sort((a, b) => String(b.snapshot_day).localeCompare(String(a.snapshot_day)));
+  if (order?.startsWith("captured_at.desc")) {
+    rows.sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
+  }
   if (order?.startsWith("position.asc")) rows.sort((a, b) => a.position - b.position);
   if (order?.startsWith("title.asc")) rows.sort((a, b) => a.title.localeCompare(b.title));
 
@@ -761,6 +823,21 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/automation_rejected_candidates" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(rejectedCandidates, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/scanner_feedback_rules" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(scannerFeedbackRules, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/steam_pulse_snapshots" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(steamPulseSnapshots, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/platform_context_snapshots" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(platformContextSnapshots, url));
     return;
   }
 

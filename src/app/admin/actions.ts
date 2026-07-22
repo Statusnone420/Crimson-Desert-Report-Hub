@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { countBy } from "@/lib/aggregates";
+import { hashValue } from "@/lib/automation/dedupe";
+import {
+  isScannerDecision,
+  isScannerRuleScope,
+  scannerRuleScopeValue,
+} from "@/lib/automation/feedback";
 import { refreshClusterVisibility, rescueCandidateSignal } from "@/lib/automation/run";
 import {
   scannerPolicyFromFormData,
@@ -26,6 +32,7 @@ import { classifySignal, summarize } from "@/lib/reddit";
 import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import { ADMIN_COOKIE } from "@/lib/session";
 import { createServiceClient } from "@/lib/supabase";
+import { isMissingSupabaseRpc } from "@/lib/supabaseCompatibility";
 
 const DECISIONS = ["approved", "rejected", "spam"] as const;
 
@@ -192,14 +199,30 @@ export async function setClusterVisibilityOverride(formData: FormData): Promise<
   assertProductionWriteAllowed();
   const clusterId = String(formData.get("cluster_id") ?? "");
   const visibility = String(formData.get("visibility") ?? "");
+  const reason = String(formData.get("reason") ?? "").trim().slice(0, 500);
+  const confirmed = formData.get("confirm_override") === "true";
   if (!clusterId || !(VISIBILITY_OVERRIDES as readonly string[]).includes(visibility)) throw new Error("bad input");
+  if (visibility !== "auto" && (reason.length < 3 || !confirmed)) throw new Error("override reason and confirmation required");
 
   const supabase = createServiceClient();
   const { error } = await supabase.rpc("set_cluster_visibility_override", {
     p_cluster_id: clusterId,
     p_visibility: visibility,
+    p_reason: visibility === "auto" ? null : reason,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (!isMissingSupabaseRpc(error, "set_cluster_visibility_override")) {
+      throw new Error(error.message);
+    }
+    // Rolling-deploy compatibility: the production migration used to expose
+    // this RPC without p_reason. Retry only when PostgREST cannot resolve the
+    // new signature; real database/runtime failures still surface.
+    const { error: legacyError } = await supabase.rpc("set_cluster_visibility_override", {
+      p_cluster_id: clusterId,
+      p_visibility: visibility,
+    });
+    if (legacyError) throw new Error(legacyError.message);
+  }
   try {
     if (visibility !== "force_hidden") await refreshClusterVisibility(clusterId);
   } finally {
@@ -444,11 +467,27 @@ export async function setScannerPolicy(formData: FormData): Promise<void> {
   revalidatePublicSurfaces();
 }
 
-export async function rescueRejectedCandidate(formData: FormData): Promise<void> {
+export async function recordScannerDecision(formData: FormData): Promise<void> {
   await requireAdmin();
   assertProductionWriteAllowed();
-  const id = String(formData.get("id") ?? "");
-  if (!id) throw new Error("bad input");
+  const id = String(formData.get("id") ?? "").trim();
+  const decision = String(formData.get("decision") ?? "").trim();
+  const reason = String(formData.get("reason") ?? "").trim();
+  const scope = String(formData.get("scope") ?? "exact_url").trim();
+  const confirmBroad = formData.get("confirm_broad") === "true";
+  const expiresAtValue = String(formData.get("expires_at") ?? "").trim();
+  const expiresAt = expiresAtValue ? new Date(expiresAtValue) : null;
+  if (
+    !id ||
+    !isScannerDecision(decision) ||
+    !isScannerRuleScope(scope) ||
+    reason.length < 3 ||
+    reason.length > 500 ||
+    (scope !== "exact_url" && !confirmBroad) ||
+    (expiresAt !== null && (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()))
+  ) {
+    throw new Error("bad input");
+  }
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("automation_rejected_candidates")
@@ -459,20 +498,86 @@ export async function rescueRejectedCandidate(formData: FormData): Promise<void>
   const candidate = (data ?? [])[0];
   if (!candidate) throw new Error("rejected candidate not found");
 
-  await rescueCandidateSignal(supabase, {
-    title: candidate.title,
+  const targetUrl = scannerRuleScopeValue("exact_url", {
     url: candidate.url,
     sourceDomain: candidate.source_domain ?? null,
-    sourcePublishedAt: candidate.source_published_at ?? null,
-    snippet: candidate.snippet ?? "",
   });
+  const scopeValue = scannerRuleScopeValue(scope, {
+    url: candidate.url,
+    sourceDomain: candidate.source_domain ?? null,
+  });
+  if (!targetUrl || !scopeValue) throw new Error("bad input");
 
-  const { error: markError } = await supabase
-    .from("automation_rejected_candidates")
-    .update({ rescued_at: new Date().toISOString() })
-    .eq("id", id);
-  if (markError) throw new Error(`rescue mark failed: ${markError.message}`);
+  // Relevant is the only decision with external work. Rescue first so a failed
+  // extraction/persistence cannot hide the candidate or supersede an older rule.
+  // A later decision-write failure leaves the safely persisted signal and the
+  // candidate visible for a retry; signal upsert makes that retry idempotent.
+  if (decision === "relevant") {
+    await rescueCandidateSignal(supabase, {
+      title: candidate.title,
+      url: candidate.url,
+      sourceDomain: candidate.source_domain ?? null,
+      sourcePublishedAt: candidate.source_published_at ?? null,
+      snippet: candidate.snippet ?? "",
+    });
+  }
 
+  const { error: decisionError } = await supabase.rpc("record_scanner_decision", {
+    p_candidate_id: id,
+    p_signal_id: null,
+    p_target_url: targetUrl,
+    p_target_url_hash: hashValue(targetUrl),
+    p_source_domain: candidate.source_domain ?? null,
+    p_decision: decision,
+    p_reason: reason,
+    p_scope_type: scope,
+    p_scope_value: scopeValue,
+    p_confirm_broad: confirmBroad,
+    p_expires_at: expiresAt?.toISOString() ?? null,
+  });
+  const legacyRelevantRescue =
+    decision === "relevant" && isMissingSupabaseRpc(decisionError, "record_scanner_decision");
+  if (decisionError && !legacyRelevantRescue) {
+    throw new Error(`scanner decision write failed: ${decisionError.message}`);
+  }
+
+  if (decision === "relevant") {
+    const { error: markError } = await supabase
+      .from("automation_rejected_candidates")
+      .update({ rescued_at: new Date().toISOString() })
+      .eq("id", id);
+    if (markError) throw new Error(`rescue mark failed: ${markError.message}`);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/scanner");
+  revalidatePath("/admin/source-monitor");
+  revalidatePublicSurfaces();
+}
+
+/** Compatibility action for older forms: Rescue now records a durable Relevant decision. */
+export async function rescueRejectedCandidate(formData: FormData): Promise<void> {
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) throw new Error("bad input");
+  const decisionForm = new FormData();
+  decisionForm.set("id", id);
+  decisionForm.set("decision", "relevant");
+  decisionForm.set("reason", "Operator reviewed this candidate and marked it relevant.");
+  decisionForm.set("scope", "exact_url");
+  await recordScannerDecision(decisionForm);
+}
+
+export async function undoScannerDecision(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const decisionId = String(formData.get("decision_id") ?? "").trim();
+  if (!decisionId) throw new Error("bad input");
+  const { data, error } = await createServiceClient().rpc("undo_scanner_decision", {
+    p_decision_id: decisionId,
+  });
+  if (error) throw new Error(`scanner decision undo failed: ${error.message}`);
+  if (data !== true) throw new Error("scanner decision was already undone or not found");
+  revalidatePath("/admin");
   revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();

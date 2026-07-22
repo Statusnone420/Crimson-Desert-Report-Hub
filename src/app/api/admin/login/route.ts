@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  if (!body.password || !passwordMatches(body.password, requiredEnv("ADMIN_PASSWORD"))) {
+  if (!body.password || !passwordMatches(body.password, requiredEnv("ADMIN_PASSWORD"), requiredEnv("SESSION_SECRET"))) {
     await new Promise((resolve) => setTimeout(resolve, 750));
     return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
   }

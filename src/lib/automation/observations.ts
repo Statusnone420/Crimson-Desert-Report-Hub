@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { domainTier } from "@/lib/automation/domains";
-import type { ObservationKind } from "@/lib/automation/relevance";
+import { hasCrimsonDesertContext, type ObservationKind } from "@/lib/automation/relevance";
 
 /**
  * Observation lane: the typed shelf for patch-day context the evidence funnel
@@ -60,13 +60,20 @@ export function observationConflictHash(candidate: Pick<ObservationCandidate, "k
   return observationUrlHash(candidate.url);
 }
 
-/** Gate for the reroute in prepareSignals: trusted domain, has a genre, under the run cap. */
+/** Gate for the reroute in prepareSignals: relevant topic, reputable source, named genre, and room under the cap. */
 export function shouldCollectObservation(
-  candidate: { sourceDomain: string | null; observationKind?: ObservationKind },
+  candidate: {
+    title: string;
+    snippet: string;
+    url: string;
+    sourceDomain: string | null;
+    observationKind?: ObservationKind;
+  },
   collectedThisRun: number,
-): candidate is { sourceDomain: string | null; observationKind: ObservationKind } {
+): candidate is typeof candidate & { observationKind: ObservationKind } {
   if (!candidate.observationKind) return false;
   if (collectedThisRun >= MAX_OBSERVATIONS_PER_RUN) return false;
+  if (!hasCrimsonDesertContext(candidate)) return false;
   return domainTier(candidate.sourceDomain) === "trusted";
 }
 
@@ -78,7 +85,13 @@ export function appendUniqueObservation(
 ): boolean {
   const conflictHash = observationConflictHash(candidate);
   if (seenConflictHashes.has(conflictHash)) return false;
-  if (!shouldCollectObservation({ sourceDomain: candidate.sourceDomain, observationKind: candidate.kind }, observations.length)) {
+  if (!shouldCollectObservation({
+    title: candidate.title,
+    snippet: candidate.snippet,
+    url: candidate.url,
+    sourceDomain: candidate.sourceDomain,
+    observationKind: candidate.kind,
+  }, observations.length)) {
     return false;
   }
   seenConflictHashes.add(conflictHash);

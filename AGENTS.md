@@ -66,6 +66,26 @@ Universal rules. Obey host precedence; among recognized instruction files, the m
 - Report changes, affected files, checks/results, skipped checks/reasons, and remaining risks.
 - If blocked, stop safely; report the blocker, evidence, and smallest next action.
 
+## Code Review Rules
+
+### Evidence and provider boundaries
+
+Search changed public queries, serializers, and provider persistence paths:
+
+- Keep raw reports, rejected candidates, private source URLs/text, network hashes, individual taps, credentials, and Twitch/Steam identities out of public output. Public shapes may contain approved excerpts, explicitly public leads, public IGDB metadata, and aggregate Steam/Twitch context; provider context is never player evidence.
+
+### Scanner learning and visibility
+
+Search scanner feedback, promotion, and admin visibility changes:
+
+- Learning rules may change discovery or relevance only. They must not publish a lead, bypass corroboration, or alter evidence counts. Visibility remains a separate, reason-bearing admin override with an undo path.
+
+### Rolling deploys and hosted data
+
+Search callers of new Supabase tables, columns, and RPCs:
+
+- Preserve the pre-migration path until the hosted migration is applied. Fall back only for a narrowly identified missing schema object; permission and other database failures must fail or be explicitly surfaced, never treated as empty success. A PR may add migration SQL, but must not apply it or write hosted data, and preview/dry-run paths must stay no-write.
+
 ---
 
 **Done means:** requested outcome achieved; acceptance criteria met; diff scoped; required checks passed; no user work disturbed.

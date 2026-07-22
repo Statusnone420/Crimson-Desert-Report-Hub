@@ -30,8 +30,12 @@ describe("session tokens", () => {
 });
 
 describe("passwordMatches", () => {
-  it("constant-time compare of password strings", () => {
-    expect(passwordMatches("hunter2hunter2hunter2", "hunter2hunter2hunter2")).toBe(true);
-    expect(passwordMatches("hunter2hunter2hunter2", "wrong")).toBe(false);
+  it("uses a server-only comparison secret while preserving valid and invalid login results", () => {
+    expect(passwordMatches("hunter2hunter2hunter2", "hunter2hunter2hunter2", SECRET)).toBe(true);
+    expect(passwordMatches("hunter2hunter2hunter2", "wrong", SECRET)).toBe(false);
+  });
+
+  it("refuses to compare without the keyed comparison boundary", () => {
+    expect(() => passwordMatches("same", "same", "")).toThrow("comparison secret required");
   });
 });

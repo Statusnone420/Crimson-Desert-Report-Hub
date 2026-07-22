@@ -392,9 +392,12 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
     await expect(page.getByText("A field report on the current state of the game")).toBeVisible();
     await expect(page.getByText(/EDITION №\d+/)).toBeVisible();
-    // Lead: composed deterministic kicker/headline/dek, count-backed.
+    // Lead: useful patch consequence first; scarcity counts remain lower on the page.
     await expect(page.getByText(/PATCH 1\.13\.01 · HOTFIX · DAY \d+/)).toBeVisible();
-    await expect(page.getByText(/player reports and \d+ player taps against 1\.13\.01/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Map-open crash persists after fix/i })).toBeVisible();
+    await expect(page.getByText("What changed", { exact: true })).toBeVisible();
+    await expect(page.getByText("What appears broken", { exact: true })).toBeVisible();
+    await expect(page.getByText("What to check", { exact: true })).toBeVisible();
     // The Record rail.
     await expect(page.getByText("The Record", { exact: true })).toBeVisible();
     await expect(page.getByText("Current patch", { exact: true })).toBeVisible();
@@ -431,23 +434,24 @@ test.describe("public surface visual regression", () => {
     expect(homepageHtml).not.toContain("Possible mount input lockup");
     expect(homepageHtml).not.toContain("forum.example.com");
     expect(homepageHtml).not.toContain("mount-input-rumor");
-    // 03 · Issue board: top three by the existing evidence-strength order.
-    await expect(page.getByText("03 · The Issue Board")).toBeVisible();
+    // Issue board: top three by the existing evidence-strength order. Section
+    // numbers close ranks when the optional Platform Pulse is absent.
+    await expect(page.locator("#board").getByText(/^\d{2} · The Issue Board$/)).toBeVisible();
     await expect(page.getByRole("link", { name: /All \d+ published issues →/ })).toHaveAttribute("href", "/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Map-open crash persists after fix" })).toBeVisible();
     await expect(page.getByText(/\d+ rpt · \d+ confirm/).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /I have this too/ })).toBeVisible();
-    // 04 · Claims record: verbatim official text; verdicts only where the data ties them.
-    await expect(page.getByText("04 · The Claims Record")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Happening to me/ })).toBeVisible();
+    // Claims record: verbatim official text; verdicts only where the data ties them.
+    await expect(page.locator("#claims").getByText(/^\d{2} · The Claims Record$/)).toBeVisible();
     await expect(
       page.getByText("Fixed an issue where opening the world map could crash or freeze the client."),
     ).toBeVisible();
     await expect(page.getByText("1 fixed for me")).toBeVisible();
     await expect(page.getByText("2 still happening")).toBeVisible();
     await expect(page.getByText(/NO PLAYER VERDICTS YET · CLAIM CLOCK RUNNING SINCE/i)).toBeVisible();
-    // 05 · From the wire: reviewed observations, context never evidence.
-    await expect(page.getByText("05 · From The Wire")).toBeVisible();
+    // From the wire: reviewed observations, context never evidence.
+    await expect(page.locator("#wire").getByText(/^\d{2} · From The Wire$/)).toBeVisible();
     await expect(page.getByText("Context — never evidence.")).toBeVisible();
     await expect(
       page.getByText("Crimson Desert 1.13.01 hotfix tested: smoother, but not settled"),
@@ -485,8 +489,8 @@ test.describe("public surface visual regression", () => {
       // Separately composed mobile brief: fact strip, pulse, tappable lead story.
       await expect(page.getByText(/\d+ reports/).first()).toBeVisible();
       await expect(page.getByText("01 · Patch Pulse")).toBeVisible();
-      await expect(page.getByRole("button", { name: /I have this too/ })).toBeVisible();
-      const tapBounds = await page.getByRole("button", { name: /I have this too/ }).boundingBox();
+      await expect(page.getByRole("button", { name: /Happening to me/ })).toBeVisible();
+      const tapBounds = await page.getByRole("button", { name: /Happening to me/ }).boundingBox();
       expect(tapBounds && tapBounds.height >= 44 ? "tall enough" : `too short: ${tapBounds?.height}`).toBe(
         "tall enough",
       );
@@ -711,12 +715,14 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Web search (Tavily)")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Questions from the radar" })).toBeVisible();
     await expect(page.getByText("Mount and input lockups")).toBeVisible();
-    await expect(page.getByRole("button", { name: /I have this too/ })).toBeVisible();
-    // Radar working set: aggregate positions and counts only, one tinted
-    // panel per problem area on shared scales.
-    await expect(page.getByText("The radar's working set")).toBeVisible();
-    await expect(page.getByRole("group", { name: /Recurrence by problem area/ })).toBeVisible();
-    await expect(page.getByText(/Source dates: \d+ of \d+ leads/)).toBeVisible();
+    await expect(page.getByRole("button", { name: /Happening to me/ })).toBeVisible();
+    // One ranked working-set view replaces the repeated scatterplot and sparkline families.
+    await expect(page.getByRole("heading", { name: "Ranked problem areas" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Tracked radar leads ranked by problem area" })).toBeVisible();
+    await expect(page.getByText(/Real publication dates: \d+\/\d+/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Context, not evidence" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Review activity" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Release and interest at capture" })).toBeVisible();
     const scannerHtml = await page.content();
     expect(scannerHtml).not.toContain("Possible mount input lockup");
     expect(scannerHtml).not.toContain("Private mapped candidate used to prove public question rendering");
@@ -747,20 +753,26 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("New leads · 24h")).toBeVisible();
     await expect(page.getByText("Re-observed · 24h")).toBeVisible();
     await expect(page.getByText(/candidates reviewed/)).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Recent radar leads" })).toBeVisible();
+    await expect(page.getByText("Action inbox", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Nothing requires intervention." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Review the pattern, not a dropdown farm." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What the scanner kept" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Rejected archive" })).toBeVisible();
-    await expect(page.getByLabel("Search recent archive")).toBeVisible();
-    await page.getByLabel("Search recent archive").fill("not sortable into a bug area");
+    const teachingSearch = page.getByRole("searchbox", { name: "Search optional scanner review" });
+    await expect(teachingSearch).toBeVisible();
+    await teachingSearch.fill("not sortable into a bug area");
     await expect(page.getByText("New armor set locations guide")).toBeVisible();
     await expect(page.getByText("Patch 1.13 full notes mirror")).toHaveCount(0);
-    await expect(page.getByRole("status")).toContainText("matching candidates");
-    await page.getByLabel("Search recent archive").fill("");
-    await expect(page.getByRole("button", { name: "Rescue" }).first()).toBeVisible();
-    await expect(page.getByText("rescuing is optional, not homework", { exact: false })).toBeVisible();
-    await expect(page.getByText("Scan history")).toBeVisible();
-    await expect(page.getByText("Show raw scanner codes")).toBeHidden();
-    await expect(page.getByText("Scanner settings & budget")).toBeVisible();
+    await expect(page.getByText("2 matches", { exact: true })).toBeVisible();
+    await teachingSearch.fill("");
+    await expect(page.getByRole("button", { name: "Keep as relevant" }).first()).toBeVisible();
+    await expect(page.getByText("Reject and teach…").first()).toBeVisible();
+    await expect(page.getByText("Scan history and diagnostics")).toBeVisible();
+    await expect(page.getByText("Raw funnel, skip, and error codes")).toBeHidden();
+    await expect(page.getByText("Scanner cadence and budget")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What the scanner will remember" })).toBeVisible();
+    await expect(page.getByText(/auto-rejected pages are not assignments/i)).toBeVisible();
+    await expect(page.getByText(/Reddit API OFF/i)).toHaveCount(0);
     await expect(page.getByText("Steam & forums")).toHaveCount(0);
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("scanner-admin.png", { fullPage: true });
@@ -783,6 +795,24 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Lifecycle exceptions")).toBeVisible();
     await expect(page.getByText("Visibility overrides")).toBeVisible();
     await expect(page.getByText("Current patch override")).toBeVisible();
+    const visibilityLedger = page.locator("details").filter({
+      has: page.getByText("Visibility overrides", { exact: true }),
+    }).first();
+    await visibilityLedger.locator(":scope > summary").click();
+    await expect(
+      visibilityLedger.getByRole("heading", { name: "Constant graphics glitches on Xbox since patch 1.13" }),
+    ).toBeVisible();
+    await expect(visibilityLedger.getByText(/Temporary duplicate hold/)).toBeVisible();
+    await expect(visibilityLedger.getByRole("button", { name: "Reset to automatic" })).toBeVisible();
+
+    const createOverride = visibilityLedger.locator('details[aria-label="Create visibility override"]');
+    await createOverride.locator(":scope > summary").click();
+    await expect(createOverride.locator(".override-create")).toHaveCount(0);
+    await expect(createOverride.getByText(/Automatic records stay out of the page until you search/)).toBeVisible();
+    await createOverride.getByRole("searchbox", { name: "Issue title" }).fill("FPS regression");
+    await expect(createOverride.getByText("1 matching issues.")).toBeVisible();
+    await expect(createOverride.locator(".override-create")).toHaveCount(1);
+    await expect(createOverride.getByText("FPS regression since 1.13", { exact: true })).toBeVisible();
     // Session copy must state the absolute TTL, never "after inactivity".
     await expect(page.getByText(/after inactivity/)).toHaveCount(0);
     await expect(page.getByText(/12 hours after sign-in/)).toBeVisible();

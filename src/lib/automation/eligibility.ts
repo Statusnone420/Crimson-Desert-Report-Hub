@@ -39,6 +39,8 @@ export function explicitPatchVersions(text: string): string[] {
   const versions: string[] = [];
   const patterns = [
     /\b(?:patch|update|hotfix|v)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
+    /\b(?:patch\s+notes?|hotfix)\s+(?:notes?\s+)?version\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
+    /\bversion\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update|hotfix)\b/gi,
     /\b(?:after|since|on)\s*(\d+\.\d{1,2}(?:\.\d{1,2})?)\b/gi,
     /\b(\d+\.\d{1,2}(?:\.\d{1,2})?)\s*(?:patch|update|hotfix)\b/gi,
   ] as const;

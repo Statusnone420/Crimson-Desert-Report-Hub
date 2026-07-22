@@ -3,13 +3,15 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { countBy, rankClusters } from "@/lib/aggregates";
 import { needsFullIssueCard } from "@/lib/evidence";
-import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
+import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
-import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
+import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
 import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { displayCandidateCount } from "@/lib/observatoryMetrics";
+import { platformContextIsStale } from "@/lib/platformPulseDisplay";
 import {
   belongsToPatchFamily,
   isPostCurrentPatchEvidence,
@@ -19,6 +21,7 @@ import {
 } from "@/lib/patchWatch";
 import { composeIssueReadout, DISPLAY_THRESHOLD_NETWORKS, type IssueReadout } from "@/lib/readout";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
+import { isMissingSupabaseColumn, isMissingSupabaseRelation } from "@/lib/supabaseCompatibility";
 
 export type ClusterRow = {
   id: string;
@@ -83,13 +86,30 @@ export type AutomationRunRow = {
 
 export type RejectedCandidateRow = {
   id: string;
+  run_id: string | null;
   title: string;
   url: string;
   source_domain: string | null;
   source_published_at: string | null;
+  snippet: string | null;
   reason: string;
   created_at: string;
+  expires_at: string;
   rescued_at: string | null;
+  decision_id: string | null;
+  feedback_rule_id: string | null;
+};
+
+export type ScannerFeedbackRuleRow = {
+  id: string;
+  decision_id: string;
+  action: "allow" | "block";
+  decision: "relevant" | "off_topic" | "wrong_patch" | "not_issue_report" | "duplicate";
+  scope_type: "exact_url" | "source_path" | "source_domain";
+  scope_value: string;
+  reason: string;
+  created_at: string;
+  expires_at: string | null;
 };
 
 export type PublicAutomationRunRow = {
@@ -105,6 +125,7 @@ export type PublicAutomationRunRow = {
   signals_reobserved: number;
   stale_signals_hidden: number;
   candidates_rescued: number;
+  funnel: Record<string, number> | null;
   finished_at: string | null;
 };
 
@@ -292,11 +313,22 @@ export function publicFindingsFromSignals(rows: SignalRow[]): PublicFinding[] {
   }));
 }
 
-function filterPublicCurrentPatchSignals<T extends SignalRow>(
+export function filterPublicCurrentPatchSignals<T extends SignalRow>(
   rows: T[],
   currentPatch: { version: string; publishedAt: string | null },
 ): T[] {
   return rows.filter((row) => {
+    // Steam reviews can seed private radar questions and the aggregate Pulse,
+    // but they are not standalone public evidence/source cards.
+    if (row.source === "steam_review") return false;
+    if (!hasCrimsonDesertContext({
+      title: row.title ?? "",
+      snippet: row.summary,
+      url: row.source_url,
+      sourceDomain: null,
+    })) {
+      return false;
+    }
     if (hasUnsupportedSourceContext({ title: row.title ?? "", snippet: row.summary, url: row.source_url })) {
       return false;
     }
@@ -308,6 +340,7 @@ function filterPublicCurrentPatchSignals<T extends SignalRow>(
 }
 
 type CandidateSignalRow = {
+  id?: string;
   cluster_id: string | null;
   title: string | null;
   summary: string;
@@ -322,6 +355,14 @@ export function countCurrentPatchCandidateSignalsByCluster(
   return countClusterIds(
     rows.filter((row) => {
       if (!row.cluster_id) return false;
+      if (!hasCrimsonDesertContext({
+        title: row.title ?? "",
+        snippet: row.summary,
+        url: row.source_url,
+        sourceDomain: null,
+      })) {
+        return false;
+      }
       if (hasUnsupportedSourceContext({ title: row.title ?? "", snippet: row.summary, url: row.source_url })) {
         return false;
       }
@@ -334,16 +375,25 @@ export function countCurrentPatchCandidateSignalsByCluster(
 }
 
 /** Private text is read only for current-patch eligibility; only cluster counts leave this server module. */
-async function getCandidateSignalCountsByCluster(
+export async function getCandidateSignalCountsByCluster(
   supabase: ReturnType<typeof createServiceClient>,
   currentPatch: PatchContext,
 ): Promise<Record<string, number>> {
-  const { data, error } = await supabase
-    .from("source_signals")
-    .select("cluster_id, title, summary, source_url, source_published_at")
-    .eq("public_status", "private");
-  if (error) throw new Error(`candidate signals read failed: ${error.message}`);
-  return countCurrentPatchCandidateSignalsByCluster((data ?? []) as CandidateSignalRow[], currentPatch);
+  const pageSize = 1000;
+  const rows: CandidateSignalRow[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("source_signals")
+      .select("id, cluster_id, title, summary, source_url, source_published_at")
+      .eq("public_status", "private")
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`candidate signals read failed: ${error.message}`);
+    const page = (data ?? []) as CandidateSignalRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return countCurrentPatchCandidateSignalsByCluster(rows, currentPatch);
 }
 
 function relatedReport<T>(value: RelatedReport<T>): T | null {
@@ -511,6 +561,7 @@ type PatchObservationRow = {
   url: string;
   source_domain: string | null;
   snippet: string | null;
+  source_published_at?: string | null;
   observed_at: string;
   seen_count: number;
 };
@@ -522,6 +573,17 @@ const COVERAGE_OBSERVATION_KINDS: PublicObservation["kind"][] = [
   "fix_announcement",
 ];
 
+export function isPublicObservationEligible(row: PatchObservationRow, patchVersion: string): boolean {
+  const context = {
+    title: row.title,
+    snippet: row.snippet ?? "",
+    url: row.url,
+    sourceDomain: row.source_domain,
+  };
+  if (!hasCrimsonDesertContext(context) || hasUnsupportedSourceContext(context)) return false;
+  return !mentionsOnlyOtherPatch(`${row.title} ${row.snippet ?? ""}`, patchVersion);
+}
+
 /**
  * Observation lane read. Never throws: a missing table (migration not applied
  * yet) or any read error renders as an empty lane, not a broken brief.
@@ -531,7 +593,7 @@ export async function getPublicObservations(
   patchVersion: string,
 ): Promise<PublicObservation[]> {
   try {
-    const selectColumns = "id, kind, title, url, source_domain, snippet, observed_at, seen_count";
+    const selectColumns = "id, kind, title, url, source_domain, snippet, source_published_at, observed_at, seen_count";
     const [coverage, asks] = await Promise.all([
       supabase
         .from("patch_observations")
@@ -552,6 +614,7 @@ export async function getPublicObservations(
     ]);
     if (coverage.error || asks.error) return [];
     return ([...(coverage.data ?? []), ...(asks.data ?? [])] as PatchObservationRow[])
+      .filter((row) => isPublicObservationEligible(row, patchVersion))
       .sort((left, right) => new Date(right.observed_at).getTime() - new Date(left.observed_at).getTime())
       .map((row) => ({
         id: row.id,
@@ -627,7 +690,7 @@ async function getDashboardDataUncached() {
     supabase
       .from("automation_runs")
       .select(
-        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, reddit_posts_seen, signals_reobserved, stale_signals_hidden, candidates_rescued, finished_at",
+        "started_at, status, mode, search_queries_used, llm_calls_used, signals_inserted, clusters_promoted, search_results_seen, reddit_posts_seen, signals_reobserved, stale_signals_hidden, candidates_rescued, funnel, finished_at",
       )
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])
@@ -814,8 +877,25 @@ export async function getLatestPublicScanMeta(): Promise<PublicScanMeta> {
 const RUN_COLUMNS =
   "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, search_results_seen, reddit_posts_seen, llm_calls_used, signals_inserted, signals_deduped, signals_reobserved, stale_signals_hidden, candidates_rescued, clusters_promoted, intent, skips, errors, funnel";
 
+type AdminRejectedCandidateRow = {
+  id: string;
+  run_id: string | null;
+  title: string;
+  url: string;
+  source_domain: string | null;
+  source_published_at: string | null;
+  snippet: string;
+  reason: string;
+  created_at: string;
+  expires_at: string;
+  rescued_at: string | null;
+  decision_id?: string | null;
+  feedback_rule_id?: string | null;
+};
+
 export async function getAutomationAdminData() {
   const supabase = createServiceClient();
+  const nowIso = new Date().toISOString();
 
   const { data: signals } = await supabase
     .from("source_signals")
@@ -833,12 +913,55 @@ export async function getAutomationAdminData() {
     .order("started_at", { ascending: false })
     .limit(10);
 
-  const { data: rejectedCandidates } = await supabase
+  const enhancedRejectedResult = await supabase
     .from("automation_rejected_candidates")
-    .select("id, title, url, source_domain, source_published_at, reason, created_at, rescued_at")
-    .gt("expires_at", new Date().toISOString())
+    .select(
+      "id, run_id, title, url, source_domain, source_published_at, snippet, reason, created_at, expires_at, rescued_at, decision_id, feedback_rule_id",
+    )
+    .gt("expires_at", nowIso)
+    .is("rescued_at", null)
+    .is("decision_id", null)
+    .is("feedback_rule_id", null)
     .order("created_at", { ascending: false })
     .limit(30);
+  let rejectedRows = (enhancedRejectedResult.data ?? []) as AdminRejectedCandidateRow[];
+  let rejectedError = enhancedRejectedResult.error;
+  if (
+    rejectedError &&
+    (isMissingSupabaseColumn(rejectedError, "automation_rejected_candidates", "decision_id") ||
+      isMissingSupabaseColumn(rejectedError, "automation_rejected_candidates", "feedback_rule_id"))
+  ) {
+    const legacyRejectedResult = await supabase
+      .from("automation_rejected_candidates")
+      .select(
+        "id, run_id, title, url, source_domain, source_published_at, snippet, reason, created_at, expires_at, rescued_at",
+      )
+      .gt("expires_at", nowIso)
+      .is("rescued_at", null)
+      .order("created_at", { ascending: false })
+      .limit(30);
+    rejectedRows = (legacyRejectedResult.data ?? []) as AdminRejectedCandidateRow[];
+    rejectedError = legacyRejectedResult.error;
+  }
+  if (rejectedError) {
+    throw new Error(`rejected candidates read failed: ${rejectedError.message}`);
+  }
+  const rejectedCandidates = rejectedRows.map((row) => ({
+    ...row,
+    decision_id: row.decision_id ?? null,
+    feedback_rule_id: row.feedback_rule_id ?? null,
+  }));
+
+  const feedbackRulesResult = await supabase
+    .from("scanner_feedback_rules")
+    .select("id, decision_id, action, decision, scope_type, scope_value, reason, created_at, expires_at")
+    .is("revoked_at", null)
+    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+    .order("created_at", { ascending: false });
+  if (feedbackRulesResult.error && !isMissingSupabaseRelation(feedbackRulesResult.error, "scanner_feedback_rules")) {
+    throw new Error(`scanner feedback rules read failed: ${feedbackRulesResult.error.message}`);
+  }
+  const feedbackRules = feedbackRulesResult.error ? [] : (feedbackRulesResult.data ?? []);
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
 
@@ -873,7 +996,10 @@ export async function getAutomationAdminData() {
   return {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
-    rejectedCandidates: (rejectedCandidates ?? []) as RejectedCandidateRow[],
+    rejectedCandidates: rejectedCandidates as RejectedCandidateRow[],
+    feedbackRules: ((feedbackRules ?? []) as ScannerFeedbackRuleRow[]).filter(
+      (rule) => !rule.expires_at || new Date(rule.expires_at).getTime() > Date.now(),
+    ),
     control,
     activeRun: ((activeRunRows ?? []) as { id: string; status: string; mode: string; started_at: string }[])[0] ?? null,
     latestRealRun: ((latestRealRows ?? []) as AutomationRunRow[])[0] ?? null,
@@ -892,7 +1018,118 @@ export type PublicScannerData = {
   scannerConnected: boolean;
   /** The cost-safety circuit is open right now — the same evaluation the next scan will make. */
   llmPaused: boolean;
+  steamPulse: SteamPulsePoint[];
+  platformContext: PlatformContextSnapshot | null;
+  pulseReadFailures: PulseReadFailure[];
 };
+
+export type PulseReadFailure = "steam" | "platform";
+
+export type SteamPulsePoint = {
+  snapshotDay: string;
+  collectedAt: string;
+  totalReviews: number;
+  positivePercentage: number;
+  reviewCountDelta: number | null;
+  reviewsScanned: number;
+  issueLanguageCount: number;
+  leadsRetained: number;
+};
+
+export type PlatformContextSnapshot = {
+  capturedAt: string;
+  igdbStatus: string;
+  releaseAt: string | null;
+  platforms: string[];
+  twitchStatus: string;
+  liveStreams: number | null;
+  liveViewers: number | null;
+  twitchComplete: boolean | null;
+};
+
+export async function readSteamPulse(
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<SteamPulsePoint[]> {
+  const { data, error } = await supabase
+    .from("steam_pulse_snapshots")
+    .select(
+      "snapshot_day, collected_at, total_reviews, positive_percentage, review_count_delta, reviews_scanned, issue_language_count, leads_retained",
+    )
+    .order("snapshot_day", { ascending: false })
+    .limit(14);
+  if (error) {
+    if (isMissingSupabaseRelation(error, "steam_pulse_snapshots")) return [];
+    throw new Error(`Steam Pulse read failed: ${error.message}`);
+  }
+  return ((data ?? []) as Record<string, unknown>[])
+    .map((row) => ({
+      snapshotDay: String(row.snapshot_day ?? ""),
+      collectedAt: String(row.collected_at ?? ""),
+      totalReviews: Number(row.total_reviews ?? 0),
+      positivePercentage: Number(row.positive_percentage ?? 0),
+      reviewCountDelta: row.review_count_delta === null || row.review_count_delta === undefined
+        ? null
+        : Number(row.review_count_delta),
+      reviewsScanned: Number(row.reviews_scanned ?? 0),
+      issueLanguageCount: Number(row.issue_language_count ?? 0),
+      leadsRetained: Number(row.leads_retained ?? 0),
+    }))
+    .reverse();
+}
+
+export async function readPlatformContext(
+  supabase: ReturnType<typeof createServiceClient>,
+  now = new Date(),
+): Promise<PlatformContextSnapshot | null> {
+  const { data, error } = await supabase
+    .from("platform_context_snapshots")
+    .select(
+      "captured_at, igdb_status, igdb_first_release_at, igdb_platforms, twitch_status, twitch_live_streams, twitch_live_viewers, twitch_complete",
+    )
+    .order("captured_at", { ascending: false })
+    .limit(1);
+  if (error) {
+    if (isMissingSupabaseRelation(error, "platform_context_snapshots")) return null;
+    throw new Error(`Platform context read failed: ${error.message}`);
+  }
+  const row = ((data ?? []) as Record<string, unknown>[])[0];
+  if (!row) return null;
+  const capturedAt = String(row.captured_at ?? "");
+  const storedTwitchStatus = String(row.twitch_status ?? "absent");
+  const twitchStale = storedTwitchStatus === "ok" && platformContextIsStale(capturedAt, now);
+  return {
+    capturedAt,
+    igdbStatus: String(row.igdb_status ?? "absent"),
+    releaseAt: typeof row.igdb_first_release_at === "string" ? row.igdb_first_release_at : null,
+    platforms: Array.isArray(row.igdb_platforms) ? row.igdb_platforms.map(String) : [],
+    twitchStatus: twitchStale ? "stale" : storedTwitchStatus,
+    liveStreams: twitchStale || row.twitch_live_streams === null || row.twitch_live_streams === undefined
+      ? null
+      : Number(row.twitch_live_streams),
+    liveViewers: twitchStale || row.twitch_live_viewers === null || row.twitch_live_viewers === undefined
+      ? null
+      : Number(row.twitch_live_viewers),
+    twitchComplete: !twitchStale && typeof row.twitch_complete === "boolean" ? row.twitch_complete : null,
+  };
+}
+
+export async function readPublicPulseContext(
+  supabase: ReturnType<typeof createServiceClient>,
+  now = new Date(),
+): Promise<Pick<PublicScannerData, "steamPulse" | "platformContext" | "pulseReadFailures">> {
+  const [steamResult, platformResult] = await Promise.allSettled([
+    readSteamPulse(supabase),
+    readPlatformContext(supabase, now),
+  ]);
+  const pulseReadFailures: PulseReadFailure[] = [];
+  if (steamResult.status === "rejected") pulseReadFailures.push("steam");
+  if (platformResult.status === "rejected") pulseReadFailures.push("platform");
+  return {
+    steamPulse: steamResult.status === "fulfilled" ? steamResult.value : [],
+    platformContext: platformResult.status === "fulfilled" ? platformResult.value : null,
+    pulseReadFailures,
+  };
+}
 
 /**
  * Admin rescues re-screen a single stored candidate without searching, so they can
@@ -920,6 +1157,9 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     scannerActive: false,
     scannerConnected: false,
     llmPaused: false,
+    steamPulse: [],
+    platformContext: null,
+    pulseReadFailures: [],
   };
   if (!hasSupabaseServiceConfig()) return empty;
 
@@ -930,7 +1170,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     const { data: runData } = await supabase
       .from("automation_runs")
       .select(
-        "search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, status, mode, intent, search_queries_used, finished_at, started_at",
+        "search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, status, mode, intent, search_queries_used, finished_at, started_at, funnel",
       )
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])
@@ -946,12 +1186,13 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
         mode: string;
         intent: string | null;
         search_queries_used: number | null;
+        funnel: Record<string, number> | null;
         finished_at: string | null;
         started_at: string;
       }[]
     ).filter(isIntakeRun);
     const reviewedThisWeek = runs.reduce(
-      (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
+      (sum, run) => sum + displayCandidateCount(run),
       0,
     );
     // Only success/partial runs actually persisted signals — a failed run can carry a
@@ -1028,6 +1269,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     }
 
     const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+    const pulseContext = await readPublicPulseContext(supabase, now);
 
     return {
       reviewedThisWeek,
@@ -1039,6 +1281,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       scannerActive: !control.paused,
       scannerConnected: true,
       llmPaused,
+      ...pulseContext,
     };
   } catch {
     return empty;

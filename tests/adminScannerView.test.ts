@@ -1,10 +1,16 @@
-import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
+import { Children, createElement, isValidElement, type ReactElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
+import { ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { emptyPatchRadarData } from "@/lib/radar.server";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/app/admin/actions", () => ({ setScannerPolicy: vi.fn() }));
+vi.mock("@/app/admin/actions", () => ({
+  setScannerPolicy: vi.fn(),
+  recordScannerDecision: vi.fn(),
+  undoScannerDecision: vi.fn(),
+}));
 
 type InputProps = {
   children?: ReactNode;
@@ -30,6 +36,7 @@ describe("AdminScannerView", () => {
       runs: [],
       signals: [],
       rejectedCandidates: [],
+      feedbackRules: [],
       control: {
         paused: false,
         minIntervalMinutes: 60,
@@ -44,12 +51,47 @@ describe("AdminScannerView", () => {
       latestFind: null,
       scoreboard: {} as never,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
-      features: { turnstile: false, reddit: false, ai: true, xSearch: false, webSearch: true, automation: true },
       integrations: [],
+      nowIso: "2026-07-22T18:00:00.000Z",
     });
 
     const input = findInput(view, "monthlyLlmUsdCap");
     expect(input?.props.min).toBe("0");
     expect(input?.props.max).toBe("2");
+  });
+
+  it("freezes teaching-desk relative times at the server-captured instant", () => {
+    const props = {
+      nowIso: "2026-07-22T18:00:00.000Z",
+      candidates: [{
+        id: "candidate-1",
+        run_id: null,
+        title: "Candidate title",
+        url: "https://example.com/candidate",
+        source_domain: "example.com",
+        source_published_at: null,
+        snippet: "Candidate summary",
+        reason: "off_topic",
+        created_at: "2026-07-22T17:30:00.000Z",
+        expires_at: "2026-07-22T19:30:00.000Z",
+        rescued_at: null,
+        decision_id: null,
+        feedback_rule_id: null,
+      }],
+    };
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-22T18:00:00.000Z"));
+      const serverMarkup = renderToStaticMarkup(createElement(ScannerFeedbackDesk, props));
+      vi.setSystemTime(new Date("2026-07-22T19:00:00.000Z"));
+      const hydrationMarkup = renderToStaticMarkup(createElement(ScannerFeedbackDesk, props));
+
+      expect(hydrationMarkup).toBe(serverMarkup);
+      expect(serverMarkup).toContain("discovered 30m ago");
+      expect(serverMarkup).toContain("Expires in 2h");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

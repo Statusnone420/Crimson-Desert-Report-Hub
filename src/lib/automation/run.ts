@@ -15,9 +15,14 @@ import {
   type CurrentPatchEligibilityReason,
 } from "@/lib/automation/eligibility";
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
+import {
+  matchScannerFeedbackRule,
+  type ScannerFeedbackRule,
+} from "@/lib/automation/feedback";
 import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
 import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import {
+  hasCrimsonDesertContext,
   hasUnsupportedSourceContext,
   preScreenCandidate,
   shouldKeepExtractedSignal,
@@ -36,7 +41,13 @@ import { resolveBurstState } from "@/lib/automation/schedule";
 import type { ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
-import { automationBudgetUsd, automationSubreddits, features } from "@/lib/env";
+import {
+  automationBudgetUsd,
+  automationSubreddits,
+  features,
+  platformContextConfigured,
+  steamPulseEnabled,
+} from "@/lib/env";
 import { computeClusterLifecycle, type LifecycleClaimDecision } from "@/lib/lifecycle";
 import {
   getClaimedFixesForCurrentPatch,
@@ -50,7 +61,17 @@ import {
   persistObservations,
   type ObservationCandidate,
 } from "@/lib/automation/observations";
+import {
+  buildSteamPulseSnapshot,
+  fetchSteamReviewBatch,
+  filterNewOrUpdatedSteamReviews,
+  STEAM_REVIEW_SOURCE_URL,
+  type SteamReviewBatch,
+  type SteamReviewCandidate,
+} from "@/lib/automation/steam";
 import { createServiceClient } from "@/lib/supabase";
+import { isMissingSupabaseColumn, isMissingSupabaseRelation } from "@/lib/supabaseCompatibility";
+import { fetchCrimsonDesertPlatformContext } from "@/lib/platform/igdb";
 
 export type AutomationMode = "scheduled" | "manual" | "dry_run";
 
@@ -72,6 +93,7 @@ export type AutomationResult = {
   staleSignalsHidden: number;
   candidatesRescued: number;
   observationsKept: number;
+  operatorRulesMatched: number;
   estimatedCostUsd: number;
   llmCostUsd: number;
   skips: string[];
@@ -183,7 +205,7 @@ export async function hasActiveRun(
 }
 
 type SourceInput = {
-  source: "reddit" | "web_search";
+  source: "reddit" | "web_search" | "steam_review";
   id: string;
   title: string;
   body: string;
@@ -191,6 +213,7 @@ type SourceInput = {
   observedAt: string;
   sourceDomain: string | null;
   sourcePublishedAt?: string | null;
+  steam?: Omit<SteamReviewCandidate, "reviewText">;
 };
 
 type PreparedSignal = SourceInput & {
@@ -201,12 +224,15 @@ type PreparedSignal = SourceInput & {
 };
 
 export type RejectedCandidate = {
+  source: SourceInput["source"];
   title: string;
   url: string;
   sourceDomain: string | null;
   sourcePublishedAt?: string | null;
   snippet: string;
   reason: string;
+  feedbackRuleId?: string | null;
+  steamRecommendationHash?: string | null;
 };
 
 type ClusterRow = {
@@ -364,8 +390,22 @@ function isUnsupportedStoredSignal(row: SourceSignalRow): boolean {
   });
 }
 
-function stalePromotionReason(reason: CurrentPatchEligibilityReason | "source_not_issue_report"): string {
+function hasStoredSignalGameContext(row: SourceSignalRow): boolean {
+  return hasCrimsonDesertContext({
+    title: row.title ?? "",
+    snippet: typeof row.summary === "string" ? row.summary : "",
+    url: row.canonical_url ?? row.source_url ?? undefined,
+    sourceDomain: row.source_domain ?? null,
+  });
+}
+
+function isContextOnlySignal(row: SourceSignalRow): boolean {
+  return row.source === "steam_review";
+}
+
+function stalePromotionReason(reason: CurrentPatchEligibilityReason | "source_not_issue_report" | "off_topic"): string {
   if (reason === "source_not_issue_report") return "source_not_issue_report";
+  if (reason === "off_topic") return "off_topic";
   if (reason === "wrong_patch") return "wrong_patch";
   if (reason === "stale_source") return "stale_source";
   return "unknown_source_freshness";
@@ -393,13 +433,50 @@ async function loadRecentRunMemory(supabase: ReturnType<typeof createServiceClie
   return (data ?? []) as ScanMemory["recentRuns"];
 }
 
+type ScannerFeedbackRuleRow = {
+  id: string;
+  action: "allow" | "block";
+  decision: ScannerFeedbackRule["decision"];
+  scope_type: ScannerFeedbackRule["scopeType"];
+  scope_value: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+};
+
+async function loadActiveScannerFeedbackRules(
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<ScannerFeedbackRule[]> {
+  const { data, error } = await supabase
+    .from("scanner_feedback_rules")
+    .select("id, action, decision, scope_type, scope_value, created_at, expires_at, revoked_at")
+    .is("revoked_at", null)
+    .order("created_at", { ascending: false });
+  if (error) {
+    // Safe rolling-deploy behavior: code may reach a preview before its local-
+    // tested migration is applied. No rules is the old behavior.
+    if (isMissingSupabaseRelation(error, "scanner_feedback_rules")) return [];
+    throw new Error(`scanner feedback rules read failed: ${error.message}`);
+  }
+  return ((data ?? []) as ScannerFeedbackRuleRow[]).map((row) => ({
+    id: row.id,
+    action: row.action,
+    decision: row.decision,
+    scopeType: row.scope_type,
+    scopeValue: row.scope_value,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
+  }));
+}
+
 async function loadPublicSignalsForAudit(supabase: ReturnType<typeof createServiceClient>): Promise<SourceSignalRow[]> {
   const pageSize = 500;
   const rows: SourceSignalRow[] = [];
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from("source_signals")
-      .select("id, cluster_id, source_url, canonical_url, title, summary, source_published_at, public_status")
+      .select("id, cluster_id, source, source_url, canonical_url, source_domain, title, summary, source_published_at, public_status")
       .eq("public_status", "public")
       .order("last_seen_at", { ascending: true })
       .range(from, from + pageSize - 1);
@@ -491,7 +568,11 @@ async function loadScanMemory(
   const targetClusterTitles = [...new Set([...privateClusterTitles, ...seedClusterTitles])].slice(0, 10);
   return {
     stalePublicSignals: publicSignals.filter(
-      (row) => isUnsupportedStoredSignal(row) || !sourceSignalEligibility(row, currentPatch).canPublish,
+      (row) =>
+        isContextOnlySignal(row) ||
+        isUnsupportedStoredSignal(row) ||
+        !hasStoredSignalGameContext(row) ||
+        !sourceSignalEligibility(row, currentPatch).canPublish,
     ).length,
     privateSignals,
     rejectedCandidates,
@@ -537,6 +618,222 @@ async function loadMonthSpend(
 
 function searchRotationOffset(now: Date): number {
   return Math.floor(now.getTime() / SEARCH_ROTATION_WINDOW_MS);
+}
+
+const STEAM_PULSE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const PLATFORM_CONTEXT_INTERVAL_MS = 60 * 60 * 1000;
+
+type SteamReviewCollection = {
+  batch: SteamReviewBatch;
+  changedReviews: SteamReviewCandidate[];
+  inputs: SourceInput[];
+};
+
+async function collectSteamReviewInputs(
+  supabase: ReturnType<typeof createServiceClient>,
+  result: AutomationResult,
+  now: Date,
+): Promise<SteamReviewCollection | null> {
+  if (!steamPulseEnabled()) return null;
+
+  try {
+    const snapshotDay = now.toISOString().slice(0, 10);
+    const { data: recentRows, error: recentError } = await supabase
+      .from("steam_pulse_snapshots")
+      .select("collected_at")
+      .eq("snapshot_day", snapshotDay)
+      .order("collected_at", { ascending: false })
+      .limit(1);
+    if (recentError) throw new Error(`Steam Pulse recency read failed: ${recentError.message}`);
+    const recent = (recentRows ?? [])[0] as { collected_at?: string | null } | undefined;
+    const recentAt = recent?.collected_at ? new Date(recent.collected_at).getTime() : Number.NaN;
+    if (Number.isFinite(recentAt) && now.getTime() - recentAt < STEAM_PULSE_INTERVAL_MS) {
+      result.skips.push("steam_pulse_recent");
+      return null;
+    }
+
+    const batch = await fetchSteamReviewBatch();
+    const hashes = batch.reviews.map((review) => review.recommendationHash);
+    const existingUpdatedAtByHash = new Map<string, string>();
+    if (hashes.length > 0) {
+      const { data, error } = await supabase
+        .from("steam_review_receipts")
+        .select("recommendation_hash, source_updated_at")
+        .in("recommendation_hash", hashes);
+      if (error) throw new Error(`Steam review receipt read failed: ${error.message}`);
+      for (const row of (data ?? []) as { recommendation_hash: string; source_updated_at: string }[]) {
+        existingUpdatedAtByHash.set(row.recommendation_hash, row.source_updated_at);
+      }
+    }
+
+    const changedReviews = filterNewOrUpdatedSteamReviews(batch.reviews, existingUpdatedAtByHash);
+    const inputs: SourceInput[] = changedReviews.map((review) => ({
+      source: "steam_review",
+      id: review.recommendationHash,
+      // Avoid the broad-content "review" title gate while keeping the player
+      // text private; extraction derives the actual issue title from the body.
+      title: "Crimson Desert player issue on Steam",
+      body: review.reviewText,
+      url: STEAM_REVIEW_SOURCE_URL,
+      observedAt: now.toISOString(),
+      sourceDomain: "store.steampowered.com",
+      sourcePublishedAt: review.sourceCreatedAt,
+      steam: {
+        recommendationHash: review.recommendationHash,
+        sourceCreatedAt: review.sourceCreatedAt,
+        sourceUpdatedAt: review.sourceUpdatedAt,
+        votedUp: review.votedUp,
+        playtimeAtReviewMinutes: review.playtimeAtReviewMinutes,
+      },
+    }));
+    return { batch, changedReviews, inputs };
+  } catch (error) {
+    result.status = result.status === "success" ? "partial" : result.status;
+    result.errors.push(toErrorMessage(error, "Steam Pulse collection failed"));
+    return null;
+  }
+}
+
+async function persistSteamReviewCollection(
+  supabase: ReturnType<typeof createServiceClient>,
+  collection: SteamReviewCollection,
+  prepared: PreparedSignal[],
+  rejected: RejectedCandidate[],
+  persistedSteamReviewHashes: ReadonlySet<string>,
+  result: AutomationResult,
+  now: Date,
+): Promise<void> {
+  try {
+    const snapshotDay = now.toISOString().slice(0, 10);
+    const acknowledgedReviewHashes = new Set(persistedSteamReviewHashes);
+    for (const candidate of rejected) {
+      if (candidate.source === "steam_review" && candidate.steamRecommendationHash) {
+        acknowledgedReviewHashes.add(candidate.steamRecommendationHash);
+      }
+    }
+    const acknowledgedReviews = collection.changedReviews.filter((review) =>
+      acknowledgedReviewHashes.has(review.recommendationHash),
+    );
+
+    // A receipt is the retry boundary. Only acknowledge reviews that either
+    // landed as a source signal or completed classification as a rejection.
+    // A prepared signal whose write failed intentionally has no receipt, so a
+    // later run can retry it instead of silently losing the lead.
+    if (acknowledgedReviews.length > 0) {
+      const { error } = await supabase.from("steam_review_receipts").upsert(
+        acknowledgedReviews.map((review) => ({
+          recommendation_hash: review.recommendationHash,
+          last_seen_at: now.toISOString(),
+          source_created_at: review.sourceCreatedAt,
+          source_updated_at: review.sourceUpdatedAt,
+          voted_up: review.votedUp,
+          playtime_at_review_minutes: review.playtimeAtReviewMinutes,
+        })),
+        { onConflict: "recommendation_hash" },
+      );
+      if (error) throw new Error(`Steam review receipt write failed: ${error.message}`);
+    }
+
+    const { data: previousRows, error: previousError } = await supabase
+      .from("steam_pulse_snapshots")
+      .select("total_reviews")
+      .lt("snapshot_day", snapshotDay)
+      .order("snapshot_day", { ascending: false })
+      .limit(1);
+    if (previousError) throw new Error(`Steam Pulse history read failed: ${previousError.message}`);
+    const previous = (previousRows ?? [])[0] as { total_reviews?: number | null } | undefined;
+    const previousTotalReviews = typeof previous?.total_reviews === "number" ? previous.total_reviews : null;
+    const steamPrepared = prepared.filter((signal) => signal.source === "steam_review").length;
+    const steamIssueRejects = rejected.filter(
+      (candidate) =>
+        candidate.source === "steam_review" &&
+        candidate.reason !== "source_not_issue_report" &&
+        candidate.reason !== "off_topic",
+    ).length;
+    const snapshot = buildSteamPulseSnapshot({
+      batch: collection.batch,
+      previousTotalReviews,
+      reviewsScanned: collection.changedReviews.length,
+      issueLanguageCount: steamPrepared + steamIssueRejects,
+      leadsRetained: persistedSteamReviewHashes.size,
+      now,
+    });
+    const { error: snapshotError } = await supabase
+      .from("steam_pulse_snapshots")
+      .upsert(snapshot, { onConflict: "snapshot_day" });
+    if (snapshotError) throw new Error(`Steam Pulse snapshot write failed: ${snapshotError.message}`);
+  } catch (error) {
+    result.status = result.status === "success" ? "partial" : result.status;
+    result.errors.push(toErrorMessage(error, "Steam Pulse persistence failed"));
+  }
+}
+
+async function persistPlatformContextSnapshot(
+  supabase: ReturnType<typeof createServiceClient>,
+  result: AutomationResult,
+  now: Date,
+): Promise<void> {
+  if (!platformContextConfigured()) return;
+
+  try {
+    const { data: recentRows, error: recentError } = await supabase
+      .from("platform_context_snapshots")
+      .select("captured_at")
+      .order("captured_at", { ascending: false })
+      .limit(1);
+    if (recentError) {
+      if (isMissingSupabaseRelation(recentError, "platform_context_snapshots")) {
+        result.skips.push("platform_context_schema_unavailable");
+        return;
+      }
+      throw new Error(`platform context recency read failed: ${recentError.message}`);
+    }
+    const recent = (recentRows ?? [])[0] as { captured_at?: string | null } | undefined;
+    const recentAt = recent?.captured_at ? new Date(recent.captured_at).getTime() : Number.NaN;
+    if (Number.isFinite(recentAt) && now.getTime() - recentAt < PLATFORM_CONTEXT_INTERVAL_MS) {
+      result.skips.push("platform_context_recent");
+      return;
+    }
+
+    const context = await fetchCrimsonDesertPlatformContext({
+      env: {
+        TWITCH_CLIENT_ID: process.env.TWITCH_CLIENT_ID,
+        TWITCH_CLIENT_SECRET: process.env.TWITCH_CLIENT_SECRET,
+      },
+      now,
+    });
+    const igdb = context.igdb.status === "ok" ? context.igdb.data : null;
+    const twitch = context.twitch.status === "ok" ? context.twitch.data : null;
+    const { error } = await supabase.from("platform_context_snapshots").insert({
+      captured_at: context.capturedAt,
+      igdb_status: context.igdb.status,
+      igdb_game_id: igdb?.id ?? null,
+      igdb_name: igdb?.name ?? null,
+      igdb_slug: igdb?.slug ?? null,
+      igdb_summary: igdb?.summary ?? null,
+      igdb_first_release_at: igdb?.firstReleaseDate ?? null,
+      igdb_platforms: igdb?.platforms ?? [],
+      twitch_status: context.twitch.status,
+      twitch_live_streams: twitch?.liveStreamCount ?? null,
+      twitch_live_viewers: twitch?.liveViewerCount ?? null,
+      twitch_complete: twitch?.isComplete ?? null,
+    });
+    if (error) {
+      if (isMissingSupabaseRelation(error, "platform_context_snapshots")) {
+        result.skips.push("platform_context_schema_unavailable");
+        return;
+      }
+      throw new Error(`platform context snapshot write failed: ${error.message}`);
+    }
+    if (context.igdb.status !== "ok") result.skips.push(`platform_context_igdb_${context.igdb.status}`);
+    if (context.twitch.status !== "ok") result.skips.push(`platform_context_twitch_${context.twitch.status}`);
+  } catch (error) {
+    // The evidence scan can still finish, but an unexpected persistence failure
+    // must remain visible in run health instead of disappearing as a skip.
+    result.status = result.status === "success" ? "partial" : result.status;
+    result.errors.push(toErrorMessage(error, "Platform context persistence failed"));
+    result.skips.push("platform_context_failed");
+  }
 }
 
 async function collectInputs(
@@ -638,6 +935,7 @@ async function prepareSignals(
   budget: AutomationBudget,
   currentPatch: CurrentPatchContext,
   clusterOptions: ClusterOption[],
+  feedbackRules: ScannerFeedbackRule[],
   report?: () => Promise<void>,
 ): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[]; observations: ObservationCandidate[] }> {
   const prepared: PreparedSignal[] = [];
@@ -674,7 +972,10 @@ async function prepareSignals(
   // phantom credits into the monthly ledger. Computed once per run.
   const webSearchEnabled = features().webSearch;
   const limit = Math.max(25, budget.maxSearchResults + 25);
-  const candidates = inputs.slice(0, limit);
+  const candidates = [
+    ...inputs.filter((signal) => signal.source === "steam_review").slice(0, 100),
+    ...inputs.filter((signal) => signal.source !== "steam_review").slice(0, limit),
+  ];
   result.candidatesSeen += candidates.length;
 
   for (const signal of candidates) {
@@ -688,18 +989,52 @@ async function prepareSignals(
     }
 
     const externalId = signal.source === "web_search" ? canonicalUrl : signal.id;
-    const externalHash = externalIdHash(signal.source, externalId);
-    if (seenUrls.has(canonicalUrl) || seenExternalIds.has(externalHash)) {
+    // Steam intake hashes the recommendation id at the provider boundary. Reuse
+    // that opaque identifier so receipts and source-signal retries share one
+    // stable key instead of hashing an already-hashed value a second time.
+    const externalHash = signal.source === "steam_review"
+      ? signal.id
+      : externalIdHash(signal.source, externalId);
+    if ((signal.source !== "steam_review" && seenUrls.has(canonicalUrl)) || seenExternalIds.has(externalHash)) {
       result.signalsDeduped += 1;
       continue;
     }
-    seenUrls.add(canonicalUrl);
+    if (signal.source !== "steam_review") seenUrls.add(canonicalUrl);
     seenExternalIds.add(externalHash);
+
+    const operatorRule = matchScannerFeedbackRule(
+      { url: canonicalUrl, sourceDomain: signal.sourceDomain },
+      feedbackRules,
+      new Date(signal.observedAt),
+    );
+    if (operatorRule?.action === "block") {
+      result.operatorRulesMatched += 1;
+      result.prefilterRejected += 1;
+      result.skips.push("operator_rule_blocked");
+      rejected.push({
+        source: signal.source,
+        title: signal.title,
+        url: canonicalUrl,
+        sourceDomain: signal.sourceDomain,
+        sourcePublishedAt: signal.sourcePublishedAt ?? null,
+        snippet: signal.body.slice(0, 500),
+        reason: operatorRule.rule.decision,
+        feedbackRuleId: operatorRule.rule.id,
+        steamRecommendationHash: signal.steam?.recommendationHash ?? null,
+      });
+      await report?.();
+      continue;
+    }
+    const operatorAllowed = operatorRule?.action === "allow";
+    if (operatorAllowed) {
+      result.operatorRulesMatched += 1;
+      result.skips.push("operator_rule_allowed");
+    }
 
     // Cheap gate on raw source text, runs BEFORE any LLM call. Trade-off: a source
     // whose raw title+snippet has no symptom language is rejected without giving the
     // LLM a chance to rescue it. That rescue path was the waste this prefilter removes.
-    const preScreen = preScreenCandidate(
+    const preScreen = operatorAllowed ? { keep: true as const } : preScreenCandidate(
       {
         title: signal.title,
         snippet: signal.body,
@@ -759,12 +1094,14 @@ async function prepareSignals(
             result.skips.push(reScreen.reason);
             result.prefilterRejected += 1;
             rejected.push({
+              source: signal.source,
               title: signal.title,
               url: canonicalUrl,
               sourceDomain: signal.sourceDomain,
               sourcePublishedAt: signal.sourcePublishedAt ?? null,
               snippet: effectiveBody.slice(0, 500),
               reason: reScreen.reason,
+              steamRecommendationHash: signal.steam?.recommendationHash ?? null,
             });
             await report?.();
             continue;
@@ -804,12 +1141,14 @@ async function prepareSignals(
 
         result.skips.push(relevance.reason);
         rejected.push({
+          source: signal.source,
           title: signal.title,
           url: canonicalUrl,
           sourceDomain: signal.sourceDomain,
           sourcePublishedAt: signal.sourcePublishedAt ?? null,
           snippet: effectiveBody.slice(0, 500),
           reason: relevance.reason,
+          steamRecommendationHash: signal.steam?.recommendationHash ?? null,
         });
         await report?.();
         continue;
@@ -819,12 +1158,14 @@ async function prepareSignals(
       result.skips.push(preScreen.reason);
       result.prefilterRejected += 1;
       rejected.push({
+        source: signal.source,
         title: signal.title,
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
         sourcePublishedAt: signal.sourcePublishedAt ?? null,
         snippet: signal.body.slice(0, 500),
         reason: preScreen.reason,
+        steamRecommendationHash: signal.steam?.recommendationHash ?? null,
       });
       await report?.();
       continue;
@@ -844,16 +1185,20 @@ async function prepareSignals(
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
     recordOpenRouterCircuitReason(result, extraction.fallbackReason);
 
-    const relevance = shouldKeepExtractedSignal(extraction, `${signal.title} ${signal.body}`);
+    const relevance = operatorAllowed
+      ? { keep: true as const }
+      : shouldKeepExtractedSignal(extraction, `${signal.title} ${signal.body}`);
     if (!relevance.keep) {
       result.skips.push(relevance.reason);
       rejected.push({
+        source: signal.source,
         title: signal.title,
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
         sourcePublishedAt: signal.sourcePublishedAt ?? null,
         snippet: signal.body.slice(0, 500),
         reason: relevance.reason,
+        steamRecommendationHash: signal.steam?.recommendationHash ?? null,
       });
       await report?.();
       continue;
@@ -1232,6 +1577,13 @@ async function upsertSignal(
     extracted_facts: {
       issueTitle: signal.extraction.issueTitle,
       platform: signal.extraction.platform,
+      ...(signal.steam
+        ? {
+            steamVotedUp: signal.steam.votedUp,
+            playtimeAtReviewMinutes: signal.steam.playtimeAtReviewMinutes,
+            sourceUpdatedAt: signal.steam.sourceUpdatedAt,
+          }
+        : {}),
     },
     category: signal.extraction.category,
     confidence: signal.extraction.confidence,
@@ -1329,7 +1681,11 @@ async function refreshClusterStats(
       activeExcerpts.filter((excerpt) => reportIds.has(excerpt.report_id)).map((excerpt) => excerpt.report_id),
     ).size;
     const publishableSignals = signals.filter(
-      (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, activeCurrentPatch).canPublish,
+      (signal) =>
+        !isContextOnlySignal(signal) &&
+        !isUnsupportedStoredSignal(signal) &&
+        hasStoredSignalGameContext(signal) &&
+        sourceSignalEligibility(signal, activeCurrentPatch).canPublish,
     );
     const { independentDomainCount, trustedDomainCount } = domainCounts(publishableSignals, now);
 
@@ -1361,14 +1717,17 @@ async function refreshClusterStats(
     const signalPatches = signals.map((signal) => {
       if (!signal.id) throw new Error(`cluster signal is missing an id: ${clusterId}`);
       const unsupported = isUnsupportedStoredSignal(signal);
+      const offTopic = !hasStoredSignalGameContext(signal);
+      const contextOnly = isContextOnlySignal(signal);
       const eligibility = sourceSignalEligibility(signal, activeCurrentPatch);
       const shouldHideStale =
         unsupported ||
+        offTopic ||
         (!eligibility.canPublish &&
           (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source"));
       let publicStatus: "public" | "private" | "hidden";
       let promotionReason: string;
-      if (!unsupported && eligibility.canPublish) {
+      if (!contextOnly && !unsupported && !offTopic && eligibility.canPublish) {
         const resolved = resolveSignalPublicStatus({
           decision,
           signalTrusted: domainTier(signalDomain(signal)) === "trusted",
@@ -1378,8 +1737,10 @@ async function refreshClusterStats(
         promotionReason = resolved.reason;
       } else {
         publicStatus = shouldHideStale ? "hidden" : "private";
-        promotionReason = shouldHideStale
-          ? stalePromotionReason(unsupported ? "source_not_issue_report" : eligibility.reason)
+        promotionReason = contextOnly && !shouldHideStale
+          ? "source_context_only"
+          : shouldHideStale
+          ? stalePromotionReason(unsupported ? "source_not_issue_report" : offTopic ? "off_topic" : eligibility.reason)
           : "below_threshold";
       }
       if (publicStatus === "public") publicSignalCount += 1;
@@ -1401,7 +1762,10 @@ async function refreshClusterStats(
       : (cluster.auto_public ?? false);
     const hasPublicEvidence = publicSignalCount > 0 || clusterReports.length > 0;
     const hasLiveCandidates = signals.some(
-      (signal) => !isUnsupportedStoredSignal(signal) && sourceSignalEligibility(signal, activeCurrentPatch).canStore,
+      (signal) =>
+        !isUnsupportedStoredSignal(signal) &&
+        hasStoredSignalGameContext(signal) &&
+        sourceSignalEligibility(signal, activeCurrentPatch).canStore,
     );
     const automaticIsPublic =
       automaticDecision.publicStatus === "public"
@@ -1489,17 +1853,21 @@ async function persistSignals(
   now: Date,
   routableClusters: RoutableCluster[],
   runId: string,
-) {
-  const reports = await loadApprovedReports(supabase);
+): Promise<{ persistedSteamReviewHashes: Set<string>; error: unknown | null }> {
+  const persistedSteamReviewHashes = new Set<string>();
   const clusterBySemantic = new Map<string, string>();
   const touchedClusters = new Set<string>();
   let persistenceError: unknown = null;
 
   try {
+    const reports = await loadApprovedReports(supabase);
     for (const signal of signals) {
       const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
       touchedClusters.add(clusterId);
       const persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
+      if (signal.source === "steam_review" && signal.steam?.recommendationHash) {
+        persistedSteamReviewHashes.add(signal.steam.recommendationHash);
+      }
       if (persistence.kind === "reobserved") result.signalsReobserved += 1;
       else result.signalsInserted += 1;
       if (persistence.previousClusterId && persistence.previousClusterId !== clusterId) {
@@ -1518,7 +1886,7 @@ async function persistSignals(
     }
   }
 
-  if (persistenceError !== null) throw persistenceError;
+  return { persistedSteamReviewHashes, error: persistenceError };
 }
 
 async function quarantineStalePublicSignals(
@@ -1529,7 +1897,11 @@ async function quarantineStalePublicSignals(
 ): Promise<void> {
   const publicSignals = await loadPublicSignalsForAudit(supabase);
   const staleSignals = publicSignals.filter(
-    (signal) => isUnsupportedStoredSignal(signal) || !sourceSignalEligibility(signal, currentPatch).canPublish,
+    (signal) =>
+      isContextOnlySignal(signal) ||
+      isUnsupportedStoredSignal(signal) ||
+      !hasStoredSignalGameContext(signal) ||
+      !sourceSignalEligibility(signal, currentPatch).canPublish,
   );
   if (staleSignals.length === 0) return;
 
@@ -1538,16 +1910,22 @@ async function quarantineStalePublicSignals(
     if (!signal.id) continue;
     const eligibility = sourceSignalEligibility(signal, currentPatch);
     const unsupported = isUnsupportedStoredSignal(signal);
+    const offTopic = !hasStoredSignalGameContext(signal);
+    const contextOnly = isContextOnlySignal(signal);
+    const hide = unsupported || offTopic || !eligibility.canPublish;
     const { error } = await supabase
       .from("source_signals")
       .update({
-        public_status: "hidden",
+        public_status: hide ? "hidden" : "private",
         promoted_at: null,
-        promotion_reason: stalePromotionReason(unsupported ? "source_not_issue_report" : eligibility.reason),
+        promotion_reason:
+          contextOnly && !hide
+            ? "source_context_only"
+            : stalePromotionReason(unsupported ? "source_not_issue_report" : offTopic ? "off_topic" : eligibility.reason),
       })
       .eq("id", signal.id);
     if (error) throw new Error(`stale source signal quarantine failed: ${error.message}`);
-    result.staleSignalsHidden += 1;
+    if (hide) result.staleSignalsHidden += 1;
     if (signal.cluster_id) touchedClusters.add(signal.cluster_id);
   }
 
@@ -1597,42 +1975,48 @@ async function finalizeRunLedger(
   runId: string,
   result: AutomationResult,
 ): Promise<void> {
+  const legacyPatch = {
+    finished_at: new Date().toISOString(),
+    status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
+    estimated_cost_usd: result.estimatedCostUsd,
+    reddit_posts_seen: result.redditPostsSeen,
+    search_queries_used: result.searchQueriesUsed,
+    search_results_seen: result.searchResultsSeen,
+    llm_calls_used: result.llmCallsUsed,
+    signals_inserted: result.signalsInserted,
+    signals_deduped: result.signalsDeduped,
+    clusters_promoted: result.clustersPromoted,
+    intent: result.intent,
+    signals_reobserved: result.signalsReobserved,
+    stale_signals_hidden: result.staleSignalsHidden,
+    candidates_rescued: result.candidatesRescued,
+    skips: result.skips,
+    errors: result.errors,
+    funnel: {
+      searchResultsSeen: result.searchResultsSeen,
+      candidatesSeen: result.candidatesSeen,
+      deduped: result.signalsDeduped,
+      prefilterRejected: result.prefilterRejected,
+      llmEligible: Math.max(0, result.candidatesSeen - result.signalsDeduped - result.prefilterRejected),
+      llmCalls: result.llmCallsUsed,
+      prepared: result.signalsPrepared,
+      persisted: result.signalsInserted,
+      kept: result.signalsPrepared,
+      promoted: result.clustersPromoted,
+      observations: result.observationsKept,
+    },
+    progress: snapshotProgress("done", result, result.searchQueriesUsed),
+  };
   const { error } = await supabase
     .from("automation_runs")
-    .update({
-      finished_at: new Date().toISOString(),
-      status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
-      estimated_cost_usd: result.estimatedCostUsd,
-      reddit_posts_seen: result.redditPostsSeen,
-      search_queries_used: result.searchQueriesUsed,
-      search_results_seen: result.searchResultsSeen,
-      llm_calls_used: result.llmCallsUsed,
-      signals_inserted: result.signalsInserted,
-      signals_deduped: result.signalsDeduped,
-      clusters_promoted: result.clustersPromoted,
-      intent: result.intent,
-      signals_reobserved: result.signalsReobserved,
-      stale_signals_hidden: result.staleSignalsHidden,
-      candidates_rescued: result.candidatesRescued,
-      skips: result.skips,
-      errors: result.errors,
-      funnel: {
-        searchResultsSeen: result.searchResultsSeen,
-        candidatesSeen: result.candidatesSeen,
-        deduped: result.signalsDeduped,
-        prefilterRejected: result.prefilterRejected,
-        llmEligible: Math.max(0, result.candidatesSeen - result.signalsDeduped - result.prefilterRejected),
-        llmCalls: result.llmCallsUsed,
-        prepared: result.signalsPrepared,
-        persisted: result.signalsInserted,
-        kept: result.signalsPrepared,
-        promoted: result.clustersPromoted,
-        observations: result.observationsKept,
-      },
-      progress: snapshotProgress("done", result, result.searchQueriesUsed),
-    })
+    .update({ ...legacyPatch, operator_rules_matched: result.operatorRulesMatched })
     .eq("id", runId);
-  if (error) throw new Error(`automation run finalize failed: ${error.message}`);
+  if (!error) return;
+  if (!isMissingSupabaseColumn(error, "automation_runs", "operator_rules_matched")) {
+    throw new Error(`automation run finalize failed: ${error.message}`);
+  }
+  const { error: legacyError } = await supabase.from("automation_runs").update(legacyPatch).eq("id", runId);
+  if (legacyError) throw new Error(`automation run finalize failed: ${legacyError.message}`);
 }
 
 const MAX_REJECTED_CANDIDATES_PER_RUN = 50;
@@ -1644,7 +2028,11 @@ async function persistRejectedCandidates(
   result: AutomationResult,
   now: Date,
 ): Promise<void> {
-  if (rejected.length === 0) return;
+  // Steam review text is deliberately retained only on a kept, private lead.
+  // Rejected reviews share one generic app URL, so putting them in the URL-keyed
+  // rescue archive would merge unrelated reviews and retain text unnecessarily.
+  const reviewableRejected = rejected.filter((candidate) => candidate.source !== "steam_review");
+  if (reviewableRejected.length === 0) return;
   // Rescue memory: a URL that already lives in source_signals (typically via an
   // admin rescue) is a tracked lead — re-rejecting it would contradict the
   // operator's decision every run. Record a re-observation instead so the
@@ -1659,7 +2047,7 @@ async function persistRejectedCandidates(
     result.skips.push("rescued_signal_reobserved");
   };
   try {
-    const urls = [...new Set(rejected.map((candidate) => candidate.url))];
+    const urls = [...new Set(reviewableRejected.map((candidate) => candidate.url))];
     const { data, error } = await supabase
       .from("source_signals")
       .select("id, canonical_url, cluster_id, seen_count")
@@ -1702,7 +2090,9 @@ async function persistRejectedCandidates(
     void error;
   }
   let candidates =
-    reobservedUrls.size > 0 ? rejected.filter((candidate) => !reobservedUrls.has(candidate.url)) : rejected;
+    reobservedUrls.size > 0
+      ? reviewableRejected.filter((candidate) => !reobservedUrls.has(candidate.url))
+      : reviewableRejected;
   if (candidates.length === 0) return;
   // Dedupe against the un-expired reject pile: the same page resurfaces in
   // search run after run (one patch-notes mirror was stored 7×). Refresh the
@@ -1711,6 +2101,7 @@ async function persistRejectedCandidates(
   // stacking duplicates. Same commitment rule as above: a URL is suppressed
   // only after its refresh succeeds.
   const refreshedUrls = new Set<string>();
+  let feedbackColumnAvailable = true;
   try {
     const byUrl = new Map(candidates.map((candidate) => [candidate.url, candidate]));
     const { data, error } = await supabase
@@ -1723,18 +2114,36 @@ async function persistRejectedCandidates(
     for (const row of (data ?? []) as { id: string; url: string }[]) {
       const candidate = byUrl.get(row.url);
       if (!candidate || refreshedUrls.has(row.url)) continue;
-      const { error: refreshError } = await supabase
+      const legacyPatch = {
+        run_id: runId,
+        title: candidate.title,
+        snippet: candidate.snippet,
+        reason: candidate.reason,
+        source_published_at: candidate.sourcePublishedAt ?? null,
+        expires_at: refreshedExpiry,
+      };
+      const refreshResult = await supabase
         .from("automation_rejected_candidates")
-        .update({
-          run_id: runId,
-          title: candidate.title,
-          snippet: candidate.snippet,
-          reason: candidate.reason,
-          source_published_at: candidate.sourcePublishedAt ?? null,
-          expires_at: refreshedExpiry,
-        })
+        .update(
+          feedbackColumnAvailable
+            ? { ...legacyPatch, feedback_rule_id: candidate.feedbackRuleId ?? null }
+            : legacyPatch,
+        )
         .eq("id", row.id);
-      if (refreshError) throw new Error(refreshError.message);
+      if (
+        refreshResult.error &&
+        feedbackColumnAvailable &&
+        isMissingSupabaseColumn(refreshResult.error, "automation_rejected_candidates", "feedback_rule_id")
+      ) {
+        feedbackColumnAvailable = false;
+        const { error: legacyError } = await supabase
+          .from("automation_rejected_candidates")
+          .update(legacyPatch)
+          .eq("id", row.id);
+        if (legacyError) throw new Error(legacyError.message);
+      } else if (refreshResult.error) {
+        throw new Error(refreshResult.error.message);
+      }
       refreshedUrls.add(row.url);
     }
   } catch (error) {
@@ -1753,11 +2162,33 @@ async function persistRejectedCandidates(
     source_published_at: candidate.sourcePublishedAt ?? null,
     snippet: candidate.snippet,
     reason: candidate.reason,
+    feedback_rule_id: candidate.feedbackRuleId ?? null,
   }));
-  const { error } = await supabase.from("automation_rejected_candidates").insert(rows);
-  if (error) {
+  const legacyRows = rows.map(({ run_id, title, url, source_domain, source_published_at, snippet, reason }) => ({
+    run_id,
+    title,
+    url,
+    source_domain,
+    source_published_at,
+    snippet,
+    reason,
+  }));
+  let insertResult = await supabase.from("automation_rejected_candidates").insert(
+    feedbackColumnAvailable ? rows : legacyRows,
+  );
+  if (
+    insertResult.error &&
+    feedbackColumnAvailable &&
+    isMissingSupabaseColumn(insertResult.error, "automation_rejected_candidates", "feedback_rule_id")
+  ) {
+    feedbackColumnAvailable = false;
+    insertResult = await supabase
+      .from("automation_rejected_candidates")
+      .insert(legacyRows);
+  }
+  if (insertResult.error) {
     result.status = result.status === "success" ? "partial" : result.status;
-    result.errors.push(`rejected candidates insert failed: ${error.message}`);
+    result.errors.push(`rejected candidates insert failed: ${insertResult.error.message}`);
   }
 }
 
@@ -1824,6 +2255,7 @@ async function executeAutomationRun(
     staleSignalsHidden: 0,
     candidatesRescued: 0,
     observationsKept: 0,
+    operatorRulesMatched: 0,
     estimatedCostUsd: 0,
     llmCostUsd: 0,
     skips: [
@@ -1877,32 +2309,63 @@ async function executeAutomationRun(
 
     const routableClusters = await loadRoutableClusters(supabase);
     const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+    const feedbackRules = await loadActiveScannerFeedbackRules(supabase);
 
     await report("searching");
-    const inputs = await collectInputs(result, budget, now, currentPatch, result.intent, laneCount, () => report("searching"));
+    const steamCollection =
+      mode === "dry_run" ? null : await collectSteamReviewInputs(supabase, result, now);
+    const webInputs = await collectInputs(
+      result,
+      budget,
+      now,
+      currentPatch,
+      result.intent,
+      laneCount,
+      () => report("searching"),
+    );
+    const inputs = [...(steamCollection?.inputs ?? []), ...webInputs];
     const prepared = await prepareSignals(
       inputs,
       result,
       budget,
       currentPatch,
       clusterOptions,
+      feedbackRules,
       () => report("screening"),
     );
     rejected = prepared.rejected;
 
     if (mode !== "dry_run") {
       await report("persisting");
-      try {
-        await persistSignals(supabase, prepared.prepared, result, now, routableClusters, runId);
-      } catch (error) {
+      const signalPersistence = await persistSignals(
+        supabase,
+        prepared.prepared,
+        result,
+        now,
+        routableClusters,
+        runId,
+      );
+      if (signalPersistence.error !== null) {
         // A later write can fail after an earlier signal was committed. Mark the
         // ledger partial so admin/public find queries include the landed writes.
         result.status = result.signalsInserted > 0 || result.signalsReobserved > 0 ? "partial" : "failed";
-        result.errors.push(toErrorMessage(error, "automation persistence failed"));
+        result.errors.push(toErrorMessage(signalPersistence.error, "automation persistence failed"));
       }
       // Observation lane persists after signals and never affects them: it is
       // best-effort by design and reports failures into the ledger only.
       await persistObservations(supabase, prepared.observations, currentPatch.version, result);
+      if (steamCollection) {
+        await persistSteamReviewCollection(
+          supabase,
+          steamCollection,
+          prepared.prepared,
+          prepared.rejected,
+          signalPersistence.persistedSteamReviewHashes,
+          result,
+          now,
+        );
+      }
+      await persistPlatformContextSnapshot(supabase, result, now);
     }
 
     if (result.errors.length > 0 && result.status === "success") result.status = "partial";
@@ -2008,6 +2471,7 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
       staleSignalsHidden: 0,
       candidatesRescued: 0,
       observationsKept: 0,
+      operatorRulesMatched: 0,
       estimatedCostUsd: 0,
       llmCostUsd: 0,
       skips: ["scan_already_running"],
@@ -2132,6 +2596,7 @@ export async function rescueCandidateSignal(
     staleSignalsHidden: 0,
     candidatesRescued: 0,
     observationsKept: 0,
+    operatorRulesMatched: 0,
     estimatedCostUsd: 0,
     llmCostUsd: 0,
     skips: [...budget.skipReasons, ...(openRouterCircuitOpen ? ["openrouter_circuit_open"] : [])],

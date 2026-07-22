@@ -5,7 +5,7 @@ import type { ConfirmationKind } from "@/lib/confirmations";
 import { PLATFORMS, PLATFORM_LABELS } from "@/lib/constants";
 
 const KIND_LABELS: Record<ConfirmationKind, string> = {
-  have_it: "I have this too",
+  have_it: "Happening to me",
   still_happening: "Still happening",
   fixed_for_me: "Fixed for me",
 };

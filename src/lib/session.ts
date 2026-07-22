@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const ADMIN_COOKIE = "cd_admin";
 const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000;
@@ -23,8 +23,12 @@ export function verifySessionToken(token: string | undefined, secret: string): b
   return Number(expiresAt) > Date.now();
 }
 
-export function passwordMatches(candidate: string, actual: string): boolean {
-  const a = createHash("sha256").update(candidate).digest();
-  const b = createHash("sha256").update(actual).digest();
+export function passwordMatches(candidate: string, actual: string, comparisonSecret: string): boolean {
+  if (!comparisonSecret) throw new Error("comparison secret required");
+  // These digests are transient fixed-length comparison buffers, not stored
+  // password verifiers. Keying them prevents an offline reusable hash if they
+  // are ever exposed while retaining timing-safe equality for unequal lengths.
+  const a = createHmac("sha256", comparisonSecret).update(candidate).digest();
+  const b = createHmac("sha256", comparisonSecret).update(actual).digest();
   return timingSafeEqual(a, b);
 }
