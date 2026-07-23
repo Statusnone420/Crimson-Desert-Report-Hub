@@ -15,6 +15,8 @@ const PATCH = { version: "1.14.00", publishedAt: "2026-07-16T09:00:00Z" };
 function signal(overrides: Partial<RadarSignalRow> = {}): RadarSignalRow {
   return {
     cluster_id: "cluster-a",
+    source: "web_search",
+    source_type: "web_search",
     category: "performance",
     confidence: "medium",
     public_status: "private",
@@ -119,6 +121,32 @@ describe("composePatchRadarData windows", () => {
 });
 
 describe("composePatchRadarData buckets and recurrence", () => {
+  it("excludes individual Steam review context from every public radar aggregate", () => {
+    const data = compose({
+      signals: [
+        signal(),
+        signal({
+          cluster_id: "steam-context-only",
+          source: "steam_review",
+          source_type: "steam_review",
+          category: "crash_startup",
+          confidence: "high",
+          seen_count: 9,
+          source_published_at: "2026-07-18T10:00:00Z",
+          extracted_facts: { platform: "ps5" },
+        }),
+      ],
+    });
+
+    expect(data.recurring).toEqual({ recurringLeads: 0, trackedLeads: 1, maxSeenCount: 1 });
+    expect(data.activeLeadClusters).toBe(1);
+    expect(data.categories).toEqual([{ category: "performance", tracked: 1, new7d: 1 }]);
+    expect(data.platforms).toEqual([{ platform: "pc_steam", tracked: 1 }]);
+    expect(data.confidenceMix).toEqual({ high: 0, medium: 1, low: 0 });
+    expect(data.dateCoverage).toEqual({ withSourceDate: 0, tracked: 1 });
+    expect(data.recurrence).toHaveLength(1);
+  });
+
   it("excludes hidden signals from every tracked-lead aggregate", () => {
     const data = compose({
       signals: [signal(), signal({ public_status: "hidden", seen_count: 18 })],
