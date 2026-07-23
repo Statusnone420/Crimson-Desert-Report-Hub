@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
 import { canonicalizeUrl, semanticFingerprint } from "@/lib/automation/dedupe";
 import {
   deterministicExtract,

@@ -1,5 +1,5 @@
-import { canonicalizeUrl } from "@/lib/automation/dedupe";
 import { registrableDomain } from "@/lib/automation/domains";
+import { canonicalizeUrl } from "@/lib/automation/url";
 
 export const SCANNER_DECISIONS = [
   "relevant",
