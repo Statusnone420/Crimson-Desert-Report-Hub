@@ -212,6 +212,23 @@ describe("composePatchRadarData buckets and recurrence", () => {
     );
   });
 
+  it("anchors the latest-scan band to the newest completed real intake", () => {
+    const data = compose({
+      signals: [signal({ last_seen_at: "2026-07-19T10:00:00Z" })],
+      runs: [
+        run({ started_at: "2026-07-19T10:30:00Z", status: "skipped" }),
+        run({ started_at: "2026-07-19T11:00:00Z", mode: "dry_run" }),
+        run({ started_at: "2026-07-19T11:30:00Z", status: "running" }),
+      ],
+      latestTerminalRun: run({
+        started_at: "2026-07-19T10:00:00Z",
+        status: "partial",
+      }),
+    });
+
+    expect(data.recurrence[0]?.recencyBand).toBe("latest_scan");
+  });
+
   it("caps recurrence points on the freshest observations deterministically", () => {
     const stale = signal({ last_seen_at: "2026-07-01T12:00:00Z" });
     const fresh = signal({ last_seen_at: "2026-07-19T11:00:00Z" });

@@ -193,6 +193,14 @@ function isIntakeRun(run: RadarRunRow): boolean {
   return !(run.mode === "manual" && run.intent === "rescue_candidate" && (run.search_queries_used ?? 0) === 0);
 }
 
+function isCompletedRealIntakeRun(run: RadarRunRow): boolean {
+  return (
+    isIntakeRun(run) &&
+    run.mode !== "dry_run" &&
+    (run.status === "success" || run.status === "partial")
+  );
+}
+
 function parseTime(value: string | null | undefined): number | null {
   if (!value) return null;
   const time = new Date(value).getTime();
@@ -287,14 +295,12 @@ export function composePatchRadarData(input: {
   const maxSeenCount = tracked.reduce((max, row) => Math.max(max, row.seen_count ?? 1), 0);
   const lastSeenMs = (row: RadarSignalRow) =>
     parseTime(row.last_seen_at) ?? parseTime(row.observed_at) ?? firstSeenMs(row);
-  const latestSuccessfulScanMs = [
-    ...intakeRuns,
-    ...(input.latestTerminalRun && isIntakeRun(input.latestTerminalRun) ? [input.latestTerminalRun] : []),
-  ].reduce(
-    (latest, run) =>
-      run.status === "failed" ? latest : Math.max(latest, parseTime(run.started_at) ?? 0),
-    0,
-  );
+  const latestCompletedScanMs = [
+    ...intakeRuns.filter(isCompletedRealIntakeRun),
+    ...(input.latestTerminalRun && isCompletedRealIntakeRun(input.latestTerminalRun)
+      ? [input.latestTerminalRun]
+      : []),
+  ].reduce((latest, run) => Math.max(latest, parseTime(run.started_at) ?? 0), 0);
   // Supabase does not guarantee row order. Keep the capped visual deterministic
   // and spend the cap on the leads with the freshest scanner observations.
   const recurrenceRows = [...tracked].sort(
@@ -315,7 +321,7 @@ export function composePatchRadarData(input: {
       hoursSinceSeen,
       recencyBand: classifyRadarRecency({
         lastSeenAt: new Date(lastSeen),
-        latestScanAt: latestSuccessfulScanMs > 0 ? new Date(latestSuccessfulScanMs) : null,
+        latestScanAt: latestCompletedScanMs > 0 ? new Date(latestCompletedScanMs) : null,
         now,
       }),
       seenCount: Math.max(1, row.seen_count ?? 1),
