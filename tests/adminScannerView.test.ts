@@ -143,4 +143,50 @@ describe("AdminScannerView", () => {
     expect(markup.match(/name="target_kind" value="signal"/g)).toHaveLength(8);
     expect(markup.match(/Remove bad lead/g)).toHaveLength(8);
   });
+
+  it("does not offer a shared-URL teaching action for a Steam review lead", () => {
+    const markup = renderToStaticMarkup(createElement(AdminScannerView, {
+      runs: [],
+      signals: [{
+        id: "signal-steam-review",
+        cluster_id: "cluster-performance",
+        source: "steam_review",
+        source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert/#app_reviews_hash",
+        title: "Crimson Desert player issue on Steam",
+        summary: "A private Steam review described a performance problem.",
+        category: "performance",
+        confidence: "medium" as const,
+        observed_at: "2026-07-22T17:00:00.000Z",
+        public_status: "private" as const,
+        source_type: "steam_review",
+        source_domain: "store.steampowered.com",
+        source_published_at: "2026-07-22T16:00:00.000Z",
+        first_seen_at: "2026-07-22T17:00:00.000Z",
+        last_seen_at: "2026-07-22T17:00:00.000Z",
+        seen_count: 1,
+      }],
+      rejectedCandidates: [],
+      feedbackRules: [],
+      control: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_v4_flash",
+        updatedAt: null,
+      },
+      activeRun: null,
+      latestRealRun: null,
+      latestFind: null,
+      scoreboard: {} as never,
+      radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
+      integrations: [],
+      nowIso: "2026-07-22T18:00:00.000Z",
+    }));
+
+    expect(markup).toContain("Steam review leads share one provider URL");
+    expect(markup).not.toContain('name="target_kind" value="signal"');
+    expect(markup).not.toContain("Remove bad lead");
+  });
 });

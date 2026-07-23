@@ -120,6 +120,7 @@ function confidenceTone(confidence: AdminSignalRow["confidence"]): string {
 }
 
 function signalRow(signal: AdminSignalRow, nowMs: number) {
+  const isSteamReview = signal.source === "steam_review" || signal.source_type === "steam_review";
   return (
     <article key={signal.id} className="lead-item">
       <div className="lead-item__status">
@@ -164,40 +165,47 @@ function signalRow(signal: AdminSignalRow, nowMs: number) {
           </dd>
         </div>
       </dl>
-      <details className="lead-feedback">
-        <summary>Remove bad lead</summary>
-        <form action={recordScannerDecision} className="decision-form dispatch-field lead-feedback__form">
-          <input type="hidden" name="id" value={signal.id} />
-          <input type="hidden" name="target_kind" value="signal" />
-          <input type="hidden" name="scope" value="exact_url" />
-          <label>
-            <span>Why this lead is wrong</span>
-            <select name="decision" defaultValue="off_topic" required>
-              <option value="off_topic">Off topic</option>
-              <option value="wrong_patch">Wrong patch</option>
-              <option value="not_issue_report">Not an issue report</option>
-              <option value="duplicate">Duplicate source</option>
-            </select>
-          </label>
-          <label>
-            <span>Operator reason</span>
-            <textarea
-              name="reason"
-              required
-              minLength={3}
-              maxLength={500}
-              placeholder="What made this source irrelevant?"
-            />
-          </label>
-          <p className="decision-form__scope">
-            Removes only this source URL. The scanner will block the same page in future runs; the issue itself is
-            unchanged.
-          </p>
-          <SubmitButton className="dispatch-btn tap-btn--danger" pendingText="Removing lead…">
-            Remove lead and teach scanner
-          </SubmitButton>
-        </form>
-      </details>
+      {isSteamReview ? (
+        <p className="decision-form__scope">
+          Steam review leads share one provider URL. A review-specific lesson needs its recommendation hash, so this
+          page cannot teach a safe scanner rule.
+        </p>
+      ) : (
+        <details className="lead-feedback">
+          <summary>Remove bad lead</summary>
+          <form action={recordScannerDecision} className="decision-form dispatch-field lead-feedback__form">
+            <input type="hidden" name="id" value={signal.id} />
+            <input type="hidden" name="target_kind" value="signal" />
+            <input type="hidden" name="scope" value="exact_url" />
+            <label>
+              <span>Why this lead is wrong</span>
+              <select name="decision" defaultValue="off_topic" required>
+                <option value="off_topic">Off topic</option>
+                <option value="wrong_patch">Wrong patch</option>
+                <option value="not_issue_report">Not an issue report</option>
+                <option value="duplicate">Duplicate source</option>
+              </select>
+            </label>
+            <label>
+              <span>Operator reason</span>
+              <textarea
+                name="reason"
+                required
+                minLength={3}
+                maxLength={500}
+                placeholder="What made this source irrelevant?"
+              />
+            </label>
+            <p className="decision-form__scope">
+              Removes only this source URL. The scanner will block the same page in future runs; the issue itself is
+              unchanged.
+            </p>
+            <SubmitButton className="dispatch-btn tap-btn--danger" pendingText="Removing lead…">
+              Remove lead and teach scanner
+            </SubmitButton>
+          </form>
+        </details>
+      )}
     </article>
   );
 }

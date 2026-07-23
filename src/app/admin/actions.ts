@@ -495,18 +495,23 @@ export async function recordScannerDecision(formData: FormData): Promise<void> {
   if (targetKind === "signal") {
     const { data, error } = await supabase
       .from("source_signals")
-      .select("id, cluster_id, source_url, canonical_url, source_domain")
+      .select("id, cluster_id, source, source_type, source_url, canonical_url, source_domain")
       .eq("id", id)
       .limit(1);
     if (error) throw new Error(`source signal read failed: ${error.message}`);
     const signal = (data ?? [])[0] as {
       id: string;
       cluster_id: string | null;
+      source: string;
+      source_type: string | null;
       source_url: string;
       canonical_url: string | null;
       source_domain: string | null;
     } | undefined;
     if (!signal) throw new Error("source signal not found");
+    if (signal.source === "steam_review" || signal.source_type === "steam_review") {
+      throw new Error("Steam review signals cannot create URL feedback rules");
+    }
     const targetUrl = scannerRuleScopeValue("exact_url", {
       url: signal.canonical_url ?? signal.source_url,
       sourceDomain: signal.source_domain,

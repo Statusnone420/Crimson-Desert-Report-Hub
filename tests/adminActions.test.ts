@@ -759,6 +759,36 @@ describe("recordScannerDecision", () => {
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-current");
   });
 
+  it("refuses a shared-URL feedback lesson for a Steam review signal", async () => {
+    seedRows = {
+      source_signals: [
+        {
+          id: "signal-steam-review",
+          cluster_id: "cluster-performance",
+          source: "steam_review",
+          source_type: "steam_review",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert/#app_reviews_hash",
+          canonical_url: "https://store.steampowered.com/app/3321460/Crimson_Desert/#app_reviews_hash",
+          source_domain: "store.steampowered.com",
+        },
+      ],
+    };
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "signal-steam-review");
+    formData.set("target_kind", "signal");
+    formData.set("decision", "not_issue_report");
+    formData.set("reason", "This Steam review is not an actionable issue report.");
+    formData.set("scope", "exact_url");
+
+    await expect(recordScannerDecision(formData)).rejects.toThrow(
+      "Steam review signals cannot create URL feedback rules",
+    );
+
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.refreshClusterVisibility).not.toHaveBeenCalled();
+  });
+
   it("does not allow a kept signal to create a Relevant or broad rule", async () => {
     const { recordScannerDecision } = await import("@/app/admin/actions");
     for (const [decision, scope] of [

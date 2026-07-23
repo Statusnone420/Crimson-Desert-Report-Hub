@@ -689,7 +689,10 @@ async function collectSteamReviewInputs(
       url: STEAM_REVIEW_SOURCE_URL,
       observedAt: now.toISOString(),
       sourceDomain: "store.steampowered.com",
-      sourcePublishedAt: review.sourceCreatedAt,
+      // Steam's updated feed can surface a current complaint on an older review.
+      // Use the edit time for patch freshness; the original creation time stays
+      // in the private receipt metadata below.
+      sourcePublishedAt: review.sourceUpdatedAt,
       steam: {
         recommendationHash: review.recommendationHash,
         sourceCreatedAt: review.sourceCreatedAt,

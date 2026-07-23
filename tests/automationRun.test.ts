@@ -4913,6 +4913,46 @@ describe("Steam Pulse intake", () => {
     );
   });
 
+  it("uses an edited Steam review's update time for freshness while retaining its creation time", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    const recommendationHash = externalIdHash("steam_review", "edited-after-current-patch");
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash,
+          reviewText: "Crimson Desert crashes every few minutes when opening the map.",
+          sourceCreatedAt: "2026-06-30T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 240,
+        },
+      ],
+      totals: { totalReviews: 1, totalPositive: 0, totalNegative: 1 },
+      cursor: null,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      external_id_hash: recommendationHash,
+      source_published_at: "2026-07-05T10:30:00.000Z",
+    });
+    expect(tables.steam_review_receipts[0]).toMatchObject({
+      recommendation_hash: recommendationHash,
+      source_created_at: "2026-06-30T10:00:00.000Z",
+      source_updated_at: "2026-07-05T10:30:00.000Z",
+    });
+  });
+
   it("keeps Steam review text private even when its cluster is public from a direct report", async () => {
     resetDb({
       issue_clusters: [
