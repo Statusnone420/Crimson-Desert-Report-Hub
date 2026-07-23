@@ -593,7 +593,8 @@ export default async function DispatchHomePage() {
                 <div className="radar-screen-wrap">
                   <RadarScreen points={radarData.recurrence} sectors={radarSectors} size={430} />
                   <p className="radar-screen-caption">
-                    Recency from center: latest scan → under 6h → 6–24h → 1–3d → 4–7d → 8+d at rim
+                    Recency from center: latest scan → under 6 hours → 6–24 hours → 1–3 days → 4–7 days → 8+
+                    days at the rim.
                   </p>
                   <ul className="radar-recency-legend" aria-label="Tracked leads by recency band">
                     {RADAR_RECENCY_BANDS.map((band) => (

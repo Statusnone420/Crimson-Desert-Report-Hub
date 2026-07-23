@@ -260,9 +260,9 @@ export function RadarScreen({
               textAnchor="middle"
               dominantBaseline="middle"
               fontFamily="var(--font-mono)"
-              fontSize="9.5"
+              fontSize="10.5"
               letterSpacing="0.06em"
-              fill="var(--dispatch-quiet)"
+              fill="var(--dispatch-muted)"
             >
               {sector.label.toUpperCase()}
             </text>

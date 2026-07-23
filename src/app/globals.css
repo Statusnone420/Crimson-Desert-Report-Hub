@@ -527,7 +527,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   color: var(--dispatch-ghost);
 }
 
-.dispatch-footer__note { max-width: 70ch; }
+.dispatch-footer__note { max-width: 62ch; }
 
 .dispatch-footer__links {
   display: flex;
@@ -870,7 +870,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   font-family: var(--font-display);
   font-size: 31px;
   font-weight: 400;
-  line-height: 1.22;
+  line-height: 1.28;
   color: var(--dispatch-ink);
   max-width: 30ch;
 }
@@ -986,10 +986,10 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 .radar-screen-caption {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--dispatch-quiet);
+  font-size: 11.5px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  color: var(--dispatch-faint);
 }
 .radar-recency-legend {
   display: grid;
@@ -1006,7 +1006,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   padding-top: 5px;
   border-top: 1px solid var(--rule-ghost);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 10.5px;
   color: var(--dispatch-quiet);
 }
 .radar-recency-legend b { color: var(--dispatch-muted); font-weight: 400; }
@@ -1168,6 +1168,29 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   .desk-funnel { grid-template-columns: 1fr; gap: 22px; }
 }
 
+@media (max-width: 1199px) and (min-width: 1024px) {
+  #radar .radar-grid--screen {
+    grid-template-columns: 430px minmax(0, 1fr);
+    gap: clamp(32px, 4vw, 52px);
+  }
+
+  #radar .radar-screen-wrap,
+  #radar .radar-main {
+    max-width: none;
+    margin-inline: 0;
+  }
+}
+
+@media (max-width: 1023px) and (min-width: 900px) {
+  #radar .radar-screen-wrap,
+  #radar .radar-main {
+    width: 100%;
+    margin-inline: auto;
+  }
+
+  #radar .radar-main { max-width: 720px; }
+}
+
 @media (max-width: 899px) {
   .radar-grid { grid-template-columns: 1fr; gap: 18px; margin-top: 16px; }
 
@@ -1243,7 +1266,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   color: var(--dispatch-ink);
 }
 
-.board-lead__summary { font-size: 15.5px; line-height: 1.6; color: var(--dispatch-dim); text-wrap: pretty; }
+.board-lead__summary { max-width: 70ch; font-size: 15.5px; line-height: 1.6; color: var(--dispatch-dim); text-wrap: pretty; }
 
 .board-secondary__title {
   font-family: var(--font-display);
@@ -1320,6 +1343,12 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   letter-spacing: 0.08em;
   color: var(--dispatch-quiet);
   text-transform: uppercase;
+}
+
+#claims .verdict-clock {
+  letter-spacing: 0.02em;
+  color: var(--dispatch-muted);
+  text-transform: none;
 }
 
 /* ---------- From the Wire ---------- */
@@ -1839,6 +1868,42 @@ a.wire-item__title:hover { color: var(--dispatch-ink); }
 .steam-pulse-chart__delta--positive { color: var(--green); }
 .steam-pulse-chart__delta--negative { color: var(--crimson); }
 .steam-pulse-chart__delta--flat { color: var(--dispatch-ink); }
+
+/* The Brief places these facts on the raised context surface. Its compact
+   labels use the stronger ink ramp so they stay readable at intermediate
+   desktop zoom levels without changing the Observatory's denser layout. */
+.context-pulse__grid--brief .mono-label,
+.context-pulse__grid--brief .context-card__heading > span,
+.context-pulse__grid--brief .context-card__stats span,
+.context-pulse__grid--brief .context-card__facts dt,
+.context-pulse__grid--brief .context-card__history-heading,
+.context-pulse__grid--brief .context-card__history-heading b,
+.context-pulse__grid--brief .pulse-history-row__label,
+.context-pulse__grid--brief .pulse-history-row__label em,
+.context-pulse__grid--brief .pulse-history-row__key,
+.context-pulse__grid--brief .pulse-bar-axis,
+.context-pulse__grid--brief .context-card__collecting span,
+.context-pulse__grid--brief .context-card__history-window,
+.context-pulse__grid--brief .context-card__note {
+  color: var(--dispatch-muted);
+}
+
+.context-pulse__grid--brief .context-card__heading > span { font-size: 10.5px; }
+.context-pulse__grid--brief .context-card__stats span { font-size: 12px; }
+.context-pulse__grid--brief .context-card__facts dt { font-size: 11px; }
+.context-pulse__grid--brief .context-card__history-heading { font-size: 10.5px; }
+.context-pulse__grid--brief .pulse-history-row__label { font-size: 10.5px; }
+.context-pulse__grid--brief .pulse-history-row__key { font-size: 10px; }
+.context-pulse__grid--brief .pulse-bar-axis { font-size: 9.5px; }
+.context-pulse__grid--brief .context-card__collecting span { font-size: 12px; }
+.context-pulse__grid--brief .context-card__history-window {
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+.context-pulse__grid--brief .context-card__note { font-size: 13px; }
+
+#radar .radar-health { text-transform: none; }
 
 .obs-health {
   display: grid;

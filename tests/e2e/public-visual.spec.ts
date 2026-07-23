@@ -125,6 +125,9 @@ const DASHBOARD_CONTRAST_TARGETS: ContrastTarget[] = [
   { selector: ".dispatch-kicker", label: "section kickers" },
   { selector: ".brief-lead__meta", label: "lead meta line", optional: true },
   { selector: ".pulse-stat__caption", label: "pulse stat captions" },
+  { selector: "#context .mono-label", label: "Platform Pulse provider labels", optional: true },
+  { selector: "#context .context-card__stats span", label: "Platform Pulse stat labels", optional: true },
+  { selector: "#context .context-card__facts dt", label: "Platform Pulse fact labels", optional: true },
   { selector: ".record-block__toc-row", label: "edition toc rows", optional: true },
   { selector: ".dispatch-footer__note", label: "footer note" },
 ];
@@ -480,6 +483,70 @@ test.describe("public surface visual regression", () => {
     const dashboardScreenshot = await page.screenshot({ fullPage: true });
     await page.screenshot({ path: "test-results/dashboard-buffer-debug.png", fullPage: true });
     expect(dashboardScreenshot).toMatchSnapshot("dashboard.png", { maxDiffPixelRatio: 0.02 });
+  });
+
+  test("dashboard reflows through intermediate desktop widths", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "Intermediate desktop composition");
+    const problems = collectConsoleProblems(page);
+
+    await page.setViewportSize({ width: 960, height: 900 });
+    await page.goto("/");
+    const portraitLayout = await page.evaluate(() => {
+      const grid = document.querySelector("#radar .radar-grid--screen")?.getBoundingClientRect();
+      const screen = document.querySelector("#radar .radar-screen-wrap")?.getBoundingClientRect();
+      const main = document.querySelector("#radar .radar-main")?.getBoundingClientRect();
+      if (!grid || !screen || !main) return null;
+      return {
+        gridCenter: grid.left + grid.width / 2,
+        mainTop: main.top,
+        mainWidth: main.width,
+        screenBottom: screen.bottom,
+        screenCenter: screen.left + screen.width / 2,
+      };
+    });
+    expect(portraitLayout).not.toBeNull();
+    expect(Math.abs((portraitLayout?.gridCenter ?? 0) - (portraitLayout?.screenCenter ?? 0))).toBeLessThanOrEqual(1);
+    expect(portraitLayout?.mainTop ?? 0).toBeGreaterThan((portraitLayout?.screenBottom ?? 0) + 20);
+    expect(portraitLayout?.mainWidth ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(721);
+    await expectHealthyPage(page, problems);
+
+    await page.setViewportSize({ width: 1152, height: 960 });
+    await page.goto("/");
+    const desktopLayout = await page.evaluate(() => {
+      const section = document.querySelector("#radar")?.getBoundingClientRect();
+      const screen = document.querySelector("#radar .radar-screen-wrap")?.getBoundingClientRect();
+      const main = document.querySelector("#radar .radar-main")?.getBoundingClientRect();
+      const caption = document.querySelector("#radar .radar-screen-caption");
+      const claimClock = document.querySelector("#claims .verdict-clock");
+      if (!section || !screen || !main || !caption || !claimClock) return null;
+      return {
+        captionFontSize: Number.parseFloat(getComputedStyle(caption).fontSize),
+        captionTransform: getComputedStyle(caption).textTransform,
+        claimClockTransform: getComputedStyle(claimClock).textTransform,
+        mainLeft: main.left,
+        mainTop: main.top,
+        screenRight: screen.right,
+        screenTop: screen.top,
+        sectionHeight: section.height,
+      };
+    });
+    expect(desktopLayout).not.toBeNull();
+    expect(Math.abs((desktopLayout?.screenTop ?? 0) - (desktopLayout?.mainTop ?? 0))).toBeLessThanOrEqual(1);
+    expect(desktopLayout?.mainLeft ?? 0).toBeGreaterThan((desktopLayout?.screenRight ?? 0) + 24);
+    expect(desktopLayout?.sectionHeight ?? Number.POSITIVE_INFINITY).toBeLessThan(1_100);
+    expect(desktopLayout?.captionFontSize ?? 0).toBeGreaterThanOrEqual(11);
+    expect(desktopLayout?.captionTransform).toBe("none");
+    expect(desktopLayout?.claimClockTransform).toBe("none");
+    await expectHealthyPage(page, problems);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.addStyleTag({
+      content: "*,*::before,*::after { animation: none !important; transition: none !important; }",
+    });
+    await expect(page).toHaveScreenshot("dashboard-intermediate.png", {
+      fullPage: true,
+      maxDiffPixelRatio: 0.02,
+    });
   });
 
   test("dashboard stays within mobile viewports with production-length readouts", async ({ page }, testInfo) => {
