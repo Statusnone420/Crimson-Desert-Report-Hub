@@ -131,6 +131,7 @@ let visibilityRefreshFailure: string | null = null;
 let issueClusterInsertRace: { slug: string; row: Row } | null = null;
 let sourceSignalInsertFailure: { title?: string; externalHash?: string; message: string } | null = null;
 let observationEventInsertFailure: string | null = null;
+let honorSourceSignalProjection = false;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -159,6 +160,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   issueClusterInsertRace = null;
   sourceSignalInsertFailure = null;
   observationEventInsertFailure = null;
+  honorSourceSignalProjection = false;
 }
 
 function nextId(table: TableName) {
@@ -411,6 +413,10 @@ class FakeQuery {
       return { data: null, count: null, error: { message: selectFailure.message } };
     }
     let rows = this.filteredRows().map((row) => ({ ...row }));
+    if (this.table === "source_signals" && honorSourceSignalProjection && this.selectedColumns) {
+      const selected = this.selectedColumns.split(",").map((column) => column.trim());
+      rows = rows.map((row) => Object.fromEntries(selected.map((column) => [column, row[column]])));
+    }
     if (this.orderBy) {
       const { column, ascending } = this.orderBy;
       rows = rows.sort((a, b) => {
@@ -2081,6 +2087,90 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("keeps an operator-blocked URL hidden and excludes it from corroboration", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-feedback",
+          slug: "operator-feedback",
+          title: "Operator feedback cluster",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+      scanner_feedback_rules: [
+        {
+          id: "rule-pubg",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare",
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-pubg",
+          cluster_id: "cluster-feedback",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare?utm_source=search",
+          canonical_url: null,
+          source_domain: "reddit.com",
+          title: "Crimson Desert trading wagon request",
+          summary: "A search snippet mentions Crimson Desert, but the source is PUBG.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+        {
+          id: "signal-real",
+          cluster_id: "cluster-feedback",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://community.example.com/crimson-desert-fps",
+          canonical_url: "https://community.example.com/crimson-desert-fps",
+          source_domain: "community.example.com",
+          title: "Crimson Desert 1.13 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+      ],
+    });
+    honorSourceSignalProjection = true;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-feedback", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.source_signals.find((row) => row.id === "signal-pubg")).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "operator_feedback_blocked",
+    });
+    expect(tables.source_signals.find((row) => row.id === "signal-real")).toMatchObject({
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+  });
+
   it("stores rejected candidates through the legacy schema when feedback columns are missing", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -2204,6 +2294,52 @@ describe("runAutomationMonitor", () => {
       }),
     ]);
     expect(tables.automation_runs[0]).toMatchObject({ operator_rules_matched: 1 });
+  });
+
+  it("evaluates feedback-rule expiry against the scan clock instead of the source timestamp", async () => {
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-expired",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://example.com/crimson-desert-map-crash",
+          created_at: "2026-07-01T11:00:00.000Z",
+          expires_at: "2026-07-10T12:00:00.000Z",
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes when opening the map",
+        url: "https://example.com/crimson-desert-map-crash",
+        snippet: "Crimson Desert crashes every time I open the map after patch 1.13.00.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockResolvedValue({
+      issueTitle: "Map crash after patch",
+      category: "crash_startup",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: "Players report a map crash after patch 1.13.00.",
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(0);
+    expect(result.skips).not.toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(1);
   });
 
   it("keeps legacy scanning active when the feedback-rules table is not migrated yet", async () => {

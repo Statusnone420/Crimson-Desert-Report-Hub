@@ -11,6 +11,7 @@ vi.mock("@/app/admin/actions", () => ({
   recordScannerDecision: vi.fn(),
   undoScannerDecision: vi.fn(),
 }));
+vi.mock("@/components/ScanControls", () => ({ ScanControls: () => null }));
 
 type InputProps = {
   children?: ReactNode;
@@ -93,5 +94,53 @@ describe("AdminScannerView", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps every retained lead reachable and gives each one an explicit teaching action", () => {
+    const signals = Array.from({ length: 8 }, (_, index) => ({
+      id: `signal-${index + 1}`,
+      cluster_id: `cluster-${index + 1}`,
+      source: "web_search",
+      source_url: `https://example.com/lead-${index + 1}`,
+      title: `Retained lead ${index + 1}`,
+      summary: `Summary ${index + 1}`,
+      category: "performance",
+      confidence: "medium" as const,
+      observed_at: "2026-07-22T17:00:00.000Z",
+      public_status: "public" as const,
+      source_type: "web_search",
+      source_domain: "example.com",
+      source_published_at: null,
+      first_seen_at: "2026-07-22T17:00:00.000Z",
+      last_seen_at: "2026-07-22T17:00:00.000Z",
+      seen_count: 1,
+    }));
+    const markup = renderToStaticMarkup(createElement(AdminScannerView, {
+      runs: [],
+      signals,
+      rejectedCandidates: [],
+      feedbackRules: [],
+      control: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_v4_flash",
+        updatedAt: null,
+      },
+      activeRun: null,
+      latestRealRun: null,
+      latestFind: null,
+      scoreboard: {} as never,
+      radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
+      integrations: [],
+      nowIso: "2026-07-22T18:00:00.000Z",
+    }));
+
+    expect(markup).toContain("Retained lead 8");
+    expect(markup).toContain("Browse 2 older leads");
+    expect(markup.match(/name="target_kind" value="signal"/g)).toHaveLength(8);
+    expect(markup.match(/Remove bad lead/g)).toHaveLength(8);
   });
 });

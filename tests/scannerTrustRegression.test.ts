@@ -26,6 +26,26 @@ describe("scanner trust regressions", () => {
     }, CURRENT_PATCH)).toEqual({ keep: false, reason: "off_topic" });
   });
 
+  it("rejects an unrelated subreddit even when its search snippet quotes Crimson Desert", () => {
+    expect(preScreenCandidate({
+      title: "guerilla warfare mortars off the roof : r/PUBATTLEGROUNDS",
+      snippet: "[Request] Pearl Abyss, please add one of these bad boys to equip on the trading wagons r/CrimsonDesert.",
+      url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/example/guerilla_warfare_mortars/",
+      sourceDomain: "reddit.com",
+      sourcePublishedAt: "2026-07-21T12:00:00.000Z",
+    }, CURRENT_PATCH)).toEqual({ keep: false, reason: "off_topic" });
+  });
+
+  it("keeps an explicitly named Crimson Desert report posted to a general subreddit", () => {
+    expect(preScreenCandidate({
+      title: "Crimson Desert crashes every time I open the map",
+      snippet: "The game crashes to desktop after the current patch.",
+      url: "https://www.reddit.com/r/pcgaming/comments/example/crimson_desert_map_crash/",
+      sourceDomain: "reddit.com",
+      sourcePublishedAt: "2026-07-21T12:00:00.000Z",
+    }, CURRENT_PATCH)).toEqual({ keep: true });
+  });
+
   it("rejects piracy coverage even when it names Crimson Desert and the current patch", () => {
     expect(preScreenCandidate({
       title: "Crimson Desert 1.14.00 repack",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ConfirmationKind } from "@/lib/confirmations";
 import { PLATFORMS, PLATFORM_LABELS } from "@/lib/constants";
 
@@ -70,6 +70,7 @@ export function ConfirmButtons({
   const [pendingKind, setPendingKind] = useState<ConfirmationKind | null>(null);
   const [message, setMessage] = useState("");
   const kindButtons = useRef<Partial<Record<ConfirmationKind, HTMLButtonElement | null>>>({});
+  const questionId = useId();
 
   useEffect(() => {
     if (phase === "done" && answered) kindButtons.current[answered]?.focus();
@@ -123,8 +124,8 @@ export function ConfirmButtons({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-3.5">
-        <span style={{ fontSize: 13, color: "var(--dispatch-faint)" }}>{question}</span>
+      <div className="confirmation-checkin__row" role="group" aria-labelledby={questionId}>
+        <span id={questionId} className="confirmation-checkin__question">{question}</span>
         {kinds.map((kind) => (
           <button
             key={kind}

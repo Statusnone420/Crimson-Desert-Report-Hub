@@ -3,13 +3,16 @@ import type { NextConfig } from "next";
 // Turnstile needs script + frame access to challenges.cloudflare.com on the
 // report page. 'unsafe-inline' scripts are required by Next.js hydration;
 // 'unsafe-eval' is only needed by the dev overlay/HMR.
+const impeccableLiveDev =
+  process.env.NODE_ENV === "development" ? " http://localhost:8400" : "";
+
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""} https://challenges.cloudflare.com`,
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}${impeccableLiveDev} https://challenges.cloudflare.com`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://challenges.cloudflare.com",
+  `connect-src 'self'${impeccableLiveDev} https://challenges.cloudflare.com`,
   "frame-src https://challenges.cloudflare.com",
   "frame-ancestors 'none'",
   "object-src 'none'",

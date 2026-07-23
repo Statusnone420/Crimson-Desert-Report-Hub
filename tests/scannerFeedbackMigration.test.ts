@@ -22,7 +22,7 @@ describe("scanner feedback migration", () => {
     expect(sql).toMatch(/p_scope_type <> 'exact_url' and not p_confirm_broad/i);
   });
 
-  it("keeps visibility out of the learning contract and supports undo", () => {
+  it("keeps cluster overrides out of the learning contract and supports undo", () => {
     const learningFunction = sql.match(/create or replace function public\.record_scanner_decision[\s\S]*?\n\$\$;/i)?.[0] ?? "";
     expect(learningFunction).not.toMatch(/admin_visibility_override/i);
     expect(sql).toMatch(/create or replace function public\.undo_scanner_decision/i);
@@ -31,6 +31,22 @@ describe("scanner feedback migration", () => {
     expect(undoFunction).toMatch(/update public\.automation_rejected_candidates/i);
     expect(undoFunction).toMatch(/set decision_id = null,\s*feedback_rule_id = null,\s*decided_at = null/i);
     expect(undoFunction).toMatch(/where decision_id = p_decision_id\s*and rescued_at is null/i);
+    expect(undoFunction).toMatch(/returns table \(undone boolean, affected_cluster_id uuid\)/i);
+    expect(undoFunction).toMatch(/return query select true, signal_cluster_id/i);
+  });
+
+  it("quarantines a kept signal while its exact-URL block rule is active", () => {
+    const learningFunction = sql.match(/create or replace function public\.record_scanner_decision[\s\S]*?\n\$\$;/i)?.[0] ?? "";
+    expect(learningFunction).toMatch(/\(p_candidate_id is null\) = \(p_signal_id is null\)/i);
+    expect(learningFunction).toMatch(/p_signal_id is not null and p_scope_type <> 'exact_url'/i);
+    expect(learningFunction).toMatch(/p_signal_id is not null and p_decision = 'relevant'/i);
+    expect(learningFunction).toMatch(/pg_advisory_xact_lock\(20260709, 1\)[\s\S]*scanner-feedback:/i);
+    expect(learningFunction).toMatch(
+      /update public\.source_signals\s+set public_status = 'hidden',[\s\S]*promotion_reason = 'operator_feedback_blocked'/i,
+    );
+    expect(learningFunction).toMatch(/update public\.issue_clusters\s+set visibility_revision = visibility_revision \+ 1/i);
+    expect(learningFunction).toMatch(/returns table \(decision_id uuid, rule_id uuid, affected_cluster_id uuid\)/i);
+    expect(learningFunction).toMatch(/return query select new_decision_id, new_rule_id, signal_cluster_id/i);
   });
 
   it("locks all new records to the server role", () => {

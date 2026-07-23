@@ -1,4 +1,4 @@
-import { setScannerPolicy } from "@/app/admin/actions";
+import { recordScannerDecision, setScannerPolicy } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
 import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
 import { FeedbackRulesPanel, ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
@@ -164,6 +164,40 @@ function signalRow(signal: AdminSignalRow, nowMs: number) {
           </dd>
         </div>
       </dl>
+      <details className="lead-feedback">
+        <summary>Remove bad lead</summary>
+        <form action={recordScannerDecision} className="decision-form dispatch-field lead-feedback__form">
+          <input type="hidden" name="id" value={signal.id} />
+          <input type="hidden" name="target_kind" value="signal" />
+          <input type="hidden" name="scope" value="exact_url" />
+          <label>
+            <span>Why this lead is wrong</span>
+            <select name="decision" defaultValue="off_topic" required>
+              <option value="off_topic">Off topic</option>
+              <option value="wrong_patch">Wrong patch</option>
+              <option value="not_issue_report">Not an issue report</option>
+              <option value="duplicate">Duplicate source</option>
+            </select>
+          </label>
+          <label>
+            <span>Operator reason</span>
+            <textarea
+              name="reason"
+              required
+              minLength={3}
+              maxLength={500}
+              placeholder="What made this source irrelevant?"
+            />
+          </label>
+          <p className="decision-form__scope">
+            Removes only this source URL. The scanner will block the same page in future runs; the issue itself is
+            unchanged.
+          </p>
+          <SubmitButton className="dispatch-btn tap-btn--danger" pendingText="Removing lead…">
+            Remove lead and teach scanner
+          </SubmitButton>
+        </form>
+      </details>
     </article>
   );
 }
@@ -206,6 +240,7 @@ export function AdminScannerView({
     (candidate) => !candidate.rescued_at && !candidate.decision_id && !candidate.feedback_rule_id,
   );
   const recentSignals = signals.slice(0, 6);
+  const olderSignals = signals.slice(6);
   const pausedIntegrations = integrations.filter((integration) => integration.paused);
   const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length;
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
@@ -466,13 +501,21 @@ export function AdminScannerView({
       <section className="operator-records" aria-label="Automatic scanner records">
         <div className="section-heading section-heading--compact">
           <div><p className="dispatch-kicker">Automatic records</p><h2 className="section-heading__title">What the scanner kept</h2></div>
-          <p className="section-heading__note">Read-only provenance. Open a lead to inspect it; decisions belong in the teaching desk above.</p>
+          <p className="section-heading__note">Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.</p>
         </div>
         <div className="lead-record-grid">
           {recentSignals.length > 0
             ? recentSignals.map((signal) => signalRow(signal, nowMs))
             : <p className="decision-empty">No kept source leads yet.</p>}
         </div>
+        {olderSignals.length > 0 ? (
+          <details className="operator-disclosure operator-disclosure--records">
+            <summary>Browse {olderSignals.length} older {olderSignals.length === 1 ? "lead" : "leads"}</summary>
+            <div className="lead-record-grid operator-disclosure__body">
+              {olderSignals.map((signal) => signalRow(signal, nowMs))}
+            </div>
+          </details>
+        ) : null}
       </section>
 
       <section className="feedback-ledger" aria-label="Active scanner feedback rules">

@@ -386,14 +386,18 @@ export default async function DispatchHomePage() {
               <i aria-hidden="true">→</i>
             </Link>
           </div>
-          <p className="brief-lead__meta dispatch-desktop-only">
-            {d.claimedFixes.length} official claims · {boardClusters.length} published issues · {radarData.recurring.trackedLeads} tracked radar leads ·{" "}
-            {radarData.connected && radarData.health.lastScanAt
-              ? `last scan ${relativeTimeShort(radarData.health.lastScanAt)}`
-              : d.latestReportAt
-                ? `updated ${timeAgo(d.latestReportAt)}`
-                : "awaiting first source run"}
-          </p>
+          <ul className="brief-lead__meta dispatch-desktop-only" aria-label="Current evidence counts">
+            <li>{d.claimedFixes.length} official claims</li>
+            <li>{boardClusters.length} published issues</li>
+            <li>{radarData.recurring.trackedLeads} tracked radar leads</li>
+            <li>
+              {radarData.connected && radarData.health.lastScanAt
+                ? `last scan ${relativeTimeShort(radarData.health.lastScanAt)}`
+                : d.latestReportAt
+                  ? `updated ${timeAgo(d.latestReportAt)}`
+                  : "awaiting first source run"}
+            </li>
+          </ul>
           <div className="brief-fact-strip dispatch-mobile-only">
             <span>{d.claimedFixes.length} claims</span>
             <span>{boardClusters.length} issues</span>

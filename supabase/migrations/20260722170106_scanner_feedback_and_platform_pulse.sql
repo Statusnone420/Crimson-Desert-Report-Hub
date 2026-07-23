@@ -84,7 +84,7 @@ create or replace function public.record_scanner_decision(
   p_confirm_broad boolean default false,
   p_expires_at timestamptz default null
 )
-returns table (decision_id uuid, rule_id uuid)
+returns table (decision_id uuid, rule_id uuid, affected_cluster_id uuid)
 language plpgsql
 security invoker
 set search_path = ''
@@ -93,9 +93,10 @@ declare
   new_decision_id uuid := gen_random_uuid();
   new_rule_id uuid := gen_random_uuid();
   rule_action text;
+  signal_cluster_id uuid;
 begin
-  if p_candidate_id is null and p_signal_id is null then
-    raise exception 'a candidate or signal is required' using errcode = '22023';
+  if (p_candidate_id is null) = (p_signal_id is null) then
+    raise exception 'exactly one candidate or signal is required' using errcode = '22023';
   end if;
   if p_target_url is null or pg_catalog.btrim(p_target_url) = '' then
     raise exception 'target URL is required' using errcode = '22023';
@@ -118,6 +119,12 @@ begin
   if p_scope_type <> 'exact_url' and not p_confirm_broad then
     raise exception 'broader feedback rules require explicit confirmation' using errcode = '22023';
   end if;
+  if p_signal_id is not null and p_scope_type <> 'exact_url' then
+    raise exception 'source-signal feedback must target one exact URL' using errcode = '22023';
+  end if;
+  if p_signal_id is not null and p_decision = 'relevant' then
+    raise exception 'a retained source signal is already relevant' using errcode = '22023';
+  end if;
   if p_expires_at is not null and p_expires_at <= pg_catalog.now() then
     raise exception 'rule expiry must be in the future' using errcode = '22023';
   end if;
@@ -135,6 +142,10 @@ begin
 
   rule_action := case when p_decision = 'relevant' then 'allow' else 'block' end;
 
+  -- Signal decisions also quarantine a public row. Join the established global
+  -- visibility lock order before the feedback-scope lock so a concurrent
+  -- visibility refresh cannot overwrite the operator decision.
+  perform pg_catalog.pg_advisory_xact_lock(20260709, 1);
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('scanner-feedback:' || p_scope_type || ':' || p_scope_value, 0)
   );
@@ -197,25 +208,52 @@ begin
     where id = p_candidate_id;
   end if;
 
-  return query select new_decision_id, new_rule_id;
+  if p_signal_id is not null then
+    update public.source_signals
+    set public_status = 'hidden',
+        promoted_at = null,
+        promotion_reason = 'operator_feedback_blocked'
+    where id = p_signal_id
+    returning cluster_id into signal_cluster_id;
+
+    if not found then
+      raise exception 'source signal not found' using errcode = 'P0002';
+    end if;
+
+    if signal_cluster_id is not null then
+      update public.issue_clusters
+      set visibility_revision = visibility_revision + 1
+      where id = signal_cluster_id;
+    end if;
+  end if;
+
+  return query select new_decision_id, new_rule_id, signal_cluster_id;
 end;
 $$;
 
 create or replace function public.undo_scanner_decision(p_decision_id uuid)
-returns boolean
+returns table (undone boolean, affected_cluster_id uuid)
 language plpgsql
 security invoker
 set search_path = ''
 as $$
 declare
   changed integer;
+  undone_signal_id uuid;
+  signal_cluster_id uuid;
 begin
+  perform pg_catalog.pg_advisory_xact_lock(20260709, 1);
+
   update public.scanner_decisions
   set undone_at = pg_catalog.coalesce(undone_at, pg_catalog.now())
   where id = p_decision_id
-    and undone_at is null;
+    and undone_at is null
+  returning signal_id into undone_signal_id;
   get diagnostics changed = row_count;
-  if changed = 0 then return false; end if;
+  if changed = 0 then
+    return query select false, null::uuid;
+    return;
+  end if;
 
   update public.scanner_feedback_rules
   set revoked_at = pg_catalog.coalesce(revoked_at, pg_catalog.now())
@@ -230,7 +268,20 @@ begin
   where decision_id = p_decision_id
     and rescued_at is null;
 
-  return true;
+  if undone_signal_id is not null then
+    select cluster_id
+    into signal_cluster_id
+    from public.source_signals
+    where id = undone_signal_id;
+
+    if signal_cluster_id is not null then
+      update public.issue_clusters
+      set visibility_revision = visibility_revision + 1
+      where id = signal_cluster_id;
+    end if;
+  end if;
+
+  return query select true, signal_cluster_id;
 end;
 $$;
 

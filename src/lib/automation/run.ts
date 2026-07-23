@@ -936,6 +936,7 @@ async function prepareSignals(
   currentPatch: CurrentPatchContext,
   clusterOptions: ClusterOption[],
   feedbackRules: ScannerFeedbackRule[],
+  now: Date,
   report?: () => Promise<void>,
 ): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[]; observations: ObservationCandidate[] }> {
   const prepared: PreparedSignal[] = [];
@@ -1005,7 +1006,7 @@ async function prepareSignals(
     const operatorRule = matchScannerFeedbackRule(
       { url: canonicalUrl, sourceDomain: signal.sourceDomain },
       feedbackRules,
-      new Date(signal.observedAt),
+      now,
     );
     if (operatorRule?.action === "block") {
       result.operatorRulesMatched += 1;
@@ -1652,7 +1653,7 @@ async function loadClusterSignals(
   const { data, error } = await supabase
     .from("source_signals")
     .select(
-      "id, canonical_url, source, source_type, source_domain, title, summary, category, confidence, observed_at, source_published_at, public_status, extracted_facts",
+      "id, source_url, canonical_url, source, source_type, source_domain, title, summary, category, confidence, observed_at, source_published_at, public_status, extracted_facts",
     )
     .eq("cluster_id", clusterId);
   if (error) throw new Error(`cluster signals read failed: ${error.message}`);
@@ -1675,6 +1676,22 @@ async function refreshClusterStats(
       loadApprovedExcerpts(supabase),
       getCurrentPatchMetadata(supabase),
     ]);
+    const feedbackRules = await loadActiveScannerFeedbackRules(supabase);
+    const signalRuleMatches = new Map(
+      signals.map((signal) => [
+        signal.id,
+        matchScannerFeedbackRule(
+          {
+            url: signal.canonical_url ?? signal.source_url ?? "",
+            sourceDomain: signal.source_domain ?? null,
+          },
+          feedbackRules,
+          now,
+        ),
+      ]),
+    );
+    const isOperatorBlocked = (signal: SourceSignalRow) =>
+      signalRuleMatches.get(signal.id)?.action === "block";
     const clusterReports = activeReports.filter((report) => report.cluster_id === clusterId);
     const reportIds = new Set(clusterReports.map((report) => report.id));
     const verifiedReportCount = new Set(
@@ -1682,6 +1699,7 @@ async function refreshClusterStats(
     ).size;
     const publishableSignals = signals.filter(
       (signal) =>
+        !isOperatorBlocked(signal) &&
         !isContextOnlySignal(signal) &&
         !isUnsupportedStoredSignal(signal) &&
         hasStoredSignalGameContext(signal) &&
@@ -1719,6 +1737,7 @@ async function refreshClusterStats(
       const unsupported = isUnsupportedStoredSignal(signal);
       const offTopic = !hasStoredSignalGameContext(signal);
       const contextOnly = isContextOnlySignal(signal);
+      const operatorBlocked = isOperatorBlocked(signal);
       const eligibility = sourceSignalEligibility(signal, activeCurrentPatch);
       const shouldHideStale =
         unsupported ||
@@ -1727,7 +1746,10 @@ async function refreshClusterStats(
           (signal.public_status === "public" || eligibility.reason === "wrong_patch" || eligibility.reason === "stale_source"));
       let publicStatus: "public" | "private" | "hidden";
       let promotionReason: string;
-      if (!contextOnly && !unsupported && !offTopic && eligibility.canPublish) {
+      if (operatorBlocked) {
+        publicStatus = "hidden";
+        promotionReason = "operator_feedback_blocked";
+      } else if (!contextOnly && !unsupported && !offTopic && eligibility.canPublish) {
         const resolved = resolveSignalPublicStatus({
           decision,
           signalTrusted: domainTier(signalDomain(signal)) === "trusted",
@@ -1763,6 +1785,7 @@ async function refreshClusterStats(
     const hasPublicEvidence = publicSignalCount > 0 || clusterReports.length > 0;
     const hasLiveCandidates = signals.some(
       (signal) =>
+        !isOperatorBlocked(signal) &&
         !isUnsupportedStoredSignal(signal) &&
         hasStoredSignalGameContext(signal) &&
         sourceSignalEligibility(signal, activeCurrentPatch).canStore,
@@ -2331,6 +2354,7 @@ async function executeAutomationRun(
       currentPatch,
       clusterOptions,
       feedbackRules,
+      now,
       () => report("screening"),
     );
     rejected = prepared.rejected;

@@ -471,6 +471,7 @@ export async function recordScannerDecision(formData: FormData): Promise<void> {
   await requireAdmin();
   assertProductionWriteAllowed();
   const id = String(formData.get("id") ?? "").trim();
+  const targetKind = String(formData.get("target_kind") ?? "candidate").trim();
   const decision = String(formData.get("decision") ?? "").trim();
   const reason = String(formData.get("reason") ?? "").trim();
   const scope = String(formData.get("scope") ?? "exact_url").trim();
@@ -481,14 +482,61 @@ export async function recordScannerDecision(formData: FormData): Promise<void> {
     !id ||
     !isScannerDecision(decision) ||
     !isScannerRuleScope(scope) ||
+    !["candidate", "signal"].includes(targetKind) ||
     reason.length < 3 ||
     reason.length > 500 ||
+    (targetKind === "signal" && (decision === "relevant" || scope !== "exact_url" || confirmBroad)) ||
     (scope !== "exact_url" && !confirmBroad) ||
     (expiresAt !== null && (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()))
   ) {
     throw new Error("bad input");
   }
   const supabase = createServiceClient();
+  if (targetKind === "signal") {
+    const { data, error } = await supabase
+      .from("source_signals")
+      .select("id, cluster_id, source_url, canonical_url, source_domain")
+      .eq("id", id)
+      .limit(1);
+    if (error) throw new Error(`source signal read failed: ${error.message}`);
+    const signal = (data ?? [])[0] as {
+      id: string;
+      cluster_id: string | null;
+      source_url: string;
+      canonical_url: string | null;
+      source_domain: string | null;
+    } | undefined;
+    if (!signal) throw new Error("source signal not found");
+    const targetUrl = scannerRuleScopeValue("exact_url", {
+      url: signal.canonical_url ?? signal.source_url,
+      sourceDomain: signal.source_domain,
+    });
+    if (!targetUrl) throw new Error("bad input");
+    const { data: decisionRows, error: decisionError } = await supabase.rpc("record_scanner_decision", {
+      p_candidate_id: null,
+      p_signal_id: signal.id,
+      p_target_url: targetUrl,
+      p_target_url_hash: hashValue(targetUrl),
+      p_source_domain: signal.source_domain,
+      p_decision: decision,
+      p_reason: reason,
+      p_scope_type: "exact_url",
+      p_scope_value: targetUrl,
+      p_confirm_broad: false,
+      p_expires_at: expiresAt?.toISOString() ?? null,
+    });
+    if (decisionError) throw new Error(`scanner decision write failed: ${decisionError.message}`);
+    const affectedClusterId = ((decisionRows ?? [])[0] as {
+      affected_cluster_id?: string | null;
+    } | undefined)?.affected_cluster_id ?? null;
+    if (affectedClusterId) await refreshClusterVisibility(affectedClusterId);
+    revalidatePath("/admin");
+    revalidatePath("/scanner");
+    revalidatePath("/admin/source-monitor");
+    revalidatePublicSurfaces();
+    return;
+  }
+
   const { data, error } = await supabase
     .from("automation_rejected_candidates")
     .select("id, title, url, source_domain, source_published_at, snippet")
@@ -572,11 +620,17 @@ export async function undoScannerDecision(formData: FormData): Promise<void> {
   assertProductionWriteAllowed();
   const decisionId = String(formData.get("decision_id") ?? "").trim();
   if (!decisionId) throw new Error("bad input");
-  const { data, error } = await createServiceClient().rpc("undo_scanner_decision", {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase.rpc("undo_scanner_decision", {
     p_decision_id: decisionId,
   });
   if (error) throw new Error(`scanner decision undo failed: ${error.message}`);
-  if (data !== true) throw new Error("scanner decision was already undone or not found");
+  const outcome = ((data ?? [])[0] as {
+    undone?: boolean;
+    affected_cluster_id?: string | null;
+  } | undefined);
+  if (outcome?.undone !== true) throw new Error("scanner decision was already undone or not found");
+  if (outcome.affected_cluster_id) await refreshClusterVisibility(outcome.affected_cluster_id);
   revalidatePath("/admin");
   revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");

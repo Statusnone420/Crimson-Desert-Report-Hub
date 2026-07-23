@@ -35,7 +35,13 @@ vi.mock("@/lib/reddit.server", () => ({
 }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 
-type TableName = "bug_reports" | "approved_excerpts" | "automation_rejected_candidates" | "issue_clusters";
+type TableName =
+  | "bug_reports"
+  | "approved_excerpts"
+  | "automation_rejected_candidates"
+  | "issue_clusters"
+  | "scanner_decisions"
+  | "source_signals";
 type AdminTableName = TableName | "automation_settings" | "official_patch_notes";
 
 let insertFailure: { table: TableName; message: string } | null = null;
@@ -713,11 +719,68 @@ describe("recordScannerDecision", () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
     expect(mutations).toEqual([]);
   });
+
+  it("removes one kept lead and refreshes only its cluster after recording the exact-URL lesson", async () => {
+    seedRows = {
+      source_signals: [
+        {
+          id: "signal-pubg",
+          cluster_id: "cluster-other",
+          source_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare",
+          canonical_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare",
+          source_domain: "reddit.com",
+        },
+      ],
+    };
+    mocks.rpc.mockResolvedValueOnce({
+      data: [{ decision_id: "decision-signal", rule_id: "rule-signal", affected_cluster_id: "cluster-current" }],
+      error: null,
+    });
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "signal-pubg");
+    formData.set("target_kind", "signal");
+    formData.set("decision", "off_topic");
+    formData.set("reason", "This is a PUBG post with an unrelated search snippet.");
+    formData.set("scope", "exact_url");
+
+    await recordScannerDecision(formData);
+
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_scanner_decision",
+      expect.objectContaining({
+        p_candidate_id: null,
+        p_signal_id: "signal-pubg",
+        p_decision: "off_topic",
+        p_scope_type: "exact_url",
+        p_scope_value: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare",
+      }),
+    );
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-current");
+  });
+
+  it("does not allow a kept signal to create a Relevant or broad rule", async () => {
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    for (const [decision, scope] of [
+      ["relevant", "exact_url"],
+      ["off_topic", "source_domain"],
+    ] as const) {
+      const formData = new FormData();
+      formData.set("id", "signal-pubg");
+      formData.set("target_kind", "signal");
+      formData.set("decision", decision);
+      formData.set("reason", "This kept lead should be removed.");
+      formData.set("scope", scope);
+      formData.set("confirm_broad", "true");
+      await expect(recordScannerDecision(formData)).rejects.toThrow("bad input");
+    }
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
 });
 
 describe("undoScannerDecision", () => {
   it("revokes the learning rule without touching cluster visibility", async () => {
-    mocks.rpc.mockResolvedValueOnce({ data: true, error: null });
+    mocks.rpc.mockResolvedValueOnce({ data: [{ undone: true, affected_cluster_id: null }], error: null });
     const { undoScannerDecision } = await import("@/app/admin/actions");
     const formData = new FormData();
     formData.set("decision_id", "decision-one");
@@ -727,6 +790,22 @@ describe("undoScannerDecision", () => {
     expect(mocks.rpc).toHaveBeenCalledWith("undo_scanner_decision", { p_decision_id: "decision-one" });
     expect(mocks.rpc).not.toHaveBeenCalledWith("set_cluster_visibility_override", expect.anything());
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin");
+  });
+
+  it("recomputes the affected signal cluster after undo", async () => {
+    mocks.rpc.mockResolvedValueOnce({
+      data: [{ undone: true, affected_cluster_id: "cluster-current" }],
+      error: null,
+    });
+    const { undoScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("decision_id", "decision-signal");
+
+    await undoScannerDecision(formData);
+
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-current");
+    expect(mocks.from).not.toHaveBeenCalledWith("scanner_decisions");
+    expect(mocks.from).not.toHaveBeenCalledWith("source_signals");
   });
 });
 

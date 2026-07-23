@@ -500,6 +500,14 @@ describe("filterPublicCurrentPatchSignals", () => {
         },
         {
           ...base,
+          id: "pubg-spliced-snippet",
+          source: "web_search",
+          source_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/example/guerilla_warfare_mortars",
+          title: "guerilla warfare mortars off the roof : r/PUBATTLEGROUNDS",
+          summary: "[Request] Pearl Abyss, please add one of these to r/CrimsonDesert.",
+        },
+        {
+          ...base,
           id: "steam-private-context",
           source: "steam_review",
           source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",

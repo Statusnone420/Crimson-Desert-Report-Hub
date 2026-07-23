@@ -248,13 +248,38 @@ function hasSymptomLanguage(text: string): boolean {
 // entirely different subjects. Source reputation and topic relevance are
 // deliberately separate: a trusted host can still carry an unrelated page.
 const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
+const EXPLICIT_GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|cdguides|红色沙漠|붉은사막/i;
 const KNOWN_GAME_SOURCE_PATTERN = /(?:steamcommunity\.com\/(?:app|games)\/3321460|store\.steampowered\.com\/(?:app|appreviews)\/3321460)(?:[/?#]|$)/i;
+const KNOWN_REDDIT_COMMUNITIES = new Set(["crimsondesert", "crimsondesertlife", "cdguides"]);
+
+function redditCommunity(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (!/(?:^|\.)reddit\.com$/i.test(parsed.hostname)) return null;
+    const match = parsed.pathname.match(/^\/r\/([^/]+)/i);
+    return match?.[1]?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export function hasCrimsonDesertContext(
   input: Pick<CandidatePreScreenInput, "title" | "snippet" | "url" | "sourceDomain">,
 ): boolean {
-  const context = `${input.title} ${input.snippet} ${input.url ?? ""}`;
-  if (GAME_CONTEXT_PATTERN.test(context) || KNOWN_GAME_SOURCE_PATTERN.test(input.url ?? "")) return true;
+  const url = input.url ?? "";
+  if (KNOWN_GAME_SOURCE_PATTERN.test(url)) return true;
+
+  const community = redditCommunity(url);
+  if (community) {
+    // Search snippets can quote or splice text from a different Reddit result.
+    // An unrelated subreddit therefore needs the game in its own title; the
+    // snippet alone cannot turn r/PUBATTLEGROUNDS into Crimson Desert context.
+    return KNOWN_REDDIT_COMMUNITIES.has(community) || EXPLICIT_GAME_CONTEXT_PATTERN.test(input.title);
+  }
+
+  const context = `${input.title} ${input.snippet} ${url}`;
+  if (GAME_CONTEXT_PATTERN.test(context)) return true;
 
   // The scanner and every persisted row carry a URL, so real intake always
   // takes the strict path above. Keep URL-less trusted-provider inputs usable
