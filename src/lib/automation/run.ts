@@ -670,7 +670,7 @@ async function collectSteamReviewInputs(
     while (cursor && pagesFetched < STEAM_REVIEW_MAX_PAGES) {
       if (seenCursors.has(cursor)) throw new Error("Steam reviews pagination cursor repeated");
       seenCursors.add(cursor);
-      const nextBatch = await fetchSteamReviewBatch({ cursor });
+      const nextBatch = await fetchSteamReviewBatch({ cursor, fallbackTotals: firstBatch.totals });
       for (const review of nextBatch.reviews) {
         if (!reviewsByHash.has(review.recommendationHash)) {
           reviewsByHash.set(review.recommendationHash, review);

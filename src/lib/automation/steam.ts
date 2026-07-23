@@ -90,10 +90,12 @@ function parseReview(value: unknown): SteamReviewCandidate | null {
 export async function fetchSteamReviewBatch({
   cursor = "*",
   dayRange = 14,
+  fallbackTotals,
   fetchImpl = fetch,
 }: {
   cursor?: string;
   dayRange?: number;
+  fallbackTotals?: SteamReviewTotals;
   fetchImpl?: FetchLike;
 } = {}): Promise<SteamReviewBatch> {
   const url = new URL(STEAM_REVIEW_API_URL);
@@ -122,6 +124,13 @@ export async function fetchSteamReviewBatch({
     .filter((review): review is SteamReviewCandidate => review !== null);
   const query = payload.query_summary;
   if (!query || typeof query !== "object") {
+    if (cursor !== "*" && fallbackTotals) {
+      return {
+        reviews,
+        totals: fallbackTotals,
+        cursor: typeof payload.cursor === "string" && payload.cursor ? payload.cursor : null,
+      };
+    }
     throw new Error("Steam reviews response was malformed (query_summary)");
   }
   const totalReviews = requiredNonnegativeCount(query.total_reviews, "total_reviews");

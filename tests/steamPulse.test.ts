@@ -58,6 +58,29 @@ describe("Steam review intake", () => {
     expect(JSON.stringify(batch)).not.toContain("123456789");
   });
 
+  it("keeps first-page totals when a cursor page omits query_summary", async () => {
+    const firstPageTotals = { totalReviews: 42, totalPositive: 30, totalNegative: 12 };
+    const batch = await fetchSteamReviewBatch({
+      cursor: "next cursor",
+      fallbackTotals: firstPageTotals,
+      fetchImpl: async () => response({
+        success: 1,
+        cursor: null,
+        reviews: [{
+          recommendationid: "cursor-review",
+          review: "Crashes every time I open the map.",
+          timestamp_created: 1_789_000_000,
+          timestamp_updated: 1_789_000_100,
+          voted_up: false,
+        }],
+      }),
+    });
+
+    expect(batch.totals).toEqual(firstPageTotals);
+    expect(batch.reviews).toHaveLength(1);
+    expect(batch.cursor).toBeNull();
+  });
+
   it("rejects malformed and failed responses", async () => {
     await expect(fetchSteamReviewBatch({ fetchImpl: async () => response({ success: 0 }) })).rejects.toThrow(
       "malformed",

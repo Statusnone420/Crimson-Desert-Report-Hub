@@ -5103,7 +5103,10 @@ describe("Steam Pulse intake", () => {
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(mocks.fetchSteamReviewBatch).toHaveBeenCalledTimes(2);
-    expect(mocks.fetchSteamReviewBatch).toHaveBeenNthCalledWith(2, { cursor: "second-page" });
+    expect(mocks.fetchSteamReviewBatch).toHaveBeenNthCalledWith(2, {
+      cursor: "second-page",
+      fallbackTotals: { totalReviews: 150, totalPositive: 100, totalNegative: 50 },
+    });
     expect(result.signalsInserted).toBe(1);
     expect(sourceSignalRows()).toEqual(
       expect.arrayContaining([expect.objectContaining({ external_id_hash: laterHash, public_status: "private" })]),
