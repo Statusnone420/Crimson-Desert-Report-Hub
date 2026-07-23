@@ -342,6 +342,8 @@ export function filterPublicCurrentPatchSignals<T extends SignalRow>(
 type CandidateSignalRow = {
   id?: string;
   cluster_id: string | null;
+  source: string | null;
+  source_type: string | null;
   title: string | null;
   summary: string;
   source_url: string;
@@ -355,6 +357,7 @@ export function countCurrentPatchCandidateSignalsByCluster(
   return countClusterIds(
     rows.filter((row) => {
       if (!row.cluster_id) return false;
+      if (row.source === "steam_review" || row.source_type === "steam_review") return false;
       if (!hasCrimsonDesertContext({
         title: row.title ?? "",
         snippet: row.summary,
@@ -384,7 +387,7 @@ export async function getCandidateSignalCountsByCluster(
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from("source_signals")
-      .select("id, cluster_id, title, summary, source_url, source_published_at")
+      .select("id, cluster_id, source, source_type, title, summary, source_url, source_published_at")
       .eq("public_status", "private")
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);

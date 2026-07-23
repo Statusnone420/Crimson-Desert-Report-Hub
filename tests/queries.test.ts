@@ -269,6 +269,8 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
       [
         {
           cluster_id: "current",
+          source: "web_search",
+          source_type: "web_search",
           title: "Possible Crimson Desert input issue after 1.13.01",
           summary: "A recent player mention.",
           source_url: "https://forum.example.com/current",
@@ -276,6 +278,8 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
         },
         {
           cluster_id: "old",
+          source: "web_search",
+          source_type: "web_search",
           title: "Input issue in 1.12.00",
           summary: "An older patch mention.",
           source_url: "https://forum.example.com/old",
@@ -283,6 +287,8 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
         },
         {
           cluster_id: "unsupported",
+          source: "web_search",
+          source_type: "web_search",
           title: "Crackwatch repack thread",
           summary: "Pirated files, not a player issue report.",
           source_url: "https://example.com/repack-1-13-01",
@@ -295,10 +301,31 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
     expect(counts).toEqual({ current: 1 });
   });
 
+  it("excludes private Steam review context from radar candidate counts", () => {
+    const counts = countCurrentPatchCandidateSignalsByCluster(
+      [
+        {
+          cluster_id: "steam-context-only",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Crimson Desert stutters after patch 1.13.01.",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          source_published_at: "2026-07-09T00:00:00Z",
+          source: "steam_review",
+          source_type: "steam_review",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(counts).toEqual({});
+  });
+
   it("paginates every private candidate before aggregating counts", async () => {
     const firstPage = Array.from({ length: 1000 }, (_, index) => ({
       id: `candidate-${index}`,
       cluster_id: "cluster-one",
+      source: "web_search",
+      source_type: "web_search",
       title: "Crimson Desert input issue after 1.13.01",
       summary: "A current-patch player issue.",
       source_url: `https://forum.example.com/crimson-desert/${index}`,
@@ -308,6 +335,8 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
       {
         id: "candidate-1000",
         cluster_id: "cluster-two",
+        source: "web_search",
+        source_type: "web_search",
         title: "Crimson Desert crash after 1.13.01",
         summary: "A current-patch player issue.",
         source_url: "https://forum.example.com/crimson-desert/1000",
@@ -320,7 +349,10 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
       from(table: string) {
         expect(table).toBe("source_signals");
         return {
-          select() {
+          select(columns: string) {
+            expect(columns).toBe(
+              "id, cluster_id, source, source_type, title, summary, source_url, source_published_at",
+            );
             return {
               eq(column: string, value: string) {
                 expect([column, value]).toEqual(["public_status", "private"]);
