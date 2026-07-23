@@ -1720,6 +1720,10 @@ async function refreshClusterStats(
       getCurrentPatchMetadata(supabase),
     ]);
     const feedbackRules = await loadActiveScannerFeedbackRules(supabase);
+    // Broad path/domain lessons gate future intake only. Re-evaluating stored
+    // evidence may honor an exact reviewed URL, but must not retroactively
+    // rewrite evidence counts because a later candidate taught a broad rule.
+    const retainedSignalRules = feedbackRules.filter((rule) => rule.scopeType === "exact_url");
     const signalRuleMatches = new Map(
       signals.map((signal) => [
         signal.id,
@@ -1728,7 +1732,7 @@ async function refreshClusterStats(
             url: signal.canonical_url ?? signal.source_url ?? "",
             sourceDomain: signal.source_domain ?? null,
           },
-          feedbackRules,
+          retainedSignalRules,
           now,
         ),
       ]),
