@@ -183,7 +183,16 @@ describe("composePatchRadarData buckets and recurrence", () => {
       signals: [signal({ first_seen_at: "2026-07-16T12:00:00Z", seen_count: 5, public_status: "public" })],
     });
     expect(data.recurrence).toEqual([
-      { daysTracked: 3, daysSinceSeen: 0, seenCount: 5, isPublic: true, category: "performance" },
+      {
+        daysTracked: 3,
+        daysSinceSeen: 0,
+        hoursTracked: 72,
+        hoursSinceSeen: 2,
+        recencyBand: "under_6h",
+        seenCount: 5,
+        isPublic: true,
+        category: "performance",
+      },
     ]);
     expect(data.recurring.recurringLeads).toBe(1);
   });
@@ -201,6 +210,23 @@ describe("composePatchRadarData buckets and recurrence", () => {
         expect.objectContaining({ daysTracked: 1, daysSinceSeen: 1 }),
       ]),
     );
+  });
+
+  it("anchors the latest-scan band to the newest completed real intake", () => {
+    const data = compose({
+      signals: [signal({ last_seen_at: "2026-07-19T10:00:00Z" })],
+      runs: [
+        run({ started_at: "2026-07-19T10:30:00Z", status: "skipped" }),
+        run({ started_at: "2026-07-19T11:00:00Z", mode: "dry_run" }),
+        run({ started_at: "2026-07-19T11:30:00Z", status: "running" }),
+      ],
+      latestTerminalRun: run({
+        started_at: "2026-07-19T10:00:00Z",
+        status: "partial",
+      }),
+    });
+
+    expect(data.recurrence[0]?.recencyBand).toBe("latest_scan");
   });
 
   it("caps recurrence points on the freshest observations deterministically", () => {

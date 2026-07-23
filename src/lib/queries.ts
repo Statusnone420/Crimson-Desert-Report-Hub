@@ -11,7 +11,11 @@ import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
 import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
-import { platformContextIsStale } from "@/lib/platformPulseDisplay";
+import {
+  canonicalIgdbUrl,
+  platformContextIsStale,
+  type TwitchHistoryPoint,
+} from "@/lib/platformPulseDisplay";
 import {
   belongsToPatchFamily,
   isPostCurrentPatchEvidence,
@@ -1068,10 +1072,12 @@ export type PlatformContextSnapshot = {
   igdbStatus: string;
   releaseAt: string | null;
   platforms: string[];
+  igdbUrl: string | null;
   twitchStatus: string;
   liveStreams: number | null;
   liveViewers: number | null;
   twitchComplete: boolean | null;
+  twitchHistory: TwitchHistoryPoint[];
 };
 
 export async function readSteamPulse(
@@ -1111,24 +1117,48 @@ export async function readPlatformContext(
   const { data, error } = await supabase
     .from("platform_context_snapshots")
     .select(
-      "captured_at, igdb_status, igdb_first_release_at, igdb_platforms, twitch_status, twitch_live_streams, twitch_live_viewers, twitch_complete",
+      "captured_at, igdb_status, igdb_slug, igdb_first_release_at, igdb_platforms, twitch_status, twitch_live_streams, twitch_live_viewers, twitch_complete",
     )
     .order("captured_at", { ascending: false })
-    .limit(1);
+    .limit(96);
   if (error) {
     if (isMissingSupabaseRelation(error, "platform_context_snapshots")) return null;
     throw new Error(`Platform context read failed: ${error.message}`);
   }
-  const row = ((data ?? []) as Record<string, unknown>[])[0];
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const row = rows[0];
   if (!row) return null;
   const capturedAt = String(row.captured_at ?? "");
   const storedTwitchStatus = String(row.twitch_status ?? "absent");
   const twitchStale = storedTwitchStatus === "ok" && platformContextIsStale(capturedAt, now);
+  const twitchHistory = rows
+    .filter(
+      (snapshot) =>
+        snapshot.twitch_status === "ok" &&
+        snapshot.twitch_complete === true &&
+        snapshot.twitch_live_streams !== null &&
+        snapshot.twitch_live_streams !== undefined &&
+        snapshot.twitch_live_viewers !== null &&
+        snapshot.twitch_live_viewers !== undefined,
+    )
+    .map((snapshot) => ({
+      capturedAt: String(snapshot.captured_at ?? ""),
+      liveStreams: Number(snapshot.twitch_live_streams),
+      liveViewers: Number(snapshot.twitch_live_viewers),
+    }))
+    .filter(
+      (snapshot) =>
+        Number.isFinite(new Date(snapshot.capturedAt).getTime()) &&
+        Number.isFinite(snapshot.liveStreams) &&
+        Number.isFinite(snapshot.liveViewers),
+    )
+    .reverse();
   return {
     capturedAt,
     igdbStatus: String(row.igdb_status ?? "absent"),
     releaseAt: typeof row.igdb_first_release_at === "string" ? row.igdb_first_release_at : null,
     platforms: Array.isArray(row.igdb_platforms) ? row.igdb_platforms.map(String) : [],
+    igdbUrl: canonicalIgdbUrl(typeof row.igdb_slug === "string" ? row.igdb_slug : null),
     twitchStatus: twitchStale ? "stale" : storedTwitchStatus,
     liveStreams: twitchStale || row.twitch_live_streams === null || row.twitch_live_streams === undefined
       ? null
@@ -1137,6 +1167,7 @@ export async function readPlatformContext(
       ? null
       : Number(row.twitch_live_viewers),
     twitchComplete: !twitchStale && typeof row.twitch_complete === "boolean" ? row.twitch_complete : null,
+    twitchHistory,
   };
 }
 

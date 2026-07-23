@@ -4,6 +4,39 @@ type PlatformContextStatusInput = PlatformContextStatus | string | null | undefi
 
 export type ReviewDeltaTone = "positive" | "negative" | "flat";
 
+export type SteamHistoryPoint = {
+  snapshotDay: string;
+  totalReviews: number;
+  positivePercentage: number;
+  reviewCountDelta?: number | null;
+};
+
+export type TwitchHistoryPoint = {
+  capturedAt: string;
+  liveStreams: number;
+  liveViewers: number;
+};
+
+export type SteamHistorySummary = {
+  status: "collecting" | "ready";
+  windowDays: 7 | 14;
+  snapshotCount: number;
+  points: SteamHistoryPoint[];
+  reviewChange: number | null;
+  positivityChange: number | null;
+};
+
+export type TwitchHistorySummary = {
+  status: "collecting" | "ready";
+  snapshotCount: number;
+  points: TwitchHistoryPoint[];
+  currentStreams: number | null;
+  currentViewers: number | null;
+  peakViewers: number | null;
+  lowViewers: number | null;
+  viewerChange: number | null;
+};
+
 function normalizePlatformContextStatus(status: PlatformContextStatusInput): PlatformContextStatus {
   if (
     status === "ok" ||
@@ -41,6 +74,96 @@ export function twitchCoverageLabel(complete: boolean | null): string {
   if (complete === true) return "Complete point-in-time count";
   if (complete === false) return "Point-in-time partial count";
   return "No Twitch count available";
+}
+
+function finite(value: number): boolean {
+  return Number.isFinite(value);
+}
+
+export function summarizeSteamHistory(points: SteamHistoryPoint[]): SteamHistorySummary {
+  const normalized = points
+    .filter(
+      (point) =>
+        typeof point.snapshotDay === "string" &&
+        point.snapshotDay.length > 0 &&
+        finite(point.totalReviews) &&
+        finite(point.positivePercentage),
+    )
+    .map((point) => ({
+      snapshotDay: point.snapshotDay,
+      totalReviews: point.totalReviews,
+      positivePercentage: Math.min(100, Math.max(0, point.positivePercentage)),
+      reviewCountDelta:
+        typeof point.reviewCountDelta === "number" && finite(point.reviewCountDelta)
+          ? Math.trunc(point.reviewCountDelta)
+          : null,
+    }))
+    .sort((a, b) => a.snapshotDay.localeCompare(b.snapshotDay))
+    .slice(-14);
+  const first = normalized[0] ?? null;
+  const latest = normalized[normalized.length - 1] ?? null;
+  const ready = normalized.length >= 2 && first !== null && latest !== null;
+
+  return {
+    status: ready ? "ready" : "collecting",
+    windowDays: normalized.length > 7 ? 14 : 7,
+    snapshotCount: normalized.length,
+    points: normalized,
+    reviewChange: ready ? latest.totalReviews - first.totalReviews : null,
+    positivityChange: ready ? latest.positivePercentage - first.positivePercentage : null,
+  };
+}
+
+export function summarizeTwitchHistory(
+  points: TwitchHistoryPoint[],
+  now = new Date(),
+): TwitchHistorySummary {
+  const nowMs = now.getTime();
+  const dayAgo = nowMs - 24 * 60 * 60 * 1000;
+  const normalized = points
+    .filter((point) => {
+      const capturedAt = new Date(point.capturedAt).getTime();
+      return (
+        Number.isFinite(capturedAt) &&
+        capturedAt >= dayAgo &&
+        capturedAt <= nowMs &&
+        finite(point.liveStreams) &&
+        finite(point.liveViewers)
+      );
+    })
+    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+  const first = normalized[0] ?? null;
+  const latest = normalized[normalized.length - 1] ?? null;
+  const ready = normalized.length >= 2 && first !== null && latest !== null;
+
+  return {
+    status: ready ? "ready" : "collecting",
+    snapshotCount: normalized.length,
+    points: normalized,
+    currentStreams: latest?.liveStreams ?? null,
+    currentViewers: latest?.liveViewers ?? null,
+    peakViewers: ready ? Math.max(...normalized.map((point) => point.liveViewers)) : null,
+    lowViewers: ready ? Math.min(...normalized.map((point) => point.liveViewers)) : null,
+    viewerChange: ready ? latest.liveViewers - first.liveViewers : null,
+  };
+}
+
+export function formatHistoryChange(
+  value: number | null,
+  unit: "reviews" | "viewers" | "points",
+): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  if (unit === "points") {
+    const rounded = Math.abs(value).toFixed(1);
+    return `${value > 0 ? "+" : value < 0 ? "−" : ""}${rounded} pts`;
+  }
+  const rounded = Math.abs(Math.trunc(value)).toLocaleString("en-US");
+  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${rounded}`;
+}
+
+export function canonicalIgdbUrl(slug: string | null | undefined): string | null {
+  if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return null;
+  return `https://www.igdb.com/games/${slug}`;
 }
 
 export const PLATFORM_CONTEXT_MAX_AGE_MS = 2 * 60 * 60 * 1000;

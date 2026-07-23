@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { LastVisitDeltas } from "@/components/dispatch/LastVisitDeltas";
+import { PlatformPulseCards } from "@/components/dispatch/PlatformPulseCards";
 import {
   ActivityDataTable,
   DivergingActivityChart,
@@ -17,8 +18,8 @@ import { uniqueClaimAttributions } from "@/lib/claims";
 import { composeDispatchBrief, formatWeeklyDelta, weeklyDeltaSentence } from "@/lib/dispatchBrief";
 import { displayDescription, needsFullIssueCard } from "@/lib/evidence";
 import { getTrackedPatchEditionCount } from "@/lib/officialPatch.server";
-import { formatSignedReviewDelta, platformUnavailableMessage, reviewDeltaTone } from "@/lib/platformPulseDisplay";
 import { patchFamilyKey } from "@/lib/patchWatch";
+import { radarRecencyCounts, RADAR_RECENCY_BANDS } from "@/lib/radarDisplay";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getDashboardData, getDailySignalRollup, getPublicScannerData } from "@/lib/queries";
 
@@ -46,10 +47,6 @@ function mediumDate(iso: string | null): string | null {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return null;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-}
-
-function compactNumber(value: number): string {
-  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
 function officialHost(url: string): string {
@@ -167,20 +164,9 @@ export default async function DispatchHomePage() {
   const heroDek = topWatch
     ? `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
     : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
-  const latestSteamPulse = radar.steamPulse[radar.steamPulse.length - 1] ?? null;
-  const platformPulse = radar.platformContext;
-  const platformPulseUnavailableMessages = platformPulse
-    ? [
-        platformUnavailableMessage("IGDB", platformPulse.igdbStatus),
-        platformUnavailableMessage("Twitch", platformPulse.twitchStatus),
-      ].filter(Boolean)
-    : [];
-  const pulseReadFailureMessages = radar.pulseReadFailures.map((lane) =>
-    lane === "steam"
-      ? "Steam Pulse is temporarily unavailable."
-      : "IGDB and Twitch context is temporarily unavailable.",
+  const showContextBand = Boolean(
+    radar.steamPulse.length > 0 || radar.platformContext || radar.pulseReadFailures.length > 0,
   );
-  const showContextBand = Boolean(latestSteamPulse || platformPulse || pulseReadFailureMessages.length > 0);
 
   const verdictsElsewhere = verifying.length > 0 && claimRows.every((row) => row.attributed === null);
   const mobileClaimRow =
@@ -196,6 +182,7 @@ export default async function DispatchHomePage() {
     ...radarData.categories.map((bucket) => bucket.category),
     ...radarData.weekly.flatMap((week) => Object.keys(week.counts)),
   ]);
+  const radarRecency = radarRecencyCounts(radarData.recurrence);
 
   // Section numbering is computed from what actually renders, so empty
   // modules close ranks without leaving gaps in the numbering.
@@ -606,16 +593,29 @@ export default async function DispatchHomePage() {
                 <div className="radar-screen-wrap">
                   <RadarScreen points={radarData.recurrence} sectors={radarSectors} size={430} />
                   <p className="radar-screen-caption">
-                    center = seen today · rim = quiet longest · solid = published · hollow = private
+                    Recency from center: latest scan → under 6 hours → 6–24 hours → 1–3 days → 4–7 days → 8+
+                    days at the rim.
                   </p>
+                  <ul className="radar-recency-legend" aria-label="Tracked leads by recency band">
+                    {RADAR_RECENCY_BANDS.map((band) => (
+                      <li key={band.id}>
+                        <span>{band.label}</span>
+                        <b>{radarRecency[band.id]}</b>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
                 <div className="radar-main">
+                  <div className="radar-working-set">
+                    <b>{radarData.recurring.trackedLeads}</b>
+                    <span>tracked leads · ranked by problem area below</span>
+                  </div>
                   {radarData.categories.length > 0 ? (
-                    <div className="radar-cats" aria-label="Radar activity by category">
+                    <ol className="radar-cats" aria-label="Tracked radar leads ranked by problem area">
                       {(() => {
                         const max = Math.max(...radarData.categories.map((bucket) => bucket.tracked), 1);
                         return radarData.categories.map((bucket) => (
-                          <div key={bucket.category} className="radar-cat">
+                          <li key={bucket.category} className="radar-cat">
                             <span>
                               {CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category}
                             </span>
@@ -632,10 +632,10 @@ export default async function DispatchHomePage() {
                               {bucket.tracked} lead{bucket.tracked === 1 ? "" : "s"}
                               {bucket.new7d > 0 ? <span className="is-blue"> · {bucket.new7d} new</span> : null}
                             </span>
-                          </div>
+                          </li>
                         ));
                       })()}
-                    </div>
+                    </ol>
                   ) : null}
                   {radarData.weekly.length > 1 ? (
                     <div>
@@ -716,75 +716,15 @@ export default async function DispatchHomePage() {
                 <p className="pulse-headline pulse-headline--compact">Useful context that never becomes evidence.</p>
               </div>
               <span className="brief-band__note dispatch-desktop-only">
-                Steam review movement and point-in-time Twitch interest stay visibly separate from player reports.
+                Steam review and Twitch snapshot movement stay visibly separate from player reports.
               </span>
             </div>
-            <div className="context-pulse__grid context-pulse__grid--brief">
-              {latestSteamPulse ? (
-                <article className="context-card context-card--steam">
-                  <div className="context-card__heading">
-                    <div>
-                      <p className="mono-label">Steam Pulse</p>
-                      <h3>
-                        {latestSteamPulse.reviewCountDelta === null
-                          ? "Review baseline recorded"
-                          : latestSteamPulse.reviewCountDelta > 0
-                            ? "Review count is rising"
-                            : latestSteamPulse.reviewCountDelta < 0
-                              ? "Review count changed"
-                              : "Review count is steady"}
-                      </h3>
-                    </div>
-                    <span>Updated {timeAgo(latestSteamPulse.collectedAt)}</span>
-                  </div>
-                  <div className="context-card__stats">
-                    <div><b>{compactNumber(latestSteamPulse.totalReviews)}</b><span>total reviews</span></div>
-                    <div><b>{latestSteamPulse.positivePercentage.toFixed(0)}%</b><span>positive</span></div>
-                    <div>
-                      <b className={`steam-pulse-chart__delta steam-pulse-chart__delta--${reviewDeltaTone(latestSteamPulse.reviewCountDelta)}`}>
-                        {formatSignedReviewDelta(latestSteamPulse.reviewCountDelta)}
-                      </b>
-                      <span>{latestSteamPulse.reviewCountDelta === null ? "baseline not established" : "since previous recorded day"}</span>
-                    </div>
-                  </div>
-                  <p className="context-card__note">
-                    Latest sample screened {latestSteamPulse.reviewsScanned} changed reviews and retained {latestSteamPulse.leadsRetained} private radar {latestSteamPulse.leadsRetained === 1 ? "lead" : "leads"}. Review text is not counted as a player report.
-                  </p>
-                </article>
-              ) : null}
-              {platformPulse ? (
-                <article className="context-card context-card--platform">
-                  <div className="context-card__heading">
-                    <div><p className="mono-label">IGDB + Twitch</p><h3>Live interest at capture</h3></div>
-                    <span>Captured {timeAgo(platformPulse.capturedAt)}</span>
-                  </div>
-                  <div className="context-card__stats">
-                    <div><b>{platformPulse.liveStreams == null ? "—" : compactNumber(platformPulse.liveStreams)}</b><span>live streams at capture</span></div>
-                    <div><b>{platformPulse.liveViewers == null ? "—" : compactNumber(platformPulse.liveViewers)}</b><span>viewers at capture</span></div>
-                    <div><b>{platformPulse.platforms.length || "—"}</b><span>listed platforms</span></div>
-                  </div>
-                  {platformPulseUnavailableMessages.length > 0 ? (
-                    <div className="context-card__status-list">
-                      {platformPulseUnavailableMessages.map((message) => (
-                        <p key={message} className="context-card__status-item">
-                          {message}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-                  <p className="context-card__note">
-                    This is a point-in-time count, not historical watch time. No channel identities, stream titles, or viewer histories are stored.
-                  </p>
-                </article>
-              ) : null}
-            </div>
-            {pulseReadFailureMessages.length > 0 ? (
-              <div className="context-card__status-list" role="status">
-                {pulseReadFailureMessages.map((message) => (
-                  <p key={message} className="context-card__status-item">{message}</p>
-                ))}
-              </div>
-            ) : null}
+            <PlatformPulseCards
+              steamPulse={radar.steamPulse}
+              platformContext={radar.platformContext}
+              pulseReadFailures={radar.pulseReadFailures}
+              brief
+            />
           </section>
         ) : null}
 

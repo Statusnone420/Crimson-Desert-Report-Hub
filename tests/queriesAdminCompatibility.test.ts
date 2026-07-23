@@ -274,6 +274,50 @@ describe("public platform reader rolling migration compatibility", () => {
     }));
   });
 
+  it("returns actual complete Twitch snapshots in chronological order with a canonical IGDB link", async () => {
+    resolveQuery = (trace) => trace.table === "platform_context_snapshots"
+      ? {
+          data: [
+            {
+              captured_at: "2026-07-23T11:30:00.000Z",
+              igdb_status: "ok",
+              igdb_slug: "crimson-desert",
+              igdb_first_release_at: "2026-07-20T00:00:00.000Z",
+              igdb_platforms: ["PC", "PlayStation 5"],
+              twitch_status: "ok",
+              twitch_live_streams: 53,
+              twitch_live_viewers: 205,
+              twitch_complete: true,
+            },
+            {
+              captured_at: "2026-07-23T08:00:00.000Z",
+              igdb_status: "ok",
+              igdb_slug: "crimson-desert",
+              igdb_first_release_at: "2026-07-20T00:00:00.000Z",
+              igdb_platforms: ["PC", "PlayStation 5"],
+              twitch_status: "ok",
+              twitch_live_streams: 65,
+              twitch_live_viewers: 320,
+              twitch_complete: true,
+            },
+          ],
+          error: null,
+        }
+      : { data: [], error: null };
+    const { readPlatformContext } = await import("@/lib/queries");
+
+    await expect(readPlatformContext(
+      { from: mocks.from } as never,
+      new Date("2026-07-23T12:00:00.000Z"),
+    )).resolves.toEqual(expect.objectContaining({
+      igdbUrl: "https://www.igdb.com/games/crimson-desert",
+      twitchHistory: [
+        { capturedAt: "2026-07-23T08:00:00.000Z", liveStreams: 65, liveViewers: 320 },
+        { capturedAt: "2026-07-23T11:30:00.000Z", liveStreams: 53, liveViewers: 205 },
+      ],
+    }));
+  });
+
   it("isolates an optional Pulse failure without discarding the healthy lane", async () => {
     resolveQuery = (trace) => trace.table === "steam_pulse_snapshots"
       ? { data: null, error: { code: "42501", message: "permission denied" } }
