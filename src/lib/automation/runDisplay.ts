@@ -1,3 +1,5 @@
+import { displayCandidateCount } from "@/lib/observatoryMetrics";
+
 export type RunMessageGroup = {
   code: string;
   count: number;
@@ -254,6 +256,7 @@ type PlainScanRun = {
   signals_reobserved: number;
   clusters_promoted: number;
   skips: string[];
+  funnel?: Record<string, number> | null;
 };
 
 export type PlainScan = {
@@ -270,8 +273,9 @@ const DROP_CODES = ["wrong_patch", "source_not_issue_report", "category_other", 
 
 /** Turn a run row into plain-language counts for the "last scan, in plain English" panel. */
 export function describeScanPlain(run: PlainScanRun): PlainScan {
-  // Reviewed = web results + Reddit posts, so a Reddit-only scan isn't counted as 0.
-  const found = (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0);
+  // New funnels include all screened lanes (including Steam); historical runs
+  // fall back to web results + Reddit posts.
+  const found = displayCandidateCount(run);
   const kept = run.signals_inserted ?? 0;
   // Dropped = everything reviewed that wasn't kept (dedup + prefilter + LLM reject),
   // so it matches the kept/dropped bar. The prefilter reasons are only the breakdown.

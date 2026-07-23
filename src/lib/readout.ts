@@ -58,11 +58,11 @@ function hasClaimContext(input: IssueReadoutInput): boolean {
 }
 
 function pollAsk(patchVersion: string): IssueReadoutAsk {
-  return { question: `Played since ${patchVersion} — fixed for you?`, kinds: ["fixed_for_me", "still_happening"] };
+  return { question: `Claimed fixed in ${patchVersion} · Your result?`, kinds: ["fixed_for_me", "still_happening"] };
 }
 
 function haveItAsk(): IssueReadoutAsk {
-  return { question: "Do you have this?", kinds: ["have_it"] };
+  return { question: "Player check-in · Affecting you?", kinds: ["have_it"] };
 }
 
 function pollSummary(input: IssueReadoutInput): { fixedCount: number; stillCount: number; escalated: boolean } {

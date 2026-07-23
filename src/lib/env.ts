@@ -40,7 +40,7 @@ export function computeFeatures(env: EnvLike): Features {
 }
 
 export type IntegrationStatus = {
-  key: "reddit" | "web_search" | "ai_extraction";
+  key: "web_search" | "ai_extraction";
   label: string;
   connected: boolean;
   missingEnv: string[];
@@ -81,13 +81,6 @@ export function integrationStatuses(env: EnvLike = process.env): IntegrationStat
 
   return [
     {
-      key: "reddit",
-      label: "Reddit API",
-      connected: false,
-      missingEnv: [],
-      detail: "Permanently off — Reddit pages are discovered through web search only.",
-    },
-    {
       key: "web_search",
       label: "Web search (Tavily)",
       connected: webSearchConnected,
@@ -124,6 +117,16 @@ export function automationSubreddits(env: EnvLike = process.env): string[] {
     .map((subreddit) => subreddit.trim().replace(/^r\//i, ""))
     .filter(Boolean)
     .slice(0, 5);
+}
+
+/** Explicit rollout switch for the keyless Steam review/pulse lane. */
+export function steamPulseEnabled(env: EnvLike = process.env): boolean {
+  return env.STEAM_PULSE_ENABLED?.trim().toLowerCase() === "true";
+}
+
+/** Server-only Twitch application credentials power both IGDB and live context. */
+export function platformContextConfigured(env: EnvLike = process.env): boolean {
+  return hasEnvValue(env.TWITCH_CLIENT_ID) && hasEnvValue(env.TWITCH_CLIENT_SECRET);
 }
 
 export function features(): Features {

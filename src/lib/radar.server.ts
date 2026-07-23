@@ -7,10 +7,11 @@ import {
   evaluateCurrentPatchEligibility,
   type CurrentPatchEligibilityReason,
 } from "@/lib/automation/eligibility";
-import { hasUnsupportedSourceContext } from "@/lib/automation/relevance";
+import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { displayCandidateCount } from "@/lib/observatoryMetrics";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 /**
@@ -27,6 +28,8 @@ import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 export type RadarSignalRow = {
   cluster_id: string | null;
+  source: string;
+  source_type: string | null;
   category: string;
   confidence: "low" | "medium" | "high";
   public_status: "private" | "public" | "hidden";
@@ -52,6 +55,7 @@ export type RadarRunRow = {
   reddit_posts_seen: number | null;
   signals_inserted: number | null;
   signals_reobserved: number | null;
+  funnel?: Record<string, number> | null;
 };
 
 export type RadarDailyPoint = { day: string; newLeads: number; reobservations: number };
@@ -204,9 +208,9 @@ function weekStartKey(ms: number): string {
 const PLATFORM_SET = new Set<string>(PLATFORMS);
 const CATEGORY_SET = new Set<string>(CATEGORIES);
 
-/** A tracked lead is a retained, non-hidden signal — the radar's working set. */
+/** A tracked lead is retained, non-hidden web evidence — provider context stays in its aggregate lane. */
 function isTrackedLead(row: RadarSignalRow): boolean {
-  return row.public_status !== "hidden";
+  return row.public_status !== "hidden" && row.source !== "steam_review" && row.source_type !== "steam_review";
 }
 
 /**
@@ -221,6 +225,14 @@ function isCurrentPatchRadarLead(
   currentPatch: { version: string; publishedAt: string | null },
 ): boolean {
   if (!isTrackedLead(row)) return false;
+  if (!hasCrimsonDesertContext({
+    title: row.title ?? "",
+    snippet: row.summary,
+    url: row.source_url,
+    sourceDomain: null,
+  })) {
+    return false;
+  }
   if (hasUnsupportedSourceContext({ title: row.title ?? "", snippet: row.summary, url: row.source_url })) {
     return false;
   }
@@ -317,7 +329,7 @@ export function composePatchRadarData(input: {
   // --- Funnel (7d) ---
   const weekRuns = intakeRuns.filter((run) => (parseTime(run.started_at) ?? 0) >= weekAgo);
   const reviewed = weekRuns.reduce(
-    (sum, run) => sum + (run.search_results_seen ?? 0) + (run.reddit_posts_seen ?? 0),
+    (sum, run) => sum + displayCandidateCount(run),
     0,
   );
   const kept = weekRuns.reduce(
@@ -460,9 +472,9 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
     const supabase = createServiceClient();
     const currentPatch = await radarPatchContext(supabase);
     const signalSelect =
-      "cluster_id, category, confidence, public_status, first_seen_at, last_seen_at, observed_at, seen_count, source_published_at, title, summary, source_url, extracted_facts";
+      "cluster_id, source, source_type, category, confidence, public_status, first_seen_at, last_seen_at, observed_at, seen_count, source_published_at, title, summary, source_url, extracted_facts";
     const runSelect =
-      "started_at, status, mode, intent, search_queries_used, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved";
+      "started_at, status, mode, intent, search_queries_used, search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, funnel";
 
     const [signals, runsRes, latestTerminalRunRes, control, reportsRes, tapsRes] = await Promise.all([
       fetchAllRadarRows<RadarSignalRow>("radar source signals", (from, to) =>

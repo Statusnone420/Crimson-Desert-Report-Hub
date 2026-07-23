@@ -1,16 +1,22 @@
-import { setScannerPolicy } from "@/app/admin/actions";
+import { recordScannerDecision, setScannerPolicy } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
 import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
-import { RejectedArchive } from "@/components/scanner/RejectedArchive";
+import { FeedbackRulesPanel, ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { SubmitButton } from "@/components/SubmitButton";
 import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS } from "@/lib/constants";
-import type { Features, IntegrationStatus } from "@/lib/env";
+import type { IntegrationStatus } from "@/lib/env";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
-import { radarYieldPct } from "@/lib/observatoryMetrics";
-import type { AdminSignalRow, AutomationRunRow, PublicScannerData, RejectedCandidateRow } from "@/lib/queries";
+import { displayCandidateCount, radarYieldPct } from "@/lib/observatoryMetrics";
+import type {
+  AdminSignalRow,
+  AutomationRunRow,
+  PublicScannerData,
+  RejectedCandidateRow,
+  ScannerFeedbackRuleRow,
+} from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
 
 function cadenceLabel(minutes: number): string {
@@ -47,9 +53,9 @@ function formatUsd(value: number): string {
   return `$${Number(value).toFixed(2)}`;
 }
 
-function relativeTime(iso: string | null): string {
+function relativeTime(iso: string | null, nowMs: number): string {
   if (!iso) return "not scheduled";
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  const mins = Math.floor((nowMs - new Date(iso).getTime()) / 60000);
   const abs = Math.abs(mins);
   const prefix = mins < 0 ? "in " : "";
   const suffix = mins < 0 ? "" : " ago";
@@ -77,12 +83,12 @@ function plainRunLine(run: AutomationRunRow): string {
   if (run.status === "failed") {
     return `Scan failed - ${summarizeRunMessages(run.skips, run.errors).errorSummary}`;
   }
-  if (run.search_results_seen + run.reddit_posts_seen === 0) {
+  const found = displayCandidateCount(run);
+  if (found === 0) {
     return run.errors.length > 0
       ? `No sources reviewed - ${summarizeRunMessages(run.skips, run.errors).errorSummary}`
       : "Ran, nothing new";
   }
-  const found = run.search_results_seen + run.reddit_posts_seen;
   const kept = run.signals_inserted;
   const parts = [`Found ${found}, kept ${kept}`];
   if (run.signals_reobserved > 0) parts.push(`re-observed ${run.signals_reobserved}`);
@@ -113,7 +119,8 @@ function confidenceTone(confidence: AdminSignalRow["confidence"]): string {
   return "";
 }
 
-function signalRow(signal: AdminSignalRow) {
+function signalRow(signal: AdminSignalRow, nowMs: number, feedbackLearningAvailable: boolean) {
+  const isSteamReview = signal.source === "steam_review" || signal.source_type === "steam_review";
   return (
     <article key={signal.id} className="lead-item">
       <div className="lead-item__status">
@@ -133,12 +140,74 @@ function signalRow(signal: AdminSignalRow) {
       </div>
       <h3 className="lead-item__title">{signal.title ?? "Untitled source lead"}</h3>
       <p className="lead-item__summary">{signal.summary}</p>
-      <div className="lead-item__meta">
-        {sourceHost(signal)} · LAST SEEN {relativeTime(signal.observed_at)} ·{" "}
-        <a href={signal.source_url} target="_blank" rel="noreferrer noopener" className="dispatch-link">
-          Open source
-        </a>
-      </div>
+      <dl className="provenance provenance--compact" aria-label="Lead provenance">
+        <div className="provenance__row">
+          <dt className="provenance__key">Source</dt>
+          <dd className="provenance__value">
+            {sourceHost(signal)} · {(signal.source_type ?? signal.source).toUpperCase()}
+          </dd>
+        </div>
+        <div className="provenance__row">
+          <dt className="provenance__key">Classification</dt>
+          <dd className="provenance__value">
+            {(CATEGORY_LABELS[signal.category as keyof typeof CATEGORY_LABELS] ?? signal.category)} ·{" "}
+            {signal.confidence} confidence · seen {signal.seen_count ?? 1}×
+          </dd>
+        </div>
+        <div className="provenance__row">
+          <dt className="provenance__key">State</dt>
+          <dd className="provenance__value">
+            {publicStatusLabel(signal.public_status).toLowerCase()} · last seen {relativeTime(signal.observed_at, nowMs)}{" "}
+            ·{" "}
+            <a href={signal.source_url} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+              Open source
+            </a>
+          </dd>
+        </div>
+      </dl>
+      {!feedbackLearningAvailable ? (
+        <p className="decision-form__scope">Scanner learning unlocks after the database schema update.</p>
+      ) : isSteamReview ? (
+        <p className="decision-form__scope">
+          Steam review leads share one provider URL. A review-specific lesson needs its recommendation hash, so this
+          page cannot teach a safe scanner rule.
+        </p>
+      ) : (
+        <details className="lead-feedback">
+          <summary>Remove bad lead</summary>
+          <form action={recordScannerDecision} className="decision-form dispatch-field lead-feedback__form">
+            <input type="hidden" name="id" value={signal.id} />
+            <input type="hidden" name="target_kind" value="signal" />
+            <input type="hidden" name="scope" value="exact_url" />
+            <label>
+              <span>Why this lead is wrong</span>
+              <select name="decision" defaultValue="off_topic" required>
+                <option value="off_topic">Off topic</option>
+                <option value="wrong_patch">Wrong patch</option>
+                <option value="not_issue_report">Not an issue report</option>
+                <option value="duplicate">Duplicate source</option>
+              </select>
+            </label>
+            <label>
+              <span>Operator reason</span>
+              <textarea
+                name="reason"
+                required
+                minLength={3}
+                maxLength={500}
+                placeholder="What made this source irrelevant?"
+              />
+            </label>
+            <p className="decision-form__scope">
+              Removes only this source URL. The scanner will block the same page in future runs; the issue itself is
+              unchanged.
+            </p>
+            <SubmitButton className="dispatch-btn tap-btn--danger" pendingText="Removing lead…">
+              Remove lead and teach scanner
+            </SubmitButton>
+          </form>
+        </details>
+      )}
     </article>
   );
 }
@@ -147,37 +216,45 @@ export function AdminScannerView({
   runs,
   signals,
   rejectedCandidates,
+  feedbackRules,
+  feedbackLearningAvailable,
   control,
   activeRun,
   latestRealRun,
   latestFind,
   scoreboard,
   radar,
-  features,
   integrations,
+  nowIso,
 }: {
   runs: AutomationRunRow[];
   signals: AdminSignalRow[];
   rejectedCandidates: RejectedCandidateRow[];
+  feedbackRules: ScannerFeedbackRuleRow[];
+  feedbackLearningAvailable: boolean;
   control: AutomationControlState;
   activeRun: { id: string } | null;
   latestRealRun: AutomationRunRow | null;
   latestFind: AutomationRunRow | null;
   scoreboard: PublicScannerData;
   radar: PatchRadarData;
-  features: Features;
   integrations: IntegrationStatus[];
+  nowIso: string;
 }) {
-  const now = new Date();
+  const now = new Date(nowIso);
+  const nowMs = now.getTime();
   const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
   const nextEligible = nextEligibleScheduledScanAt(runs, now, control.minIntervalMinutes);
   const status = scannerStatus(control, activeRun, lastScheduled);
   const projectedCredits = projectedMonthlyCredits(control);
   const latestRun = latestRealRun;
-  const redditOff = !features.reddit;
-  const rejectedArchive = rejectedCandidates.filter((candidate) => !candidate.rescued_at);
+  const optionalCandidates = rejectedCandidates.filter(
+    (candidate) => !candidate.rescued_at && !candidate.decision_id && !candidate.feedback_rule_id,
+  );
   const recentSignals = signals.slice(0, 6);
+  const olderSignals = signals.slice(6);
   const pausedIntegrations = integrations.filter((integration) => integration.paused);
+  const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length;
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
 
   return (
@@ -201,16 +278,10 @@ export function AdminScannerView({
       <div className="op-status-line">
         <span className={status.toneClass}>● {status.label}</span>
         {" · "}
-        {latestRun ? `LAST SCAN ${relativeTime(latestRun.started_at)}` : "NO COMPLETED SCAN YET"}
+        {latestRun ? `LAST SCAN ${relativeTime(latestRun.started_at, nowMs)}` : "NO COMPLETED SCAN YET"}
         {" · "}
-        {control.paused ? "NEXT CHECK PAUSED" : `NEXT CHECK ${relativeTime(nextEligible.toISOString())}`}
-        {latestFind ? ` · MOST RECENT KEPT LEAD ${relativeTime(latestFind.started_at)}` : ""}
-        {redditOff ? (
-          <>
-            {" · "}
-            <span className="is-amber">REDDIT API OFF</span>
-          </>
-        ) : null}
+        {control.paused ? "NEXT CHECK PAUSED" : `NEXT CHECK ${relativeTime(nextEligible.toISOString(), nowMs)}`}
+        {latestFind ? ` · MOST RECENT KEPT LEAD ${relativeTime(latestFind.started_at, nowMs)}` : ""}
         {pausedIntegrations.map((integration) => (
           <span key={integration.key}>
             {" · "}
@@ -246,15 +317,17 @@ export function AdminScannerView({
             </div>
           </div>
           <div className="stat-band__cell">
-            <div className="stat-band__label">Needs you</div>
+            <div className="stat-band__label">Needs attention</div>
             <div
               className={
-                rejectedArchive.length > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value stat-band__value--green"
+                attentionCount > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value"
               }
             >
-              {rejectedArchive.length}
+              {attentionCount}
             </div>
-            <div className="stat-band__caption">Rejected candidates expiring — rescue is optional</div>
+            <div className="stat-band__caption">
+              {attentionCount > 0 ? "Run or provider health needs a look" : "No scanner intervention required"}
+            </div>
           </div>
           <div className="stat-band__cell">
             <div className="stat-band__label">Failed runs · 7d</div>
@@ -342,173 +415,139 @@ export function AdminScannerView({
         </div>
       )}
 
-      <div className="monitor-grid">
-        <section className="monitor-col" aria-label="Recent radar leads">
-          <div className="monitor-col__header">
-            <h2 className="mono-label">Recent radar leads</h2>
-            <span className="mono-label">{signals.length} recent</span>
-          </div>
-          {recentSignals.length > 0 ? (
-            recentSignals.map((signal) => signalRow(signal))
-          ) : (
-            <p className="op-note">No kept source leads yet.</p>
-          )}
-        </section>
-
-        <section className="monitor-col" aria-label="Rejected archive">
-          <div className="monitor-col__header">
-            <h2 className="mono-label">Rejected archive</h2>
-            <span className={rejectedArchive.length > 0 ? "mono-label mono-label--amber" : "mono-label"}>
-              {rejectedArchive.length} expiring
-            </span>
-          </div>
-          <p className="op-note" style={{ marginBottom: 14 }}>
-            The 30 most recent auto-rejected candidates, held briefly in case one was real. They expire on their
-            own — rescuing is optional, not homework.
+      <section className="operator-inbox" aria-label="Operator action inbox">
+        <div>
+          <p className="operator-inbox__eyebrow">Action inbox</p>
+          <h2>{attentionCount === 0 ? "Nothing requires intervention." : `${attentionCount} scanner health item${attentionCount === 1 ? "" : "s"} need a look.`}</h2>
+          <p>
+            {feedbackLearningAvailable
+              ? "Auto-rejected pages are not assignments. They stay private, expire automatically, and appear below only so you can teach the scanner when a bad pattern is worth remembering."
+              : "Scanner learning unlocks after the database schema update. You can still inspect candidates and keep a missed relevant lead."}
           </p>
-          {rejectedArchive.length > 0 ? (
-            <RejectedArchive candidates={rejectedArchive} />
-          ) : (
-            <p className="op-note">Nothing rejected recently — the filter had a quiet week.</p>
-          )}
+        </div>
+        <div className="operator-inbox__facts">
+          <span><b>{radar.health.runs7d.failed}</b> failed runs · 7d</span>
+          <span><b>{optionalCandidates.length}</b> optional teaching candidates</span>
+          <span>
+            {feedbackLearningAvailable ? <><b>{feedbackRules.length}</b> active scanner lessons</> : "Learning schema pending"}
+          </span>
+        </div>
+      </section>
+
+      <div className="operator-workbench">
+        <section className="operator-workbench__main" aria-label="Teach the scanner">
+          <div className="section-heading">
+            <div>
+              <p className="dispatch-kicker dispatch-kicker--amber">Teach the scanner · Optional</p>
+              <h2 className="section-heading__title">Review the pattern, not a dropdown farm.</h2>
+            </div>
+            <p className="section-heading__note">
+              Keep a missed lead, or record why a page is wrong. Exact-page rules are safest; broader rules require
+              an explicit confirmation and can always be undone.
+            </p>
+          </div>
+          <ScannerFeedbackDesk
+            candidates={rejectedCandidates}
+            nowIso={nowIso}
+            feedbackLearningAvailable={feedbackLearningAvailable}
+          />
         </section>
 
-        <aside className="monitor-col" aria-label="Latest run">
+        <aside className="operator-workbench__rail" aria-label="Latest run and scanner settings">
           <div className="op-rail-block">
-            <h2 className="mono-label" style={{ display: "block", marginBottom: 14 }}>
-              Latest run
-            </h2>
+            <p className="mono-label">Latest run</p>
             {latestRun ? (
-              <p
-                className="op-rail__sentence"
-                style={latestRun.status === "failed" ? { color: "var(--crimson)" } : undefined}
-              >
-                {plainRunLine(latestRun)}.
-              </p>
-            ) : (
-              <p className="op-rail__sentence">No completed scan yet.</p>
-            )}
+              <>
+                <p className={latestRun.status === "failed" ? "op-rail__sentence is-crimson" : "op-rail__sentence"}>
+                  {plainRunLine(latestRun)}.
+                </p>
+                <p className="op-rail__readout">{summarizeRunMessages(latestRun.skips, latestRun.errors).operatorSummary}</p>
+                <dl className="run-facts">
+                  <div><dt>Search</dt><dd>{latestRun.search_queries_used} credits</dd></div>
+                  <div><dt>Candidates</dt><dd>{displayCandidateCount(latestRun)}</dd></div>
+                  <div><dt>LLM</dt><dd>{latestRun.llm_calls_used} calls</dd></div>
+                  <div><dt>Cost</dt><dd>{formatUsd(latestRun.estimated_cost_usd)}</dd></div>
+                </dl>
+              </>
+            ) : <p className="op-rail__sentence">No completed scan yet.</p>}
           </div>
-          {latestRun ? (
-            <>
-              <div className="op-rail-block">
-                <div className="mono-label" style={{ marginBottom: 6 }}>
-                  Work
+
+          <details className="operator-disclosure">
+            <summary>Scan history and diagnostics</summary>
+            <div className="operator-disclosure__body">
+              {runs.slice(0, 8).map((run) => (
+                <div key={run.id} className="op-history-row">
+                  <span className="num-quiet">{formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}</span>
+                  <span>{plainRunLine(run)}</span>
+                  <span className="num-quiet">{formatUsd(run.estimated_cost_usd)}</span>
                 </div>
-                <p className="op-rail__mono">
-                  {latestRun.search_queries_used} Tavily credits ·{" "}
-                  {latestRun.search_results_seen + latestRun.reddit_posts_seen} candidates · {latestRun.llm_calls_used}{" "}
-                  LLM
-                </p>
-              </div>
-              <div className="op-rail-block">
-                <div className="mono-label" style={{ marginBottom: 6 }}>
-                  Operator readout
-                </div>
-                <p className="op-rail__readout">
-                  {summarizeRunMessages(latestRun.skips, latestRun.errors).operatorSummary}
-                </p>
-              </div>
-            </>
-          ) : null}
-          <div className="op-rail-block op-rail__links">
-            <details>
-              <summary>Scan history →</summary>
-              <div style={{ marginTop: 10 }}>
+              ))}
+              <details className="raw-diagnostics">
+                <summary>Raw funnel, skip, and error codes</summary>
                 {runs.slice(0, 8).map((run) => (
-                  <div key={run.id} className="op-history-row">
-                    <span className="num-quiet">
-                      {formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}
-                    </span>
-                    <span
-                      style={{
-                        color:
-                          run.search_results_seen > 0 && run.status !== "skipped"
-                            ? "var(--dispatch-ink)"
-                            : "var(--dispatch-faint)",
-                      }}
-                    >
-                      {plainRunLine(run)}
-                    </span>
-                    <span className="num-quiet">{formatUsd(run.estimated_cost_usd)}</span>
-                  </div>
+                  <p key={run.id}>
+                    {formatEasternDateTime(run.started_at)}
+                    {funnelSummary(run.funnel) ? ` · ${funnelSummary(run.funnel)}` : ""}
+                    {run.skips.length > 0 ? ` · skips: ${run.skips.join(", ")}` : ""}
+                    {run.errors.length > 0 ? ` · errors: ${run.errors.join(", ")}` : ""}
+                  </p>
                 ))}
-                <details className="mt-2 text-xs" style={{ color: "var(--dispatch-faint)" }}>
-                  <summary className="cursor-pointer">Show raw scanner codes (funnel, skips, errors)</summary>
-                  <div className="mt-2 space-y-2">
-                    {runs.slice(0, 8).map((run) => (
-                      <div key={run.id} className="break-words">
-                        <span style={{ fontFamily: "var(--font-mono)" }}>{formatEasternDateTime(run.started_at)}</span>
-                        {funnelSummary(run.funnel) ? <span> · {funnelSummary(run.funnel)}</span> : null}
-                        {run.skips.length > 0 ? <span> · skips: {run.skips.join(", ")}</span> : null}
-                        {run.errors.length > 0 ? <span> · errors: {run.errors.join(", ")}</span> : null}
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              </div>
-            </details>
-            <details>
-              <summary>Scanner settings &amp; budget →</summary>
-              <form action={setScannerPolicy} className="space-y-3 text-sm" style={{ marginTop: 12 }}>
-                <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
-                <input type="hidden" name="modelPreset" value={control.modelPreset} />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="dispatch-field grid gap-1">
-                    <span className="mono-label">How often</span>
-                    <select name="cadence" defaultValue={control.paused ? "paused" : String(control.minIntervalMinutes)}>
-                      <option value="60">Hourly</option>
-                      <option value="120">Every 2 hours</option>
-                      <option value="360">Every 6 hours</option>
-                      <option value="1440">Daily</option>
-                      <option value="paused">Paused</option>
-                    </select>
-                  </label>
-                  <label className="dispatch-field grid gap-1">
-                    <span className="mono-label">Search depth</span>
-                    <select
-                      name="scheduledSearchCreditsPerRun"
-                      defaultValue={String(control.scheduledSearchCreditsPerRun)}
-                    >
-                      <option value="1">1 search / run</option>
-                      <option value="2">2 searches / run</option>
-                      <option value="3">3 searches / run</option>
-                    </select>
-                  </label>
-                  <label className="dispatch-field grid gap-1">
-                    <span className="mono-label">Monthly search cap</span>
-                    <input
-                      name="monthlyTavilyCreditCap"
-                      type="number"
-                      min="0"
-                      max="1000"
-                      step="1"
-                      defaultValue={control.monthlyTavilyCreditCap}
-                    />
-                  </label>
-                  <label className="dispatch-field grid gap-1">
-                    <span className="mono-label">Monthly LLM cap ($)</span>
-                    <input
-                      name="monthlyLlmUsdCap"
-                      type="number"
-                      min="0"
-                      max="2"
-                      step="0.25"
-                      defaultValue={control.monthlyLlmUsdCap}
-                    />
-                  </label>
-                </div>
-                <p className="op-note">
-                  {`At this setting the base searches use about ${projectedCredits} monthly Tavily credits; bounded old-Reddit context reads can use some of the remaining allowance, and all discovery stops at ${control.monthlyTavilyCreditCap}. DeepSeek V4 Flash stops at $${control.monthlyLlmUsdCap.toFixed(2)} per month. Cadence is ${cadenceLabel(control.minIntervalMinutes)}. Test scans never touch the public site.`}
-                </p>
-                <SubmitButton className="dispatch-btn" pendingText="Saving...">
-                  Save settings
-                </SubmitButton>
-              </form>
-            </details>
-          </div>
+              </details>
+            </div>
+          </details>
+
+          <details className="operator-disclosure">
+            <summary>Scanner cadence and budget</summary>
+            <form action={setScannerPolicy} className="operator-disclosure__body decision-form dispatch-field">
+              <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
+              <input type="hidden" name="modelPreset" value={control.modelPreset} />
+              <label><span>How often</span><select name="cadence" defaultValue={control.paused ? "paused" : String(control.minIntervalMinutes)}>
+                <option value="60">Hourly</option><option value="120">Every 2 hours</option>
+                <option value="360">Every 6 hours</option><option value="1440">Daily</option><option value="paused">Paused</option>
+              </select></label>
+              <label><span>Search depth</span><select name="scheduledSearchCreditsPerRun" defaultValue={String(control.scheduledSearchCreditsPerRun)}>
+                <option value="1">1 search / run</option><option value="2">2 searches / run</option><option value="3">3 searches / run</option>
+              </select></label>
+              <label><span>Monthly search cap</span><input name="monthlyTavilyCreditCap" type="number" min="0" max="1000" step="1" defaultValue={control.monthlyTavilyCreditCap} /></label>
+              <label><span>Monthly LLM cap ($)</span><input name="monthlyLlmUsdCap" type="number" min="0" max="2" step="0.25" defaultValue={control.monthlyLlmUsdCap} /></label>
+              <p className="op-note">About {projectedCredits} scheduled Tavily credits monthly at this setting, capped at {control.monthlyTavilyCreditCap}. LLM spend stops at ${control.monthlyLlmUsdCap.toFixed(2)}. Cadence is {cadenceLabel(control.minIntervalMinutes)}.</p>
+              <SubmitButton className="dispatch-btn" pendingText="Saving...">Save settings</SubmitButton>
+            </form>
+          </details>
         </aside>
       </div>
+
+      <section className="operator-records" aria-label="Automatic scanner records">
+        <div className="section-heading section-heading--compact">
+          <div><p className="dispatch-kicker">Automatic records</p><h2 className="section-heading__title">What the scanner kept</h2></div>
+          <p className="section-heading__note">Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.</p>
+        </div>
+        <div className="lead-record-grid">
+          {recentSignals.length > 0
+            ? recentSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))
+            : <p className="decision-empty">No kept source leads yet.</p>}
+        </div>
+        {olderSignals.length > 0 ? (
+          <details className="operator-disclosure operator-disclosure--records">
+            <summary>Browse {olderSignals.length} older {olderSignals.length === 1 ? "lead" : "leads"}</summary>
+            <div className="lead-record-grid operator-disclosure__body">
+              {olderSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))}
+            </div>
+          </details>
+        ) : null}
+      </section>
+
+      <section className="feedback-ledger" aria-label="Active scanner feedback rules">
+        <div className="section-heading section-heading--compact">
+          <div><p className="dispatch-kicker">Active lessons</p><h2 className="section-heading__title">What the scanner will remember</h2></div>
+          <p className="section-heading__note">Visibility and learning stay separate. Hiding an issue never poisons discovery; only an explicit scanner decision creates a rule.</p>
+        </div>
+        {feedbackLearningAvailable ? (
+          <FeedbackRulesPanel rules={feedbackRules} nowIso={nowIso} />
+        ) : (
+          <p className="decision-empty">Scanner learning unlocks after the database schema update.</p>
+        )}
+      </section>
     </>
   );
 }

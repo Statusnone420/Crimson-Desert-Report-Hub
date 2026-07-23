@@ -6,7 +6,11 @@ import {
   countDistinctVerifiedReportsByCluster,
   excerptsByClusterForCurrentPatch,
   getPublicObservations,
+  getCandidateSignalCountsByCluster,
+  getPublicSignalClusterIdsForCurrentPatch,
+  isPublicObservationEligible,
   filterExactPatchReports,
+  filterPublicCurrentPatchSignals,
   filterPatchFamilyReports,
   groupConfirmationRowsByCluster,
   latestReportAtFromRows,
@@ -68,8 +72,8 @@ describe("getPublicObservations", () => {
         patch_version: "1.13.01",
         kind: "press_reception",
         is_public: true,
-        title: `Coverage ${index}`,
-        url: `https://example.com/coverage-${index}`,
+        title: `Crimson Desert coverage ${index}`,
+        url: `https://example.com/crimson-desert-coverage-${index}`,
         source_domain: "example.com",
         snippet: "Coverage",
         observed_at: `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`,
@@ -80,8 +84,8 @@ describe("getPublicObservations", () => {
         patch_version: "1.13.01",
         kind: "community_ask",
         is_public: true,
-        title: "Current-patch community ask",
-        url: "https://reddit.com/current-ask",
+        title: "Current-patch Crimson Desert community ask",
+        url: "https://reddit.com/r/CrimsonDesert/current-ask",
         source_domain: "reddit.com",
         snippet: "Ask",
         observed_at: "2026-07-16T13:00:00Z",
@@ -92,8 +96,8 @@ describe("getPublicObservations", () => {
         patch_version: "1.13.00",
         kind: "community_ask",
         is_public: true,
-        title: "Old-patch community ask",
-        url: "https://reddit.com/old-ask",
+        title: "Old-patch Crimson Desert community ask",
+        url: "https://reddit.com/r/CrimsonDesert/old-ask",
         source_domain: "reddit.com",
         snippet: "Old ask",
         observed_at: "2026-07-16T14:00:00Z",
@@ -105,9 +109,40 @@ describe("getPublicObservations", () => {
 
     expect(observations.filter((observation) => observation.kind === "press_reception")).toHaveLength(8);
     expect(observations.filter((observation) => observation.kind === "community_ask")).toEqual([
-      expect.objectContaining({ id: "ask-current", title: "Current-patch community ask" }),
+      expect.objectContaining({ id: "ask-current", title: "Current-patch Crimson Desert community ask" }),
     ]);
     expect(observations.map((observation) => observation.id)).not.toContain("ask-old-patch");
+  });
+
+  it("revalidates legacy public rows without deleting production data", () => {
+    const shared = {
+      id: "observation",
+      patch_version: "1.14.00",
+      kind: "patch_release" as const,
+      is_public: true,
+      source_domain: "reddit.com",
+      observed_at: "2026-07-22T12:00:00Z",
+      seen_count: 1,
+    };
+
+    expect(isPublicObservationEligible({
+      ...shared,
+      title: "Any plans for MCP? : r/ProtonMail",
+      url: "https://www.reddit.com/r/ProtonMail/comments/example/mcp/",
+      snippet: "A Proton Lumo feature request.",
+    }, "1.14.00")).toBe(false);
+    expect(isPublicObservationEligible({
+      ...shared,
+      title: "[Updates] Patch Notes Version 1.03.01 (All Platforms Hotfix)",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/example/old_patch/",
+      snippet: "Crimson Desert update notes.",
+    }, "1.14.00")).toBe(false);
+    expect(isPublicObservationEligible({
+      ...shared,
+      title: "Crimson Desert Version 1.14.00 patch notes",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/example/current_patch/",
+      snippet: "Current Crimson Desert update notes.",
+    }, "1.14.00")).toBe(true);
   });
 
   it("degrades a missing observation table to an empty public lane", async () => {
@@ -235,13 +270,17 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
       [
         {
           cluster_id: "current",
-          title: "Possible input issue after 1.13.01",
+          source: "web_search",
+          source_type: "web_search",
+          title: "Possible Crimson Desert input issue after 1.13.01",
           summary: "A recent player mention.",
           source_url: "https://forum.example.com/current",
           source_published_at: "2026-07-09T00:00:00Z",
         },
         {
           cluster_id: "old",
+          source: "web_search",
+          source_type: "web_search",
           title: "Input issue in 1.12.00",
           summary: "An older patch mention.",
           source_url: "https://forum.example.com/old",
@@ -249,6 +288,8 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
         },
         {
           cluster_id: "unsupported",
+          source: "web_search",
+          source_type: "web_search",
           title: "Crackwatch repack thread",
           summary: "Pirated files, not a player issue report.",
           source_url: "https://example.com/repack-1-13-01",
@@ -259,6 +300,91 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
     );
 
     expect(counts).toEqual({ current: 1 });
+  });
+
+  it("excludes private Steam review context from radar candidate counts", () => {
+    const counts = countCurrentPatchCandidateSignalsByCluster(
+      [
+        {
+          cluster_id: "steam-context-only",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Crimson Desert stutters after patch 1.13.01.",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          source_published_at: "2026-07-09T00:00:00Z",
+          source: "steam_review",
+          source_type: "steam_review",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(counts).toEqual({});
+  });
+
+  it("paginates every private candidate before aggregating counts", async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, index) => ({
+      id: `candidate-${index}`,
+      cluster_id: "cluster-one",
+      source: "web_search",
+      source_type: "web_search",
+      title: "Crimson Desert input issue after 1.13.01",
+      summary: "A current-patch player issue.",
+      source_url: `https://forum.example.com/crimson-desert/${index}`,
+      source_published_at: "2026-07-09T00:00:00Z",
+    }));
+    const secondPage = [
+      {
+        id: "candidate-1000",
+        cluster_id: "cluster-two",
+        source: "web_search",
+        source_type: "web_search",
+        title: "Crimson Desert crash after 1.13.01",
+        summary: "A current-patch player issue.",
+        source_url: "https://forum.example.com/crimson-desert/1000",
+        source_published_at: "2026-07-09T00:00:00Z",
+      },
+    ];
+    const pages = [firstPage, secondPage];
+    const rangeCalls: [number, number][] = [];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("source_signals");
+        return {
+          select(columns: string) {
+            expect(columns).toBe(
+              "id, cluster_id, source, source_type, title, summary, source_url, source_published_at",
+            );
+            return {
+              eq(column: string, value: string) {
+                expect([column, value]).toEqual(["public_status", "private"]);
+                return {
+                  order(columnName: string) {
+                    expect(columnName).toBe("id");
+                    return {
+                      async range(from: number, to: number) {
+                        rangeCalls.push([from, to]);
+                        return { data: pages.shift() ?? [], error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const counts = await getCandidateSignalCountsByCluster(
+      supabase as never,
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    expect(counts).toEqual({ "cluster-one": 1000, "cluster-two": 1 });
   });
 });
 
@@ -374,6 +500,110 @@ describe("publicFindingsFromSignals", () => {
     expect(JSON.stringify(findings)).not.toContain("raw_text");
     expect(JSON.stringify(findings)).not.toContain("reject");
     expect(JSON.stringify(findings)).not.toContain("private");
+  });
+});
+
+describe("filterPublicCurrentPatchSignals", () => {
+  it("revalidates stored public rows for game context and the Steam privacy boundary", () => {
+    const base = {
+      cluster_id: "cluster-one",
+      category: "performance",
+      confidence: "medium" as const,
+      observed_at: "2026-07-22T12:00:00.000Z",
+      source_published_at: "2026-07-22T10:00:00.000Z",
+      public_status: "public" as const,
+    };
+    const rows = filterPublicCurrentPatchSignals(
+      [
+        {
+          ...base,
+          id: "valid",
+          source: "web_search",
+          source_url: "https://example.com/crimson-desert-performance",
+          title: "Crimson Desert patch 1.13.01 FPS drops",
+          summary: "Players report stutter after the current patch.",
+        },
+        {
+          ...base,
+          id: "protonmail",
+          source: "web_search",
+          source_url: "https://www.reddit.com/r/ProtonMail/comments/example/mcp",
+          title: "Any plans for MCP?",
+          summary: "A Proton Lumo feature request.",
+        },
+        {
+          ...base,
+          id: "pubg-spliced-snippet",
+          source: "web_search",
+          source_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/example/guerilla_warfare_mortars",
+          title: "guerilla warfare mortars off the roof : r/PUBATTLEGROUNDS",
+          summary: "[Request] Pearl Abyss, please add one of these to r/CrimsonDesert.",
+        },
+        {
+          ...base,
+          id: "steam-private-context",
+          source: "steam_review",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Players report stutter after patch 1.13.01.",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-22T09:00:00.000Z" },
+    );
+
+    expect(rows.map((row) => row.id)).toEqual(["valid"]);
+  });
+});
+
+describe("getPublicSignalClusterIdsForCurrentPatch", () => {
+  it("selects source provenance before excluding Steam review context", async () => {
+    const selectedColumns: string[] = [];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("source_signals");
+        return {
+          select(columns: string) {
+            selectedColumns.push(columns);
+            return {
+              async eq(column: string, value: string) {
+                expect([column, value]).toEqual(["public_status", "public"]);
+                return {
+                  data: [
+                    {
+                      cluster_id: "public-web-lead",
+                      source: "web_search",
+                      source_url: "https://example.com/crimson-desert-fps",
+                      title: "Crimson Desert patch 1.13.01 FPS drops",
+                      summary: "Players report stutter after the current patch.",
+                      source_published_at: "2026-07-22T10:00:00.000Z",
+                    },
+                    {
+                      cluster_id: "private-steam-context",
+                      source: "steam_review",
+                      source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+                      title: "Crimson Desert player issue on Steam",
+                      summary: "Players report stutter after patch 1.13.01.",
+                      source_published_at: "2026-07-22T10:00:00.000Z",
+                    },
+                  ],
+                  error: null,
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const clusterIds = await getPublicSignalClusterIdsForCurrentPatch(
+      supabase as never,
+      { version: "1.13.01", publishedAt: "2026-07-22T09:00:00.000Z" },
+    );
+
+    expect(selectedColumns).toEqual([
+      "cluster_id, source, title, summary, source_url, source_published_at",
+    ]);
+    expect([...clusterIds]).toEqual(["public-web-lead"]);
   });
 });
 

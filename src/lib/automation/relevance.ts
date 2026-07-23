@@ -244,19 +244,48 @@ function hasSymptomLanguage(text: string): boolean {
   return matchesAny(text, SYMPTOM_PATTERNS);
 }
 
-// Broad-query discovery (e.g. "r/CrimsonDesert" matching the R programming
-// language) drags in pages about entirely different subjects. On an UNKNOWN
-// domain, a candidate must mention the game — by name (including common URL
-// separators and the Chinese/Korean store names), community (CDguides), or publisher —
-// somewhere in its title,
-// snippet, or URL to enter the funnel. Trusted community/press domains are
-// exempt: Steam discussion URLs are numeric app paths that cannot carry the
-// name, and every observed contamination case came from an unknown domain.
+// Broad-query discovery (e.g. a generic Reddit result) drags in pages about
+// entirely different subjects. Source reputation and topic relevance are
+// deliberately separate: a trusted host can still carry an unrelated page.
 const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
+const EXPLICIT_GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|cdguides|红色沙漠|붉은사막/i;
+const KNOWN_GAME_SOURCE_PATTERN = /(?:steamcommunity\.com\/(?:app|games)\/3321460|store\.steampowered\.com\/(?:app|appreviews)\/3321460)(?:[/?#]|$)/i;
+const KNOWN_REDDIT_COMMUNITIES = new Set(["crimsondesert", "crimsondesertlife", "cdguides"]);
 
-function isOffTopicForUnknownDomain(input: CandidatePreScreenInput, sourceText: string): boolean {
-  if (domainTier(input.sourceDomain) === "trusted") return false;
-  return !GAME_CONTEXT_PATTERN.test(`${sourceText} ${input.url ?? ""}`);
+function redditCommunity(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (!/(?:^|\.)reddit\.com$/i.test(parsed.hostname)) return null;
+    const match = parsed.pathname.match(/^\/r\/([^/]+)/i);
+    return match?.[1]?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function hasCrimsonDesertContext(
+  input: Pick<CandidatePreScreenInput, "title" | "snippet" | "url" | "sourceDomain">,
+): boolean {
+  const url = input.url ?? "";
+  if (KNOWN_GAME_SOURCE_PATTERN.test(url)) return true;
+
+  const community = redditCommunity(url);
+  if (community) {
+    // Search snippets can quote or splice text from a different Reddit result.
+    // An unrelated subreddit therefore needs the game in its own title; the
+    // snippet alone cannot turn r/PUBATTLEGROUNDS into Crimson Desert context.
+    return KNOWN_REDDIT_COMMUNITIES.has(community) || EXPLICIT_GAME_CONTEXT_PATTERN.test(input.title);
+  }
+
+  const context = `${input.title} ${input.snippet} ${url}`;
+  if (GAME_CONTEXT_PATTERN.test(context)) return true;
+
+  // The scanner and every persisted row carry a URL, so real intake always
+  // takes the strict path above. Keep URL-less trusted-provider inputs usable
+  // for direct classifier calls and historical fixtures that cannot establish
+  // page context on their own.
+  return !input.url && domainTier(input.sourceDomain) === "trusted";
 }
 
 function saysNoIssue(text: string): boolean {
@@ -352,7 +381,7 @@ export function preScreenCandidate(
   options: { currentPatchVersion?: string; currentPatchPublishedAt?: string | null } = {},
 ): SignalRelevanceDecision {
   const sourceText = compact(`${input.title} ${input.snippet}`);
-  if (isOffTopicForUnknownDomain(input, sourceText)) {
+  if (!hasCrimsonDesertContext(input)) {
     return { keep: false, reason: "off_topic" };
   }
   if (hasUnsupportedSourceContext(input)) {

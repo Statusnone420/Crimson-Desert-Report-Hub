@@ -239,6 +239,7 @@ export default async function IssuesPage() {
         {leadEntry ? (
           <article className="issue-entry-row issue-entry-row--lead" aria-label={leadEntry.title}>
             <div className="issue-entry-row__main">
+              <p className="issue-tier-label">The lead issue</p>
               {statusLine({ cluster: leadEntry })}
               <h2 className="issue-title issue-title--lead">{leadEntry.title}</h2>
               <blockquote
@@ -283,7 +284,12 @@ export default async function IssuesPage() {
         ))}
 
         {minorEntries.length > 0 ? (
-          <div className="issue-minors">
+          <>
+            <p className="issue-group-label">
+              Also reported
+              <span className="issue-group-label__note">player evidence · lower volume</span>
+            </p>
+            <div className="issue-minors">
             {minorEntries.map((cluster) => (
               <article key={cluster.id} className="issue-minor" aria-label={cluster.title}>
                 {statusLine({ cluster })}
@@ -295,11 +301,17 @@ export default async function IssuesPage() {
                 {confirmStrip({ cluster })}
               </article>
             ))}
-          </div>
+            </div>
+          </>
         ) : null}
 
         {radarEntries.length > 0 ? (
-          <div className="issue-minors">
+          <>
+            <p className="issue-group-label">
+              Radar leads
+              <span className="issue-group-label__note">source signals · not player evidence</span>
+            </p>
+            <div className="issue-minors">
             {radarEntries.map((cluster) => (
               <article key={cluster.id} className="issue-minor" aria-label={cluster.title}>
                 <div className="status-line status-line--blue">
@@ -322,7 +334,8 @@ export default async function IssuesPage() {
                 {confirmStrip({ cluster })}
               </article>
             ))}
-          </div>
+            </div>
+          </>
         ) : null}
 
         <div className="issue-watch-note">

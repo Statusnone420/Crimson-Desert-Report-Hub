@@ -5,8 +5,10 @@ import {
   setClusterVisibilityOverride,
   setCurrentPatchOverride,
 } from "@/app/admin/actions";
+import { VisibilityOverrideBrowser } from "@/components/admin/VisibilityOverrideBrowser";
 import { OperatorShell } from "@/components/dispatch/Chrome";
 import { SubmitButton } from "@/components/SubmitButton";
+import { readAdminClusters } from "@/lib/adminClusters";
 import { CATEGORY_LABELS, PLATFORM_LABELS, type FixStatus } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
@@ -23,17 +25,14 @@ export default async function AdminPage() {
   await requireAdmin();
   const supabase = createServiceClient();
 
-  const [{ data: flagged }, { data: clusters }, approved, pending, spam, currentPatch] = await Promise.all([
+  const [{ data: flagged }, clusters, approved, pending, spam, currentPatch] = await Promise.all([
     supabase
       .from("bug_reports")
       .select("*")
       .eq("moderation_status", "pending")
       .order("created_at", { ascending: true })
       .limit(50),
-    supabase
-      .from("issue_clusters")
-      .select("id, title, fix_status, admin_override, lifecycle_reason, admin_visibility_override, is_public")
-      .order("title"),
+    readAdminClusters(supabase),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "approved"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
     supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "spam"),
@@ -41,7 +40,11 @@ export default async function AdminPage() {
   ]);
 
   const flaggedReports = flagged ?? [];
-  const clusterRows = clusters ?? [];
+  const clusterRows = clusters;
+  // Break-glass split: forced clusters are exceptions and stay visible; engine-owned
+  // rows collapse behind a disclosure instead of rendering a dropdown farm.
+  const forcedRows = clusterRows.filter((cluster) => cluster.admin_visibility_override);
+  const autoRows = clusterRows.filter((cluster) => !cluster.admin_visibility_override);
   const exceptionRows = clusterRows.filter(
     (cluster) => String(cluster.lifecycle_reason ?? "").startsWith("Needs review:") || cluster.admin_override,
   );
@@ -107,7 +110,7 @@ export default async function AdminPage() {
             </>
           ) : (
             flaggedReports.map((report) => (
-              <article key={report.id} className="review-item">
+              <article key={report.id} className="review-item review-item--raised">
                 <div className="review-item__meta">
                   {PLATFORM_LABELS[report.platform as keyof typeof PLATFORM_LABELS] ?? report.platform} ·{" "}
                   {CATEGORY_LABELS[report.category as keyof typeof CATEGORY_LABELS] ?? report.category} ·{" "}
@@ -174,6 +177,7 @@ export default async function AdminPage() {
               </span>
               <span className={exceptionRows.length > 0 ? "ledger-row__value ledger-row__value--amber" : "ledger-row__value"}>
                 {exceptionRows.length} {exceptionRows.length === 1 ? "item" : "items"}
+                <i className="ledger-row__chevron" aria-hidden="true">›</i>
               </span>
             </summary>
             <div className="ledger-body">
@@ -224,32 +228,48 @@ export default async function AdminPage() {
             <summary className="ledger-row">
               <span className="mono-label">Visibility overrides</span>
               <span className="ledger-row__copy">
-                Force public/hidden takes effect immediately. Auto immediately recomputes engine-owned visibility.
+                Force public/hidden takes effect immediately. Only active break-glass changes appear here, each
+                with its reason and a one-click return to engine control.
               </span>
               <span className={forcedVisibility > 0 ? "ledger-row__value ledger-row__value--amber" : "ledger-row__value"}>
-                {forcedVisibility} forced
+                {forcedVisibility === 0 ? "None active" : `${forcedVisibility} active`}
+                <i className="ledger-row__chevron" aria-hidden="true">›</i>
               </span>
             </summary>
             <div className="ledger-body">
-              {clusterRows.map((cluster) => (
-                <form
-                  key={cluster.id}
-                  action={setClusterVisibilityOverride}
-                  className="ledger-line dispatch-field"
-                >
-                  <input type="hidden" name="cluster_id" value={cluster.id} />
-                  <span>{cluster.title}</span>
-                  <span className="mono-label">{cluster.is_public ? "PUBLIC" : "PRIVATE"}</span>
-                  <select name="visibility" defaultValue={cluster.admin_visibility_override ?? "auto"} style={{ width: 170 }}>
-                    <option value="auto">Auto (engine)</option>
-                    <option value="force_public">Force public</option>
-                    <option value="force_hidden">Force hidden</option>
-                  </select>
-                  <SubmitButton className="tap-btn tap-btn--sm" pendingText="Saving...">
-                    Apply
-                  </SubmitButton>
-                </form>
-              ))}
+              {forcedRows.length === 0 ? (
+                <p className="op-note">
+                  Nothing is forced right now — every issue&apos;s visibility is engine-owned. Force is
+                  break-glass only; the scanner normally gets this right on its own.
+                </p>
+              ) : (
+                forcedRows.map((cluster) => (
+                  <article key={cluster.id} className="override-card">
+                    <div className="override-card__heading">
+                      <div>
+                        <p className="mono-label mono-label--amber">
+                          FORCED {cluster.admin_visibility_override === "force_public" ? "PUBLIC" : "HIDDEN"} · {cluster.is_public ? "LIVE" : "HIDDEN"}
+                        </p>
+                        <h3>{cluster.title}</h3>
+                      </div>
+                      <form action={setClusterVisibilityOverride}>
+                        <input type="hidden" name="cluster_id" value={cluster.id} />
+                        <input type="hidden" name="visibility" value="auto" />
+                        <SubmitButton className="tap-btn tap-btn--sm" pendingText="Resetting...">
+                          Reset to automatic
+                        </SubmitButton>
+                      </form>
+                    </div>
+                    <p>{cluster.admin_visibility_reason ?? "Existing override created before reason tracking."}</p>
+                    <span className="override-card__time">
+                      {cluster.admin_visibility_changed_at
+                        ? `Changed ${new Date(cluster.admin_visibility_changed_at).toLocaleString()}`
+                        : "Change time unavailable"}
+                    </span>
+                  </article>
+                ))
+              )}
+              <VisibilityOverrideBrowser clusters={autoRows} />
             </div>
           </details>
 
@@ -266,6 +286,7 @@ export default async function AdminPage() {
                 }
               >
                 {currentPatch.source === "official" ? `Synced ${currentPatch.version}` : `Fallback ${currentPatch.version}`}
+                <i className="ledger-row__chevron" aria-hidden="true">›</i>
               </span>
             </summary>
             <form

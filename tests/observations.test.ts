@@ -129,25 +129,64 @@ describe("pre-screen observation genres", () => {
 describe("shouldCollectObservation", () => {
   it("collects trusted-domain candidates with a genre", () => {
     expect(
-      shouldCollectObservation({ sourceDomain: "dsogaming.com", observationKind: "press_reception" }, 0),
+      shouldCollectObservation({
+        title: "Crimson Desert benchmark",
+        snippet: "Crimson Desert performance coverage.",
+        url: "https://www.dsogaming.com/articles/crimson-desert-benchmark/",
+        sourceDomain: "dsogaming.com",
+        observationKind: "press_reception",
+      }, 0),
     ).toBe(true);
   });
 
   it("rejects untrusted domains even with a genre", () => {
     expect(
-      shouldCollectObservation({ sourceDomain: "instagram.com", observationKind: "patch_release" }, 0),
+      shouldCollectObservation({
+        title: "Crimson Desert patch released",
+        snippet: "Crimson Desert patch coverage.",
+        url: "https://instagram.com/example",
+        sourceDomain: "instagram.com",
+        observationKind: "patch_release",
+      }, 0),
     ).toBe(false);
-    expect(shouldCollectObservation({ sourceDomain: null, observationKind: "patch_release" }, 0)).toBe(false);
+    expect(shouldCollectObservation({
+      title: "Crimson Desert patch released",
+      snippet: "Crimson Desert patch coverage.",
+      url: "https://example.invalid/patch",
+      sourceDomain: null,
+      observationKind: "patch_release",
+    }, 0)).toBe(false);
   });
 
   it("rejects candidates without a genre", () => {
-    expect(shouldCollectObservation({ sourceDomain: "dsogaming.com" }, 0)).toBe(false);
+    expect(shouldCollectObservation({
+      title: "Crimson Desert benchmark",
+      snippet: "Crimson Desert performance coverage.",
+      url: "https://www.dsogaming.com/articles/crimson-desert-benchmark/",
+      sourceDomain: "dsogaming.com",
+    }, 0)).toBe(false);
+  });
+
+  it("does not turn trusted-host reputation into topic relevance", () => {
+    expect(shouldCollectObservation({
+      title: "Any plans for MCP?",
+      snippet: "A Proton feature request about Lumo.",
+      url: "https://www.reddit.com/r/ProtonMail/comments/example/any_plans_for_mcp/",
+      sourceDomain: "reddit.com",
+      observationKind: "community_ask",
+    }, 0)).toBe(false);
   });
 
   it("enforces the per-run cap", () => {
     expect(
       shouldCollectObservation(
-        { sourceDomain: "dsogaming.com", observationKind: "press_reception" },
+        {
+          title: "Crimson Desert benchmark",
+          snippet: "Crimson Desert performance coverage.",
+          url: "https://www.dsogaming.com/articles/crimson-desert-benchmark/",
+          sourceDomain: "dsogaming.com",
+          observationKind: "press_reception",
+        },
         MAX_OBSERVATIONS_PER_RUN,
       ),
     ).toBe(false);

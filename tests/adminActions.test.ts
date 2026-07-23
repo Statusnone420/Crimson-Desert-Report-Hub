@@ -35,7 +35,13 @@ vi.mock("@/lib/reddit.server", () => ({
 }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 
-type TableName = "bug_reports" | "approved_excerpts" | "automation_rejected_candidates" | "issue_clusters";
+type TableName =
+  | "bug_reports"
+  | "approved_excerpts"
+  | "automation_rejected_candidates"
+  | "issue_clusters"
+  | "scanner_decisions"
+  | "source_signals";
 type AdminTableName = TableName | "automation_settings" | "official_patch_notes";
 
 let insertFailure: { table: TableName; message: string } | null = null;
@@ -310,12 +316,15 @@ describe("setClusterVisibilityOverride", () => {
     const formData = new FormData();
     formData.set("cluster_id", "cluster-one");
     formData.set("visibility", "force_public");
+    formData.set("reason", "Reviewed evidence warrants temporary public visibility.");
+    formData.set("confirm_override", "true");
 
     await setClusterVisibilityOverride(formData);
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
       p_visibility: "force_public",
+      p_reason: "Reviewed evidence warrants temporary public visibility.",
     });
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-one");
   });
@@ -325,12 +334,15 @@ describe("setClusterVisibilityOverride", () => {
     const formData = new FormData();
     formData.set("cluster_id", "cluster-one");
     formData.set("visibility", "force_hidden");
+    formData.set("reason", "Duplicate cluster is confusing the public board.");
+    formData.set("confirm_override", "true");
 
     await setClusterVisibilityOverride(formData);
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
       p_visibility: "force_hidden",
+      p_reason: "Duplicate cluster is confusing the public board.",
     });
     expect(mocks.refreshClusterVisibility).not.toHaveBeenCalled();
   });
@@ -346,8 +358,49 @@ describe("setClusterVisibilityOverride", () => {
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
       p_visibility: "auto",
+      p_reason: null,
     });
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-one");
+  });
+
+  it("retries the legacy visibility RPC only when the new signature is missing", async () => {
+    mocks.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message:
+            "Could not find the function public.set_cluster_visibility_override(p_cluster_id, p_reason, p_visibility) in the schema cache",
+        },
+      })
+      .mockResolvedValueOnce({ data: null, error: null });
+    const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("visibility", "auto");
+
+    await setClusterVisibilityOverride(formData);
+
+    expect(mocks.rpc).toHaveBeenNthCalledWith(1, "set_cluster_visibility_override", {
+      p_cluster_id: "cluster-one",
+      p_visibility: "auto",
+      p_reason: null,
+    });
+    expect(mocks.rpc).toHaveBeenNthCalledWith(2, "set_cluster_visibility_override", {
+      p_cluster_id: "cluster-one",
+      p_visibility: "auto",
+    });
+  });
+
+  it("does not hide a real visibility RPC failure behind the legacy fallback", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { code: "42501", message: "permission denied" } });
+    const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("visibility", "auto");
+
+    await expect(setClusterVisibilityOverride(formData)).rejects.toThrow("permission denied");
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
   });
 
   it("revalidates the applied override when the immediate refresh fails", async () => {
@@ -372,6 +425,16 @@ describe("setClusterVisibilityOverride", () => {
 
     await expect(setClusterVisibilityOverride(formData)).rejects.toThrow("bad input");
     expect(mutations).toEqual([]);
+  });
+
+  it("requires a reason and explicit confirmation before forcing visibility", async () => {
+    const { setClusterVisibilityOverride } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("visibility", "force_public");
+
+    await expect(setClusterVisibilityOverride(formData)).rejects.toThrow("override reason and confirmation required");
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 });
 
@@ -502,6 +565,277 @@ describe("rescueRejectedCandidate", () => {
 
     await expect(rescueRejectedCandidate(formData)).rejects.toThrow("rejected candidate not found");
     expect(mocks.rescueCandidateSignal).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordScannerDecision", () => {
+  beforeEach(() => {
+    seedRows = {
+      automation_rejected_candidates: [
+        {
+          id: "candidate-protonmail",
+          title: "Any plans for MCP?",
+          url: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp?utm_source=search",
+          source_domain: "reddit.com",
+          source_published_at: null,
+          snippet: "A Proton product feature request unrelated to Crimson Desert.",
+        },
+      ],
+    };
+  });
+
+  it("records a durable exact-URL rejection without changing visibility or rescuing the candidate", async () => {
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "candidate-protonmail");
+    formData.set("decision", "off_topic");
+    formData.set("reason", "This is from r/ProtonMail and is unrelated to the game.");
+    formData.set("scope", "exact_url");
+
+    await recordScannerDecision(formData);
+
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_scanner_decision",
+      expect.objectContaining({
+        p_candidate_id: "candidate-protonmail",
+        p_decision: "off_topic",
+        p_scope_type: "exact_url",
+        p_scope_value: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp",
+        p_confirm_broad: false,
+        p_target_url_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    );
+    expect(mocks.rescueCandidateSignal).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith("set_cluster_visibility_override", expect.anything());
+  });
+
+  it("requires explicit confirmation for a subreddit rule", async () => {
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "candidate-protonmail");
+    formData.set("decision", "off_topic");
+    formData.set("reason", "This subreddit is unrelated to Crimson Desert.");
+    formData.set("scope", "source_path");
+
+    await expect(recordScannerDecision(formData)).rejects.toThrow("bad input");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("passes the visible subreddit scope only after broad-rule confirmation", async () => {
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "candidate-protonmail");
+    formData.set("decision", "off_topic");
+    formData.set("reason", "This subreddit is unrelated to Crimson Desert.");
+    formData.set("scope", "source_path");
+    formData.set("confirm_broad", "true");
+
+    await recordScannerDecision(formData);
+
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_scanner_decision",
+      expect.objectContaining({
+        p_scope_type: "source_path",
+        p_scope_value: "reddit.com/r/protonmail",
+        p_confirm_broad: true,
+      }),
+    );
+  });
+
+  it("rescues a Relevant candidate before recording the durable allow rule", async () => {
+    mocks.rescueCandidateSignal.mockResolvedValueOnce(undefined);
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "candidate-protonmail");
+    formData.set("decision", "relevant");
+    formData.set("reason", "Operator verified this is a real Crimson Desert issue.");
+    formData.set("scope", "exact_url");
+
+    await recordScannerDecision(formData);
+
+    expect(mocks.rescueCandidateSignal).toHaveBeenCalledTimes(1);
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_scanner_decision",
+      expect.objectContaining({ p_candidate_id: "candidate-protonmail", p_decision: "relevant" }),
+    );
+    expect(mocks.rescueCandidateSignal.mock.invocationCallOrder[0]).toBeLessThan(mocks.rpc.mock.invocationCallOrder[0]);
+  });
+
+  it("preserves the legacy rescue path before the scanner-decision RPC is deployed", async () => {
+    mocks.rescueCandidateSignal.mockResolvedValueOnce(undefined);
+    mocks.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.record_scanner_decision in the schema cache",
+      },
+    });
+    const { rescueRejectedCandidate } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "candidate-protonmail");
+
+    await rescueRejectedCandidate(formData);
+
+    expect(mocks.rescueCandidateSignal).toHaveBeenCalledTimes(1);
+    expect(mutations).toContainEqual({
+      table: "automation_rejected_candidates",
+      type: "update",
+      row: {
+        patch: expect.objectContaining({ rescued_at: expect.any(String) }),
+        filters: [{ column: "id", value: "candidate-protonmail" }],
+      },
+    });
+  });
+
+  it("does not pretend a rejection was learned when the decision RPC is missing", async () => {
+    mocks.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.record_scanner_decision in the schema cache",
+      },
+    });
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "candidate-protonmail");
+    formData.set("decision", "off_topic");
+    formData.set("reason", "This source is unrelated to Crimson Desert.");
+    formData.set("scope", "exact_url");
+
+    await expect(recordScannerDecision(formData)).rejects.toThrow("scanner decision write failed");
+  });
+
+  it("leaves the candidate and prior rules untouched when a Relevant rescue fails", async () => {
+    mocks.rescueCandidateSignal.mockRejectedValueOnce(new Error("signal write failed"));
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "candidate-protonmail");
+    formData.set("decision", "relevant");
+    formData.set("reason", "Operator verified this is a real Crimson Desert issue.");
+    formData.set("scope", "exact_url");
+
+    await expect(recordScannerDecision(formData)).rejects.toThrow("signal write failed");
+
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mutations).toEqual([]);
+  });
+
+  it("removes one kept lead and refreshes only its cluster after recording the exact-URL lesson", async () => {
+    seedRows = {
+      source_signals: [
+        {
+          id: "signal-pubg",
+          cluster_id: "cluster-other",
+          source_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare",
+          canonical_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare",
+          source_domain: "reddit.com",
+        },
+      ],
+    };
+    mocks.rpc.mockResolvedValueOnce({
+      data: [{ decision_id: "decision-signal", rule_id: "rule-signal", affected_cluster_id: "cluster-current" }],
+      error: null,
+    });
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "signal-pubg");
+    formData.set("target_kind", "signal");
+    formData.set("decision", "off_topic");
+    formData.set("reason", "This is a PUBG post with an unrelated search snippet.");
+    formData.set("scope", "exact_url");
+
+    await recordScannerDecision(formData);
+
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_scanner_decision",
+      expect.objectContaining({
+        p_candidate_id: null,
+        p_signal_id: "signal-pubg",
+        p_decision: "off_topic",
+        p_scope_type: "exact_url",
+        p_scope_value: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare",
+      }),
+    );
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-current");
+  });
+
+  it("refuses a shared-URL feedback lesson for a Steam review signal", async () => {
+    seedRows = {
+      source_signals: [
+        {
+          id: "signal-steam-review",
+          cluster_id: "cluster-performance",
+          source: "steam_review",
+          source_type: "steam_review",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert/#app_reviews_hash",
+          canonical_url: "https://store.steampowered.com/app/3321460/Crimson_Desert/#app_reviews_hash",
+          source_domain: "store.steampowered.com",
+        },
+      ],
+    };
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "signal-steam-review");
+    formData.set("target_kind", "signal");
+    formData.set("decision", "not_issue_report");
+    formData.set("reason", "This Steam review is not an actionable issue report.");
+    formData.set("scope", "exact_url");
+
+    await expect(recordScannerDecision(formData)).rejects.toThrow(
+      "Steam review signals cannot create URL feedback rules",
+    );
+
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.refreshClusterVisibility).not.toHaveBeenCalled();
+  });
+
+  it("does not allow a kept signal to create a Relevant or broad rule", async () => {
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    for (const [decision, scope] of [
+      ["relevant", "exact_url"],
+      ["off_topic", "source_domain"],
+    ] as const) {
+      const formData = new FormData();
+      formData.set("id", "signal-pubg");
+      formData.set("target_kind", "signal");
+      formData.set("decision", decision);
+      formData.set("reason", "This kept lead should be removed.");
+      formData.set("scope", scope);
+      formData.set("confirm_broad", "true");
+      await expect(recordScannerDecision(formData)).rejects.toThrow("bad input");
+    }
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("undoScannerDecision", () => {
+  it("revokes the learning rule without touching cluster visibility", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: [{ undone: true, affected_cluster_id: null }], error: null });
+    const { undoScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("decision_id", "decision-one");
+
+    await undoScannerDecision(formData);
+
+    expect(mocks.rpc).toHaveBeenCalledWith("undo_scanner_decision", { p_decision_id: "decision-one" });
+    expect(mocks.rpc).not.toHaveBeenCalledWith("set_cluster_visibility_override", expect.anything());
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin");
+  });
+
+  it("recomputes the affected signal cluster after undo", async () => {
+    mocks.rpc.mockResolvedValueOnce({
+      data: [{ undone: true, affected_cluster_id: "cluster-current" }],
+      error: null,
+    });
+    const { undoScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("decision_id", "decision-signal");
+
+    await undoScannerDecision(formData);
+
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-current");
+    expect(mocks.from).not.toHaveBeenCalledWith("scanner_decisions");
+    expect(mocks.from).not.toHaveBeenCalledWith("source_signals");
   });
 });
 

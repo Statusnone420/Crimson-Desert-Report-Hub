@@ -5,6 +5,8 @@ import {
   automationSubreddits,
   computeFeatures,
   integrationStatuses,
+  platformContextConfigured,
+  steamPulseEnabled,
   requiredEnv,
 } from "@/lib/env";
 
@@ -79,16 +81,28 @@ describe("computeFeatures", () => {
   });
 });
 
+describe("steamPulseEnabled", () => {
+  it("requires an explicit non-secret rollout switch", () => {
+    expect(steamPulseEnabled({})).toBe(false);
+    expect(steamPulseEnabled({ STEAM_PULSE_ENABLED: "true" })).toBe(true);
+    expect(steamPulseEnabled({ STEAM_PULSE_ENABLED: " TRUE " })).toBe(true);
+    expect(steamPulseEnabled({ STEAM_PULSE_ENABLED: "false" })).toBe(false);
+  });
+});
+
+describe("platformContextConfigured", () => {
+  it("requires both server-only Twitch application credentials", () => {
+    expect(platformContextConfigured({})).toBe(false);
+    expect(platformContextConfigured({ TWITCH_CLIENT_ID: "client" })).toBe(false);
+    expect(platformContextConfigured({ TWITCH_CLIENT_SECRET: "secret" })).toBe(false);
+    expect(platformContextConfigured({ TWITCH_CLIENT_ID: "client", TWITCH_CLIENT_SECRET: "secret" })).toBe(true);
+    expect(platformContextConfigured({ TWITCH_CLIENT_ID: "client", TWITCH_CLIENT_SECRET: "   " })).toBe(false);
+  });
+});
+
 describe("integrationStatuses", () => {
-  it("reports all three integrations disconnected when no env vars are set", () => {
+  it("reports the two public scanner integrations disconnected when no env vars are set", () => {
     expect(integrationStatuses({})).toEqual([
-      {
-        key: "reddit",
-        label: "Reddit API",
-        connected: false,
-        missingEnv: [],
-        detail: "Permanently off — Reddit pages are discovered through web search only.",
-      },
       {
         key: "web_search",
         label: "Web search (Tavily)",
@@ -106,17 +120,7 @@ describe("integrationStatuses", () => {
     ]);
   });
 
-  it("reddit partially configured stays permanently off", () => {
-    const statuses = integrationStatuses({ REDDIT_CLIENT_ID: "a" });
-    const reddit = statuses.find((s) => s.key === "reddit");
-    expect(reddit).toMatchObject({
-      connected: false,
-      missingEnv: [],
-      detail: "Permanently off — Reddit pages are discovered through web search only.",
-    });
-  });
-
-  it("keeps Reddit off while reporting the two supported integrations connected", () => {
+  it("ignores legacy Reddit credentials while reporting supported integrations connected", () => {
     const statuses = integrationStatuses({
       REDDIT_CLIENT_ID: "a",
       REDDIT_CLIENT_SECRET: "b",
@@ -125,13 +129,6 @@ describe("integrationStatuses", () => {
       OPENROUTER_API_KEY: "o",
     });
     expect(statuses).toEqual([
-      {
-        key: "reddit",
-        label: "Reddit API",
-        connected: false,
-        missingEnv: [],
-        detail: "Permanently off — Reddit pages are discovered through web search only.",
-      },
       {
         key: "web_search",
         label: "Web search (Tavily)",

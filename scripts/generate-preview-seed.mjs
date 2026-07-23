@@ -336,6 +336,42 @@ for (let i = 0; i < TAPS; i += 1) {
 }
 
 const boardNo = "205";
+const steamPulseSnapshots = Array.from({ length: Math.min(DAYS, 10) }, (_, index) => {
+  const daysAgo = Math.min(DAYS, 10) - index - 1;
+  const change = 14 + ((index * 7 + SEED) % 31);
+  const totalReviews = 12600 + index * 29 + change;
+  const positivePercentage = 71 + ((index + SEED) % 5) * 0.6;
+  return {
+    snapshot_day: dayKey(nowMs - daysAgo * DAY_MS),
+    collected_at: iso(nowMs - daysAgo * DAY_MS - 45 * 60 * 1000),
+    total_reviews: totalReviews,
+    total_positive: Math.round(totalReviews * (positivePercentage / 100)),
+    total_negative: totalReviews - Math.round(totalReviews * (positivePercentage / 100)),
+    positive_percentage: positivePercentage,
+    review_count_delta: change,
+    reviews_scanned: Math.min(100, change + 18),
+    issue_language_count: Math.max(1, Math.round(change * 0.28)),
+    leads_retained: Math.max(0, Math.round(change * 0.12)),
+  };
+});
+
+const platformContextSnapshots = [
+  {
+    captured_at: iso(nowMs - 35 * 60 * 1000),
+    igdb_status: "ok",
+    igdb_game_id: 121752,
+    igdb_name: "Crimson Desert",
+    igdb_slug: "crimson-desert",
+    igdb_summary: "Preview-only public game metadata.",
+    igdb_first_release_at: iso(patchPublishedMs),
+    igdb_platforms: ["PC", "PlayStation 5", "Xbox Series X|S"],
+    twitch_status: "ok",
+    twitch_live_streams: 184,
+    twitch_live_viewers: 12840,
+    twitch_complete: true,
+  },
+];
+
 const seed = {
   issue_clusters: clusters,
   source_signals: signals,
@@ -344,6 +380,9 @@ const seed = {
   bug_reports: bugReports,
   approved_excerpts: [],
   issue_confirmations: issueConfirmations,
+  steam_pulse_snapshots: steamPulseSnapshots,
+  platform_context_snapshots: platformContextSnapshots,
+  scanner_feedback_rules: [],
   automation_settings: [{ key: "scanner", value: { paused: false }, updated_at: iso(nowMs - 60 * 60 * 1000) }],
   official_patch_notes: [
     {

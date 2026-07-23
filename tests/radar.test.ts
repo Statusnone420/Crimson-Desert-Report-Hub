@@ -15,6 +15,8 @@ const PATCH = { version: "1.14.00", publishedAt: "2026-07-16T09:00:00Z" };
 function signal(overrides: Partial<RadarSignalRow> = {}): RadarSignalRow {
   return {
     cluster_id: "cluster-a",
+    source: "web_search",
+    source_type: "web_search",
     category: "performance",
     confidence: "medium",
     public_status: "private",
@@ -23,8 +25,8 @@ function signal(overrides: Partial<RadarSignalRow> = {}): RadarSignalRow {
     observed_at: "2026-07-18T10:00:00Z",
     seen_count: 1,
     source_published_at: null,
-    title: "SENTINEL_TITLE patch 1.14.00 fps drops",
-    summary: "SENTINEL_SUMMARY user reports stutter after patch 1.14.00",
+    title: "SENTINEL_TITLE Crimson Desert patch 1.14.00 fps drops",
+    summary: "SENTINEL_SUMMARY user reports Crimson Desert stutter after patch 1.14.00",
     source_url: "https://sentinel-domain.example/thread/123",
     extracted_facts: { platform: "pc_steam" },
     ...overrides,
@@ -100,9 +102,51 @@ describe("composePatchRadarData windows", () => {
     expect(data.funnel7d.kept).toBe(0);
     expect(data.window.reobservations7d).toBe(0);
   });
+
+  it("counts Steam-only candidates from the persisted run funnel", () => {
+    const data = compose({
+      runs: [
+        run({
+          search_results_seen: 0,
+          reddit_posts_seen: 0,
+          signals_inserted: 1,
+          signals_reobserved: 0,
+          funnel: { candidatesSeen: 3 },
+        }),
+      ],
+    });
+
+    expect(data.funnel7d).toEqual({ reviewed: 3, filtered: 2, kept: 1, reobserved: 0 });
+  });
 });
 
 describe("composePatchRadarData buckets and recurrence", () => {
+  it("excludes individual Steam review context from every public radar aggregate", () => {
+    const data = compose({
+      signals: [
+        signal(),
+        signal({
+          cluster_id: "steam-context-only",
+          source: "steam_review",
+          source_type: "steam_review",
+          category: "crash_startup",
+          confidence: "high",
+          seen_count: 9,
+          source_published_at: "2026-07-18T10:00:00Z",
+          extracted_facts: { platform: "ps5" },
+        }),
+      ],
+    });
+
+    expect(data.recurring).toEqual({ recurringLeads: 0, trackedLeads: 1, maxSeenCount: 1 });
+    expect(data.activeLeadClusters).toBe(1);
+    expect(data.categories).toEqual([{ category: "performance", tracked: 1, new7d: 1 }]);
+    expect(data.platforms).toEqual([{ platform: "pc_steam", tracked: 1 }]);
+    expect(data.confidenceMix).toEqual({ high: 0, medium: 1, low: 0 });
+    expect(data.dateCoverage).toEqual({ withSourceDate: 0, tracked: 1 });
+    expect(data.recurrence).toHaveLength(1);
+  });
+
   it("excludes hidden signals from every tracked-lead aggregate", () => {
     const data = compose({
       signals: [signal(), signal({ public_status: "hidden", seen_count: 18 })],
@@ -269,10 +313,10 @@ describe("composePatchRadarData health and observability", () => {
       signals: [
         signal(), // mentions 1.14.00 -> current_patch
         signal({
-          title: "old patch complaint",
-          summary: "since patch 1.12.00 everything broke",
+          title: "old Crimson Desert patch complaint",
+          summary: "since Crimson Desert patch 1.12.00 everything broke",
         }), // wrong_patch
-        signal({ title: "vague complaint", summary: "game stutters sometimes" }), // unknown freshness
+        signal({ title: "vague Crimson Desert complaint", summary: "Crimson Desert stutters sometimes" }), // unknown freshness
       ],
     });
     expect(data.eligibility.current_patch).toBe(1);
@@ -285,8 +329,8 @@ describe("composePatchRadarData health and observability", () => {
       signals: [
         signal(),
         signal({
-          title: "old patch complaint",
-          summary: "since patch 1.12.00 everything broke",
+          title: "old Crimson Desert patch complaint",
+          summary: "since Crimson Desert patch 1.12.00 everything broke",
         }),
         signal({
           public_status: "public",

@@ -2,7 +2,7 @@ import { OperatorShell, PublicShell } from "@/components/dispatch/Chrome";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { PublicScannerView } from "@/components/scanner/PublicScannerView";
 import { isAdmin } from "@/lib/adminGuard";
-import { applyLlmCircuitToStatuses, features, integrationStatuses } from "@/lib/env";
+import { applyLlmCircuitToStatuses, integrationStatuses } from "@/lib/env";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getAutomationAdminData, getIssuesData, getPublicScannerData } from "@/lib/queries";
 
@@ -35,6 +35,7 @@ export default async function ScannerPage() {
   }
 
   const adminData = await getAutomationAdminData();
+  const nowIso = new Date().toISOString();
   return (
     <OperatorShell active="scanner">
       <div className="dispatch-container">
@@ -42,14 +43,16 @@ export default async function ScannerPage() {
           runs={adminData.runs}
           signals={adminData.signals}
           rejectedCandidates={adminData.rejectedCandidates}
+          feedbackRules={adminData.feedbackRules}
+          feedbackLearningAvailable={adminData.feedbackLearningAvailable}
           control={adminData.control}
           activeRun={adminData.activeRun}
           latestRealRun={adminData.latestRealRun}
           latestFind={adminData.latestFind}
           scoreboard={scoreboard}
           radar={radar}
-          features={features()}
           integrations={integrations}
+          nowIso={nowIso}
         />
       </div>
     </OperatorShell>
