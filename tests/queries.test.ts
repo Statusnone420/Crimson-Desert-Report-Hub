@@ -7,6 +7,7 @@ import {
   excerptsByClusterForCurrentPatch,
   getPublicObservations,
   getCandidateSignalCountsByCluster,
+  getPublicSignalClusterIdsForCurrentPatch,
   isPublicObservationEligible,
   filterExactPatchReports,
   filterPublicCurrentPatchSignals,
@@ -551,6 +552,58 @@ describe("filterPublicCurrentPatchSignals", () => {
     );
 
     expect(rows.map((row) => row.id)).toEqual(["valid"]);
+  });
+});
+
+describe("getPublicSignalClusterIdsForCurrentPatch", () => {
+  it("selects source provenance before excluding Steam review context", async () => {
+    const selectedColumns: string[] = [];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("source_signals");
+        return {
+          select(columns: string) {
+            selectedColumns.push(columns);
+            return {
+              async eq(column: string, value: string) {
+                expect([column, value]).toEqual(["public_status", "public"]);
+                return {
+                  data: [
+                    {
+                      cluster_id: "public-web-lead",
+                      source: "web_search",
+                      source_url: "https://example.com/crimson-desert-fps",
+                      title: "Crimson Desert patch 1.13.01 FPS drops",
+                      summary: "Players report stutter after the current patch.",
+                      source_published_at: "2026-07-22T10:00:00.000Z",
+                    },
+                    {
+                      cluster_id: "private-steam-context",
+                      source: "steam_review",
+                      source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+                      title: "Crimson Desert player issue on Steam",
+                      summary: "Players report stutter after patch 1.13.01.",
+                      source_published_at: "2026-07-22T10:00:00.000Z",
+                    },
+                  ],
+                  error: null,
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const clusterIds = await getPublicSignalClusterIdsForCurrentPatch(
+      supabase as never,
+      { version: "1.13.01", publishedAt: "2026-07-22T09:00:00.000Z" },
+    );
+
+    expect(selectedColumns).toEqual([
+      "cluster_id, source, title, summary, source_url, source_published_at",
+    ]);
+    expect([...clusterIds]).toEqual(["public-web-lead"]);
   });
 });
 

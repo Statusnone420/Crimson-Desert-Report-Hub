@@ -61,6 +61,11 @@ export type SignalRow = {
   public_status: "private" | "public" | "hidden";
 };
 
+type PublicSignalEligibilityRow = Pick<
+  SignalRow,
+  "cluster_id" | "source" | "source_url" | "title" | "summary" | "source_published_at"
+>;
+
 export type AutomationRunRow = {
   id: string;
   started_at: string;
@@ -313,7 +318,7 @@ export function publicFindingsFromSignals(rows: SignalRow[]): PublicFinding[] {
   }));
 }
 
-export function filterPublicCurrentPatchSignals<T extends SignalRow>(
+export function filterPublicCurrentPatchSignals<T extends PublicSignalEligibilityRow>(
   rows: T[],
   currentPatch: { version: string; publishedAt: string | null },
 ): T[] {
@@ -337,6 +342,24 @@ export function filterPublicCurrentPatchSignals<T extends SignalRow>(
       currentPatch,
     ).canPublish;
   });
+}
+
+export async function getPublicSignalClusterIdsForCurrentPatch(
+  supabase: ReturnType<typeof createServiceClient>,
+  currentPatch: PatchContext,
+): Promise<Set<string>> {
+  const { data } = await supabase
+    .from("source_signals")
+    .select("cluster_id, source, title, summary, source_url, source_published_at")
+    .eq("public_status", "public");
+  const clusterIds = new Set<string>();
+  for (const signal of filterPublicCurrentPatchSignals(
+    (data ?? []) as PublicSignalEligibilityRow[],
+    currentPatch,
+  )) {
+    if (signal.cluster_id) clusterIds.add(signal.cluster_id);
+  }
+  return clusterIds;
 }
 
 type CandidateSignalRow = {
@@ -1236,14 +1259,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     const llmPaused = llmPausedFromCircuitRead(circuitData as CircuitRunRow[] | null, circuitError, now);
 
     const currentPatch = await getCurrentPatchMetadata(supabase);
-    const { data: publicSignalData } = await supabase
-      .from("source_signals")
-      .select("cluster_id, title, summary, source_url, source_published_at")
-      .eq("public_status", "public");
-    const publicSignalClusters = new Set<string>();
-    for (const signal of filterPublicCurrentPatchSignals((publicSignalData ?? []) as SignalRow[], currentPatch)) {
-      if (signal.cluster_id) publicSignalClusters.add(signal.cluster_id);
-    }
+    const publicSignalClusters = await getPublicSignalClusterIdsForCurrentPatch(supabase, currentPatch);
     const privateSignalClusters = new Set(Object.keys(await getCandidateSignalCountsByCluster(supabase, currentPatch)));
 
     const { data: reportData } = await supabase
