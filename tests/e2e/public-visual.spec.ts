@@ -70,32 +70,16 @@ async function signInAsAdmin(page: Page) {
 
 async function openAdminSignIn(page: Page) {
   const passwordInput = page.getByLabel("Admin password");
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      const adminButton = page.getByRole("button", { name: "Admin" });
-      await adminButton.scrollIntoViewIfNeeded();
-      await adminButton.press("Enter");
-    } catch (error) {
-      if (attempt === 4) throw error;
-      continue;
-    }
-    if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) return;
-  }
+  const adminButton = page.getByRole("contentinfo").getByRole("button", { name: "Admin" });
+  await expect(adminButton).toBeVisible();
+  await adminButton.press("Enter", { timeout: 10_000 });
   await expect(passwordInput).toBeVisible();
 }
 
 async function openAdminPageFromFooter(page: Page) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      const adminButton = page.getByRole("button", { name: "Admin" });
-      await adminButton.scrollIntoViewIfNeeded();
-      await adminButton.press("Enter");
-    } catch (error) {
-      if (attempt === 4) throw error;
-      continue;
-    }
-    if (await page.waitForURL(/\/admin$/, { timeout: 1_000 }).then(() => true, () => false)) return;
-  }
+  const adminButton = page.getByRole("contentinfo").getByRole("button", { name: "Admin" });
+  await expect(adminButton).toBeVisible();
+  await adminButton.press("Enter", { timeout: 10_000 });
   await expect(page).toHaveURL(/\/admin$/);
 }
 
@@ -930,8 +914,17 @@ test.describe("public surface visual regression", () => {
 
     await expect(page).toHaveURL(/\/admin$/);
     await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
+    let adminStatusRequests = 0;
+    // A cold status check can outlive the old one-second retry window. One
+    // activation must wait for that in-flight transition without clicking again.
+    await page.route("**/api/admin/status", async (route) => {
+      adminStatusRequests += 1;
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await route.continue();
+    });
     await page.goto("/");
     await openAdminPageFromFooter(page);
+    expect(adminStatusRequests).toBe(1);
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/admin\/login$/);
     await page.goto("/admin");
