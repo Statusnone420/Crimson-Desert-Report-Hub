@@ -170,6 +170,15 @@ describe("getAutomationAdminData rolling migration compatibility", () => {
     const data = await getAutomationAdminData();
 
     expect(data.feedbackRules).toEqual([]);
+    expect(data.feedbackLearningAvailable).toBe(false);
+  });
+
+  it("enables scanner-learning controls when the feedback schema is available", async () => {
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    const data = await getAutomationAdminData();
+
+    expect(data.feedbackLearningAvailable).toBe(true);
   });
 
   it("loads every active feedback rule so each enforced lesson keeps an Undo path", async () => {

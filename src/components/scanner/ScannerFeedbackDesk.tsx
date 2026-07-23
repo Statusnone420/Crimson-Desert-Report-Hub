@@ -27,7 +27,15 @@ function expiryTime(iso: string, nowMs: number): string {
   return `in ${Math.ceil(hours / 24)}d`;
 }
 
-function DecisionCard({ candidate, nowMs }: { candidate: RejectedCandidateRow; nowMs: number }) {
+function DecisionCard({
+  candidate,
+  nowMs,
+  feedbackLearningAvailable,
+}: {
+  candidate: RejectedCandidateRow;
+  nowMs: number;
+  feedbackLearningAvailable: boolean;
+}) {
   const [scope, setScope] = useState<ScannerRuleScope>("exact_url");
   const storedScopeValue = scannerRuleScopeValue(scope, {
     url: candidate.url,
@@ -78,53 +86,57 @@ function DecisionCard({ candidate, nowMs }: { candidate: RejectedCandidateRow; n
           </SubmitButton>
         </form>
 
-        <details className="decision-card__reject">
-          <summary className="tap-btn">Reject and teach…</summary>
-          <form action={recordScannerDecision} className="decision-form dispatch-field">
-            <input type="hidden" name="id" value={candidate.id} />
-            <label>
-              <span>Why is it wrong?</span>
-              <select name="decision" defaultValue={candidate.reason === "wrong_patch" ? "wrong_patch" : "off_topic"}>
-                <option value="off_topic">Off-topic</option>
-                <option value="wrong_patch">Wrong patch</option>
-                <option value="not_issue_report">Not an issue report</option>
-                <option value="duplicate">Duplicate</option>
-              </select>
-            </label>
-            <label>
-              <span>Operator reason</span>
-              <textarea
-                name="reason"
-                minLength={3}
-                maxLength={500}
-                required
-                defaultValue={`Reviewed source: ${plainSkipPhrase(candidate.reason)}.`}
-              />
-            </label>
-            <label>
-              <span>Apply this lesson to</span>
-              <select
-                name="scope"
-                value={scope}
-                onChange={(event) => setScope(event.target.value as ScannerRuleScope)}
-              >
-                <option value="exact_url">This exact page</option>
-                <option value="source_path">This source section</option>
-                <option value="source_domain">This entire domain</option>
-              </select>
-            </label>
-            <p className="decision-form__scope">Rule target: <code>{scopeLabel}</code></p>
-            {scope !== "exact_url" ? (
-              <label className="decision-form__confirm">
-                <input type="checkbox" name="confirm_broad" value="true" required />
-                <span>I understand this broader rule can affect future scanner results.</span>
+        {feedbackLearningAvailable ? (
+          <details className="decision-card__reject">
+            <summary className="tap-btn">Reject and teach…</summary>
+            <form action={recordScannerDecision} className="decision-form dispatch-field">
+              <input type="hidden" name="id" value={candidate.id} />
+              <label>
+                <span>Why is it wrong?</span>
+                <select name="decision" defaultValue={candidate.reason === "wrong_patch" ? "wrong_patch" : "off_topic"}>
+                  <option value="off_topic">Off-topic</option>
+                  <option value="wrong_patch">Wrong patch</option>
+                  <option value="not_issue_report">Not an issue report</option>
+                  <option value="duplicate">Duplicate</option>
+                </select>
               </label>
-            ) : null}
-            <SubmitButton className="tap-btn tap-btn--danger" pendingText="Recording...">
-              Record decision
-            </SubmitButton>
-          </form>
-        </details>
+              <label>
+                <span>Operator reason</span>
+                <textarea
+                  name="reason"
+                  minLength={3}
+                  maxLength={500}
+                  required
+                  defaultValue={`Reviewed source: ${plainSkipPhrase(candidate.reason)}.`}
+                />
+              </label>
+              <label>
+                <span>Apply this lesson to</span>
+                <select
+                  name="scope"
+                  value={scope}
+                  onChange={(event) => setScope(event.target.value as ScannerRuleScope)}
+                >
+                  <option value="exact_url">This exact page</option>
+                  <option value="source_path">This source section</option>
+                  <option value="source_domain">This entire domain</option>
+                </select>
+              </label>
+              <p className="decision-form__scope">Rule target: <code>{scopeLabel}</code></p>
+              {scope !== "exact_url" ? (
+                <label className="decision-form__confirm">
+                  <input type="checkbox" name="confirm_broad" value="true" required />
+                  <span>I understand this broader rule can affect future scanner results.</span>
+                </label>
+              ) : null}
+              <SubmitButton className="tap-btn tap-btn--danger" pendingText="Recording...">
+                Record decision
+              </SubmitButton>
+            </form>
+          </details>
+        ) : (
+          <p className="decision-form__scope">Scanner learning unlocks after the database schema update.</p>
+        )}
       </div>
     </article>
   );
@@ -133,9 +145,11 @@ function DecisionCard({ candidate, nowMs }: { candidate: RejectedCandidateRow; n
 export function ScannerFeedbackDesk({
   candidates,
   nowIso,
+  feedbackLearningAvailable = true,
 }: {
   candidates: RejectedCandidateRow[];
   nowIso: string;
+  feedbackLearningAvailable?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const nowMs = new Date(nowIso).getTime();
@@ -175,7 +189,12 @@ export function ScannerFeedbackDesk({
       </div>
       <div className="decision-list">
         {filtered.slice(0, query ? filtered.length : DEFAULT_VISIBLE_CANDIDATES).map((candidate) => (
-          <DecisionCard key={candidate.id} candidate={candidate} nowMs={nowMs} />
+          <DecisionCard
+            key={candidate.id}
+            candidate={candidate}
+            nowMs={nowMs}
+            feedbackLearningAvailable={feedbackLearningAvailable}
+          />
         ))}
       </div>
       {!query && filtered.length > DEFAULT_VISIBLE_CANDIDATES ? (
@@ -183,7 +202,12 @@ export function ScannerFeedbackDesk({
           <summary>Show {filtered.length - DEFAULT_VISIBLE_CANDIDATES} more optional candidates →</summary>
           <div className="decision-list">
             {filtered.slice(DEFAULT_VISIBLE_CANDIDATES).map((candidate) => (
-              <DecisionCard key={candidate.id} candidate={candidate} nowMs={nowMs} />
+              <DecisionCard
+                key={candidate.id}
+                candidate={candidate}
+                nowMs={nowMs}
+                feedbackLearningAvailable={feedbackLearningAvailable}
+              />
             ))}
           </div>
         </details>

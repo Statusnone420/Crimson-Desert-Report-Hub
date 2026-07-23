@@ -38,6 +38,7 @@ describe("AdminScannerView", () => {
       signals: [],
       rejectedCandidates: [],
       feedbackRules: [],
+      feedbackLearningAvailable: true,
       control: {
         paused: false,
         minIntervalMinutes: 60,
@@ -120,6 +121,7 @@ describe("AdminScannerView", () => {
       signals,
       rejectedCandidates: [],
       feedbackRules: [],
+      feedbackLearningAvailable: true,
       control: {
         paused: false,
         minIntervalMinutes: 60,
@@ -167,6 +169,7 @@ describe("AdminScannerView", () => {
       }],
       rejectedCandidates: [],
       feedbackRules: [],
+      feedbackLearningAvailable: true,
       control: {
         paused: false,
         minIntervalMinutes: 60,
@@ -188,5 +191,68 @@ describe("AdminScannerView", () => {
     expect(markup).toContain("Steam review leads share one provider URL");
     expect(markup).not.toContain('name="target_kind" value="signal"');
     expect(markup).not.toContain("Remove bad lead");
+  });
+
+  it("hides scanner-learning actions until the feedback schema is available", () => {
+    const markup = renderToStaticMarkup(createElement(AdminScannerView, {
+      runs: [],
+      signals: [{
+        id: "signal-web-lead",
+        cluster_id: "cluster-performance",
+        source: "web_search",
+        source_url: "https://example.com/lead",
+        title: "Retained lead",
+        summary: "A retained source that could otherwise be removed.",
+        category: "performance",
+        confidence: "medium" as const,
+        observed_at: "2026-07-22T17:00:00.000Z",
+        public_status: "private" as const,
+        source_type: "web_search",
+        source_domain: "example.com",
+        source_published_at: null,
+        first_seen_at: "2026-07-22T17:00:00.000Z",
+        last_seen_at: "2026-07-22T17:00:00.000Z",
+        seen_count: 1,
+      }],
+      rejectedCandidates: [{
+        id: "candidate-one",
+        run_id: null,
+        title: "Rejected candidate",
+        url: "https://example.com/candidate",
+        source_domain: "example.com",
+        source_published_at: null,
+        snippet: "A candidate waiting for optional review.",
+        reason: "off_topic",
+        created_at: "2026-07-22T17:00:00.000Z",
+        expires_at: "2026-07-23T17:00:00.000Z",
+        rescued_at: null,
+        decision_id: null,
+        feedback_rule_id: null,
+      }],
+      feedbackRules: [],
+      feedbackLearningAvailable: false,
+      control: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_v4_flash",
+        updatedAt: null,
+      },
+      activeRun: null,
+      latestRealRun: null,
+      latestFind: null,
+      scoreboard: {} as never,
+      radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
+      integrations: [],
+      nowIso: "2026-07-22T18:00:00.000Z",
+    }));
+
+    expect(markup).toContain("Scanner learning unlocks after the database schema update");
+    expect(markup).toContain("Keep as relevant");
+    expect(markup).not.toContain("Reject and teach");
+    expect(markup).not.toContain("Remove bad lead");
+    expect(markup).not.toContain("Remove lead and teach scanner");
   });
 });

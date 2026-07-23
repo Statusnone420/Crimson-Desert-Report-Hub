@@ -1023,6 +1023,7 @@ export async function getAutomationAdminData() {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
     rejectedCandidates: rejectedCandidates as RejectedCandidateRow[],
+    feedbackLearningAvailable: !feedbackRulesResult.error,
     feedbackRules: ((feedbackRules ?? []) as ScannerFeedbackRuleRow[]).filter(
       (rule) => !rule.expires_at || new Date(rule.expires_at).getTime() > Date.now(),
     ),

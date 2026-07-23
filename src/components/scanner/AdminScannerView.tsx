@@ -119,7 +119,7 @@ function confidenceTone(confidence: AdminSignalRow["confidence"]): string {
   return "";
 }
 
-function signalRow(signal: AdminSignalRow, nowMs: number) {
+function signalRow(signal: AdminSignalRow, nowMs: number, feedbackLearningAvailable: boolean) {
   const isSteamReview = signal.source === "steam_review" || signal.source_type === "steam_review";
   return (
     <article key={signal.id} className="lead-item">
@@ -165,7 +165,9 @@ function signalRow(signal: AdminSignalRow, nowMs: number) {
           </dd>
         </div>
       </dl>
-      {isSteamReview ? (
+      {!feedbackLearningAvailable ? (
+        <p className="decision-form__scope">Scanner learning unlocks after the database schema update.</p>
+      ) : isSteamReview ? (
         <p className="decision-form__scope">
           Steam review leads share one provider URL. A review-specific lesson needs its recommendation hash, so this
           page cannot teach a safe scanner rule.
@@ -215,6 +217,7 @@ export function AdminScannerView({
   signals,
   rejectedCandidates,
   feedbackRules,
+  feedbackLearningAvailable,
   control,
   activeRun,
   latestRealRun,
@@ -228,6 +231,7 @@ export function AdminScannerView({
   signals: AdminSignalRow[];
   rejectedCandidates: RejectedCandidateRow[];
   feedbackRules: ScannerFeedbackRuleRow[];
+  feedbackLearningAvailable: boolean;
   control: AutomationControlState;
   activeRun: { id: string } | null;
   latestRealRun: AutomationRunRow | null;
@@ -416,14 +420,17 @@ export function AdminScannerView({
           <p className="operator-inbox__eyebrow">Action inbox</p>
           <h2>{attentionCount === 0 ? "Nothing requires intervention." : `${attentionCount} scanner health item${attentionCount === 1 ? "" : "s"} need a look.`}</h2>
           <p>
-            Auto-rejected pages are not assignments. They stay private, expire automatically, and appear below only
-            so you can teach the scanner when a bad pattern is worth remembering.
+            {feedbackLearningAvailable
+              ? "Auto-rejected pages are not assignments. They stay private, expire automatically, and appear below only so you can teach the scanner when a bad pattern is worth remembering."
+              : "Scanner learning unlocks after the database schema update. You can still inspect candidates and keep a missed relevant lead."}
           </p>
         </div>
         <div className="operator-inbox__facts">
           <span><b>{radar.health.runs7d.failed}</b> failed runs · 7d</span>
           <span><b>{optionalCandidates.length}</b> optional teaching candidates</span>
-          <span><b>{feedbackRules.length}</b> active scanner lessons</span>
+          <span>
+            {feedbackLearningAvailable ? <><b>{feedbackRules.length}</b> active scanner lessons</> : "Learning schema pending"}
+          </span>
         </div>
       </section>
 
@@ -439,7 +446,11 @@ export function AdminScannerView({
               an explicit confirmation and can always be undone.
             </p>
           </div>
-          <ScannerFeedbackDesk candidates={rejectedCandidates} nowIso={nowIso} />
+          <ScannerFeedbackDesk
+            candidates={rejectedCandidates}
+            nowIso={nowIso}
+            feedbackLearningAvailable={feedbackLearningAvailable}
+          />
         </section>
 
         <aside className="operator-workbench__rail" aria-label="Latest run and scanner settings">
@@ -513,14 +524,14 @@ export function AdminScannerView({
         </div>
         <div className="lead-record-grid">
           {recentSignals.length > 0
-            ? recentSignals.map((signal) => signalRow(signal, nowMs))
+            ? recentSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))
             : <p className="decision-empty">No kept source leads yet.</p>}
         </div>
         {olderSignals.length > 0 ? (
           <details className="operator-disclosure operator-disclosure--records">
             <summary>Browse {olderSignals.length} older {olderSignals.length === 1 ? "lead" : "leads"}</summary>
             <div className="lead-record-grid operator-disclosure__body">
-              {olderSignals.map((signal) => signalRow(signal, nowMs))}
+              {olderSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))}
             </div>
           </details>
         ) : null}
@@ -531,7 +542,11 @@ export function AdminScannerView({
           <div><p className="dispatch-kicker">Active lessons</p><h2 className="section-heading__title">What the scanner will remember</h2></div>
           <p className="section-heading__note">Visibility and learning stay separate. Hiding an issue never poisons discovery; only an explicit scanner decision creates a rule.</p>
         </div>
-        <FeedbackRulesPanel rules={feedbackRules} nowIso={nowIso} />
+        {feedbackLearningAvailable ? (
+          <FeedbackRulesPanel rules={feedbackRules} nowIso={nowIso} />
+        ) : (
+          <p className="decision-empty">Scanner learning unlocks after the database schema update.</p>
+        )}
       </section>
     </>
   );
