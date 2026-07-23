@@ -644,7 +644,13 @@ async function collectSteamReviewInputs(
       .eq("snapshot_day", snapshotDay)
       .order("collected_at", { ascending: false })
       .limit(1);
-    if (recentError) throw new Error(`Steam Pulse recency read failed: ${recentError.message}`);
+    if (recentError) {
+      if (isMissingSupabaseRelation(recentError, "steam_pulse_snapshots")) {
+        result.skips.push("steam_pulse_schema_unavailable");
+        return null;
+      }
+      throw new Error(`Steam Pulse recency read failed: ${recentError.message}`);
+    }
     const recent = (recentRows ?? [])[0] as { collected_at?: string | null } | undefined;
     const recentAt = recent?.collected_at ? new Date(recent.collected_at).getTime() : Number.NaN;
     if (Number.isFinite(recentAt) && now.getTime() - recentAt < STEAM_PULSE_INTERVAL_MS) {
@@ -660,7 +666,13 @@ async function collectSteamReviewInputs(
         .from("steam_review_receipts")
         .select("recommendation_hash, source_updated_at")
         .in("recommendation_hash", hashes);
-      if (error) throw new Error(`Steam review receipt read failed: ${error.message}`);
+      if (error) {
+        if (isMissingSupabaseRelation(error, "steam_review_receipts")) {
+          result.skips.push("steam_pulse_schema_unavailable");
+          return null;
+        }
+        throw new Error(`Steam review receipt read failed: ${error.message}`);
+      }
       for (const row of (data ?? []) as { recommendation_hash: string; source_updated_at: string }[]) {
         existingUpdatedAtByHash.set(row.recommendation_hash, row.source_updated_at);
       }

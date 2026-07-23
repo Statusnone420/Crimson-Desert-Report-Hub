@@ -4833,6 +4833,86 @@ describe("cron source preview route", () => {
 });
 
 describe("Steam Pulse intake", () => {
+  it("keeps legacy scanning active when the Steam Pulse snapshot table is not migrated yet", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    selectFailure = {
+      table: "steam_pulse_snapshots",
+      message: "relation steam_pulse_snapshots does not exist",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("steam_pulse_schema_unavailable");
+    expect(result.errors).not.toContain(expect.stringContaining("Steam Pulse"));
+    expect(mocks.fetchSteamReviewBatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy scanning active when the Steam review receipt table is not migrated yet", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    selectFailure = {
+      table: "steam_review_receipts",
+      message: "Could not find relation steam_review_receipts in the schema cache",
+    };
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash: externalIdHash("steam_review", "pre-migration-review"),
+          reviewText: "Crimson Desert stutters after patch 1.13 on Steam.",
+          sourceCreatedAt: "2026-07-05T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 120,
+        },
+      ],
+      totals: { totalReviews: 1, totalPositive: 0, totalNegative: 1 },
+      cursor: null,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("steam_pulse_schema_unavailable");
+    expect(result.errors).not.toContain(expect.stringContaining("Steam review receipt"));
+  });
+
+  it("marks unexpected Steam Pulse read failures partial and records the error", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    selectFailure = {
+      table: "steam_pulse_snapshots",
+      message: "permission denied for table steam_pulse_snapshots",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.skips).not.toContain("steam_pulse_schema_unavailable");
+    expect(result.errors).toContain(
+      "Steam Pulse recency read failed: permission denied for table steam_pulse_snapshots",
+    );
+  });
+
   it("keeps Steam review text private even when its cluster is public from a direct report", async () => {
     resetDb({
       issue_clusters: [
