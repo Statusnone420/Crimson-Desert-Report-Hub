@@ -621,6 +621,8 @@ function searchRotationOffset(now: Date): number {
 }
 
 const STEAM_PULSE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const STEAM_REVIEW_MAX_PAGES = 10;
+const STEAM_REVIEW_RECEIPT_CHUNK_SIZE = 100;
 const PLATFORM_CONTEXT_INTERVAL_MS = 60 * 60 * 1000;
 
 type SteamReviewCollection = {
@@ -658,14 +660,40 @@ async function collectSteamReviewInputs(
       return null;
     }
 
-    const batch = await fetchSteamReviewBatch();
+    const firstBatch = await fetchSteamReviewBatch();
+    const reviewsByHash = new Map(
+      firstBatch.reviews.map((review) => [review.recommendationHash, review] as const),
+    );
+    const seenCursors = new Set<string>();
+    let cursor = firstBatch.cursor;
+    let pagesFetched = 1;
+    while (cursor && pagesFetched < STEAM_REVIEW_MAX_PAGES) {
+      if (seenCursors.has(cursor)) throw new Error("Steam reviews pagination cursor repeated");
+      seenCursors.add(cursor);
+      const nextBatch = await fetchSteamReviewBatch({ cursor });
+      for (const review of nextBatch.reviews) {
+        if (!reviewsByHash.has(review.recommendationHash)) {
+          reviewsByHash.set(review.recommendationHash, review);
+        }
+      }
+      cursor = nextBatch.cursor;
+      pagesFetched += 1;
+    }
+    if (cursor) result.skips.push("steam_pulse_page_cap");
+    const batch: SteamReviewBatch = {
+      ...firstBatch,
+      reviews: [...reviewsByHash.values()],
+      cursor,
+    };
+
     const hashes = batch.reviews.map((review) => review.recommendationHash);
     const existingUpdatedAtByHash = new Map<string, string>();
-    if (hashes.length > 0) {
+    for (let offset = 0; offset < hashes.length; offset += STEAM_REVIEW_RECEIPT_CHUNK_SIZE) {
+      const hashChunk = hashes.slice(offset, offset + STEAM_REVIEW_RECEIPT_CHUNK_SIZE);
       const { data, error } = await supabase
         .from("steam_review_receipts")
         .select("recommendation_hash, source_updated_at")
-        .in("recommendation_hash", hashes);
+        .in("recommendation_hash", hashChunk);
       if (error) {
         if (isMissingSupabaseRelation(error, "steam_review_receipts")) {
           result.skips.push("steam_pulse_schema_unavailable");
@@ -1801,6 +1829,7 @@ async function refreshClusterStats(
     const hasLiveCandidates = signals.some(
       (signal) =>
         !isOperatorBlocked(signal) &&
+        !isContextOnlySignal(signal) &&
         !isUnsupportedStoredSignal(signal) &&
         hasStoredSignalGameContext(signal) &&
         sourceSignalEligibility(signal, activeCurrentPatch).canStore,

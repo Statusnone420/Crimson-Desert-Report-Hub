@@ -4953,6 +4953,97 @@ describe("Steam Pulse intake", () => {
     });
   });
 
+  it("follows Steam's review cursor so changes beyond the first page are not skipped", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    const knownHash = externalIdHash("steam_review", "known-first-page-review");
+    const laterHash = externalIdHash("steam_review", "new-second-page-review");
+    resetDb({
+      steam_review_receipts: [
+        {
+          recommendation_hash: knownHash,
+          first_seen_at: "2026-07-05T08:00:00.000Z",
+          last_seen_at: "2026-07-05T08:00:00.000Z",
+          source_created_at: "2026-07-05T07:00:00.000Z",
+          source_updated_at: "2026-07-05T08:00:00.000Z",
+          voted_up: false,
+          playtime_at_review_minutes: 120,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockImplementation(async (options?: { cursor?: string }) =>
+      options?.cursor === "second-page"
+        ? {
+          reviews: [
+            {
+              recommendationHash: laterHash,
+              reviewText: "Crimson Desert crashes every time I open the map after patch 1.13.",
+              sourceCreatedAt: "2026-07-05T09:00:00.000Z",
+              sourceUpdatedAt: "2026-07-05T09:30:00.000Z",
+              votedUp: false,
+              playtimeAtReviewMinutes: 240,
+            },
+          ],
+          totals: { totalReviews: 150, totalPositive: 100, totalNegative: 50 },
+          cursor: null,
+        }
+        : {
+          reviews: [
+            {
+              recommendationHash: knownHash,
+              reviewText: "Crimson Desert had an older stutter report already processed.",
+              sourceCreatedAt: "2026-07-05T07:00:00.000Z",
+              sourceUpdatedAt: "2026-07-05T08:00:00.000Z",
+              votedUp: false,
+              playtimeAtReviewMinutes: 120,
+            },
+          ],
+          totals: { totalReviews: 150, totalPositive: 100, totalNegative: 50 },
+          cursor: "second-page",
+        },
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.fetchSteamReviewBatch).toHaveBeenCalledTimes(2);
+    expect(mocks.fetchSteamReviewBatch).toHaveBeenNthCalledWith(2, { cursor: "second-page" });
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ external_id_hash: laterHash, public_status: "private" })]),
+    );
+  });
+
+  it("caps a long Steam cursor walk and records that the page window was incomplete", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockImplementation(async (options?: { cursor?: string }) => {
+      const page = options?.cursor ? Number(options.cursor.replace("page-", "")) : 1;
+      return {
+        reviews: [],
+        totals: { totalReviews: 2_000, totalPositive: 1_500, totalNegative: 500 },
+        cursor: `page-${page + 1}`,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.fetchSteamReviewBatch).toHaveBeenCalledTimes(10);
+    expect(result.skips).toContain("steam_pulse_page_cap");
+    expect(result.status).toBe("success");
+  });
+
   it("keeps Steam review text private even when its cluster is public from a direct report", async () => {
     resetDb({
       issue_clusters: [
@@ -5005,6 +5096,56 @@ describe("Steam Pulse intake", () => {
     expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "source_context_only" });
   });
 
+  it("does not let Steam-only context keep a formerly automatic-public cluster visible", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-steam-only",
+          slug: "steam-only-context",
+          title: "Steam-only context",
+          category: "performance",
+          auto_public: true,
+          is_public: true,
+          public_signal_count: 1,
+          visibility_revision: 0,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-steam-only",
+          cluster_id: "cluster-steam-only",
+          source: "steam_review",
+          source_type: "steam_review",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          canonical_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          source_domain: "store.steampowered.com",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Crimson Desert stutters after patch 1.13.00.",
+          raw_text: "Private Steam review text.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-steam-only", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      is_public: false,
+      auto_public: false,
+      public_signal_count: 0,
+    });
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "private",
+      promotion_reason: "source_context_only",
+    });
+  });
+
   it("keeps identities out of storage, retains only issue leads, and writes aggregate context", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -5035,7 +5176,7 @@ describe("Steam Pulse intake", () => {
         },
       ],
       totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
-      cursor: "next-page",
+      cursor: null,
     });
 
     const { runAutomationMonitor } = await importRunner();
@@ -5114,7 +5255,7 @@ describe("Steam Pulse intake", () => {
         },
       ],
       totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
-      cursor: "next-page",
+      cursor: null,
     });
 
     const { runAutomationMonitor } = await importRunner();
