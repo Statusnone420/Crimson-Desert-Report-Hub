@@ -1046,11 +1046,15 @@ async function prepareSignals(
     if (signal.source !== "steam_review") seenUrls.add(canonicalUrl);
     seenExternalIds.add(externalHash);
 
-    const operatorRule = matchScannerFeedbackRule(
-      { url: canonicalUrl, sourceDomain: signal.sourceDomain },
-      feedbackRules,
-      now,
-    );
+    // Steam reviews intentionally share one provider URL, so URL/path/domain
+    // lessons cannot identify one review and must never filter this lane.
+    const operatorRule = signal.source === "steam_review"
+      ? null
+      : matchScannerFeedbackRule(
+          { url: canonicalUrl, sourceDomain: signal.sourceDomain },
+          feedbackRules,
+          now,
+        );
     if (operatorRule?.action === "block") {
       result.operatorRulesMatched += 1;
       result.prefilterRejected += 1;

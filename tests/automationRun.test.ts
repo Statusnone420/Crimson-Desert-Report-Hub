@@ -5307,6 +5307,57 @@ describe("Steam Pulse intake", () => {
     expect(rejectedCandidateRows()).toHaveLength(0);
   });
 
+  it("does not apply shared URL feedback rules to individual Steam reviews", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-steam-domain",
+          action: "block",
+          decision: "not_issue_report",
+          scope_type: "source_domain",
+          scope_value: "steampowered.com",
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    const recommendationHash = externalIdHash("steam_review", "shared-url-feedback");
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash,
+          reviewText: "Crimson Desert stutters and crashes every ten minutes after patch 1.13.",
+          sourceCreatedAt: "2026-07-05T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 420,
+        },
+      ],
+      totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
+      cursor: null,
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(0);
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toEqual([
+      expect.objectContaining({ source: "steam_review", external_id_hash: recommendationHash }),
+    ]);
+    expect(rejectedCandidateRows()).toHaveLength(0);
+    expect(tables.steam_review_receipts).toEqual([
+      expect.objectContaining({ recommendation_hash: recommendationHash }),
+    ]);
+  });
+
   it("acknowledges only classified or successfully persisted reviews after a partial write", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
