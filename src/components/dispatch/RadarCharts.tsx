@@ -1,4 +1,9 @@
 import type { ActivityDay } from "@/lib/activitySeries";
+import {
+  layoutRadarPoints,
+  radarPointDescription,
+  RADAR_RECENCY_BANDS,
+} from "@/lib/radarDisplay";
 import type { RadarRecurrencePoint, RadarWeeklyPoint } from "@/lib/radar.server";
 
 /**
@@ -167,11 +172,9 @@ export type RadarScreenSector = { category: string; label: string; color: string
  * The radar screen: a polar field of tracked leads. Each SECTOR is a problem
  * area (equal sweep, fixed category order, labeled at the rim with its hue
  * carried by the rim arc, never the label text). Each BLIP is one lead —
- * distance from center is how recently the scanner saw it (center = today,
- * rim = the recency cap), blip area grows with times seen, and published
- * leads are solid while private ones are hollow outlines. Position carries
- * identity, so the six hues are decoration on top of a colorblind-safe chart.
- * Blips carry no text: category, counts, and scanner-day offsets only.
+ * distance from center is one of six semantic recency bands, blip area grows
+ * with times seen, and published leads are solid while private ones are hollow
+ * outlines. Position carries identity, so the category hues are redundant.
  */
 export function RadarScreen({
   points,
@@ -187,26 +190,16 @@ export function RadarScreen({
   const cy = size / 2;
   const labelSpace = 18;
   const rOuter = size / 2 - labelSpace - 8;
-  const rInner = 30;
-  const dayCap = Math.max(7, Math.min(28, Math.max(...points.map((p) => p.daysSinceSeen))));
+  const rInner = 8;
   const sweep = (Math.PI * 2) / sectors.length;
   const sectorStart = (index: number) => -Math.PI / 2 + index * sweep;
-  const sectorIndex = new Map(sectors.map((sector, index) => [sector.category, index]));
-
-  const bySector = new Map<string, RadarRecurrencePoint[]>();
-  for (const point of points) {
-    if (!sectorIndex.has(point.category)) continue;
-    const list = bySector.get(point.category) ?? [];
-    list.push(point);
-    bySector.set(point.category, list);
-  }
-  // Deterministic layout: order blips inside a sector by recency then weight.
-  for (const list of bySector.values()) {
-    list.sort((a, b) => a.daysSinceSeen - b.daysSinceSeen || b.seenCount - a.seenCount);
-  }
+  const sectorCounts = new Map<string, number>();
+  for (const point of points) sectorCounts.set(point.category, (sectorCounts.get(point.category) ?? 0) + 1);
+  const layout = layoutRadarPoints(points, sectors.map((sector) => sector.category));
   const summary = sectors
-    .map((sector) => `${sector.label} ${bySector.get(sector.category)?.length ?? 0}`)
+    .map((sector) => `${sector.label} ${sectorCounts.get(sector.category) ?? 0}`)
     .join(", ");
+  const recencySummary = RADAR_RECENCY_BANDS.map((band) => band.label).join(", ");
 
   return (
     <svg
@@ -215,15 +208,15 @@ export function RadarScreen({
       viewBox={`0 0 ${size} ${size}`}
       className="radar-screen"
       role="img"
-      aria-label={`Radar screen: ${points.length} tracked leads plotted by problem area and recency. Fresh leads sit near the center; leads not seen for ${dayCap} days or more sit at the rim. Solid blips are published, hollow blips are private. By area: ${summary}.`}
+      aria-label={`Radar screen: ${points.length} tracked leads plotted by problem area and semantic recency bands from center to rim: ${recencySummary}. Solid blips are published, hollow blips are private. By area: ${summary}.`}
     >
-      {/* Range rings: recency guides, center = seen today. */}
-      {[rInner, rInner + (rOuter - rInner) / 2, rOuter].map((radius) => (
+      {/* Six ring boundaries: one for each named recency band. */}
+      {RADAR_RECENCY_BANDS.map((band, index) => (
         <circle
-          key={radius}
+          key={band.id}
           cx={cx}
           cy={cy}
-          r={radius}
+          r={rInner + ((index + 1) / RADAR_RECENCY_BANDS.length) * (rOuter - rInner)}
           fill="none"
           stroke="rgba(236,227,208,0.13)"
           strokeWidth="1"
@@ -276,56 +269,29 @@ export function RadarScreen({
           </g>
         );
       })}
-      {/* Blips: one per tracked lead. */}
-      {sectors.map((sector, index) => {
-        const list = bySector.get(sector.category) ?? [];
-        const start = sectorStart(index);
-        return list.map((point, j) => {
-          const angle = start + sweep * (0.14 + (0.72 * (j + 0.5)) / list.length);
-          const radius = rInner + (Math.min(point.daysSinceSeen, dayCap) / dayCap) * (rOuter - rInner - 6);
-          const pos = polar(cx, cy, radius, angle);
-          const blipR = Math.max(2.5, Math.min(9, 2.5 * Math.sqrt(point.seenCount)));
-          const seenLabel =
-            point.daysSinceSeen === 0 ? "seen today" : `seen ${point.daysSinceSeen}d ago`;
-          return (
-            <circle
-              key={`${sector.category}-${j}`}
-              cx={pos.x.toFixed(1)}
-              cy={pos.y.toFixed(1)}
-              r={blipR.toFixed(1)}
-              fill={point.isPublic ? sector.color : "none"}
-              stroke={sector.color}
-              strokeWidth={point.isPublic ? 0 : 1.8}
-              opacity={point.isPublic ? 1 : 0.9}
-            >
-              <title>{`${sector.label} lead · ${seenLabel} · seen ${point.seenCount}× total${point.isPublic ? " · published" : " · private"}`}</title>
-            </circle>
-          );
-        });
+      {/* One actual lead per blip; same-band collisions receive deterministic cells. */}
+      {layout.map(({ point, sourceIndex, sectorIndex, bandIndex, angleFraction, radiusFraction }) => {
+        const sector = sectors[sectorIndex];
+        const angle = sectorStart(sectorIndex) + sweep * angleFraction;
+        const radius = rInner + radiusFraction * (rOuter - rInner - 6);
+        const pos = polar(cx, cy, radius, angle);
+        const blipR = Math.max(2.25, Math.min(7, 2.15 * Math.sqrt(point.seenCount)));
+        return (
+          <circle
+            key={`${sector.category}-${bandIndex}-${sourceIndex}`}
+            cx={pos.x.toFixed(1)}
+            cy={pos.y.toFixed(1)}
+            r={blipR.toFixed(1)}
+            fill={point.isPublic ? sector.color : "none"}
+            stroke={sector.color}
+            strokeWidth={point.isPublic ? 0 : 1.8}
+            opacity={point.isPublic ? 1 : 0.9}
+            data-recency-band={point.recencyBand}
+          >
+            <title>{`${sector.label} lead · ${radarPointDescription(point)} ${point.isPublic ? "Published." : "Private."}`}</title>
+          </circle>
+        );
       })}
-      {/* Center: the "now" hub. */}
-      <circle cx={cx} cy={cy} r={rInner - 8} fill="rgba(17,14,11,0.85)" />
-      <text
-        x={cx}
-        y={cy - 1}
-        textAnchor="middle"
-        fontFamily="var(--font-mono)"
-        fontSize="18"
-        fill="var(--dispatch-ink)"
-      >
-        {points.length}
-      </text>
-      <text
-        x={cx}
-        y={cy + 12}
-        textAnchor="middle"
-        fontFamily="var(--font-mono)"
-        fontSize="8.5"
-        letterSpacing="0.1em"
-        fill="var(--dispatch-quiet)"
-      >
-        TRACKED
-      </text>
     </svg>
   );
 }

@@ -235,10 +235,10 @@ const signals = [
     summary: "Private Crimson Desert candidate used to prove public question rendering without exposing the URL.",
     category: "controls_gameplay",
     confidence: "low",
-    observed_at: isoMinutesAgo(20),
+    observed_at: isoDaysAgo(2),
     source_published_at: isoMinutesAgo(25),
-    first_seen_at: isoMinutesAgo(20),
-    last_seen_at: isoMinutesAgo(20),
+    first_seen_at: isoDaysAgo(2),
+    last_seen_at: isoMinutesAgo(30 * 60),
     seen_count: 1,
   },
 ];
@@ -529,19 +529,23 @@ const patchObservations = [
 ];
 
 const steamPulseSnapshots = [
-  ["2026-07-14", 12408, 31, 9, 3],
-  ["2026-07-15", 12442, 34, 11, 4],
-  ["2026-07-16", 12468, 26, 7, 2],
-  ["2026-07-17", 12511, 43, 14, 5],
-  ["2026-07-18", 12540, 29, 8, 3],
-  ["2026-07-19", 12578, 38, 12, 4],
-].map(([snapshotDay, totalReviews, delta, issueLanguageCount, leadsRetained]) => ({
+  ["2026-07-14", 12408, 31, 9, 3, 71.8],
+  ["2026-07-15", 12442, 34, 11, 4, 71.9],
+  ["2026-07-16", 12468, 26, 7, 2, 72.0],
+  ["2026-07-17", 12511, 43, 14, 5, 71.8],
+  ["2026-07-18", 12540, 29, 8, 3, 72.1],
+  ["2026-07-19", 12578, 38, 12, 4, 72.4],
+  ["2026-07-20", 12609, 31, 9, 3, 72.5],
+  ["2026-07-21", 12657, 48, 16, 6, 72.3],
+  ["2026-07-22", 12692, 35, 10, 4, 72.6],
+  ["2026-07-23", 12733, 41, 13, 5, 72.8],
+].map(([snapshotDay, totalReviews, delta, issueLanguageCount, leadsRetained, positivePercentage]) => ({
   snapshot_day: snapshotDay,
   collected_at: `${snapshotDay}T23:20:00.000Z`,
   total_reviews: totalReviews,
-  total_positive: Math.round(totalReviews * 0.724),
-  total_negative: totalReviews - Math.round(totalReviews * 0.724),
-  positive_percentage: 72.4,
+  total_positive: Math.round(totalReviews * (positivePercentage / 100)),
+  total_negative: totalReviews - Math.round(totalReviews * (positivePercentage / 100)),
+  positive_percentage: positivePercentage,
   review_count_delta: delta,
   reviews_scanned: Math.min(100, delta + 20),
   issue_language_count: issueLanguageCount,
@@ -549,8 +553,13 @@ const steamPulseSnapshots = [
 }));
 
 const platformContextSnapshots = [
-  {
-    captured_at: isoMinutesAgo(35),
+  [35, 184, 12840],
+  [155, 201, 15120],
+  [395, 142, 9840],
+  [755, 118, 7210],
+  [1195, 96, 5630],
+].map(([minutesAgo, liveStreams, liveViewers]) => ({
+    captured_at: isoMinutesAgo(minutesAgo),
     igdb_status: "ok",
     igdb_game_id: 121752,
     igdb_name: "Crimson Desert",
@@ -559,11 +568,10 @@ const platformContextSnapshots = [
     igdb_first_release_at: "2026-07-08T00:00:00.000Z",
     igdb_platforms: ["PC", "PlayStation 5", "Xbox Series X|S"],
     twitch_status: "ok",
-    twitch_live_streams: 184,
-    twitch_live_viewers: 12840,
+    twitch_live_streams: liveStreams,
+    twitch_live_viewers: liveViewers,
     twitch_complete: true,
-  },
-];
+  }));
 
 const scannerFeedbackRules = [];
 

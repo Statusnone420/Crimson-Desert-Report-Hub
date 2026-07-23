@@ -159,12 +159,12 @@ for (let i = 0; i < LEADS; i += 1) {
     source_type: "web_search",
     source_url: `https://${domain}/preview/${PATCH.replaceAll(".", "-")}/thread-${i}`,
     canonical_url: `https://${domain}/preview/${PATCH.replaceAll(".", "-")}/thread-${i}`,
-    title: `${symptom} since patch ${PATCH}`,
+    title: `Crimson Desert: ${symptom} since patch ${PATCH}`,
     source_domain: domain,
     semantic_fingerprint: `preview-${category}-${i}`,
     cluster_id: cluster.id,
     public_status: status,
-    summary: `User reports ${symptom} after patch ${PATCH}.`,
+    summary: `Crimson Desert user reports ${symptom} after patch ${PATCH}.`,
     category,
     confidence: weighted([
       ["medium", 6],
@@ -355,9 +355,12 @@ const steamPulseSnapshots = Array.from({ length: Math.min(DAYS, 10) }, (_, index
   };
 });
 
-const platformContextSnapshots = [
-  {
-    captured_at: iso(nowMs - 35 * 60 * 1000),
+const platformContextSnapshots = Array.from({ length: 8 }, (_, index) => {
+  const hoursAgo = 0.5 + index * 3;
+  const liveStreams = 184 + Math.round(Math.sin(index * 1.4) * 42);
+  const liveViewers = 12840 + Math.round(Math.sin(index * 1.1) * 4300);
+  return {
+    captured_at: iso(nowMs - hoursAgo * 60 * 60 * 1000),
     igdb_status: "ok",
     igdb_game_id: 121752,
     igdb_name: "Crimson Desert",
@@ -366,11 +369,11 @@ const platformContextSnapshots = [
     igdb_first_release_at: iso(patchPublishedMs),
     igdb_platforms: ["PC", "PlayStation 5", "Xbox Series X|S"],
     twitch_status: "ok",
-    twitch_live_streams: 184,
-    twitch_live_viewers: 12840,
+    twitch_live_streams: liveStreams,
+    twitch_live_viewers: liveViewers,
     twitch_complete: true,
-  },
-];
+  };
+});
 
 const seed = {
   issue_clusters: clusters,

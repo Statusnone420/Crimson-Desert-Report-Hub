@@ -183,7 +183,16 @@ describe("composePatchRadarData buckets and recurrence", () => {
       signals: [signal({ first_seen_at: "2026-07-16T12:00:00Z", seen_count: 5, public_status: "public" })],
     });
     expect(data.recurrence).toEqual([
-      { daysTracked: 3, daysSinceSeen: 0, seenCount: 5, isPublic: true, category: "performance" },
+      {
+        daysTracked: 3,
+        daysSinceSeen: 0,
+        hoursTracked: 72,
+        hoursSinceSeen: 2,
+        recencyBand: "under_6h",
+        seenCount: 5,
+        isPublic: true,
+        category: "performance",
+      },
     ]);
     expect(data.recurring.recurringLeads).toBe(1);
   });

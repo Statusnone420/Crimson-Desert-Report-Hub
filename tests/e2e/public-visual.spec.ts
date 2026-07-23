@@ -426,7 +426,11 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Public-source intelligence, counted in aggregate. Never player evidence.")).toBeVisible();
     // The radar screen: polar working-set field, position first, hues redundant.
     await expect(page.getByRole("img", { name: /Radar screen: \d+ tracked leads/ })).toBeVisible();
-    await expect(page.getByText(/center = seen today/i)).toBeVisible();
+    await expect(page.getByText(/Recency from center: latest scan/i)).toBeVisible();
+    await expect(page.locator(".radar-screen text").filter({ hasText: "TRACKED" })).toHaveCount(0);
+    await expect(page.locator('.radar-screen [data-recency-band="under_6h"]').first()).toBeVisible();
+    await expect(page.locator('.radar-screen [data-recency-band="1_3d"]').first()).toBeVisible();
+    await expect(page.getByRole("list", { name: "Tracked radar leads ranked by problem area" })).toBeVisible();
     // Season almanac: one ramp per register, never blended.
     await expect(page.getByRole("img", { name: /Season calendar, evidence row/ })).toBeVisible();
     await expect(page.getByRole("img", { name: /Season calendar, radar row/ })).toBeVisible();
@@ -721,8 +725,17 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("list", { name: "Tracked radar leads ranked by problem area" })).toBeVisible();
     await expect(page.getByText(/Real publication dates: \d+\/\d+/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Context, not evidence" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Review activity" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Release and interest at capture" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Review count/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /Review volume across \d+ recorded snapshots/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /Positive share across \d+ recorded snapshots/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Release and Twitch interest" })).toBeVisible();
+    await expect(page.getByText("PlayStation 5", { exact: false })).toBeVisible();
+    await expect(page.getByRole("link", { name: "View on IGDB ↗" })).toHaveAttribute(
+      "href",
+      "https://www.igdb.com/games/crimson-desert",
+    );
+    await expect(page.getByText("24h peak", { exact: true })).toBeVisible();
+    await expect(page.getByText("24h low", { exact: true })).toBeVisible();
     const scannerHtml = await page.content();
     expect(scannerHtml).not.toContain("Possible mount input lockup");
     expect(scannerHtml).not.toContain("Private mapped candidate used to prove public question rendering");

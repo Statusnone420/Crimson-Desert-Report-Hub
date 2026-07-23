@@ -12,6 +12,7 @@ import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
+import { classifyRadarRecency, type RadarRecencyBandId } from "@/lib/radarDisplay";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 /**
@@ -65,6 +66,11 @@ export type RadarRecurrencePoint = {
   daysTracked: number;
   /** Whole days since the scanner last saw this lead (scanner time, not source time). */
   daysSinceSeen: number;
+  /** Whole hours retained for semantic recency bands and readable durations. */
+  hoursTracked: number;
+  /** Whole hours since the last scanner observation. */
+  hoursSinceSeen: number;
+  recencyBand: RadarRecencyBandId;
   seenCount: number;
   isPublic: boolean;
   category: string;
@@ -281,6 +287,14 @@ export function composePatchRadarData(input: {
   const maxSeenCount = tracked.reduce((max, row) => Math.max(max, row.seen_count ?? 1), 0);
   const lastSeenMs = (row: RadarSignalRow) =>
     parseTime(row.last_seen_at) ?? parseTime(row.observed_at) ?? firstSeenMs(row);
+  const latestSuccessfulScanMs = [
+    ...intakeRuns,
+    ...(input.latestTerminalRun && isIntakeRun(input.latestTerminalRun) ? [input.latestTerminalRun] : []),
+  ].reduce(
+    (latest, run) =>
+      run.status === "failed" ? latest : Math.max(latest, parseTime(run.started_at) ?? 0),
+    0,
+  );
   // Supabase does not guarantee row order. Keep the capped visual deterministic
   // and spend the cap on the leads with the freshest scanner observations.
   const recurrenceRows = [...tracked].sort(
@@ -289,13 +303,26 @@ export function composePatchRadarData(input: {
       firstSeenMs(b) - firstSeenMs(a) ||
       (b.seen_count ?? 1) - (a.seen_count ?? 1),
   );
-  const recurrence: RadarRecurrencePoint[] = recurrenceRows.slice(0, RECURRENCE_POINT_CAP).map((row) => ({
-    daysTracked: Math.max(0, Math.floor((nowMs - firstSeenMs(row)) / DAY_MS)),
-    daysSinceSeen: Math.max(0, Math.floor((nowMs - lastSeenMs(row)) / DAY_MS)),
-    seenCount: Math.max(1, row.seen_count ?? 1),
-    isPublic: row.public_status === "public",
-    category: CATEGORY_SET.has(row.category) ? row.category : "other",
-  }));
+  const recurrence: RadarRecurrencePoint[] = recurrenceRows.slice(0, RECURRENCE_POINT_CAP).map((row) => {
+    const firstSeen = firstSeenMs(row);
+    const lastSeen = lastSeenMs(row);
+    const hoursTracked = Math.max(0, Math.floor((nowMs - firstSeen) / (60 * 60 * 1000)));
+    const hoursSinceSeen = Math.max(0, Math.floor((nowMs - lastSeen) / (60 * 60 * 1000)));
+    return {
+      daysTracked: Math.floor(hoursTracked / 24),
+      daysSinceSeen: Math.floor(hoursSinceSeen / 24),
+      hoursTracked,
+      hoursSinceSeen,
+      recencyBand: classifyRadarRecency({
+        lastSeenAt: new Date(lastSeen),
+        latestScanAt: latestSuccessfulScanMs > 0 ? new Date(latestSuccessfulScanMs) : null,
+        now,
+      }),
+      seenCount: Math.max(1, row.seen_count ?? 1),
+      isPublic: row.public_status === "public",
+      category: CATEGORY_SET.has(row.category) ? row.category : "other",
+    };
+  });
 
   // --- Buckets ---
   const categoryTotals = new Map<string, { tracked: number; new7d: number }>();
