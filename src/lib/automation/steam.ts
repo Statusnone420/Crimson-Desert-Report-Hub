@@ -123,7 +123,13 @@ export async function fetchSteamReviewBatch({
     .map(parseReview)
     .filter((review): review is SteamReviewCandidate => review !== null);
   const query = payload.query_summary;
-  if (!query || typeof query !== "object") {
+  const hasCompleteTotals =
+    query &&
+    typeof query === "object" &&
+    query.total_reviews !== undefined &&
+    query.total_positive !== undefined &&
+    query.total_negative !== undefined;
+  if (!hasCompleteTotals) {
     if (cursor !== "*" && fallbackTotals) {
       return {
         reviews,
