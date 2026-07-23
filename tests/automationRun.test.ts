@@ -95,6 +95,7 @@ type TableName =
   | "automation_settings";
 type Filter =
   | { type: "eq"; column: string; value: unknown }
+  | { type: "neq"; column: string; value: unknown }
   | { type: "is"; column: string; value: unknown }
   | { type: "gte"; column: string; value: unknown }
   | { type: "gt"; column: string; value: unknown }
@@ -175,6 +176,7 @@ function likeToRegExp(pattern: string): RegExp {
 function passesFilter(row: Row, filter: Filter): boolean {
   const value = row[filter.column];
   if (filter.type === "eq") return value === filter.value;
+  if (filter.type === "neq") return value !== filter.value;
   if (filter.type === "is" && filter.value === null) return value == null;
   if (filter.type === "is") return value === filter.value;
   if (filter.type === "in") return filter.value.includes(value);
@@ -231,6 +233,11 @@ class FakeQuery {
 
   eq(column: string, value: unknown) {
     this.filters.push({ type: "eq", column, value });
+    return this;
+  }
+
+  neq(column: string, value: unknown) {
+    this.filters.push({ type: "neq", column, value });
     return this;
   }
 
@@ -5270,7 +5277,9 @@ describe("Steam Pulse intake", () => {
     expect(result.signalsInserted).toBe(1);
     const steamSignals = tables.source_signals.filter((row) => row.source === "steam_review");
     expect(steamSignals).toHaveLength(1);
+    expect(tables.issue_clusters).toHaveLength(0);
     expect(steamSignals[0]).toMatchObject({
+      cluster_id: null,
       source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
       raw_text: "Since patch 1.13 the game stutters and crashes every ten minutes on Steam.",
       public_status: "private",

@@ -1463,12 +1463,13 @@ async function findExistingSignalCluster(
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from("source_signals")
-    .select("cluster_id")
+    .select("cluster_id, source")
     .eq("semantic_fingerprint", semantic)
     .not("cluster_id", "is", null)
+    .neq("source", "steam_review")
     .limit(1);
   if (error) throw new Error(`existing signal cluster read failed: ${error.message}`);
-  const rows = (data ?? []) as { cluster_id?: string | null }[];
+  const rows = (data ?? []) as SourceSignalRow[];
   return rows[0]?.cluster_id ?? null;
 }
 
@@ -1528,7 +1529,7 @@ async function resolveClusterId(
   reports: ApprovedReportRow[],
   clusterBySemantic: Map<string, string>,
   routableClusters: RoutableCluster[],
-): Promise<string> {
+): Promise<string | null> {
   const cached = clusterBySemantic.get(signal.semantic);
   if (cached) return cached;
 
@@ -1543,6 +1544,14 @@ async function resolveClusterId(
     routableClusters,
   );
   const reportCluster = matchingReportCluster(signal, reports);
+  if (signal.source === "steam_review") {
+    // Steam is private provider context, never player evidence. It may support
+    // a cluster whose public-safe metadata already exists, but it must not
+    // create durable titles or descriptions from an individual review.
+    const clusterId = existingSignalCluster ?? routedCluster?.id ?? reportCluster;
+    if (clusterId) clusterBySemantic.set(signal.semantic, clusterId);
+    return clusterId ?? null;
+  }
   const existingAutoCluster =
     existingSignalCluster || routedCluster?.id || reportCluster
       ? null
@@ -1605,7 +1614,7 @@ async function recordReobservationEvent(
 async function upsertSignal(
   supabase: ReturnType<typeof createServiceClient>,
   signal: PreparedSignal,
-  clusterId: string,
+  clusterId: string | null,
   now: Date,
   runId: string | null,
 ): Promise<SignalPersistence> {
@@ -1894,6 +1903,7 @@ async function persistOneSignal(
   runId: string | null,
 ): Promise<{ clusterId: string; promoted: boolean; reobserved: boolean }> {
   const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
+  if (!clusterId) throw new Error("rescued signal did not resolve to a cluster");
   const touchedClusters = new Set([clusterId]);
   let persistence: SignalPersistence | null = null;
   let persistenceError: unknown = null;
@@ -1938,7 +1948,7 @@ async function persistSignals(
     const reports = await loadApprovedReports(supabase);
     for (const signal of signals) {
       const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
-      touchedClusters.add(clusterId);
+      if (clusterId) touchedClusters.add(clusterId);
       const persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
       if (signal.source === "steam_review" && signal.steam?.recommendationHash) {
         persistedSteamReviewHashes.add(signal.steam.recommendationHash);
