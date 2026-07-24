@@ -17,10 +17,20 @@ nameplate stack.
 <head>
 <meta charset="utf-8">
 <title>Crimson Desert Report Hub — share card</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* Vendored (fonts/): render.mjs must work offline and byte-match previews. */
+  @font-face {
+    font-family: "Instrument Serif"; font-style: normal; font-weight: 400;
+    src: url("fonts/instrument-serif-400.woff2") format("woff2");
+  }
+  @font-face {
+    font-family: "Instrument Serif"; font-style: italic; font-weight: 400;
+    src: url("fonts/instrument-serif-400-italic.woff2") format("woff2");
+  }
+  @font-face {
+    font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500;
+    src: url("fonts/ibm-plex-mono-500.woff2") format("woff2");
+  }
   :root {
     --bg: #110e0b;
     --ink: #ece4d3;
