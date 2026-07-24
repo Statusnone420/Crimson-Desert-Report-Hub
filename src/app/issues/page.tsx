@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { ResolvingMetadata } from "next";
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
 import { PublicShell } from "@/components/dispatch/Chrome";
@@ -8,11 +8,11 @@ import { DISPLAY_THRESHOLD_NETWORKS } from "@/lib/readout";
 import { displayDescription, hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
+import { routeMetadata } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "Issue Board",
-  alternates: { canonical: "/issues" },
-};
+export function generateMetadata(_props: object, parent: ResolvingMetadata) {
+  return routeMetadata("Issue Board", "/issues", parent);
+}
 
 export const revalidate = 300;
 

@@ -10,3 +10,41 @@ export const SITE_OG_DESCRIPTION =
   "What changed. What players are reporting. What matters now. An unofficial, fan-run field report on the current state of the game.";
 export const SOURCE_URL = "https://github.com/Statusnone420/Crimson-Desert-Report-Hub";
 export const PEARL_ABYSS_SUPPORT_URL = "https://support.pearlabyss.com/";
+
+/**
+ * Root Open Graph block. Never add `images`: the opengraph-image.png file
+ * convention attaches the share card only while the metadata object omits
+ * that key.
+ */
+export function routeOpenGraph(path: "/" | `/${string}`) {
+  return {
+    type: "website",
+    url: path,
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_OG_DESCRIPTION,
+  } satisfies NonNullable<import("next").Metadata["openGraph"]>;
+}
+
+/**
+ * Per-route metadata: distinct title, matching canonical + og:url. Built on
+ * generateMetadata parent resolution because a plain route-level `openGraph`
+ * object shallow-replaces the root's RESOLVED block — silently dropping the
+ * share-card images the file convention attached there. Spreading the
+ * resolved parent keeps those images (hashed URLs included) and overrides
+ * only the URL.
+ */
+export async function routeMetadata(
+  title: string,
+  path: `/${string}`,
+  parent: import("next").ResolvingMetadata,
+): Promise<import("next").Metadata> {
+  const parentOpenGraph = (await parent).openGraph as
+    | NonNullable<import("next").Metadata["openGraph"]>
+    | null;
+  return {
+    title,
+    alternates: { canonical: path },
+    openGraph: { ...parentOpenGraph, url: path },
+  };
+}

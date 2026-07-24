@@ -1,12 +1,11 @@
-import type { Metadata } from "next";
+import type { ResolvingMetadata } from "next";
 import Link from "next/link";
 import { PublicShell } from "@/components/dispatch/Chrome";
-import { SOURCE_URL } from "@/lib/site";
+import { routeMetadata, SOURCE_URL } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "Method",
-  alternates: { canonical: "/about" },
-};
+export function generateMetadata(_props: object, parent: ResolvingMetadata) {
+  return routeMetadata("Method", "/about", parent);
+}
 
 export default function AboutPage() {
   return (

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import sitemap from "@/app/sitemap";
-import { SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL } from "@/lib/site";
+import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL } from "@/lib/site";
 import { serializeJsonLd, webSiteJsonLd } from "@/lib/structuredData";
 
 vi.mock("server-only", () => ({}));
@@ -70,16 +70,43 @@ describe("search and share metadata", () => {
     expect(serializeJsonLd(data)).toContain('"@type":"WebSite"');
   });
 
-  it("gives each public route a distinct title and its own canonical", async () => {
+  it("gives each route a distinct title, matching canonical and og:url, and keeps the parent's share images", async () => {
     const [issues, report, about, scanner] = await Promise.all([
       import("@/app/issues/page"),
       import("@/app/report/page"),
       import("@/app/about/page"),
       import("@/app/scanner/page"),
     ]);
-    expect(issues.metadata).toMatchObject({ title: "Issue Board", alternates: { canonical: "/issues" } });
-    expect(report.metadata).toMatchObject({ title: "File a Report", alternates: { canonical: "/report" } });
-    expect(about.metadata).toMatchObject({ title: "Method", alternates: { canonical: "/about" } });
-    expect(scanner.metadata).toMatchObject({ title: "The Observatory", alternates: { canonical: "/scanner" } });
+    // The resolved root openGraph as Next hands it to generateMetadata: it
+    // already carries the file-convention share image. A route override must
+    // keep that image while pointing og:url at itself.
+    const parent = Promise.resolve({
+      openGraph: {
+        type: "website",
+        url: `${SITE_URL}`,
+        siteName: SITE_NAME,
+        title: SITE_NAME,
+        description: SITE_OG_DESCRIPTION,
+        images: [{ url: `${SITE_URL}/opengraph-image.png?hash`, width: 1200, height: 630 }],
+      },
+    }) as never;
+
+    const expectations = [
+      [issues, "Issue Board", "/issues"],
+      [report, "File a Report", "/report"],
+      [about, "Method", "/about"],
+      [scanner, "The Observatory", "/scanner"],
+    ] as const;
+    for (const [page, title, path] of expectations) {
+      const meta = await page.generateMetadata({}, parent);
+      expect(meta).toMatchObject({ title, alternates: { canonical: path } });
+      const og = meta.openGraph as Record<string, unknown>;
+      expect(og.url).toBe(path);
+      expect(og).toMatchObject({ siteName: SITE_NAME, title: SITE_NAME, description: SITE_OG_DESCRIPTION });
+      expect(og.images).toEqual([{ url: `${SITE_URL}/opengraph-image.png?hash`, width: 1200, height: 630 }]);
+    }
+    // The root block stays image-free so the file convention attaches there.
+    expect(routeOpenGraph("/")).not.toHaveProperty("images");
+    expect(routeOpenGraph("/").url).toBe("/");
   });
 });

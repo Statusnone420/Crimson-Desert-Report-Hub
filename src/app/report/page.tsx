@@ -1,12 +1,12 @@
-import type { Metadata } from "next";
+import type { ResolvingMetadata } from "next";
 import { ReportForm } from "@/app/report/ReportForm";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { getReportPatchContext } from "@/lib/officialPatch.server";
+import { routeMetadata } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "File a Report",
-  alternates: { canonical: "/report" },
-};
+export function generateMetadata(_props: object, parent: ResolvingMetadata) {
+  return routeMetadata("File a Report", "/report", parent);
+}
 
 export const revalidate = 300;
 

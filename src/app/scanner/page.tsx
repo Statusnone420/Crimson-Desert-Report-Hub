@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { ResolvingMetadata } from "next";
 import { OperatorShell, PublicShell } from "@/components/dispatch/Chrome";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { PublicScannerView } from "@/components/scanner/PublicScannerView";
@@ -6,11 +6,11 @@ import { isAdmin } from "@/lib/adminGuard";
 import { applyLlmCircuitToStatuses, integrationStatuses } from "@/lib/env";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getAutomationAdminData, getIssuesData, getPublicScannerData } from "@/lib/queries";
+import { routeMetadata } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "The Observatory",
-  alternates: { canonical: "/scanner" },
-};
+export function generateMetadata(_props: object, parent: ResolvingMetadata) {
+  return routeMetadata("The Observatory", "/scanner", parent);
+}
 
 export const dynamic = "force-dynamic";
 
