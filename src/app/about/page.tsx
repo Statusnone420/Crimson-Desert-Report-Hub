@@ -83,8 +83,8 @@ export default function AboutPage() {
                 and links stay private until something backs them up.
               </p>
               <p>
-                Teaching the scanner can only narrow what it finds next time, or drop a lead it already had. It
-                can never publish one. The{" "}
+                Teaching the scanner changes what it keeps next time. It can&rsquo;t put a link past the
+                publishing bar. The{" "}
                 <Link href="/scanner" className="dispatch-link">
                   Observatory
                 </Link>{" "}
@@ -98,8 +98,8 @@ export default function AboutPage() {
               <span className="method-row__ask">How do you know a source is about this patch?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                It has to be published on or after patch day. When a page doesn&rsquo;t say when it went up, we
-                say that instead of guessing.
+                It has to name this patch outright, or have gone up on or after patch day. When a page
+                doesn&rsquo;t say when it went up, we say that instead of guessing.
               </span>
             </summary>
             <div className="method-row__more">
@@ -125,7 +125,9 @@ export default function AboutPage() {
               <p>
                 What can show up publicly: a count, a summary built from the options you picked, or a short
                 excerpt a moderator approved — never your raw words by default. The save-file helper on the
-                report page reads files on your machine and uploads nothing.
+                report page reads files in your browser, and the files themselves never leave your machine. Only
+                the short note it writes — which you can edit or delete before sending — goes in with your
+                report.
               </p>
             </div>
           </details>
@@ -140,10 +142,7 @@ export default function AboutPage() {
               </span>
             </summary>
             <div className="method-row__more">
-              <p>
-                If something can&rsquo;t be read at all, we say so rather than show a zero we can&rsquo;t stand
-                behind. Counts are never invented, estimated, or rounded up.
-              </p>
+              <p>Report and tap counts are never invented, estimated, or rounded.</p>
             </div>
           </details>
 
@@ -152,11 +151,16 @@ export default function AboutPage() {
               <span className="method-row__ask">When does a source link go public?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                When an approved player report backs it, or several independent sources say the same thing. It
-                stays a lead either way.
+                When a trusted source lines up with an approved player report, or several independent sources say
+                the same thing. It stays a lead either way.
               </span>
             </summary>
             <div className="method-row__more">
+              <p>
+                A link from a site we don&rsquo;t know needs more backup than one from a site we do — a report
+                alone isn&rsquo;t enough to publish it. Links that don&rsquo;t clear the bar stay private unless a
+                maintainer publishes one by hand.
+              </p>
               <p>
                 Published issues show the links and excerpts behind them, so you can check them yourself instead
                 of taking our word for it.
