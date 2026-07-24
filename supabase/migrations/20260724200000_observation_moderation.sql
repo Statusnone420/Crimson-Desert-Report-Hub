@@ -41,6 +41,7 @@ as $$
 declare
   new_decision_id uuid := gen_random_uuid();
   new_rule_id uuid := gen_random_uuid();
+  hidden_count integer;
 begin
   if p_observation_id is null then
     raise exception 'observation id is required' using errcode = '22023';
@@ -83,6 +84,21 @@ begin
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('scanner-feedback:' || p_scope_type || ':' || p_scope_value, 0)
   );
+
+  -- The hide is the decision's own explicit act, not a side effect of the
+  -- rule — and it doubles as the visibility guard inside the locked
+  -- transaction: a concurrent reject that already hid this row fails here
+  -- before writing anything, so one observation can never carry two active
+  -- decisions and Undo always restores exactly one act.
+  update public.patch_observations
+  set is_public = false
+  where id = p_observation_id
+    and is_public = true;
+  get diagnostics hidden_count = row_count;
+  if hidden_count = 0 then
+    raise exception 'observation is already hidden — undo its existing decision before deciding again'
+      using errcode = '55000';
+  end if;
 
   insert into public.scanner_decisions (
     id,
@@ -131,11 +147,6 @@ begin
     and scope_type = p_scope_type
     and scope_value = p_scope_value
     and revoked_at is null;
-
-  -- The hide is the decision's own explicit act, not a side effect of the rule.
-  update public.patch_observations
-  set is_public = false
-  where id = p_observation_id;
 
   return query select new_decision_id, new_rule_id;
 end;

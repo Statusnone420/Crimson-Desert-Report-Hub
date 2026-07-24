@@ -159,21 +159,25 @@ describe("getPublicObservations", () => {
     });
     // Bad rows listed first: a far-future date sorts ahead of everything under
     // source-date desc, so without a server-side gate it would fill the limit.
+    // "patch-day" is a date-only source (midnight UTC) on the patch's publish
+    // day — in-era even though the patch note carries a later clock time.
     const rows = [
       coverageRow("future-1", "2099-01-01T00:00:00Z"),
       coverageRow("future-2", "2099-01-02T00:00:00Z"),
       coverageRow("pre-era", "2026-07-10T00:00:00Z"),
-      ...Array.from({ length: 8 }, (_, index) =>
+      coverageRow("patch-day", "2026-07-15T00:00:00Z"),
+      ...Array.from({ length: 7 }, (_, index) =>
         coverageRow(`valid-${index}`, `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`),
       ),
     ];
 
     const lanes = await getPublicObservations(observationClient(rows) as never, {
       version: "1.13.01",
-      publishedAt: "2026-07-15T00:00:00Z",
+      publishedAt: "2026-07-15T06:00:00Z",
     });
 
     expect(lanes.coverage).toHaveLength(8);
+    expect(lanes.coverage.map((observation) => observation.id)).toContain("patch-day");
     expect(lanes.coverage.map((observation) => observation.id)).toEqual(
       expect.not.arrayContaining(["future-1", "future-2", "pre-era"]),
     );
@@ -253,6 +257,14 @@ describe("getPublicObservations", () => {
     expect(isDisplayableDatedObservation({ source_published_at: "not a date" }, null, nowMs)).toBe(false);
     expect(
       isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, "2026-07-24T00:00:00Z", nowMs),
+    ).toBe(false);
+    // Date-only provider dates land at midnight UTC: a patch-day source stays
+    // in-era even when the patch note carries a later clock time that day.
+    expect(
+      isDisplayableDatedObservation({ source_published_at: "2026-07-08T00:00:00Z" }, "2026-07-08T05:51:00Z", nowMs),
+    ).toBe(true);
+    expect(
+      isDisplayableDatedObservation({ source_published_at: "2026-07-07T23:59:00Z" }, "2026-07-08T05:51:00Z", nowMs),
     ).toBe(false);
     // Bogus future dates from providers stay off the lanes (48h skew allowed).
     expect(isDisplayableDatedObservation({ source_published_at: "2026-07-25T12:00:00Z" }, null, nowMs)).toBe(true);

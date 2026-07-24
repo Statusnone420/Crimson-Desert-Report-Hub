@@ -633,6 +633,18 @@ export function isPublicObservationEligible(row: PatchObservationRow, patchVersi
 /** Providers occasionally report nonsense future dates; allow clock skew only. */
 const OBSERVATION_FUTURE_SKEW_MS = 48 * 60 * 60 * 1000;
 
+/**
+ * Era floor: the START of the patch's UTC publish day. Date-only provider
+ * dates land at midnight UTC, so patch-day coverage must not lose to a patch
+ * note that carries a later clock time on the same day.
+ */
+function patchEraFloorMs(patchPublishedAt: string | null): number {
+  if (!patchPublishedAt) return Number.NaN;
+  const publishedAt = new Date(patchPublishedAt).getTime();
+  if (!Number.isFinite(publishedAt)) return Number.NaN;
+  return new Date(publishedAt).setUTCHours(0, 0, 0, 0);
+}
+
 export function isDisplayableDatedObservation(
   row: Pick<PatchObservationRow, "source_published_at">,
   patchPublishedAt: string | null,
@@ -641,10 +653,8 @@ export function isDisplayableDatedObservation(
   const published = row.source_published_at ? new Date(row.source_published_at).getTime() : Number.NaN;
   if (!Number.isFinite(published)) return false;
   if (published > nowMs + OBSERVATION_FUTURE_SKEW_MS) return false;
-  if (patchPublishedAt) {
-    const eraStart = new Date(patchPublishedAt).getTime();
-    if (Number.isFinite(eraStart) && published < eraStart) return false;
-  }
+  const eraStart = patchEraFloorMs(patchPublishedAt);
+  if (Number.isFinite(eraStart) && published < eraStart) return false;
   return true;
 }
 
@@ -699,8 +709,8 @@ export async function getPublicObservations(
     // of nonsense far-future provider dates would otherwise sort first, consume
     // the limit, then be dropped client-side — starving the lane of valid rows.
     const latestAllowedIso = new Date(Date.now() + OBSERVATION_FUTURE_SKEW_MS).toISOString();
-    const eraStartIso =
-      patch.publishedAt && Number.isFinite(new Date(patch.publishedAt).getTime()) ? patch.publishedAt : null;
+    const eraFloorMs = patchEraFloorMs(patch.publishedAt);
+    const eraStartIso = Number.isFinite(eraFloorMs) ? new Date(eraFloorMs).toISOString() : null;
     const laneQuery = (lane: "coverage" | "asks") => {
       const base = supabase
         .from("patch_observations")
