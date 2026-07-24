@@ -746,14 +746,6 @@ function requireRows<T>(what: string, result: { data: T[] | null; error: { messa
   return result.data ?? [];
 }
 
-function requireCount(
-  what: string,
-  result: { count: number | null; error: { message?: string | null } | null },
-): number {
-  if (result.error) throw new Error(`${what} read failed: ${result.error.message ?? "unknown error"}`);
-  return result.count ?? 0;
-}
-
 /**
  * Scanner run history is context, not evidence. Its failure degrades to the
  * existing "no recorded run" state on its own — it must not flip the whole
@@ -857,18 +849,31 @@ async function readDashboardData() {
   }
   const rawSignalRows = (signalsRes.data ?? []) as SignalRow[];
 
-  const verifiedRows = requireRows(
-    "approved excerpts",
-    await supabase.from("approved_excerpts").select("report_id, bug_reports(cluster_id)").limit(1000),
-  ) as VerifiedReportClusterRow[];
+  // Verified-excerpt and pending-moderation metrics are ancillary — neither
+  // feeds readouts, ranking, or any homepage cell. They degrade on their own
+  // (logged) instead of taking validly read evidence down with them.
+  const verifiedRes = await supabase.from("approved_excerpts").select("report_id, bug_reports(cluster_id)").limit(1000);
+  if (verifiedRes.error) {
+    console.error("[dashboard] approved-excerpt read failed; verified metric unavailable", verifiedRes.error);
+  }
+  const verifiedRows = (verifiedRes.data ?? []) as VerifiedReportClusterRow[];
 
-  const pendingCount = requireCount(
-    "pending reports",
-    await supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
-  );
+  const pendingRes = await supabase
+    .from("bug_reports")
+    .select("id", { count: "exact", head: true })
+    .eq("moderation_status", "pending");
+  if (pendingRes.error) {
+    console.error("[dashboard] pending-count read failed; moderation metric unavailable", pendingRes.error);
+  }
+  const pendingCount = pendingRes.error ? null : pendingRes.count ?? 0;
 
   const [scanner, latestAutomation, currentPatch, claimedFixes] = await Promise.all([
-    getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+    // Scanner configuration is provider context: its failure degrades to the
+    // neutral control state (logged) instead of blanking the evidence board.
+    getAutomationControlState(supabase as unknown as AutomationSettingsClient).catch((error: unknown) => {
+      console.error("[dashboard] automation-settings read failed; showing neutral scanner state", error);
+      return { paused: false, updatedAt: null };
+    }),
     supabase
       .from("automation_runs")
       .select(

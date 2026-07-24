@@ -10,6 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   claimedFixes: vi.fn(async (): Promise<{ fixText: string; category: string | null }[]> => []),
+  controlState: vi.fn(async (): Promise<{ paused: boolean; updatedAt: string | null }> => ({
+    paused: false,
+    updatedAt: null,
+  })),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -31,7 +35,7 @@ vi.mock("@/lib/officialPatch.server", () => ({
   getClaimedFixesForCurrentPatch: mocks.claimedFixes,
 }));
 vi.mock("@/lib/automation/settings", () => ({
-  getAutomationControlState: async () => ({ paused: false, updatedAt: null, minIntervalMinutes: 60 }),
+  getAutomationControlState: mocks.controlState,
 }));
 
 /** Chainable query stub: every builder method returns itself; awaiting it resolves the injected result. */
@@ -50,6 +54,23 @@ function failingQuery(message: string) {
 
 function okQuery() {
   return stubQuery({ data: [], error: null, count: 0 });
+}
+
+/** bug_reports stub that succeeds for approved reads but fails the pending count. */
+function pendingFailingBugReports() {
+  let pending = false;
+  const query: Record<string, unknown> = {};
+  for (const method of ["select", "eq", "neq", "in", "gte", "lte", "not", "order", "limit", "range"]) {
+    query[method] = (...args: unknown[]) => {
+      if (method === "eq" && args[1] === "pending") pending = true;
+      return query;
+    };
+  }
+  query.then = (resolve: (value: unknown) => unknown) =>
+    Promise.resolve(
+      pending ? { data: null, error: { message: "pending count failed" }, count: null } : { data: [], error: null, count: 0 },
+    ).then(resolve);
+  return query;
 }
 
 describe("dashboard loader under a failed read", () => {
@@ -116,6 +137,54 @@ describe("dashboard loader under a failed read", () => {
     expect(data.publicFindings).toEqual([]);
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("source-signal read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the evidence board when scanner settings are unreadable", async () => {
+    // Scanner configuration is provider context, not player evidence.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation(() => okQuery());
+    mocks.controlState.mockRejectedValueOnce(new Error("automation_settings unavailable"));
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.scanner).toEqual({ paused: false, updatedAt: null });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("automation-settings read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the evidence board when only the pending moderation count fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "bug_reports" ? pendingFailingBugReports() : okQuery(),
+    );
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.pendingCount).toBeNull();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("pending-count read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the evidence board when the approved-excerpt read fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "approved_excerpts" ? failingQuery("permission denied for table approved_excerpts") : okQuery(),
+    );
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.verifiedReports).toBe(0);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("approved-excerpt read failed"),
       expect.anything(),
     );
   });
