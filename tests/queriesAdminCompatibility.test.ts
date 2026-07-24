@@ -226,6 +226,56 @@ describe("getAutomationAdminData rolling migration compatibility", () => {
 
     await expect(getAutomationAdminData()).rejects.toThrow("scanner feedback rules read failed: permission denied");
   });
+
+  it("surfaces unrelated observation read failures instead of an empty desk", async () => {
+    resolveQuery = (trace) =>
+      trace.table === "patch_observations"
+        ? { data: null, error: { code: "42501", message: "permission denied" } }
+        : { data: [], error: null };
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    await expect(getAutomationAdminData()).rejects.toThrow("observations read failed: permission denied");
+  });
+
+  it("treats only a missing patch_observations relation as an empty desk", async () => {
+    resolveQuery = (trace) =>
+      trace.table === "patch_observations"
+        ? {
+            data: null,
+            error: {
+              code: "PGRST205",
+              message: "Could not find the table patch_observations in the schema cache",
+            },
+          }
+        : { data: [], error: null };
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    const data = await getAutomationAdminData();
+
+    expect(data.observations).toEqual([]);
+  });
+
+  it("scopes the decision lookup to the listed observations so no Undo falls past the cap", async () => {
+    resolveQuery = (trace) =>
+      trace.table === "patch_observations"
+        ? {
+            data: [
+              { id: "observation-1", is_public: false },
+              { id: "observation-2", is_public: true },
+            ],
+            error: null,
+          }
+        : { data: [], error: null };
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    await getAutomationAdminData();
+
+    const decisionTrace = traces.find(
+      (trace) => trace.table === "scanner_decisions" && trace.columns.includes("observation_id"),
+    );
+    expect(decisionTrace).toBeDefined();
+    expect(decisionTrace!.operations).toContain("in:observation_id:observation-1|observation-2");
+  });
 });
 
 describe("public platform reader rolling migration compatibility", () => {

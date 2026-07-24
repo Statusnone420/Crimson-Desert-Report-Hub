@@ -61,6 +61,20 @@ function observationClient(rows: ObservationQueryRow[], error: { message: string
           }
           return query;
         },
+        lte(column: string, value: string) {
+          filters.push((row) => {
+            const current = row[column as keyof ObservationQueryRow];
+            return typeof current === "string" && new Date(current).getTime() <= new Date(value).getTime();
+          });
+          return query;
+        },
+        gte(column: string, value: string) {
+          filters.push((row) => {
+            const current = row[column as keyof ObservationQueryRow];
+            return typeof current === "string" && new Date(current).getTime() >= new Date(value).getTime();
+          });
+          return query;
+        },
         order() {
           return query;
         },
@@ -127,6 +141,42 @@ describe("getPublicObservations", () => {
       expect.objectContaining({ id: "ask-current", title: "Current-patch Crimson Desert community ask" }),
     ]);
     expect([...lanes.coverage, ...lanes.asks].map((observation) => observation.id)).not.toContain("ask-old-patch");
+  });
+
+  it("keeps out-of-era dates from consuming the per-lane budget ahead of valid rows", async () => {
+    const coverageRow = (id: string, sourcePublishedAt: string): ObservationQueryRow => ({
+      id,
+      patch_version: "1.13.01",
+      kind: "press_reception",
+      is_public: true,
+      title: `Crimson Desert coverage ${id}`,
+      url: `https://example.com/crimson-desert-${id}`,
+      source_domain: "example.com",
+      snippet: "Coverage",
+      source_published_at: sourcePublishedAt,
+      observed_at: sourcePublishedAt,
+      seen_count: 1,
+    });
+    // Bad rows listed first: a far-future date sorts ahead of everything under
+    // source-date desc, so without a server-side gate it would fill the limit.
+    const rows = [
+      coverageRow("future-1", "2099-01-01T00:00:00Z"),
+      coverageRow("future-2", "2099-01-02T00:00:00Z"),
+      coverageRow("pre-era", "2026-07-10T00:00:00Z"),
+      ...Array.from({ length: 8 }, (_, index) =>
+        coverageRow(`valid-${index}`, `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`),
+      ),
+    ];
+
+    const lanes = await getPublicObservations(observationClient(rows) as never, {
+      version: "1.13.01",
+      publishedAt: "2026-07-15T00:00:00Z",
+    });
+
+    expect(lanes.coverage).toHaveLength(8);
+    expect(lanes.coverage.map((observation) => observation.id)).toEqual(
+      expect.not.arrayContaining(["future-1", "future-2", "pre-era"]),
+    );
   });
 
   it("shows only real-dated items inside the patch era, sorted by source date", () => {

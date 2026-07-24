@@ -695,26 +695,28 @@ export async function getPublicObservations(
 ): Promise<PublicObservationLanes> {
   try {
     const selectColumns = "id, kind, title, url, source_domain, snippet, source_published_at, observed_at, seen_count";
-    const [coverage, asks] = await Promise.all([
-      supabase
+    // Both date gates also run server-side, before the per-lane limit: a batch
+    // of nonsense far-future provider dates would otherwise sort first, consume
+    // the limit, then be dropped client-side — starving the lane of valid rows.
+    const latestAllowedIso = new Date(Date.now() + OBSERVATION_FUTURE_SKEW_MS).toISOString();
+    const eraStartIso =
+      patch.publishedAt && Number.isFinite(new Date(patch.publishedAt).getTime()) ? patch.publishedAt : null;
+    const laneQuery = (lane: "coverage" | "asks") => {
+      const base = supabase
         .from("patch_observations")
         .select(selectColumns)
         .eq("patch_version", patch.version)
-        .eq("is_public", true)
-        .in("kind", COVERAGE_OBSERVATION_KINDS)
+        .eq("is_public", true);
+      const byKind =
+        lane === "coverage" ? base.in("kind", COVERAGE_OBSERVATION_KINDS) : base.eq("kind", "community_ask");
+      const dated = byKind
         .not("source_published_at", "is", null)
+        .lte("source_published_at", latestAllowedIso);
+      return (eraStartIso ? dated.gte("source_published_at", eraStartIso) : dated)
         .order("source_published_at", { ascending: false })
-        .limit(PUBLIC_OBSERVATIONS_PER_LANE),
-      supabase
-        .from("patch_observations")
-        .select(selectColumns)
-        .eq("patch_version", patch.version)
-        .eq("is_public", true)
-        .eq("kind", "community_ask")
-        .not("source_published_at", "is", null)
-        .order("source_published_at", { ascending: false })
-        .limit(PUBLIC_OBSERVATIONS_PER_LANE),
-    ]);
+        .limit(PUBLIC_OBSERVATIONS_PER_LANE);
+    };
+    const [coverage, asks] = await Promise.all([laneQuery("coverage"), laneQuery("asks")]);
     if (coverage.error || asks.error) return EMPTY_OBSERVATION_LANES;
     return splitPublicObservationLanes(
       [...(coverage.data ?? []), ...(asks.data ?? [])] as PatchObservationRow[],
@@ -1115,14 +1117,25 @@ export async function getAutomationAdminData() {
     .eq("patch_version", currentPatch.version)
     .order("observed_at", { ascending: false })
     .limit(40);
+  // Narrowly identified fallback only: a missing relation (pre-migration
+  // deploy) reads as an empty desk; every other failure surfaces loudly
+  // instead of posing as "no observations recorded".
+  if (
+    observationRowsResult.error &&
+    !isMissingSupabaseRelation(observationRowsResult.error, "patch_observations")
+  ) {
+    throw new Error(`observations read failed: ${observationRowsResult.error.message}`);
+  }
   const observationRows = observationRowsResult.error
     ? []
     : ((observationRowsResult.data ?? []) as Omit<AdminObservationRow, "decision_id">[]);
 
+  // Scoped to the listed observations: a global newest-N read could let an
+  // active decision fall past the cap and strand a hidden item with no Undo.
   const observationDecisionsResult = await supabase
     .from("scanner_decisions")
     .select("id, observation_id, created_at")
-    .not("observation_id", "is", null)
+    .in("observation_id", observationRows.map((row) => row.id))
     .is("undone_at", null)
     .order("created_at", { ascending: false })
     .limit(200);
