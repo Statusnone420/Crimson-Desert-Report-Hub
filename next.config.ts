@@ -37,6 +37,13 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      // The Method page is cited as "the method" across the site; /method is
+      // the address readers guess. Keep /about canonical.
+      {
+        source: "/method",
+        destination: "/about",
+        permanent: true,
+      },
       {
         source: "/:path*",
         has: [
