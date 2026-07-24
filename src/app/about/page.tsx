@@ -137,8 +137,8 @@ export default function AboutPage() {
               <span className="method-row__ask">Why does quiet not count as fixed?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                Because nobody answered. Silence never turns green here, and a zero means we looked and found
-                nothing.
+                Because nobody answered. Silence never turns green here — an issue with no answers is just an
+                issue with no answers.
               </span>
             </summary>
             <div className="method-row__more">
