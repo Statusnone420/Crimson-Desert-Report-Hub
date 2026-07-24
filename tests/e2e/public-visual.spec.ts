@@ -441,15 +441,26 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("1 fixed for me")).toBeVisible();
     await expect(page.getByText("2 still happening")).toBeVisible();
     await expect(page.getByText(/NO PLAYER VERDICTS YET · CLAIM CLOCK RUNNING SINCE/i)).toBeVisible();
-    // From the wire: reviewed observations, context never evidence.
+    // From the wire: dated coverage only, dated by the SOURCE, never by the scanner.
     await expect(page.locator("#wire").getByText(/^\d{2} · From The Wire$/)).toBeVisible();
-    await expect(page.getByText("Context — never evidence.")).toBeVisible();
+    await expect(page.getByText("Reviewed coverage on 1.13.01, dated by the source.")).toBeVisible();
     await expect(
       page.getByText("Crimson Desert 1.13.01 hotfix tested: smoother, but not settled"),
     ).toBeVisible();
-    // Scoped to the wire band: radar-screen blip tooltips also say "seen N×".
-    await expect(page.locator("#wire").getByText("seen 3×")).toBeVisible();
-    await expect(page.locator("#wire").getByText("seen 6×")).toBeVisible();
+    await expect(page.locator("#wire").getByText(/dsogaming\.com · JUL \d+/)).toBeVisible();
+    // Discovery-time phrasing and radar telemetry stay out of the wire.
+    await expect(page.locator("#wire").getByText(/ago/)).toHaveCount(0);
+    await expect(page.locator("#wire").getByText(/seen \d+×/)).toHaveCount(0);
+    // Community asks: a first-class lane of their own, never mixed with coverage.
+    await expect(page.locator("#asks").getByText(/^\d{2} · Community Asks$/)).toBeVisible();
+    await expect(page.getByText("What players are asking Pearl Abyss for — requests, not bug reports.")).toBeVisible();
+    await expect(
+      page.locator("#asks").getByText("Day 20 of asking to add caracals to the desert : r/CrimsonDesert"),
+    ).toBeVisible();
+    await expect(page.locator("#asks").getByText("seen 6×")).toBeVisible();
+    await expect(page.locator("#wire").getByText("Day 20 of asking")).toHaveCount(0);
+    // The date gate: undated items never render publicly, however fresh.
+    await expect(page.getByText("Undated Crimson Desert 1.13.01 mirror must stay off the public wire")).toHaveCount(0);
     await expect(page.getByText("Older patch observation should never appear in the current brief")).toHaveCount(0);
     // Observatory footnote: the page's only box; scanner analytics stay off the homepage.
     await expect(page.getByText("From the Observatory")).toBeVisible();
@@ -763,10 +774,16 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "How the radar reads the web" })).toBeVisible();
     await expect(page.getByText("The Observatory · Public source radar")).toBeVisible();
     await expect(page.getByText(/Scanner scheduled|Scanner paused/)).toBeVisible();
-    await expect(page.getByText("Reviewed", { exact: true })).toBeVisible();
-    await expect(page.getByText("Filtered", { exact: true })).toBeVisible();
-    await expect(page.getByText("Awaiting corroboration", { exact: true })).toBeVisible();
+    // Flow and stock never share a row: the week's partition must visibly add
+    // up in the bar, and the working set carries explicit units.
+    await expect(page.getByText("This week · the candidate flow")).toBeVisible();
+    await expect(page.getByText(/\d+ candidates reviewed in the last 7 days/)).toBeVisible();
+    await expect(page.getByText("Right now · the working set")).toBeVisible();
+    await expect(page.getByText("Tracked leads", { exact: true })).toBeVisible();
+    await expect(page.getByText("Problem areas", { exact: true })).toBeVisible();
     await expect(page.getByText("Published issues", { exact: true })).toBeVisible();
+    await expect(page.getByText("every public candidate lands in one of these four states")).toHaveCount(0);
+    await expect(page.getByText("Awaiting corroboration", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Web search (Tavily)")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Questions from the radar" })).toBeVisible();
     await expect(page.getByText("Mount and input lockups")).toBeVisible();

@@ -48,34 +48,38 @@ export function PublicScannerView({
       : "obs-scheduler__dot--amber"
     : "";
 
-  const funnel = [
+  // Flow vs stock, never one row: the week's candidate flow is a partition that
+  // must visibly add up (reviewed = filtered + re-observed + kept); the working
+  // set is a right-now state with its own units (leads / areas / issues).
+  const flow = radar.connected ? radar.funnel7d : null;
+  const problemAreasCaption =
+    radar.activeLeadClusters === 0
+      ? "Distinct issue areas holding at least one tracked lead"
+      : data.awaiting >= radar.activeLeadClusters
+        ? "Holding leads — none corroborated enough to publish yet"
+        : `${data.awaiting} of ${radar.activeLeadClusters} still awaiting corroboration`;
+  const stock = [
     {
-      key: "reviewed",
-      label: "Reviewed",
-      value: data.reviewedThisWeek,
-      caption: "Candidates checked in the last 7 days",
-      valueClass: "stat-band__value",
+      key: "tracked",
+      label: "Tracked leads",
+      value: radar.recurring.trackedLeads,
+      caption: `Sourced pages the radar is holding across ${radar.activeLeadClusters} problem area${radar.activeLeadClusters === 1 ? "" : "s"}`,
+      valueClass:
+        radar.recurring.trackedLeads > 0 ? "stat-band__value stat-band__value--blue" : "stat-band__value",
     },
     {
-      key: "filtered",
-      label: "Filtered",
-      value: data.filteredThisWeek,
-      caption: "Wrong patch, off-topic, or not a player problem",
+      key: "areas",
+      label: "Problem areas",
+      value: radar.activeLeadClusters,
+      caption: problemAreasCaption,
       valueClass: "stat-band__value",
-    },
-    {
-      key: "awaiting",
-      label: "Awaiting corroboration",
-      value: data.awaiting,
-      caption: "Plausible lead, not enough sources yet",
-      valueClass: "stat-band__value stat-band__value--blue",
     },
     {
       key: "published",
       label: "Published issues",
       value: data.published,
-      caption: "Full cards on the issue board — player evidence, a confirmation signal, or a reviewed link",
-      valueClass: "stat-band__value stat-band__value--crimson",
+      caption: "Full cards on the issue board",
+      valueClass: data.published > 0 ? "stat-band__value stat-band__value--crimson" : "stat-band__value",
     },
   ];
 
@@ -100,14 +104,40 @@ export function PublicScannerView({
         </div>
       </header>
 
-      <div className="brief-band__kicker-row" style={{ marginBottom: 18 }}>
-        <h2 className="dispatch-kicker">The publication funnel · 7 days</h2>
+      <div className="brief-band__kicker-row" style={{ marginBottom: 14 }}>
+        <h2 className="dispatch-kicker">This week · the candidate flow</h2>
         <span className="brief-band__caption dispatch-desktop-only">
-          every public candidate lands in one of these four states
+          where every reviewed public candidate went
         </span>
       </div>
-      <div className="stat-band" aria-label="Source radar funnel">
-        {funnel.map((step) => (
+      {flow && flow.reviewed > 0 ? (
+        <div aria-label="Weekly candidate flow">
+          <p className="mono-label" style={{ marginBottom: 8 }}>
+            {flow.reviewed} candidates reviewed in the last 7 days
+          </p>
+          <SegmentedFunnelBar
+            reviewed={flow.reviewed}
+            kept={flow.kept}
+            reobserved={flow.reobserved}
+            filtered={flow.filtered}
+          />
+        </div>
+      ) : (
+        <p className="radar-note" style={{ marginTop: 0 }}>
+          {data.scannerConnected
+            ? "The radar reviewed no public candidates in the last 7 days. Zeros are real readings."
+            : "Scanner data is unavailable in this environment."}
+        </p>
+      )}
+
+      <div className="brief-band__kicker-row" style={{ margin: "26px 0 14px" }}>
+        <h2 className="dispatch-kicker">Right now · the working set</h2>
+        <span className="brief-band__caption dispatch-desktop-only">
+          counts are leads, areas, and issues — not people
+        </span>
+      </div>
+      <div className="stat-band" aria-label="Radar working set">
+        {stock.map((step) => (
           <div key={step.key} className="stat-band__cell">
             <div className="stat-band__label">{step.label}</div>
             <div className={step.valueClass}>{step.value}</div>
@@ -155,17 +185,6 @@ export function PublicScannerView({
                 <div><b>{radar.recurring.recurringLeads}</b><span>seen again</span></div>
                 <div><b>{radar.window.newLeads7d}</b><span>new this week</span></div>
               </div>
-              {radar.funnel7d.reviewed > 0 ? (
-                <div className="obs-readout__funnel">
-                  <p className="mono-label">Where this week&apos;s candidates went</p>
-                  <SegmentedFunnelBar
-                    reviewed={radar.funnel7d.reviewed}
-                    kept={radar.funnel7d.kept}
-                    reobserved={radar.funnel7d.reobserved}
-                    filtered={radar.funnel7d.filtered}
-                  />
-                </div>
-              ) : null}
               <div className="radar-health" aria-label="Source-date and patch coverage">
                 <div>Real publication dates: {radar.dateCoverage.withSourceDate}/{radar.dateCoverage.tracked}</div>
                 <div>

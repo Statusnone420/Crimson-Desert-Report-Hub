@@ -608,6 +608,86 @@ export async function recordScannerDecision(formData: FormData): Promise<void> {
   revalidatePublicSurfaces();
 }
 
+const OBSERVATION_DECISIONS = ["off_topic", "wrong_patch", "not_issue_report", "duplicate"] as const;
+
+/**
+ * Reject-and-teach for a public Wire/Asks item. One submit performs two
+ * explicit, separately recorded acts inside one RPC transaction: a
+ * reason-bearing hide of the observation and a block rule for future
+ * discovery. Undo runs through the same generic undoScannerDecision path.
+ */
+export async function rejectObservationAndTeach(formData: FormData): Promise<void> {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const id = String(formData.get("id") ?? "").trim();
+  const decision = String(formData.get("decision") ?? "").trim();
+  const reason = String(formData.get("reason") ?? "").trim();
+  const scopeRaw = String(formData.get("scope") ?? "exact_url").trim();
+  const scope: "exact_url" | "source_domain" | null =
+    scopeRaw === "exact_url" ? "exact_url" : scopeRaw === "source_domain" ? "source_domain" : null;
+  const confirmBroad = formData.get("confirm_broad") === "true";
+  if (
+    !id ||
+    !(OBSERVATION_DECISIONS as readonly string[]).includes(decision) ||
+    scope === null ||
+    reason.length < 3 ||
+    reason.length > 500 ||
+    (scope !== "exact_url" && !confirmBroad)
+  ) {
+    throw new Error("bad input");
+  }
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("patch_observations")
+    .select("id, url, source_domain, is_public")
+    .eq("id", id)
+    .limit(1);
+  if (error) throw new Error(`observation read failed: ${error.message}`);
+  const observation = (data ?? [])[0] as
+    | { id: string; url: string; source_domain: string | null; is_public: boolean }
+    | undefined;
+  if (!observation) throw new Error("observation not found");
+
+  const targetUrl = scannerRuleScopeValue("exact_url", {
+    url: observation.url,
+    sourceDomain: observation.source_domain,
+  });
+  const scopeValue = scannerRuleScopeValue(scope, {
+    url: observation.url,
+    sourceDomain: observation.source_domain,
+  });
+  if (!targetUrl || !scopeValue) throw new Error("bad input");
+
+  const { error: decisionError } = await supabase.rpc("record_observation_decision", {
+    p_observation_id: observation.id,
+    p_target_url: targetUrl,
+    p_target_url_hash: hashValue(targetUrl),
+    p_source_domain: observation.source_domain,
+    p_decision: decision,
+    p_reason: reason,
+    p_scope_type: scope,
+    p_scope_value: scopeValue,
+    p_confirm_broad: confirmBroad,
+    p_expires_at: null,
+  });
+  if (decisionError) {
+    // Surface the missing migration explicitly — the item must not appear to
+    // have been moderated when nothing changed.
+    if (isMissingSupabaseRpc(decisionError, "record_observation_decision")) {
+      throw new Error(
+        "Observation moderation needs the 20260724200000_observation_moderation migration; the item was not changed.",
+      );
+    }
+    throw new Error(`observation decision write failed: ${decisionError.message}`);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/scanner");
+  revalidatePath("/admin/source-monitor");
+  revalidatePublicSurfaces();
+}
+
 /** Compatibility action for older forms: Rescue now records a durable Relevant decision. */
 export async function rescueRejectedCandidate(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "").trim();

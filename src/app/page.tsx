@@ -174,7 +174,9 @@ export default async function DispatchHomePage() {
     claimRows[0] ??
     null;
 
-  const wire = d.observations.slice(0, 3);
+  // Context lanes: real-dated only, coverage and asks never share a module.
+  const wire = d.observations.coverage.slice(0, 3);
+  const asks = d.observations.asks.slice(0, 3);
   const publishedDateLabel = mediumDate(patch.publishedAt);
 
   // Fixed-order chart categories for the radar screen and weekly columns.
@@ -192,6 +194,7 @@ export default async function DispatchHomePage() {
   sectionIds.push("board");
   if (claimRows.length > 0) sectionIds.push("claims");
   if (wire.length > 0) sectionIds.push("wire");
+  if (asks.length > 0) sectionIds.push("asks");
   const sectionNo = (id: string): string => String(sectionIds.indexOf(id) + 1).padStart(2, "0");
 
   // Short names on purpose: the TOC is now a single-line strip closing the
@@ -203,6 +206,7 @@ export default async function DispatchHomePage() {
     board: "The issue board",
     claims: "The claims record",
     wire: "From the wire",
+    asks: "Community asks",
   };
   const tocRows = sectionIds.map((id) => ({ href: `#${id}`, label: tocLabels[id], index: sectionNo(id) }));
 
@@ -832,13 +836,13 @@ export default async function DispatchHomePage() {
           </section>
         ) : null}
 
-        {/* From the wire */}
+        {/* From the wire — dated third-party coverage; discovery time never shown as age */}
         {wire.length > 0 ? (
           <section id="wire" className="brief-band" aria-label="From the wire">
             <div className="brief-band__header">
               <h2 className="dispatch-kicker">{sectionNo("wire")} · From The Wire</h2>
               <span className="brief-band__note dispatch-desktop-only">
-                Reviewed coverage from trusted domains. Context — never evidence.
+                Reviewed coverage on {patch.version}, dated by the source.
               </span>
             </div>
             <div className="wire-grid">
@@ -848,7 +852,40 @@ export default async function DispatchHomePage() {
                   className={index === 0 ? "wire-item" : "wire-item wire-item--overflow"}
                 >
                   <p className="wire-item__meta">
-                    {observation.sourceDomain ?? "source"} · {timeAgo(observation.observedAt)}
+                    {observation.sourceDomain ?? "source"} · {shortDate(observation.sourcePublishedAt)}
+                  </p>
+                  <a
+                    className="wire-item__title"
+                    href={observation.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    {observation.title}
+                  </a>
+                  {observation.snippet ? <p className="wire-item__summary">{observation.snippet}</p> : null}
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {/* Community asks — a first-class contextual lane, never mixed with coverage */}
+        {asks.length > 0 ? (
+          <section id="asks" className="brief-band" aria-label="Community asks">
+            <div className="brief-band__header">
+              <h2 className="dispatch-kicker">{sectionNo("asks")} · Community Asks</h2>
+              <span className="brief-band__note dispatch-desktop-only">
+                What players are asking Pearl Abyss for — requests, not bug reports.
+              </span>
+            </div>
+            <div className="wire-grid">
+              {asks.map((observation, index) => (
+                <article
+                  key={observation.id}
+                  className={index === 0 ? "wire-item" : "wire-item wire-item--overflow"}
+                >
+                  <p className="wire-item__meta">
+                    {observation.sourceDomain ?? "source"} · {shortDate(observation.sourcePublishedAt)}
                     {observation.seenCount > 1 ? ` · seen ${observation.seenCount}×` : ""}
                   </p>
                   <a

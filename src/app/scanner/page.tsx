@@ -43,6 +43,8 @@ export default async function ScannerPage() {
           runs={adminData.runs}
           signals={adminData.signals}
           rejectedCandidates={adminData.rejectedCandidates}
+          observations={adminData.observations}
+          observationModerationAvailable={adminData.observationModerationAvailable}
           feedbackRules={adminData.feedbackRules}
           feedbackLearningAvailable={adminData.feedbackLearningAvailable}
           control={adminData.control}

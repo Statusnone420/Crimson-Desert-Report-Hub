@@ -37,6 +37,8 @@ describe("AdminScannerView", () => {
       runs: [],
       signals: [],
       rejectedCandidates: [],
+      observations: [],
+      observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
       control: {
@@ -120,6 +122,8 @@ describe("AdminScannerView", () => {
       runs: [],
       signals,
       rejectedCandidates: [],
+      observations: [],
+      observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
       control: {
@@ -168,6 +172,8 @@ describe("AdminScannerView", () => {
         seen_count: 1,
       }],
       rejectedCandidates: [],
+      observations: [],
+      observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
       control: {
@@ -229,6 +235,8 @@ describe("AdminScannerView", () => {
         decision_id: null,
         feedback_rule_id: null,
       }],
+      observations: [],
+      observationModerationAvailable: false,
       feedbackRules: [],
       feedbackLearningAvailable: false,
       control: {

@@ -55,6 +55,11 @@ class FakeQuery {
     return this;
   }
 
+  not(column: string, operator: string, value: unknown) {
+    this.trace.operations.push(`not:${column}:${operator}:${String(value)}`);
+    return this;
+  }
+
   in(column: string, values: unknown[]) {
     this.trace.operations.push(`in:${column}:${values.join("|")}`);
     return this;

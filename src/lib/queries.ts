@@ -580,8 +580,17 @@ export type PublicObservation = {
   url: string;
   sourceDomain: string | null;
   snippet: string | null;
+  /** Real source publication date. Display gates require it; never null in lane output. */
+  sourcePublishedAt: string;
   observedAt: string;
   seenCount: number;
+};
+
+export type PublicObservationLanes = {
+  /** From the Wire: third-party coverage of the current patch. */
+  coverage: PublicObservation[];
+  /** Community Asks: player requests — their own lane, never mixed with coverage. */
+  asks: PublicObservation[];
 };
 
 type PatchObservationRow = {
@@ -615,49 +624,99 @@ export function isPublicObservationEligible(row: PatchObservationRow, patchVersi
 }
 
 /**
+ * Display gate: public context lanes show only items with a REAL source
+ * publication date inside the current patch era. Discovery time is never a
+ * substitute — an undated page keeps feeding aggregate radar counts but never
+ * renders as news. When the patch has no recorded publish date, the era bound
+ * cannot be computed and date presence alone gates.
+ */
+export function isDisplayableDatedObservation(
+  row: Pick<PatchObservationRow, "source_published_at">,
+  patchPublishedAt: string | null,
+): row is typeof row & { source_published_at: string } {
+  const published = row.source_published_at ? new Date(row.source_published_at).getTime() : Number.NaN;
+  if (!Number.isFinite(published)) return false;
+  if (patchPublishedAt) {
+    const eraStart = new Date(patchPublishedAt).getTime();
+    if (Number.isFinite(eraStart) && published < eraStart) return false;
+  }
+  return true;
+}
+
+/**
+ * Pure lane split for the Brief's context modules: Wire coverage and Community
+ * Asks stay separate genres, each real-dated, each sorted by when the SOURCE
+ * published — not by when the scanner found it.
+ */
+export function splitPublicObservationLanes(
+  rows: PatchObservationRow[],
+  patch: { version: string; publishedAt: string | null },
+): PublicObservationLanes {
+  const displayable = rows
+    .filter((row) => isPublicObservationEligible(row, patch.version))
+    .filter((row): row is PatchObservationRow & { source_published_at: string } =>
+      isDisplayableDatedObservation(row, patch.publishedAt),
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.source_published_at).getTime() - new Date(left.source_published_at).getTime(),
+    )
+    .map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      url: row.url,
+      sourceDomain: row.source_domain,
+      snippet: row.snippet,
+      sourcePublishedAt: row.source_published_at,
+      observedAt: row.observed_at,
+      seenCount: row.seen_count,
+    }));
+  return {
+    coverage: displayable.filter((observation) => observation.kind !== "community_ask"),
+    asks: displayable.filter((observation) => observation.kind === "community_ask"),
+  };
+}
+
+export const EMPTY_OBSERVATION_LANES: PublicObservationLanes = { coverage: [], asks: [] };
+
+/**
  * Observation lane read. Never throws: a missing table (migration not applied
- * yet) or any read error renders as an empty lane, not a broken brief.
+ * yet) or any read error renders as empty lanes, not a broken brief.
  */
 export async function getPublicObservations(
   supabase: ReturnType<typeof createServiceClient>,
-  patchVersion: string,
-): Promise<PublicObservation[]> {
+  patch: { version: string; publishedAt: string | null },
+): Promise<PublicObservationLanes> {
   try {
     const selectColumns = "id, kind, title, url, source_domain, snippet, source_published_at, observed_at, seen_count";
     const [coverage, asks] = await Promise.all([
       supabase
         .from("patch_observations")
         .select(selectColumns)
-        .eq("patch_version", patchVersion)
+        .eq("patch_version", patch.version)
         .eq("is_public", true)
         .in("kind", COVERAGE_OBSERVATION_KINDS)
-        .order("observed_at", { ascending: false })
+        .not("source_published_at", "is", null)
+        .order("source_published_at", { ascending: false })
         .limit(PUBLIC_OBSERVATIONS_PER_LANE),
       supabase
         .from("patch_observations")
         .select(selectColumns)
-        .eq("patch_version", patchVersion)
+        .eq("patch_version", patch.version)
         .eq("is_public", true)
         .eq("kind", "community_ask")
-        .order("observed_at", { ascending: false })
+        .not("source_published_at", "is", null)
+        .order("source_published_at", { ascending: false })
         .limit(PUBLIC_OBSERVATIONS_PER_LANE),
     ]);
-    if (coverage.error || asks.error) return [];
-    return ([...(coverage.data ?? []), ...(asks.data ?? [])] as PatchObservationRow[])
-      .filter((row) => isPublicObservationEligible(row, patchVersion))
-      .sort((left, right) => new Date(right.observed_at).getTime() - new Date(left.observed_at).getTime())
-      .map((row) => ({
-        id: row.id,
-        kind: row.kind,
-        title: row.title,
-        url: row.url,
-        sourceDomain: row.source_domain,
-        snippet: row.snippet,
-        observedAt: row.observed_at,
-        seenCount: row.seen_count,
-      }));
+    if (coverage.error || asks.error) return EMPTY_OBSERVATION_LANES;
+    return splitPublicObservationLanes(
+      [...(coverage.data ?? []), ...(asks.data ?? [])] as PatchObservationRow[],
+      patch,
+    );
   } catch {
-    return [];
+    return EMPTY_OBSERVATION_LANES;
   }
 }
 
@@ -680,7 +739,7 @@ async function getDashboardDataUncached() {
       latestAutomationRun: null,
       currentPatch: await getCurrentPatchMetadata(),
       claimedFixes: [],
-      observations: [] as PublicObservation[],
+      observations: EMPTY_OBSERVATION_LANES,
       publicFindings: [],
     };
   }
@@ -730,7 +789,10 @@ async function getDashboardDataUncached() {
     getClaimedFixesForCurrentPatch(supabase),
   ]);
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
-  const observations = await getPublicObservations(supabase, currentPatch.version);
+  const observations = await getPublicObservations(supabase, {
+    version: currentPatch.version,
+    publishedAt: currentPatch.publishedAt ?? null,
+  });
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
   const confirmationsByCluster = await readConfirmationRowsByClusterForPatchFamily(supabase, currentPatch.version);
@@ -923,6 +985,21 @@ type AdminRejectedCandidateRow = {
   feedback_rule_id?: string | null;
 };
 
+export type AdminObservationRow = {
+  id: string;
+  kind: PublicObservation["kind"];
+  title: string;
+  url: string;
+  source_domain: string | null;
+  snippet: string | null;
+  source_published_at: string | null;
+  observed_at: string;
+  seen_count: number;
+  is_public: boolean;
+  /** Latest non-undone Reject-and-teach decision, when the moderation schema exists. */
+  decision_id: string | null;
+};
+
 export async function getAutomationAdminData() {
   const supabase = createServiceClient();
   const nowIso = new Date().toISOString();
@@ -1023,10 +1100,47 @@ export async function getAutomationAdminData() {
     .order("started_at", { ascending: false })
     .limit(1);
 
+  // Observation desk: current-patch Wire/Asks items in every visibility state.
+  // The decision join doubles as the schema probe — a missing observation_id
+  // column means the moderation migration has not been applied yet.
+  const currentPatch = await getCurrentPatchMetadata(supabase);
+  const observationRowsResult = await supabase
+    .from("patch_observations")
+    .select("id, kind, title, url, source_domain, snippet, source_published_at, observed_at, seen_count, is_public")
+    .eq("patch_version", currentPatch.version)
+    .order("observed_at", { ascending: false })
+    .limit(40);
+  const observationRows = observationRowsResult.error
+    ? []
+    : ((observationRowsResult.data ?? []) as Omit<AdminObservationRow, "decision_id">[]);
+
+  const observationDecisionsResult = await supabase
+    .from("scanner_decisions")
+    .select("id, observation_id, created_at")
+    .not("observation_id", "is", null)
+    .is("undone_at", null)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  const observationModerationAvailable = !observationDecisionsResult.error;
+  const latestDecisionByObservation = new Map<string, string>();
+  if (observationModerationAvailable) {
+    for (const row of (observationDecisionsResult.data ?? []) as { id: string; observation_id: string | null }[]) {
+      if (row.observation_id && !latestDecisionByObservation.has(row.observation_id)) {
+        latestDecisionByObservation.set(row.observation_id, row.id);
+      }
+    }
+  }
+  const observations: AdminObservationRow[] = observationRows.map((row) => ({
+    ...row,
+    decision_id: latestDecisionByObservation.get(row.id) ?? null,
+  }));
+
   return {
     signals: (signals ?? []) as AdminSignalRow[],
     runs: (runs ?? []) as AutomationRunRow[],
     rejectedCandidates: rejectedCandidates as RejectedCandidateRow[],
+    observations,
+    observationModerationAvailable,
     feedbackLearningAvailable: !feedbackRulesResult.error,
     feedbackRules: ((feedbackRules ?? []) as ScannerFeedbackRuleRow[]).filter(
       (rule) => !rule.expires_at || new Date(rule.expires_at).getTime() > Date.now(),

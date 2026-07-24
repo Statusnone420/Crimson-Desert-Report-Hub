@@ -526,6 +526,25 @@ const patchObservations = [
     seen_count: 6,
     is_public: true,
   },
+  {
+    // Undated coverage: the display gate must keep this off every public lane
+    // even though it is recent, public, and on-topic — discovery time is not
+    // publication time.
+    id: "observation-undated",
+    created_at: isoMinutesAgo(5),
+    patch_version: "1.13.01",
+    kind: "patch_release",
+    title: "Undated Crimson Desert 1.13.01 mirror must stay off the public wire",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/mock-undated/patch_notes_mirror/",
+    url_hash: "mock-observation-hash-undated",
+    source_domain: "reddit.com",
+    snippet: "A patch-notes mirror whose source never disclosed a publication date.",
+    source_published_at: null,
+    observed_at: isoMinutesAgo(5),
+    last_seen_at: isoMinutesAgo(5),
+    seen_count: 1,
+    is_public: true,
+  },
 ];
 
 const steamPulseSnapshots = [

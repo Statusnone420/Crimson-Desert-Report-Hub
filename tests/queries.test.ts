@@ -8,7 +8,9 @@ import {
   getPublicObservations,
   getCandidateSignalCountsByCluster,
   getPublicSignalClusterIdsForCurrentPatch,
+  isDisplayableDatedObservation,
   isPublicObservationEligible,
+  splitPublicObservationLanes,
   filterExactPatchReports,
   filterPublicCurrentPatchSignals,
   filterPatchFamilyReports,
@@ -31,6 +33,7 @@ type ObservationQueryRow = {
   url: string;
   source_domain: string | null;
   snippet: string | null;
+  source_published_at: string | null;
   observed_at: string;
   seen_count: number;
 };
@@ -50,6 +53,12 @@ function observationClient(rows: ObservationQueryRow[], error: { message: string
         },
         in(column: string, values: string[]) {
           filters.push((row) => values.includes(String(row[column as keyof ObservationQueryRow])));
+          return query;
+        },
+        not(column: string, operator: string, value: unknown) {
+          if (operator === "is" && value === null) {
+            filters.push((row) => row[column as keyof ObservationQueryRow] !== null);
+          }
           return query;
         },
         order() {
@@ -76,6 +85,7 @@ describe("getPublicObservations", () => {
         url: `https://example.com/crimson-desert-coverage-${index}`,
         source_domain: "example.com",
         snippet: "Coverage",
+        source_published_at: `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`,
         observed_at: `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`,
         seen_count: 1,
       })),
@@ -88,6 +98,7 @@ describe("getPublicObservations", () => {
         url: "https://reddit.com/r/CrimsonDesert/current-ask",
         source_domain: "reddit.com",
         snippet: "Ask",
+        source_published_at: "2026-07-16T13:00:00Z",
         observed_at: "2026-07-16T13:00:00Z",
         seen_count: 2,
       },
@@ -100,18 +111,98 @@ describe("getPublicObservations", () => {
         url: "https://reddit.com/r/CrimsonDesert/old-ask",
         source_domain: "reddit.com",
         snippet: "Old ask",
+        source_published_at: "2026-07-16T14:00:00Z",
         observed_at: "2026-07-16T14:00:00Z",
         seen_count: 9,
       },
     ];
 
-    const observations = await getPublicObservations(observationClient(rows) as never, "1.13.01");
+    const lanes = await getPublicObservations(observationClient(rows) as never, {
+      version: "1.13.01",
+      publishedAt: null,
+    });
 
-    expect(observations.filter((observation) => observation.kind === "press_reception")).toHaveLength(8);
-    expect(observations.filter((observation) => observation.kind === "community_ask")).toEqual([
+    expect(lanes.coverage).toHaveLength(8);
+    expect(lanes.asks).toEqual([
       expect.objectContaining({ id: "ask-current", title: "Current-patch Crimson Desert community ask" }),
     ]);
-    expect(observations.map((observation) => observation.id)).not.toContain("ask-old-patch");
+    expect([...lanes.coverage, ...lanes.asks].map((observation) => observation.id)).not.toContain("ask-old-patch");
+  });
+
+  it("shows only real-dated items inside the patch era, sorted by source date", () => {
+    const base = {
+      patch_version: "1.15.00",
+      is_public: true,
+      source_domain: "reddit.com",
+      snippet: "Crimson Desert update notes.",
+      seen_count: 1,
+    };
+    const lanes = splitPublicObservationLanes(
+      [
+        {
+          ...base,
+          id: "undated",
+          kind: "patch_release",
+          title: "Crimson Desert 1.15.00 patch notes mirror",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/undated/",
+          source_published_at: null,
+          observed_at: "2026-07-24T17:00:00Z",
+        },
+        {
+          ...base,
+          id: "pre-era",
+          kind: "press_reception",
+          title: "Crimson Desert wishlist milestone coverage",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/pre-era/",
+          source_published_at: "2026-03-03T12:00:00Z",
+          observed_at: "2026-07-24T17:00:00Z",
+        },
+        {
+          ...base,
+          id: "older-dated",
+          kind: "press_reception",
+          title: "Crimson Desert 1.15.00 mount lockup coverage",
+          url: "https://example.com/crimson-desert-mount-coverage",
+          source_domain: "example.com",
+          source_published_at: "2026-07-24T09:00:00Z",
+          observed_at: "2026-07-24T10:00:00Z",
+        },
+        {
+          ...base,
+          id: "newer-dated",
+          kind: "patch_release",
+          title: "Crimson Desert Update 1.15.00 official patch notes",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/current/",
+          source_published_at: "2026-07-24T15:00:00Z",
+          // Observed BEFORE the older-dated row: source date must win the sort.
+          observed_at: "2026-07-24T09:30:00Z",
+        },
+        {
+          ...base,
+          id: "dated-ask",
+          kind: "community_ask",
+          title: "Crimson Desert horse mane preset request",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/ask/",
+          source_published_at: "2026-07-24T12:00:00Z",
+          observed_at: "2026-07-24T13:00:00Z",
+          seen_count: 4,
+        },
+      ],
+      { version: "1.15.00", publishedAt: "2026-07-24T00:00:00Z" },
+    );
+
+    expect(lanes.coverage.map((observation) => observation.id)).toEqual(["newer-dated", "older-dated"]);
+    expect(lanes.asks.map((observation) => observation.id)).toEqual(["dated-ask"]);
+    expect(lanes.asks[0].sourcePublishedAt).toBe("2026-07-24T12:00:00Z");
+  });
+
+  it("gates on date presence alone when the patch has no recorded publish date", () => {
+    expect(isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, null)).toBe(true);
+    expect(isDisplayableDatedObservation({ source_published_at: null }, null)).toBe(false);
+    expect(isDisplayableDatedObservation({ source_published_at: "not a date" }, null)).toBe(false);
+    expect(
+      isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, "2026-07-24T00:00:00Z"),
+    ).toBe(false);
   });
 
   it("revalidates legacy public rows without deleting production data", () => {
@@ -145,10 +236,13 @@ describe("getPublicObservations", () => {
     }, "1.14.00")).toBe(true);
   });
 
-  it("degrades a missing observation table to an empty public lane", async () => {
+  it("degrades a missing observation table to empty public lanes", async () => {
     await expect(
-      getPublicObservations(observationClient([], { message: "relation patch_observations does not exist" }) as never, "1.13.01"),
-    ).resolves.toEqual([]);
+      getPublicObservations(
+        observationClient([], { message: "relation patch_observations does not exist" }) as never,
+        { version: "1.13.01", publishedAt: null },
+      ),
+    ).resolves.toEqual({ coverage: [], asks: [] });
   });
 });
 
