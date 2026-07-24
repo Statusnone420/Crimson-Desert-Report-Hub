@@ -6,13 +6,14 @@ export function needsFullIssueCard(cluster: {
   strengthScore: number;
   directReportCount: number;
   confirmations: { totalCount: number };
-  readout: { poll: unknown };
+  readout: { poll: unknown; state?: string };
 }): boolean {
   return (
     hasClusterEvidence(cluster) ||
     cluster.strengthScore > 0 ||
     cluster.confirmations.totalCount > 0 ||
-    cluster.readout.poll !== null
+    cluster.readout.poll !== null ||
+    cluster.readout.state === "public_sources_unavailable"
   );
 }
 

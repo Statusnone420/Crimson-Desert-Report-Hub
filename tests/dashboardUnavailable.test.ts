@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { needsFullIssueCard } from "@/lib/evidence";
 
 /**
  * A failed dashboard read must surface as the unavailable state, never as an
@@ -135,6 +136,52 @@ describe("dashboard loader under a failed read", () => {
     expect(data.evidenceUnavailable).toBe(false);
     expect(data.sourceLeadsUnavailable).toBe(true);
     expect(data.publicFindings).toEqual([]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("source-signal read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("surfaces an unavailable lead register instead of composing a lead-only cluster from zero signals", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) => {
+      if (table === "source_signals") return failingQuery("permission denied for table source_signals");
+      if (table === "issue_clusters") {
+        return stubQuery({
+          data: [
+            {
+              id: "lead-only",
+              slug: "lead-only",
+              title: "Lead-only public issue",
+              category: "performance",
+              description: "Published from reviewed public sources.",
+              fix_status: "reported",
+              fix_claimed_at: null,
+              fix_claimed_patch_version: null,
+              admin_override: false,
+              lifecycle_reason: null,
+              confidence: "medium",
+              is_public: true,
+            },
+          ],
+          error: null,
+          count: 1,
+        });
+      }
+      return okQuery();
+    });
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.sourceLeadsUnavailable).toBe(true);
+    expect(data.publicLeadsUnavailable).toBe(true);
+    expect(data.topClusters[0]?.readout).toMatchObject({
+      state: "public_sources_unavailable",
+      label: "Source leads unavailable",
+      sentence: expect.stringContaining("missing, not zero"),
+    });
+    expect(needsFullIssueCard(data.topClusters[0])).toBe(true);
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("source-signal read failed"),
       expect.anything(),

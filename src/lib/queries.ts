@@ -493,6 +493,7 @@ export function countDistinctVerifiedReportsByCluster(rows: VerifiedReportCluste
 
 type ClusterCounts = {
   signalCount: number;
+  publicSignalsUnavailable: boolean;
   directReportCount: number;
   verifiedReportCount?: number;
   candidateSignalCount: number;
@@ -535,6 +536,7 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
     adminOverride: Boolean(cluster.admin_override),
     storedFixStatus: cluster.fix_status,
     patchVersion: counts.patchVersion,
+    publicSignalsUnavailable: counts.publicSignalsUnavailable,
   });
   // Confirmations join the ranking only once their tally is escalated (>= threshold networks).
   const escalatedConfirms = confirmations.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS ? confirmations.affectedCount : 0;
@@ -804,6 +806,7 @@ async function dashboardFallbackData(evidenceUnavailable: boolean) {
     // A full evidence outage leaves the lead fields unread too; an
     // unconfigured environment reads neither, deliberately.
     sourceLeadsUnavailable: evidenceUnavailable,
+    publicLeadsUnavailable: evidenceUnavailable,
   };
 }
 
@@ -929,6 +932,7 @@ async function readDashboardData() {
     .map((cluster) =>
       decorateCluster(cluster, {
         signalCount: signalByCluster[cluster.id] ?? 0,
+        publicSignalsUnavailable: sourceLeadsUnavailable,
         directReportCount: directByCluster[cluster.id] ?? 0,
         verifiedReportCount: verifiedByCluster[cluster.id] ?? 0,
         candidateSignalCount: candidateSignalCounts[cluster.id] ?? 0,
@@ -963,6 +967,7 @@ async function readDashboardData() {
     publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
     evidenceUnavailable: false,
     sourceLeadsUnavailable: sourceLeadsUnavailable || candidateLeadsFailed,
+    publicLeadsUnavailable: sourceLeadsUnavailable,
   };
 }
 
@@ -1027,6 +1032,7 @@ async function getIssuesDataUncached() {
     .map((cluster) =>
       decorateCluster(cluster, {
         signalCount: signalByCluster[cluster.id] ?? 0,
+        publicSignalsUnavailable: false,
         directReportCount: directByCluster[cluster.id] ?? 0,
         candidateSignalCount: candidateSignalCounts[cluster.id] ?? 0,
         postCurrentPatchReportCount: postCurrentPatchReportByCluster[cluster.id] ?? 0,

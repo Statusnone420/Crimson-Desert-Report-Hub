@@ -153,18 +153,28 @@ export default async function DispatchHomePage() {
   const boardClusters = d.topClusters.filter(needsFullIssueCard);
   const top3 = boardClusters.slice(0, 3);
   const [leadStory, ...secondaryStories] = top3;
-  const topWatch = leadStory ?? d.topClusters[0] ?? null;
+  const leadDataUnavailable = d.sourceLeadsUnavailable && !d.evidenceUnavailable;
+  const publicLeadDataUnavailable = d.publicLeadsUnavailable && !d.evidenceUnavailable;
+  const topWatch =
+    boardClusters.find((cluster) => cluster.readout.state !== "public_sources_unavailable") ??
+    (leadDataUnavailable ? null : d.topClusters[0] ?? null);
   const contestedSubject = mostContested?.title.replace(
     /\s+(?:persists|continues)(?:\s+after\s+(?:the\s+)?fix)?$/i,
     "",
   );
   const heroHeadline = mostContested
     ? `${contestedSubject} remains contested in ${patch.version}.`
+    : publicLeadDataUnavailable
+      ? `Patch ${patch.version} is live. Source-backed issue status is temporarily incomplete.`
     : topWatch
       ? `${topWatch.title} leads the ${patch.version} watchlist.`
       : `Patch ${patch.version} is live. Here’s what changed and what to watch.`;
   const heroDek = d.evidenceUnavailable
     ? `The board can't read its evidence store right now. Patch facts stay current; report and issue counts are missing, not zero.`
+    : publicLeadDataUnavailable
+      ? `The board can read player reports and taps, but not its public-source lead register right now. Lead-backed issue counts and rankings are missing, not zero.`
+    : leadDataUnavailable
+      ? `Player evidence and published source-backed issues are readable, but some radar-lead details are unavailable right now. Missing lead data is not zero.`
     : topWatch
       ? `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
       : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
@@ -386,7 +396,11 @@ export default async function DispatchHomePage() {
               <span>What appears broken</span>
               <strong>
                 {topWatch?.title ??
-                  (d.evidenceUnavailable ? "Issue board unreadable right now" : "No published player issue yet")}
+                  (d.evidenceUnavailable
+                    ? "Issue board unreadable right now"
+                    : publicLeadDataUnavailable
+                      ? "Source-backed issue list incomplete right now"
+                      : "No published player issue yet")}
               </strong>
               <i aria-hidden="true">→</i>
             </Link>
@@ -401,6 +415,11 @@ export default async function DispatchHomePage() {
               <>
                 {d.claimedFixes.length > 0 ? <li>{d.claimedFixes.length} official claims</li> : null}
                 <li>evidence counts unavailable</li>
+              </>
+            ) : publicLeadDataUnavailable ? (
+              <>
+                <li>{d.claimedFixes.length} official claims</li>
+                <li>source-backed issue count unavailable</li>
               </>
             ) : (
               <>
@@ -422,6 +441,11 @@ export default async function DispatchHomePage() {
               <>
                 {d.claimedFixes.length > 0 ? <span>{d.claimedFixes.length} claims</span> : null}
                 <span>counts unavailable</span>
+              </>
+            ) : publicLeadDataUnavailable ? (
+              <>
+                <span>{d.claimedFixes.length} claims</span>
+                <span>issue count unavailable</span>
               </>
             ) : (
               <>
@@ -786,16 +810,25 @@ export default async function DispatchHomePage() {
             <h2 className="dispatch-kicker">{sectionNo("board")} · The Issue Board</h2>
             <span style={{ fontSize: 13 }}>
               <Link href="/issues" className="dispatch-link">
-                {d.evidenceUnavailable
+                {d.evidenceUnavailable || publicLeadDataUnavailable
                   ? "Issue board →"
                   : `All ${boardClusters.length} published issue${boardClusters.length === 1 ? "" : "s"} →`}
               </Link>
             </span>
           </div>
+          {leadDataUnavailable ? (
+            <p className="brief-band__caption" style={{ marginTop: 8 }}>
+              {publicLeadDataUnavailable
+                ? "Public-source lead details are unavailable right now. Player evidence stays live; lead-backed rankings are incomplete."
+                : "Some radar-lead details are unavailable right now. Player evidence and published source-backed issues stay live."}
+            </p>
+          ) : null}
           {top3.length === 0 ? (
             <div className="board-empty">
               {d.evidenceUnavailable ? (
                 <p>The issue board can&rsquo;t be read right now — nothing here is being counted as zero.</p>
+              ) : publicLeadDataUnavailable ? (
+                <p>Public-source leads can&rsquo;t be read right now — no lead-backed issue is being counted as zero.</p>
               ) : (
                 <p>
                   No published issues yet for {patch.version}. Publishing needs a player report or corroborated
