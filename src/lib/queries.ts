@@ -630,12 +630,17 @@ export function isPublicObservationEligible(row: PatchObservationRow, patchVersi
  * renders as news. When the patch has no recorded publish date, the era bound
  * cannot be computed and date presence alone gates.
  */
+/** Providers occasionally report nonsense future dates; allow clock skew only. */
+const OBSERVATION_FUTURE_SKEW_MS = 48 * 60 * 60 * 1000;
+
 export function isDisplayableDatedObservation(
   row: Pick<PatchObservationRow, "source_published_at">,
   patchPublishedAt: string | null,
+  nowMs: number = Date.now(),
 ): row is typeof row & { source_published_at: string } {
   const published = row.source_published_at ? new Date(row.source_published_at).getTime() : Number.NaN;
   if (!Number.isFinite(published)) return false;
+  if (published > nowMs + OBSERVATION_FUTURE_SKEW_MS) return false;
   if (patchPublishedAt) {
     const eraStart = new Date(patchPublishedAt).getTime();
     if (Number.isFinite(eraStart) && published < eraStart) return false;
@@ -1121,6 +1126,16 @@ export async function getAutomationAdminData() {
     .is("undone_at", null)
     .order("created_at", { ascending: false })
     .limit(200);
+  // Narrowly identified fallback only: a pre-migration schema reads as
+  // "moderation unavailable"; every other failure surfaces loudly instead of
+  // silently downgrading the desk.
+  if (
+    observationDecisionsResult.error &&
+    !isMissingSupabaseColumn(observationDecisionsResult.error, "scanner_decisions", "observation_id") &&
+    !isMissingSupabaseRelation(observationDecisionsResult.error, "scanner_decisions")
+  ) {
+    throw new Error(`observation decisions read failed: ${observationDecisionsResult.error.message}`);
+  }
   const observationModerationAvailable = !observationDecisionsResult.error;
   const latestDecisionByObservation = new Map<string, string>();
   if (observationModerationAvailable) {

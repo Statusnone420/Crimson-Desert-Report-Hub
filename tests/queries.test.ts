@@ -197,12 +197,16 @@ describe("getPublicObservations", () => {
   });
 
   it("gates on date presence alone when the patch has no recorded publish date", () => {
-    expect(isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, null)).toBe(true);
-    expect(isDisplayableDatedObservation({ source_published_at: null }, null)).toBe(false);
-    expect(isDisplayableDatedObservation({ source_published_at: "not a date" }, null)).toBe(false);
+    const nowMs = Date.parse("2026-07-24T12:00:00Z");
+    expect(isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, null, nowMs)).toBe(true);
+    expect(isDisplayableDatedObservation({ source_published_at: null }, null, nowMs)).toBe(false);
+    expect(isDisplayableDatedObservation({ source_published_at: "not a date" }, null, nowMs)).toBe(false);
     expect(
-      isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, "2026-07-24T00:00:00Z"),
+      isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, "2026-07-24T00:00:00Z", nowMs),
     ).toBe(false);
+    // Bogus future dates from providers stay off the lanes (48h skew allowed).
+    expect(isDisplayableDatedObservation({ source_published_at: "2026-07-25T12:00:00Z" }, null, nowMs)).toBe(true);
+    expect(isDisplayableDatedObservation({ source_published_at: "2030-01-01T00:00:00Z" }, null, nowMs)).toBe(false);
   });
 
   it("revalidates legacy public rows without deleting production data", () => {

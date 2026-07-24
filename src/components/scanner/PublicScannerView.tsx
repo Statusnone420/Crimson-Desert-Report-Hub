@@ -55,9 +55,11 @@ export function PublicScannerView({
   const problemAreasCaption =
     radar.activeLeadClusters === 0
       ? "Distinct issue areas holding at least one tracked lead"
-      : data.awaiting >= radar.activeLeadClusters
-        ? "Holding leads — none corroborated enough to publish yet"
-        : `${data.awaiting} of ${radar.activeLeadClusters} still awaiting corroboration`;
+      : data.awaiting === 0
+        ? "Every area carries a public link or an approved report"
+        : data.awaiting >= radar.activeLeadClusters
+          ? "Holding leads — none corroborated enough to publish yet"
+          : `${data.awaiting} of ${radar.activeLeadClusters} still awaiting corroboration`;
   const stock = [
     {
       key: "tracked",
@@ -124,7 +126,7 @@ export function PublicScannerView({
         </div>
       ) : (
         <p className="radar-note" style={{ marginTop: 0 }}>
-          {data.scannerConnected
+          {flow
             ? "The radar reviewed no public candidates in the last 7 days. Zeros are real readings."
             : "Scanner data is unavailable in this environment."}
         </p>

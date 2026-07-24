@@ -9,6 +9,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/app/admin/actions", () => ({
   setScannerPolicy: vi.fn(),
   recordScannerDecision: vi.fn(),
+  rejectObservationAndTeach: vi.fn(),
   undoScannerDecision: vi.fn(),
 }));
 vi.mock("@/components/ScanControls", () => ({ ScanControls: () => null }));
@@ -197,6 +198,67 @@ describe("AdminScannerView", () => {
     expect(markup).toContain("Steam review leads share one provider URL");
     expect(markup).not.toContain('name="target_kind" value="signal"');
     expect(markup).not.toContain("Remove bad lead");
+  });
+
+  it("gives each public context item one explicit action and hidden items an undo", () => {
+    const baseObservation = {
+      kind: "community_ask" as const,
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/ask/",
+      source_domain: "reddit.com",
+      snippet: "A recurring customization request.",
+      observed_at: "2026-07-22T17:00:00.000Z",
+      seen_count: 2,
+    };
+    const markup = renderToStaticMarkup(createElement(AdminScannerView, {
+      runs: [],
+      signals: [],
+      rejectedCandidates: [],
+      observations: [
+        {
+          ...baseObservation,
+          id: "observation-public-undated",
+          title: "Undated ask visible only to the operator",
+          source_published_at: null,
+          is_public: true,
+          decision_id: null,
+        },
+        {
+          ...baseObservation,
+          id: "observation-hidden",
+          title: "Hidden ask with an active decision",
+          source_published_at: "2026-07-22T12:00:00.000Z",
+          is_public: false,
+          decision_id: "decision-1",
+        },
+      ],
+      observationModerationAvailable: true,
+      feedbackRules: [],
+      feedbackLearningAvailable: true,
+      control: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1000,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "deepseek_v4_flash",
+        updatedAt: null,
+      },
+      activeRun: null,
+      latestRealRun: null,
+      latestFind: null,
+      scoreboard: {} as never,
+      radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
+      integrations: [],
+      nowIso: "2026-07-22T18:00:00.000Z",
+    }));
+
+    expect(markup).toContain("Wire and Asks on the Brief");
+    expect(markup).toContain("Reject and teach…");
+    expect(markup).toContain("no source date — never shown publicly");
+    expect(markup).toContain("Undo — restore item and revoke rule");
+    expect(markup).toContain('name="decision_id" value="decision-1"');
+    // The hidden item never re-offers a second reject.
+    expect(markup.split("Reject and teach…")).toHaveLength(2);
   });
 
   it("hides scanner-learning actions until the feedback schema is available", () => {

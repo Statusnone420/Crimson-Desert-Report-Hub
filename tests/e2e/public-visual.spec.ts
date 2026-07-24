@@ -462,6 +462,8 @@ test.describe("public surface visual regression", () => {
     // The date gate: undated items never render publicly, however fresh.
     await expect(page.getByText("Undated Crimson Desert 1.13.01 mirror must stay off the public wire")).toHaveCount(0);
     await expect(page.getByText("Older patch observation should never appear in the current brief")).toHaveCount(0);
+    // Reject-and-teach hides are a visibility act the public lanes must honor.
+    await expect(page.getByText("Hidden Crimson Desert ask stays off the public lanes")).toHaveCount(0);
     // Observatory footnote: the page's only box; scanner analytics stay off the homepage.
     await expect(page.getByText("From the Observatory")).toBeVisible();
     await expect(page.getByRole("link", { name: "Visit the Observatory →" })).toHaveAttribute("href", "/scanner");

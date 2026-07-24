@@ -648,6 +648,11 @@ export async function rejectObservationAndTeach(formData: FormData): Promise<voi
     | { id: string; url: string; source_domain: string | null; is_public: boolean }
     | undefined;
   if (!observation) throw new Error("observation not found");
+  // A hidden item already carries an active decision; a second reject would
+  // orphan the first record's Undo. Restore it first, then re-decide.
+  if (!observation.is_public) {
+    throw new Error("observation is already hidden — undo its existing decision before deciding again");
+  }
 
   const targetUrl = scannerRuleScopeValue("exact_url", {
     url: observation.url,
