@@ -737,59 +737,99 @@ export async function getPublicObservations(
   }
 }
 
-async function getDashboardDataUncached() {
-  if (!hasSupabaseServiceConfig()) {
-    return {
-      total: 0,
-      communitySignals: 0,
-      directReports: 0,
-      verifiedReports: 0,
-      weekDelta: 0,
-      byCategory: {},
-      signalByCategory: {},
-      platforms: {},
-      gpus: {},
-      topClusters: [],
-      pendingCount: 0,
-      latestReportAt: null,
-      scanner: { paused: false, updatedAt: null },
-      latestAutomationRun: null,
-      currentPatch: await getCurrentPatchMetadata(),
-      claimedFixes: [],
-      observations: EMPTY_OBSERVATION_LANES,
-      publicFindings: [],
-    };
-  }
+/**
+ * House rule (see readConfirmationRowsByClusterForPatchFamily): a failed read
+ * throws — it never flattens into an empty success that renders as a zero.
+ */
+function requireRows<T>(what: string, result: { data: T[] | null; error: { message?: string | null } | null }): T[] {
+  if (result.error) throw new Error(`${what} read failed: ${result.error.message ?? "unknown error"}`);
+  return result.data ?? [];
+}
 
+function requireCount(
+  what: string,
+  result: { count: number | null; error: { message?: string | null } | null },
+): number {
+  if (result.error) throw new Error(`${what} read failed: ${result.error.message ?? "unknown error"}`);
+  return result.count ?? 0;
+}
+
+/**
+ * One shape for both "this environment has no database" and "the database
+ * could not be read". Only the flag differs: an unconfigured preview renders
+ * a quiet board on purpose, while a failed read must render as unavailable —
+ * fabricated zeros would tell readers the board is quiet when it is blind.
+ */
+async function dashboardFallbackData(evidenceUnavailable: boolean) {
+  return {
+    total: 0,
+    communitySignals: 0,
+    directReports: 0,
+    verifiedReports: 0,
+    weekDelta: 0,
+    byCategory: {},
+    signalByCategory: {},
+    platforms: {},
+    gpus: {},
+    topClusters: [],
+    pendingCount: 0,
+    latestReportAt: null,
+    scanner: { paused: false, updatedAt: null },
+    latestAutomationRun: null,
+    currentPatch: await getCurrentPatchMetadata(),
+    claimedFixes: [],
+    observations: EMPTY_OBSERVATION_LANES,
+    publicFindings: [],
+    evidenceUnavailable,
+  };
+}
+
+async function getDashboardDataUncached() {
+  if (!hasSupabaseServiceConfig()) return dashboardFallbackData(false);
+  try {
+    return await readDashboardData();
+  } catch (error) {
+    console.error("[dashboard] evidence read failed; rendering the unavailable state, not zeros", error);
+    return dashboardFallbackData(true);
+  }
+}
+
+async function readDashboardData() {
   const supabase = createServiceClient();
 
-  const { data: reports } = await supabase
-    .from("bug_reports")
-    .select("category, platform, created_at, patch_version, cluster_id, hardware_specs")
-    .eq("moderation_status", "approved");
-  const rows = (reports ?? []) as DashboardReportRow[];
+  const rows = requireRows(
+    "approved reports",
+    await supabase
+      .from("bug_reports")
+      .select("category, platform, created_at, patch_version, cluster_id, hardware_specs")
+      .eq("moderation_status", "approved"),
+  ) as DashboardReportRow[];
 
-  const { data: clusterData } = await supabase
-    .from("issue_clusters")
-    .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public")
-    .eq("is_public", true);
+  const clusterData = requireRows(
+    "public clusters",
+    await supabase
+      .from("issue_clusters")
+      .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public")
+      .eq("is_public", true),
+  );
 
-  const { data: signals } = await supabase
-    .from("source_signals")
-    .select("id, cluster_id, source, source_url, title, summary, category, confidence, observed_at, source_published_at, public_status")
-    .eq("public_status", "public");
-  const rawSignalRows = (signals ?? []) as SignalRow[];
+  const rawSignalRows = requireRows(
+    "public signals",
+    await supabase
+      .from("source_signals")
+      .select("id, cluster_id, source, source_url, title, summary, category, confidence, observed_at, source_published_at, public_status")
+      .eq("public_status", "public"),
+  ) as SignalRow[];
 
-  const { data: verified } = await supabase
-    .from("approved_excerpts")
-    .select("report_id, bug_reports(cluster_id)")
-    .limit(1000);
-  const verifiedRows = (verified ?? []) as VerifiedReportClusterRow[];
+  const verifiedRows = requireRows(
+    "approved excerpts",
+    await supabase.from("approved_excerpts").select("report_id, bug_reports(cluster_id)").limit(1000),
+  ) as VerifiedReportClusterRow[];
 
-  const { count: pendingCount } = await supabase
-    .from("bug_reports")
-    .select("id", { count: "exact", head: true })
-    .eq("moderation_status", "pending");
+  const pendingCount = requireCount(
+    "pending reports",
+    await supabase.from("bug_reports").select("id", { count: "exact", head: true }).eq("moderation_status", "pending"),
+  );
 
   const [scanner, latestAutomation, currentPatch, claimedFixes] = await Promise.all([
     getAutomationControlState(supabase as unknown as AutomationSettingsClient),
@@ -813,7 +853,7 @@ async function getDashboardDataUncached() {
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
   const confirmationsByCluster = await readConfirmationRowsByClusterForPatchFamily(supabase, currentPatch.version);
-  const publicClusters = (clusterData ?? []) as ClusterRow[];
+  const publicClusters = clusterData as ClusterRow[];
   const fixClaimedAtByCluster = Object.fromEntries(
     publicClusters.map((cluster) => [
       cluster.id,
@@ -862,14 +902,16 @@ async function getDashboardDataUncached() {
     platforms: countBy(currentReportRows, (row) => row.platform),
     gpus: countGpus(currentReportRows),
     topClusters,
-    pendingCount: pendingCount ?? 0,
+    pendingCount,
     latestReportAt: latestReportAtFromRows(currentReportRows),
     scanner,
-    latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
+    latestAutomationRun:
+      (requireRows("latest automation run", latestAutomation) as PublicAutomationRunRow[])[0] ?? null,
     currentPatch,
     claimedFixes,
     observations,
     publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
+    evidenceUnavailable: false,
   };
 }
 

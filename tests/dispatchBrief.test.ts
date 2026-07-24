@@ -156,4 +156,30 @@ describe("dispatch brief composer", () => {
     expect(brief.weeklyDeltaPct).toBeNull();
     expect(brief.trend).toBe("flat");
   });
+
+  it("says unavailable, never quiet, when the evidence read failed", () => {
+    // A DB outage hands the composer zeros it never actually read. The brief
+    // must present the outage, not a quiet board.
+    const brief = composeDispatchBrief({
+      ...base,
+      reports: 0,
+      taps: 0,
+      series: null,
+      evidenceUnavailable: true,
+    });
+    expect(brief.evidenceUnavailable).toBe(true);
+    expect(brief.kicker).toBe("PATCH 1.13.01 · HOTFIX · DAY 10");
+    expect(brief.headline).toBe("The board can't read its evidence right now.");
+    expect(brief.dek).toContain("missing — not zero");
+    expect(brief.dek).not.toContain("Quiet is a real reading");
+    expect(brief.pulseHeadline).toContain("unavailable");
+    expect(brief.weeklyDeltaPct).toBeNull();
+  });
+
+  it("keeps the honest quiet reading when the reads succeeded at zero", () => {
+    const brief = composeDispatchBrief({ ...base, reports: 0, taps: 0, evidenceUnavailable: false });
+    expect(brief.evidenceUnavailable).toBe(false);
+    expect(brief.trend).toBe("quiet");
+    expect(brief.dek).toContain("Quiet is a real reading");
+  });
 });

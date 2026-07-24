@@ -134,6 +134,7 @@ export default async function DispatchHomePage() {
       : null,
     claimedFixCount: d.claimedFixes.length,
     contestedClaimCount: contestedClusters.length,
+    evidenceUnavailable: d.evidenceUnavailable,
     series,
     radar: radarData.connected
       ? {
@@ -162,9 +163,11 @@ export default async function DispatchHomePage() {
     : topWatch
       ? `${topWatch.title} leads the ${patch.version} watchlist.`
       : `Patch ${patch.version} is live. Here’s what changed and what to watch.`;
-  const heroDek = topWatch
-    ? `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
-    : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
+  const heroDek = d.evidenceUnavailable
+    ? `The board can't read its evidence store right now. Patch facts stay current; report and issue counts are missing, not zero.`
+    : topWatch
+      ? `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
+      : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
   const showContextBand = Boolean(
     radar.steamPulse.length > 0 || radar.platformContext || radar.pulseReadFailures.length > 0,
   );
@@ -383,8 +386,14 @@ export default async function DispatchHomePage() {
             </Link>
           </div>
           <ul className="brief-lead__meta dispatch-desktop-only" aria-label="Current evidence counts">
-            <li>{d.claimedFixes.length} official claims</li>
-            <li>{boardClusters.length} published issues</li>
+            {d.evidenceUnavailable ? (
+              <li>evidence counts unavailable</li>
+            ) : (
+              <>
+                <li>{d.claimedFixes.length} official claims</li>
+                <li>{boardClusters.length} published issues</li>
+              </>
+            )}
             <li>{radarData.recurring.trackedLeads} tracked radar leads</li>
             <li>
               {radarData.connected && radarData.health.lastScanAt
@@ -395,8 +404,14 @@ export default async function DispatchHomePage() {
             </li>
           </ul>
           <div className="brief-fact-strip dispatch-mobile-only">
-            <span>{d.claimedFixes.length} claims</span>
-            <span>{boardClusters.length} issues</span>
+            {d.evidenceUnavailable ? (
+              <span>counts unavailable</span>
+            ) : (
+              <>
+                <span>{d.claimedFixes.length} claims</span>
+                <span>{boardClusters.length} issues</span>
+              </>
+            )}
             <span>{radarData.recurring.trackedLeads} radar leads</span>
           </div>
           <nav className="brief-lead__toc dispatch-desktop-only" aria-label="In this edition">
@@ -516,28 +531,39 @@ export default async function DispatchHomePage() {
                 </div>
               ) : null}
             </div>
-            <div className="pulse-stats">
-              <div className="pulse-stat">
-                <div className="pulse-stat__value">{formatWeeklyDelta(brief)}</div>
-                <div className="pulse-stat__caption">{weeklyDeltaSentence(brief)}</div>
-              </div>
-              <div className="pulse-stat pulse-stat--secondary">
-                <div className="pulse-stat__value pulse-stat__value--crimson">
-                  {mostContested?.readout.poll?.stillCount ?? 0}
-                </div>
-                <div className="pulse-stat__caption">
-                  {mostContested
-                    ? `Players still tapping "still happening" on ${mostContested.title}.`
-                    : "No claimed fix is contested by player taps right now."}
+            {brief.evidenceUnavailable ? (
+              <div className="pulse-stats">
+                <div className="pulse-stat">
+                  <div className="pulse-stat__value">—</div>
+                  <div className="pulse-stat__caption">
+                    Evidence counts are unavailable right now — missing, not zero.
+                  </div>
                 </div>
               </div>
-              <div className="pulse-stat pulse-stat--secondary">
-                <div className="pulse-stat__value">{radar.keptThisWeek}</div>
-                <div className="pulse-stat__caption">
-                  Public leads kept by the radar this week, out of {radar.reviewedThisWeek} reviewed.
+            ) : (
+              <div className="pulse-stats">
+                <div className="pulse-stat">
+                  <div className="pulse-stat__value">{formatWeeklyDelta(brief)}</div>
+                  <div className="pulse-stat__caption">{weeklyDeltaSentence(brief)}</div>
+                </div>
+                <div className="pulse-stat pulse-stat--secondary">
+                  <div className="pulse-stat__value pulse-stat__value--crimson">
+                    {mostContested?.readout.poll?.stillCount ?? 0}
+                  </div>
+                  <div className="pulse-stat__caption">
+                    {mostContested
+                      ? `Players still tapping "still happening" on ${mostContested.title}.`
+                      : "No claimed fix is contested by player taps right now."}
+                  </div>
+                </div>
+                <div className="pulse-stat pulse-stat--secondary">
+                  <div className="pulse-stat__value">{radar.keptThisWeek}</div>
+                  <div className="pulse-stat__caption">
+                    Public leads kept by the radar this week, out of {radar.reviewedThisWeek} reviewed.
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </section>
 
@@ -743,20 +769,26 @@ export default async function DispatchHomePage() {
             <h2 className="dispatch-kicker">{sectionNo("board")} · The Issue Board</h2>
             <span style={{ fontSize: 13 }}>
               <Link href="/issues" className="dispatch-link">
-                All {boardClusters.length} published issue{boardClusters.length === 1 ? "" : "s"} →
+                {d.evidenceUnavailable
+                  ? "Issue board →"
+                  : `All ${boardClusters.length} published issue${boardClusters.length === 1 ? "" : "s"} →`}
               </Link>
             </span>
           </div>
           {top3.length === 0 ? (
             <div className="board-empty">
-              <p>
-                No published issues yet for {patch.version}. Publishing needs a player report or corroborated
-                sources —{" "}
-                <Link href="/about" className="dispatch-link">
-                  read the method
-                </Link>
-                .
-              </p>
+              {d.evidenceUnavailable ? (
+                <p>The issue board can&rsquo;t be read right now — nothing here is being counted as zero.</p>
+              ) : (
+                <p>
+                  No published issues yet for {patch.version}. Publishing needs a player report or corroborated
+                  sources —{" "}
+                  <Link href="/about" className="dispatch-link">
+                    read the method
+                  </Link>
+                  .
+                </p>
+              )}
             </div>
           ) : (
             <div className="board-grid">

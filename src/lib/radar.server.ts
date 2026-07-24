@@ -537,7 +537,15 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
         .eq("moderation_status", "approved"),
       supabase.from("issue_confirmations").select("id", { count: "exact", head: true }),
     ]);
-    if (runsRes.error || latestTerminalRunRes.error) return emptyPatchRadarData(currentPatch);
+    // Evidence counts share the bail: a failed count must not render as zero
+    // reports/taps under a radar that claims to be healthy.
+    if (runsRes.error || latestTerminalRunRes.error || reportsRes.error || tapsRes.error) {
+      console.error(
+        "[radar] read failed; reporting disconnected instead of zeros",
+        runsRes.error ?? latestTerminalRunRes.error ?? reportsRes.error ?? tapsRes.error,
+      );
+      return emptyPatchRadarData(currentPatch);
+    }
 
     return composePatchRadarData({
       signals,
