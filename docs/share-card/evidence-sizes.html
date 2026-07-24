@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Share card at three sizes</title>
+<style>
+  @font-face {
+    font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400;
+    src: url("fonts/ibm-plex-mono-400.woff2") format("woff2");
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #26221c; color: #b7b3a7;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    padding: 40px 80px 64px;
+  }
+  .label {
+    font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+    margin: 44px 0 12px; color: #d9d0bd;
+  }
+  .label:first-child { margin-top: 0; }
+  img { display: block; border: 1px solid rgba(0,0,0,0.5); }
+  .row { display: flex; gap: 56px; align-items: flex-start; }
+  .crop {
+    width: 92px; height: 92px; overflow: hidden;
+    border: 1px solid rgba(0,0,0,0.5); position: relative;
+  }
+  /* True center-crop: 1200x630 scaled to 92px tall = 175px wide, centered. */
+  .crop img { border: 0; position: absolute; width: 175px; left: -41px; top: 0; }
+</style>
+</head>
+<body>
+  <div class="label">1 &middot; Full 1200 &times; 630 &mdash; what X, Discord, Slack, iMessage fetch</div>
+  <img src="preview-1200x630.png" width="1200">
+
+  <div class="label">2 &middot; Social link card &mdash; ~514px wide, the size feeds actually render</div>
+  <img src="preview-1200x630.png" width="514">
+
+  <div class="label">3 &middot; Tiny Google-result thumbnails &mdash; ~116px 16:9 and ~92px square crop</div>
+  <div class="row">
+    <img src="preview-1200x630.png" width="116">
+    <div class="crop"><img src="preview-1200x630.png"></div>
+  </div>
+</body>
+</html>
