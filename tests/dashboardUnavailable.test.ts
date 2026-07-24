@@ -101,6 +101,25 @@ describe("dashboard loader under a failed read", () => {
     expect(data.claimedFixes).toEqual([]);
   });
 
+  it("keeps the evidence board when only the source-signal read fails", async () => {
+    // Source signals are lead context, not player evidence: their outage
+    // disables the lead fields on their own and says so in the logs.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "source_signals" ? failingQuery("permission denied for table source_signals") : okQuery(),
+    );
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.sourceLeadsUnavailable).toBe(true);
+    expect(data.publicFindings).toEqual([]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("source-signal read failed"),
+      expect.anything(),
+    );
+  });
+
   it("does not fail the evidence lane when only scanner run history is unreadable", async () => {
     // Scanner history is context: its outage degrades to "no recorded run"
     // while validly read evidence keeps rendering.

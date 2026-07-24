@@ -809,6 +809,9 @@ async function dashboardFallbackData(evidenceUnavailable: boolean) {
     observations: EMPTY_OBSERVATION_LANES,
     publicFindings: [],
     evidenceUnavailable,
+    // A full evidence outage leaves the lead fields unread too; an
+    // unconfigured environment reads neither, deliberately.
+    sourceLeadsUnavailable: evidenceUnavailable,
   };
 }
 
@@ -841,13 +844,18 @@ async function readDashboardData() {
       .eq("is_public", true),
   );
 
-  const rawSignalRows = requireRows(
-    "public signals",
-    await supabase
-      .from("source_signals")
-      .select("id, cluster_id, source, source_url, title, summary, category, confidence, observed_at, source_published_at, public_status")
-      .eq("public_status", "public"),
-  ) as SignalRow[];
+  // Source signals are lead context, not player evidence: their failure
+  // disables the lead-derived fields on their own instead of blanking the
+  // validly read evidence board.
+  const signalsRes = await supabase
+    .from("source_signals")
+    .select("id, cluster_id, source, source_url, title, summary, category, confidence, observed_at, source_published_at, public_status")
+    .eq("public_status", "public");
+  const sourceLeadsUnavailable = Boolean(signalsRes.error);
+  if (signalsRes.error) {
+    console.error("[dashboard] source-signal read failed; lead fields unavailable, evidence intact", signalsRes.error);
+  }
+  const rawSignalRows = (signalsRes.data ?? []) as SignalRow[];
 
   const verifiedRows = requireRows(
     "approved excerpts",
@@ -873,7 +881,17 @@ async function readDashboardData() {
     getCurrentPatchMetadata(supabase),
     getClaimedFixesForCurrentPatch(supabase),
   ]);
-  const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
+  // Candidate counts read the same lead register; their failure folds into
+  // the lead flag, not the evidence one. The shared reader keeps throwing for
+  // callers that want the strict behavior.
+  let candidateSignalCounts: Record<string, number> = {};
+  let candidateLeadsFailed = false;
+  try {
+    candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
+  } catch (error) {
+    candidateLeadsFailed = true;
+    console.error("[dashboard] candidate-signal read failed; lead fields unavailable, evidence intact", error);
+  }
   const observations = await getPublicObservations(supabase, {
     version: currentPatch.version,
     publishedAt: currentPatch.publishedAt ?? null,
@@ -939,6 +957,7 @@ async function readDashboardData() {
     observations,
     publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
     evidenceUnavailable: false,
+    sourceLeadsUnavailable: sourceLeadsUnavailable || candidateLeadsFailed,
   };
 }
 
