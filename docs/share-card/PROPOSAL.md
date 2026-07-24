@@ -1,7 +1,9 @@
 # Search + Share Presentation — Phase A proposal
 
-Design-only. Nothing here is wired into the app yet; Phase B implements after
-owner approval.
+**Status: approved 2026-07-24 (stacked v2); implemented on this branch.** The
+production share images are byte-equal to `preview-1200x630.png` (enforced by
+`tests/metadata.test.ts`); regenerate via `node docs/share-card/render.mjs`
+and copy into `src/app/`.
 
 ## The card
 

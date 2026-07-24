@@ -22,6 +22,7 @@ import { patchFamilyKey } from "@/lib/patchWatch";
 import { radarRecencyCounts, RADAR_RECENCY_BANDS } from "@/lib/radarDisplay";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getDashboardData, getDailySignalRollup, getPublicScannerData } from "@/lib/queries";
+import { serializeJsonLd, webSiteJsonLd } from "@/lib/structuredData";
 
 export const revalidate = 300;
 
@@ -308,6 +309,10 @@ export default async function DispatchHomePage() {
 
   return (
     <PublicShell active="brief" masthead edition={edition}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(webSiteJsonLd()) }}
+      />
       <div className="dispatch-container">
         {/* Lead */}
         <section className="brief-lead" aria-label="Lead story">

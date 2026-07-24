@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { OperatorShell, PublicShell } from "@/components/dispatch/Chrome";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { PublicScannerView } from "@/components/scanner/PublicScannerView";
@@ -5,6 +6,11 @@ import { isAdmin } from "@/lib/adminGuard";
 import { applyLlmCircuitToStatuses, integrationStatuses } from "@/lib/env";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getAutomationAdminData, getIssuesData, getPublicScannerData } from "@/lib/queries";
+
+export const metadata: Metadata = {
+  title: "The Observatory",
+  alternates: { canonical: "/scanner" },
+};
 
 export const dynamic = "force-dynamic";
 

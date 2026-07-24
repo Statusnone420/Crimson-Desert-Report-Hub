@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { SOURCE_URL } from "@/lib/site";
+
+export const metadata: Metadata = {
+  title: "Method",
+  alternates: { canonical: "/about" },
+};
 
 export default function AboutPage() {
   return (

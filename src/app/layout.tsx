@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Instrument_Sans, Instrument_Serif } from "next/font/google";
-import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
+// The share images come from the opengraph-image.png / twitter-image.png file
+// convention. Never set openGraph.images / twitter.images here: Next only
+// attaches the files when the metadata object omits those keys.
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   applicationName: SITE_NAME,
@@ -12,8 +15,8 @@ export const metadata: Metadata = {
     title: "CD Report Hub",
   },
   title: {
-    default: `${SITE_NAME} - current situation hub`,
-    template: `%s | ${SITE_NAME}`,
+    default: SITE_SEARCH_TITLE,
+    template: `%s · ${SITE_NAME}`,
   },
   description: SITE_DESCRIPTION,
   alternates: { canonical: "/" },
@@ -21,13 +24,13 @@ export const metadata: Metadata = {
     type: "website",
     url: "/",
     siteName: SITE_NAME,
-    title: `${SITE_NAME} - current situation hub`,
-    description: SITE_DESCRIPTION,
+    title: SITE_NAME,
+    description: SITE_OG_DESCRIPTION,
   },
   twitter: {
     card: "summary_large_image",
-    title: `${SITE_NAME} - current situation hub`,
-    description: SITE_DESCRIPTION,
+    title: SITE_NAME,
+    description: SITE_OG_DESCRIPTION,
   },
   robots: { index: true, follow: true, googleBot: { index: true, follow: true } },
 };
