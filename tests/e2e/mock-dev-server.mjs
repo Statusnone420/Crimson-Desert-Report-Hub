@@ -526,6 +526,60 @@ const patchObservations = [
     seen_count: 6,
     is_public: true,
   },
+  {
+    // Undated coverage: the display gate must keep this off every public lane
+    // even though it is recent, public, and on-topic — discovery time is not
+    // publication time.
+    id: "observation-undated",
+    created_at: isoMinutesAgo(5),
+    patch_version: "1.13.01",
+    kind: "patch_release",
+    title: "Undated Crimson Desert 1.13.01 mirror must stay off the public wire",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/mock-undated/patch_notes_mirror/",
+    url_hash: "mock-observation-hash-undated",
+    source_domain: "reddit.com",
+    snippet: "A patch-notes mirror whose source never disclosed a publication date.",
+    source_published_at: null,
+    observed_at: isoMinutesAgo(5),
+    last_seen_at: isoMinutesAgo(5),
+    seen_count: 1,
+    is_public: true,
+  },
+  {
+    // Hidden by a recorded Reject-and-teach decision: the public lanes must
+    // skip it while the admin desk offers Undo.
+    id: "observation-hidden",
+    created_at: isoMinutesAgo(45),
+    patch_version: "1.13.01",
+    kind: "community_ask",
+    title: "Hidden Crimson Desert ask stays off the public lanes",
+    url: "https://www.reddit.com/r/CrimsonDesert/comments/mock-hidden/rejected_ask/",
+    url_hash: "mock-observation-hash-hidden",
+    source_domain: "reddit.com",
+    snippet: "An ask the operator rejected and taught away.",
+    source_published_at: isoMinutesAgo(300),
+    observed_at: isoMinutesAgo(45),
+    last_seen_at: isoMinutesAgo(45),
+    seen_count: 2,
+    is_public: false,
+  },
+];
+
+const scannerDecisions = [
+  {
+    id: "mock-observation-decision-1",
+    created_at: isoMinutesAgo(40),
+    candidate_id: null,
+    signal_id: null,
+    observation_id: "observation-hidden",
+    target_url: "https://www.reddit.com/r/CrimsonDesert/comments/mock-hidden/rejected_ask/",
+    target_url_hash: "a".repeat(64),
+    source_domain: "reddit.com",
+    decision: "off_topic",
+    reason: "Feature request thread, not patch context.",
+    actor: "admin",
+    undone_at: null,
+  },
 ];
 
 const steamPulseSnapshots = [
@@ -908,6 +962,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/patch_observations" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(patchObservations, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/scanner_decisions" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(scannerDecisions, url));
     return;
   }
 

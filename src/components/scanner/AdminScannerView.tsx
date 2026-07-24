@@ -1,4 +1,4 @@
-import { recordScannerDecision, setScannerPolicy } from "@/app/admin/actions";
+import { recordScannerDecision, rejectObservationAndTeach, setScannerPolicy, undoScannerDecision } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
 import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
 import { FeedbackRulesPanel, ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
@@ -11,6 +11,7 @@ import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
 import { displayCandidateCount, radarYieldPct } from "@/lib/observatoryMetrics";
 import type {
+  AdminObservationRow,
   AdminSignalRow,
   AutomationRunRow,
   PublicScannerData,
@@ -212,10 +213,107 @@ function signalRow(signal: AdminSignalRow, nowMs: number, feedbackLearningAvaila
   );
 }
 
+const OBSERVATION_KIND_LABELS: Record<AdminObservationRow["kind"], string> = {
+  patch_release: "PATCH RELEASE",
+  press_reception: "PRESS",
+  fix_announcement: "FIX ANNOUNCEMENT",
+  community_ask: "COMMUNITY ASK",
+};
+
+function observationDateLabel(iso: string | null): string {
+  if (!iso) return "no source date — never shown publicly";
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "no source date — never shown publicly";
+  return `published ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`;
+}
+
+function observationRow(observation: AdminObservationRow, moderationAvailable: boolean) {
+  const laneLabel = observation.kind === "community_ask" ? "ASKS LANE" : "WIRE LANE";
+  return (
+    <article key={observation.id} className="lead-item">
+      <div className="lead-item__status">
+        <span className={observation.is_public ? "is-green" : "is-amber"}>
+          {observation.is_public ? "PUBLIC" : "HIDDEN"}
+        </span>{" "}
+        · {laneLabel} · {OBSERVATION_KIND_LABELS[observation.kind]} ·{" "}
+        {observationDateLabel(observation.source_published_at)}
+        {observation.seen_count > 1 ? ` · SEEN ${observation.seen_count}×` : ""}
+      </div>
+      <h3 className="lead-item__title">{observation.title}</h3>
+      {observation.snippet ? <p className="lead-item__summary">{observation.snippet}</p> : null}
+      <p className="decision-form__scope">
+        {observation.source_domain ?? "unknown domain"} ·{" "}
+        <a href={observation.url} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+          Open source
+        </a>
+      </p>
+      {!moderationAvailable ? (
+        <p className="decision-form__scope">Observation moderation unlocks after the database schema update.</p>
+      ) : observation.decision_id ? (
+        <form action={undoScannerDecision} className="lead-feedback__form">
+          <input type="hidden" name="decision_id" value={observation.decision_id} />
+          <p className="decision-form__scope">
+            Hidden by a recorded decision. Undo restores the item and revokes its rule.
+          </p>
+          <SubmitButton className="dispatch-btn" pendingText="Undoing…">
+            Undo — restore item and revoke rule
+          </SubmitButton>
+        </form>
+      ) : (
+        <details className="lead-feedback">
+          <summary>Reject and teach…</summary>
+          <form action={rejectObservationAndTeach} className="decision-form dispatch-field lead-feedback__form">
+            <input type="hidden" name="id" value={observation.id} />
+            <label>
+              <span>Why this item is wrong</span>
+              <select name="decision" defaultValue="off_topic" required>
+                <option value="off_topic">Off topic</option>
+                <option value="wrong_patch">Wrong patch</option>
+                <option value="not_issue_report">Not patch context</option>
+                <option value="duplicate">Duplicate source</option>
+              </select>
+            </label>
+            <label>
+              <span>Operator reason</span>
+              <textarea
+                name="reason"
+                required
+                minLength={3}
+                maxLength={500}
+                placeholder="What made this item wrong for the public lanes?"
+              />
+            </label>
+            <label>
+              <span>Rule scope</span>
+              <select name="scope" defaultValue="exact_url" required>
+                <option value="exact_url">This exact page only</option>
+                <option value="source_domain">Whole domain (needs confirmation)</option>
+              </select>
+            </label>
+            <label className="lead-feedback__confirm">
+              <input type="checkbox" name="confirm_broad" value="true" />{" "}
+              <span>Confirm whole-domain rule (required only for domain scope)</span>
+            </label>
+            <p className="decision-form__scope">
+              Hides the item from the public lane immediately and records an undoable lesson so future runs skip
+              the same source. Two records, one Undo.
+            </p>
+            <SubmitButton className="dispatch-btn tap-btn--danger" pendingText="Rejecting…">
+              Reject and teach
+            </SubmitButton>
+          </form>
+        </details>
+      )}
+    </article>
+  );
+}
+
 export function AdminScannerView({
   runs,
   signals,
   rejectedCandidates,
+  observations,
+  observationModerationAvailable,
   feedbackRules,
   feedbackLearningAvailable,
   control,
@@ -230,6 +328,8 @@ export function AdminScannerView({
   runs: AutomationRunRow[];
   signals: AdminSignalRow[];
   rejectedCandidates: RejectedCandidateRow[];
+  observations: AdminObservationRow[];
+  observationModerationAvailable: boolean;
   feedbackRules: ScannerFeedbackRuleRow[];
   feedbackLearningAvailable: boolean;
   control: AutomationControlState;
@@ -535,6 +635,24 @@ export function AdminScannerView({
             </div>
           </details>
         ) : null}
+      </section>
+
+      <section className="operator-records" aria-label="Public context lanes">
+        <div className="section-heading section-heading--compact">
+          <div>
+            <p className="dispatch-kicker">Context lanes</p>
+            <h2 className="section-heading__title">Wire and Asks on the Brief</h2>
+          </div>
+          <p className="section-heading__note">
+            Everything the current patch&apos;s public context lanes hold. Undated items never render publicly.
+            Rejecting an item hides it immediately and records an undoable lesson.
+          </p>
+        </div>
+        <div className="lead-record-grid">
+          {observations.length > 0
+            ? observations.map((observation) => observationRow(observation, observationModerationAvailable))
+            : <p className="decision-empty">No observations recorded for this patch yet.</p>}
+        </div>
       </section>
 
       <section className="feedback-ledger" aria-label="Active scanner feedback rules">
