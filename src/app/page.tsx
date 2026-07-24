@@ -337,20 +337,24 @@ export default async function DispatchHomePage() {
               </div>
               <div className="record-block__row">
                 <span>Claimed fixes</span>
-                <span className="record-block__value">{d.claimedFixes.length}</span>
+                <span className="record-block__value">
+                  {d.evidenceUnavailable && d.claimedFixes.length === 0 ? "unreadable" : d.claimedFixes.length}
+                </span>
               </div>
               <div className="record-block__row">
                 <span>Player verdict</span>
                 <span
                   className={
-                    contestedClusters.length > 0
+                    !d.evidenceUnavailable && contestedClusters.length > 0
                       ? "record-block__value record-block__value--amber"
                       : "record-block__value"
                   }
                 >
-                  {d.claimedFixes.length === 0
-                    ? "no claims"
-                    : `${contestedClusters.length} of ${d.claimedFixes.length} contested`}
+                  {d.evidenceUnavailable
+                    ? "unreadable right now"
+                    : d.claimedFixes.length === 0
+                      ? "no claims"
+                      : `${contestedClusters.length} of ${d.claimedFixes.length} contested`}
                 </span>
               </div>
               <div className="record-block__row">
@@ -371,12 +375,19 @@ export default async function DispatchHomePage() {
           <div className="brief-lead__actions" aria-label="Start with the current patch">
             <a className="brief-lead__action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">
               <span>What changed</span>
-              <strong>{d.claimedFixes.length} official fix {d.claimedFixes.length === 1 ? "claim" : "claims"}</strong>
+              <strong>
+                {d.evidenceUnavailable && d.claimedFixes.length === 0
+                  ? "Official patch notes"
+                  : `${d.claimedFixes.length} official fix ${d.claimedFixes.length === 1 ? "claim" : "claims"}`}
+              </strong>
               <i aria-hidden="true">↗</i>
             </a>
             <Link className="brief-lead__action" href="/issues">
               <span>What appears broken</span>
-              <strong>{topWatch?.title ?? "No published player issue yet"}</strong>
+              <strong>
+                {topWatch?.title ??
+                  (d.evidenceUnavailable ? "Issue board unreadable right now" : "No published player issue yet")}
+              </strong>
               <i aria-hidden="true">→</i>
             </Link>
             <Link className="brief-lead__action" href="/report">
@@ -387,7 +398,10 @@ export default async function DispatchHomePage() {
           </div>
           <ul className="brief-lead__meta dispatch-desktop-only" aria-label="Current evidence counts">
             {d.evidenceUnavailable ? (
-              <li>evidence counts unavailable</li>
+              <>
+                {d.claimedFixes.length > 0 ? <li>{d.claimedFixes.length} official claims</li> : null}
+                <li>evidence counts unavailable</li>
+              </>
             ) : (
               <>
                 <li>{d.claimedFixes.length} official claims</li>
@@ -405,7 +419,10 @@ export default async function DispatchHomePage() {
           </ul>
           <div className="brief-fact-strip dispatch-mobile-only">
             {d.evidenceUnavailable ? (
-              <span>counts unavailable</span>
+              <>
+                {d.claimedFixes.length > 0 ? <span>{d.claimedFixes.length} claims</span> : null}
+                <span>counts unavailable</span>
+              </>
             ) : (
               <>
                 <span>{d.claimedFixes.length} claims</span>
@@ -849,6 +866,10 @@ export default async function DispatchHomePage() {
                 <div className="claim-row__verdict">
                   {row.poll && row.poll.fixedCount + row.poll.stillCount > 0 ? (
                     verdictSplit(row.poll, verdictNote(row.poll))
+                  ) : d.evidenceUnavailable ? (
+                    <div className="verdict-note">
+                      Player verdicts can&rsquo;t be read right now — not counted as zero.
+                    </div>
                   ) : row.attributed ? (
                     <div className="verdict-clock">
                       No player verdicts yet · claim clock running since {row.clockSince}

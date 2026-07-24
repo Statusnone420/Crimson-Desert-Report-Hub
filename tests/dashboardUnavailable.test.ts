@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
+  claimedFixes: vi.fn(async (): Promise<{ fixText: string; category: string | null }[]> => []),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -27,7 +28,7 @@ vi.mock("@/lib/officialPatch.server", () => ({
     title: "Hotfix 1.13.01",
     sourceUrl: null,
   }),
-  getClaimedFixesForCurrentPatch: async () => [],
+  getClaimedFixesForCurrentPatch: mocks.claimedFixes,
 }));
 
 /** Chainable query stub: every builder method returns itself; awaiting it resolves the injected result. */
@@ -66,5 +67,27 @@ describe("dashboard loader under a failed read", () => {
       expect.stringContaining("unavailable state"),
       expect.objectContaining({ message: expect.stringContaining("permission denied") }),
     );
+  });
+
+  it("keeps official claims through an evidence outage — they are independently stored", async () => {
+    // The claims tables are not the evidence tables. A bug_reports failure
+    // must not erase Pearl Abyss's claimed fixes from the record.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.claimedFixes.mockResolvedValueOnce([{ fixText: "Fixed map-open crash", category: "crash_startup" }]);
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(true);
+    expect(data.claimedFixes).toEqual([{ fixText: "Fixed map-open crash", category: "crash_startup" }]);
+  });
+
+  it("leaves claims empty when their own read also fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.claimedFixes.mockRejectedValueOnce(new Error("claims read failed"));
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(true);
+    expect(data.claimedFixes).toEqual([]);
   });
 });

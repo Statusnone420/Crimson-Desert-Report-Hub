@@ -759,8 +759,20 @@ function requireCount(
  * could not be read". Only the flag differs: an unconfigured preview renders
  * a quiet board on purpose, while a failed read must render as unavailable —
  * fabricated zeros would tell readers the board is quiet when it is blind.
+ *
+ * Official claims and patch facts live in their own tables, independent of
+ * the evidence store, so an evidence outage re-reads them through their own
+ * path instead of erasing them. If that read fails too, claims stay [] and
+ * the page marks them unreadable rather than printing a zero.
  */
 async function dashboardFallbackData(evidenceUnavailable: boolean) {
+  let currentPatch: Awaited<ReturnType<typeof getCurrentPatchMetadata>> | null = null;
+  let claimedFixes: Awaited<ReturnType<typeof getClaimedFixesForCurrentPatch>> = [];
+  if (evidenceUnavailable && hasSupabaseServiceConfig()) {
+    const supabase = createServiceClient();
+    currentPatch = await getCurrentPatchMetadata(supabase).catch(() => null);
+    claimedFixes = await getClaimedFixesForCurrentPatch(supabase).catch(() => []);
+  }
   return {
     total: 0,
     communitySignals: 0,
@@ -776,8 +788,8 @@ async function dashboardFallbackData(evidenceUnavailable: boolean) {
     latestReportAt: null,
     scanner: { paused: false, updatedAt: null },
     latestAutomationRun: null,
-    currentPatch: await getCurrentPatchMetadata(),
-    claimedFixes: [],
+    currentPatch: currentPatch ?? (await getCurrentPatchMetadata()),
+    claimedFixes,
     observations: EMPTY_OBSERVATION_LANES,
     publicFindings: [],
     evidenceUnavailable,
