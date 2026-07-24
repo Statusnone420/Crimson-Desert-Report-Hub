@@ -1,0 +1,123 @@
+<!doctype html>
+<!--
+THESIS: The share card is the front page at arm's length — a miniature Editorial
+Dispatch masthead, not an app-store banner. It refuses the icon-tile-left,
+text-right ad composition of the July 6 card.
+OWN-WORLD: warm black #110e0b canvas, cream #ece4d3 Instrument Serif 400
+masthead with crimson #e2534a "Report Hub", IBM Plex Mono quiet folio lines,
+hairline cream rules, 3px #cf3b32 topline, hex warrior seal, film grain 0.05.
+STORY: a reader sees a newspaper nameplate, reads the pledge, understands this
+is an independent field report on Crimson Desert, and trusts it enough to click.
+FIRST VIEWPORT: topline; folio (provenance left, "unofficial, fan-run" right);
+centered one-line masthead; italic pledge; small flanked seal; quiet domain foot.
+FORM: brief-pinned miniature front page — no tournament; staging: centered
+nameplate stack.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Crimson Desert Report Hub — share card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #110e0b;
+    --ink: #ece4d3;
+    --ink-2: #d9d0bd;
+    --quiet: #837b6e;
+    --crimson: #e2534a;
+    --crimson-action: #cf3b32;
+    --rule: rgba(236, 227, 208, 0.18);
+    --rule-soft: rgba(236, 227, 208, 0.14);
+    --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body { background: var(--bg); position: relative; }
+
+  .topline {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 3px; background: var(--crimson-action);
+  }
+
+  .card {
+    position: absolute; inset: 3px 0 0 0;
+    display: flex; flex-direction: column;
+    padding: 0 72px;
+  }
+
+  .folio {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 40px 0 18px;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono); font-weight: 500; font-size: 14px;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--quiet);
+  }
+
+  .stage {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    padding-top: 14px;
+  }
+
+  .masthead {
+    font-family: var(--serif); font-weight: 400;
+    font-size: 104px; line-height: 1; letter-spacing: -0.015em;
+    color: var(--ink); white-space: nowrap;
+  }
+  .masthead em { font-style: normal; color: var(--crimson); }
+
+  .pledge {
+    margin-top: 32px;
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: 36px; line-height: 1.35; color: var(--ink-2);
+  }
+
+  .seal-row {
+    margin-top: 54px;
+    display: flex; align-items: center; gap: 30px;
+  }
+  .seal-row::before, .seal-row::after {
+    content: ""; width: 120px; height: 1px; background: var(--rule);
+  }
+  .seal {
+    width: 126px; height: 126px; display: block;
+    filter: brightness(1.14) contrast(1.03);
+  }
+
+  .foot {
+    padding: 18px 0 34px;
+    border-top: 1px solid var(--rule);
+    text-align: center;
+    font-family: var(--mono); font-weight: 500; font-size: 13px;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--quiet);
+  }
+
+  .grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  }
+</style>
+</head>
+<body>
+  <div class="topline"></div>
+  <div class="card">
+    <div class="folio">
+      <span>Independent patch intelligence</span>
+      <span>Unofficial &middot; fan-run</span>
+    </div>
+    <div class="stage">
+      <h1 class="masthead">Crimson Desert <em>Report Hub</em></h1>
+      <p class="pledge">What changed. What players are reporting. What&nbsp;matters&nbsp;now.</p>
+      <div class="seal-row">
+        <img class="seal" src="../../public/brand/warrior-logo.png" alt="">
+      </div>
+    </div>
+    <div class="foot">crimsonreporthub.com</div>
+  </div>
+  <div class="grain"></div>
+</body>
+</html>
