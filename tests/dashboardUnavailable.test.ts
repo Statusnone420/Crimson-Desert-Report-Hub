@@ -90,6 +90,7 @@ describe("dashboard loader under a failed read", () => {
     const data = await getDashboardData();
 
     expect(data.evidenceUnavailable).toBe(true);
+    expect(data.claimsUnavailable).toBe(false);
     // The fallback shape is empty, and the flag is what stops it rendering as zeros.
     expect(data.total).toBe(0);
     expect(data.topClusters).toEqual([]);
@@ -110,16 +111,18 @@ describe("dashboard loader under a failed read", () => {
     const data = await getDashboardData();
 
     expect(data.evidenceUnavailable).toBe(true);
+    expect(data.claimsUnavailable).toBe(false);
     expect(data.claimedFixes).toEqual([{ fixText: "Fixed map-open crash", category: "crash_startup" }]);
   });
 
-  it("leaves claims empty when their own read also fails", async () => {
+  it("marks claims unavailable when their own read also fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.claimedFixes.mockRejectedValueOnce(new Error("claims read failed"));
     const { getDashboardData } = await import("@/lib/queries");
     const data = await getDashboardData();
 
     expect(data.evidenceUnavailable).toBe(true);
+    expect(data.claimsUnavailable).toBe(true);
     expect(data.claimedFixes).toEqual([]);
   });
 

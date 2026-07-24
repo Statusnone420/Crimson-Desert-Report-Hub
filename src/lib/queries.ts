@@ -773,15 +773,22 @@ function latestAutomationRunOrNull(result: {
  * Official claims and patch facts live in their own tables, independent of
  * the evidence store, so an evidence outage re-reads them through their own
  * path instead of erasing them. If that read fails too, claims stay [] and
- * the page marks them unreadable rather than printing a zero.
+ * an explicit availability flag keeps that failure distinct from a successful
+ * zero-claim read.
  */
 async function dashboardFallbackData(evidenceUnavailable: boolean) {
   let currentPatch: Awaited<ReturnType<typeof getCurrentPatchMetadata>> | null = null;
   let claimedFixes: Awaited<ReturnType<typeof getClaimedFixesForCurrentPatch>> = [];
+  let claimsUnavailable = false;
   if (evidenceUnavailable && hasSupabaseServiceConfig()) {
     const supabase = createServiceClient();
     currentPatch = await getCurrentPatchMetadata(supabase).catch(() => null);
-    claimedFixes = await getClaimedFixesForCurrentPatch(supabase).catch(() => []);
+    try {
+      claimedFixes = await getClaimedFixesForCurrentPatch(supabase);
+    } catch (error) {
+      claimsUnavailable = true;
+      console.error("[dashboard] official-claims read failed; claims unavailable, not zero", error);
+    }
   }
   return {
     total: 0,
@@ -800,6 +807,7 @@ async function dashboardFallbackData(evidenceUnavailable: boolean) {
     latestAutomationRun: null,
     currentPatch: currentPatch ?? (await getCurrentPatchMetadata()),
     claimedFixes,
+    claimsUnavailable,
     observations: EMPTY_OBSERVATION_LANES,
     publicFindings: [],
     evidenceUnavailable,
@@ -963,6 +971,7 @@ async function readDashboardData() {
     latestAutomationRun: latestAutomationRunOrNull(latestAutomation),
     currentPatch,
     claimedFixes,
+    claimsUnavailable: false,
     observations,
     publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
     evidenceUnavailable: false,

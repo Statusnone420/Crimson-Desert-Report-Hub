@@ -348,7 +348,7 @@ export default async function DispatchHomePage() {
               <div className="record-block__row">
                 <span>Claimed fixes</span>
                 <span className="record-block__value">
-                  {d.evidenceUnavailable && d.claimedFixes.length === 0 ? "unreadable" : d.claimedFixes.length}
+                  {d.claimsUnavailable ? "unreadable" : d.claimedFixes.length}
                 </span>
               </div>
               <div className="record-block__row">
@@ -360,11 +360,13 @@ export default async function DispatchHomePage() {
                       : "record-block__value"
                   }
                 >
-                  {d.evidenceUnavailable
+                  {d.claimsUnavailable
                     ? "unreadable right now"
                     : d.claimedFixes.length === 0
                       ? "no claims"
-                      : `${contestedClusters.length} of ${d.claimedFixes.length} contested`}
+                      : d.evidenceUnavailable
+                        ? "unreadable right now"
+                        : `${contestedClusters.length} of ${d.claimedFixes.length} contested`}
                 </span>
               </div>
               <div className="record-block__row">
@@ -386,7 +388,7 @@ export default async function DispatchHomePage() {
             <a className="brief-lead__action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">
               <span>What changed</span>
               <strong>
-                {d.evidenceUnavailable && d.claimedFixes.length === 0
+                {d.claimsUnavailable
                   ? "Official patch notes"
                   : `${d.claimedFixes.length} official fix ${d.claimedFixes.length === 1 ? "claim" : "claims"}`}
               </strong>
@@ -413,7 +415,9 @@ export default async function DispatchHomePage() {
           <ul className="brief-lead__meta dispatch-desktop-only" aria-label="Current evidence counts">
             {d.evidenceUnavailable ? (
               <>
-                {d.claimedFixes.length > 0 ? <li>{d.claimedFixes.length} official claims</li> : null}
+                <li>
+                  {d.claimsUnavailable ? "official claims unavailable" : `${d.claimedFixes.length} official claims`}
+                </li>
                 <li>evidence counts unavailable</li>
               </>
             ) : publicLeadDataUnavailable ? (
@@ -439,7 +443,7 @@ export default async function DispatchHomePage() {
           <div className="brief-fact-strip dispatch-mobile-only">
             {d.evidenceUnavailable ? (
               <>
-                {d.claimedFixes.length > 0 ? <span>{d.claimedFixes.length} claims</span> : null}
+                <span>{d.claimsUnavailable ? "claims unavailable" : `${d.claimedFixes.length} claims`}</span>
                 <span>counts unavailable</span>
               </>
             ) : publicLeadDataUnavailable ? (
@@ -572,39 +576,39 @@ export default async function DispatchHomePage() {
                 </div>
               ) : null}
             </div>
-            {brief.evidenceUnavailable ? (
-              <div className="pulse-stats">
+            <div className="pulse-stats">
+              {brief.evidenceUnavailable ? (
                 <div className="pulse-stat">
                   <div className="pulse-stat__value">—</div>
                   <div className="pulse-stat__caption">
                     Evidence counts are unavailable right now — missing, not zero.
                   </div>
                 </div>
+              ) : (
+                <>
+                  <div className="pulse-stat">
+                    <div className="pulse-stat__value">{formatWeeklyDelta(brief)}</div>
+                    <div className="pulse-stat__caption">{weeklyDeltaSentence(brief)}</div>
+                  </div>
+                  <div className="pulse-stat pulse-stat--secondary">
+                    <div className="pulse-stat__value pulse-stat__value--crimson">
+                      {mostContested?.readout.poll?.stillCount ?? 0}
+                    </div>
+                    <div className="pulse-stat__caption">
+                      {mostContested
+                        ? `Players still tapping "still happening" on ${mostContested.title}.`
+                        : "No claimed fix is contested by player taps right now."}
+                    </div>
+                  </div>
+                </>
+              )}
+              <div className="pulse-stat pulse-stat--secondary">
+                <div className="pulse-stat__value">{radar.keptThisWeek}</div>
+                <div className="pulse-stat__caption">
+                  Public leads kept by the radar this week, out of {radar.reviewedThisWeek} reviewed.
+                </div>
               </div>
-            ) : (
-              <div className="pulse-stats">
-                <div className="pulse-stat">
-                  <div className="pulse-stat__value">{formatWeeklyDelta(brief)}</div>
-                  <div className="pulse-stat__caption">{weeklyDeltaSentence(brief)}</div>
-                </div>
-                <div className="pulse-stat pulse-stat--secondary">
-                  <div className="pulse-stat__value pulse-stat__value--crimson">
-                    {mostContested?.readout.poll?.stillCount ?? 0}
-                  </div>
-                  <div className="pulse-stat__caption">
-                    {mostContested
-                      ? `Players still tapping "still happening" on ${mostContested.title}.`
-                      : "No claimed fix is contested by player taps right now."}
-                  </div>
-                </div>
-                <div className="pulse-stat pulse-stat--secondary">
-                  <div className="pulse-stat__value">{radar.keptThisWeek}</div>
-                  <div className="pulse-stat__caption">
-                    Public leads kept by the radar this week, out of {radar.reviewedThisWeek} reviewed.
-                  </div>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         </section>
 
