@@ -19,22 +19,24 @@ Composition, top to bottom:
 2. Folio row, mono, quiet: `INDEPENDENT PATCH INTELLIGENCE` left,
    `UNOFFICIAL · FAN-RUN` right — provenance and the honest identifier in the
    same slots the real masthead uses.
-3. The masthead, one line, 104px Instrument Serif 400.
-4. The pledge, italic serif: *What changed. What players are reporting. What
-   matters now.*
-5. The warrior seal at 126px, flanked by short hairlines.
+3. The masthead, stacked: `Crimson Desert` over `Report Hub`, 106px Instrument
+   Serif 400 — sized so the whole wordmark sits inside the central 630px that
+   a square thumbnail crop keeps.
+4. The pledge, italic serif over two sentence-aligned lines: *What changed.
+   What players are reporting. / What matters now.*
+5. The warrior seal at 100px, flanked by short hairlines.
 6. Quiet mono foot: `CRIMSONREPORTHUB.COM`.
 
 No banner composition, no icon tile, no green dot, no CTA, no counts, no patch
 numbers or dates — evergreen by construction.
 
-**Why it survives as a thumbnail:** the one-line masthead is enormous relative
-to the frame, so at ~116px wide the wordmark — including the crimson "Report
-Hub" — is still literally readable. A ~92px square center-crop clips the line
-to "rimson Desert Report", but the card stays recognizable there by
-fingerprint: red hairline top edge, cream-and-crimson serif line on warm black,
-small red seal. Nothing else in a results page looks like that, and the square
-crop only affects square surfaces — the 1.91:1 OG targets render the full card.
+**Why it survives as a thumbnail:** the stacked nameplate is enormous relative
+to the frame and every line fits inside the central 630px, so BOTH crops hold
+the entire wordmark. At ~116px (16:9) "Crimson Desert / Report Hub" is
+literally readable; at a ~92px square center-crop the full two-tone wordmark
+still reads, with the seal beneath it. Below word-legibility the card still
+fingerprints: red hairline top edge, cream-over-crimson serif stack on warm
+black, small red seal. Nothing else in a results page looks like that.
 
 Sources: `share-card.html` (the mock, uses the real site tokens),
 `render.mjs` (deterministic Playwright render), `preview-1200x630.png` (the

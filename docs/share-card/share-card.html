@@ -50,7 +50,7 @@ nameplate stack.
 
   .folio {
     display: flex; justify-content: space-between; align-items: baseline;
-    padding: 40px 0 18px;
+    padding: 32px 0 16px;
     border-bottom: 1px solid var(--rule);
     font-family: var(--mono); font-weight: 500; font-size: 14px;
     letter-spacing: 0.14em; text-transform: uppercase; color: var(--quiet);
@@ -60,36 +60,38 @@ nameplate stack.
     flex: 1; display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     text-align: center;
-    padding-top: 14px;
+    padding-top: 6px;
   }
 
+  /* Stacked nameplate: every line fits inside the central 630px, so a square
+     center-crop keeps the whole wordmark instead of clipping it. */
   .masthead {
     font-family: var(--serif); font-weight: 400;
-    font-size: 104px; line-height: 1; letter-spacing: -0.015em;
+    font-size: 106px; line-height: 1.02; letter-spacing: -0.015em;
     color: var(--ink); white-space: nowrap;
   }
-  .masthead em { font-style: normal; color: var(--crimson); }
+  .masthead em { font-style: normal; color: var(--crimson); display: block; }
 
   .pledge {
-    margin-top: 32px;
+    margin-top: 26px;
     font-family: var(--serif); font-style: italic; font-weight: 400;
-    font-size: 36px; line-height: 1.35; color: var(--ink-2);
+    font-size: 31px; line-height: 1.32; color: var(--ink-2);
   }
 
   .seal-row {
-    margin-top: 54px;
-    display: flex; align-items: center; gap: 30px;
+    margin-top: 34px;
+    display: flex; align-items: center; gap: 26px;
   }
   .seal-row::before, .seal-row::after {
-    content: ""; width: 120px; height: 1px; background: var(--rule);
+    content: ""; width: 110px; height: 1px; background: var(--rule);
   }
   .seal {
-    width: 126px; height: 126px; display: block;
+    width: 100px; height: 100px; display: block;
     filter: brightness(1.14) contrast(1.03);
   }
 
   .foot {
-    padding: 18px 0 34px;
+    padding: 15px 0 28px;
     border-top: 1px solid var(--rule);
     text-align: center;
     font-family: var(--mono); font-weight: 500; font-size: 13px;
@@ -111,7 +113,7 @@ nameplate stack.
     </div>
     <div class="stage">
       <h1 class="masthead">Crimson Desert <em>Report Hub</em></h1>
-      <p class="pledge">What changed. What players are reporting. What&nbsp;matters&nbsp;now.</p>
+      <p class="pledge">What changed. What players are reporting.<br>What matters now.</p>
       <div class="seal-row">
         <img class="seal" src="../../public/brand/warrior-logo.png" alt="">
       </div>
