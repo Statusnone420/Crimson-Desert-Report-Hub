@@ -30,16 +30,26 @@ vi.mock("@/lib/officialPatch.server", () => ({
   }),
   getClaimedFixesForCurrentPatch: mocks.claimedFixes,
 }));
+vi.mock("@/lib/automation/settings", () => ({
+  getAutomationControlState: async () => ({ paused: false, updatedAt: null, minIntervalMinutes: 60 }),
+}));
 
 /** Chainable query stub: every builder method returns itself; awaiting it resolves the injected result. */
-function failingQuery(message: string) {
-  const result = { data: null, error: { message }, count: null };
+function stubQuery(result: { data: unknown[] | null; error: { message: string } | null; count: number | null }) {
   const query: Record<string, unknown> = {};
   for (const method of ["select", "eq", "neq", "in", "gte", "lte", "not", "order", "limit", "range"]) {
     query[method] = () => query;
   }
   query.then = (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve);
   return query;
+}
+
+function failingQuery(message: string) {
+  return stubQuery({ data: null, error: { message }, count: null });
+}
+
+function okQuery() {
+  return stubQuery({ data: [], error: null, count: 0 });
 }
 
 describe("dashboard loader under a failed read", () => {
@@ -89,5 +99,23 @@ describe("dashboard loader under a failed read", () => {
 
     expect(data.evidenceUnavailable).toBe(true);
     expect(data.claimedFixes).toEqual([]);
+  });
+
+  it("does not fail the evidence lane when only scanner run history is unreadable", async () => {
+    // Scanner history is context: its outage degrades to "no recorded run"
+    // while validly read evidence keeps rendering.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "automation_runs" ? failingQuery("permission denied for table automation_runs") : okQuery(),
+    );
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.latestAutomationRun).toBeNull();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("automation-run read failed"),
+      expect.anything(),
+    );
   });
 });

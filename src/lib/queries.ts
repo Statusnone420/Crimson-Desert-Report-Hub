@@ -755,6 +755,22 @@ function requireCount(
 }
 
 /**
+ * Scanner run history is context, not evidence. Its failure degrades to the
+ * existing "no recorded run" state on its own — it must not flip the whole
+ * board to evidence-unavailable and hide validly read reports and issues.
+ */
+function latestAutomationRunOrNull(result: {
+  data: unknown[] | null;
+  error: { message?: string | null } | null;
+}): PublicAutomationRunRow | null {
+  if (result.error) {
+    console.error("[dashboard] automation-run read failed; showing no recorded run", result.error);
+    return null;
+  }
+  return ((result.data ?? []) as PublicAutomationRunRow[])[0] ?? null;
+}
+
+/**
  * One shape for both "this environment has no database" and "the database
  * could not be read". Only the flag differs: an unconfigured preview renders
  * a quiet board on purpose, while a failed read must render as unavailable —
@@ -917,8 +933,7 @@ async function readDashboardData() {
     pendingCount,
     latestReportAt: latestReportAtFromRows(currentReportRows),
     scanner,
-    latestAutomationRun:
-      (requireRows("latest automation run", latestAutomation) as PublicAutomationRunRow[])[0] ?? null,
+    latestAutomationRun: latestAutomationRunOrNull(latestAutomation),
     currentPatch,
     claimedFixes,
     observations,
