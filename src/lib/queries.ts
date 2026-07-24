@@ -9,7 +9,7 @@ import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/auto
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
-import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { getCurrentPatchMetadata, readClaimedFixesForCurrentPatch } from "@/lib/officialPatch.server";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
 import {
   canonicalIgdbUrl,
@@ -778,17 +778,14 @@ function latestAutomationRunOrNull(result: {
  */
 async function dashboardFallbackData(evidenceUnavailable: boolean) {
   let currentPatch: Awaited<ReturnType<typeof getCurrentPatchMetadata>> | null = null;
-  let claimedFixes: Awaited<ReturnType<typeof getClaimedFixesForCurrentPatch>> = [];
-  let claimsUnavailable = false;
+  let claims: Awaited<ReturnType<typeof readDashboardClaims>> = {
+    claimedFixes: [],
+    claimsUnavailable: false,
+  };
   if (evidenceUnavailable && hasSupabaseServiceConfig()) {
     const supabase = createServiceClient();
     currentPatch = await getCurrentPatchMetadata(supabase).catch(() => null);
-    try {
-      claimedFixes = await getClaimedFixesForCurrentPatch(supabase);
-    } catch (error) {
-      claimsUnavailable = true;
-      console.error("[dashboard] official-claims read failed; claims unavailable, not zero", error);
-    }
+    claims = await readDashboardClaims(supabase);
   }
   return {
     total: 0,
@@ -806,8 +803,7 @@ async function dashboardFallbackData(evidenceUnavailable: boolean) {
     scanner: { paused: false, updatedAt: null },
     latestAutomationRun: null,
     currentPatch: currentPatch ?? (await getCurrentPatchMetadata()),
-    claimedFixes,
-    claimsUnavailable,
+    ...claims,
     observations: EMPTY_OBSERVATION_LANES,
     publicFindings: [],
     evidenceUnavailable,
@@ -825,6 +821,21 @@ async function getDashboardDataUncached() {
   } catch (error) {
     console.error("[dashboard] evidence read failed; rendering the unavailable state, not zeros", error);
     return dashboardFallbackData(true);
+  }
+}
+
+async function readDashboardClaims(supabase: ReturnType<typeof createServiceClient>) {
+  try {
+    return {
+      claimedFixes: await readClaimedFixesForCurrentPatch(supabase),
+      claimsUnavailable: false,
+    };
+  } catch (error) {
+    console.error("[dashboard] official-claims read failed; claims unavailable, not zero", error);
+    return {
+      claimedFixes: [],
+      claimsUnavailable: true,
+    };
   }
 }
 
@@ -878,7 +889,7 @@ async function readDashboardData() {
   }
   const pendingCount = pendingRes.error ? null : pendingRes.count ?? 0;
 
-  const [scanner, latestAutomation, currentPatch, claimedFixes] = await Promise.all([
+  const [scanner, latestAutomation, currentPatch, claims] = await Promise.all([
     // Scanner configuration is provider context: its failure degrades to the
     // neutral control state (logged) instead of blanking the evidence board.
     getAutomationControlState(supabase as unknown as AutomationSettingsClient).catch((error: unknown) => {
@@ -895,7 +906,7 @@ async function readDashboardData() {
       .order("started_at", { ascending: false })
       .limit(1),
     getCurrentPatchMetadata(supabase),
-    getClaimedFixesForCurrentPatch(supabase),
+    readDashboardClaims(supabase),
   ]);
   // Candidate counts read the same lead register; their failure folds into
   // the lead flag, not the evidence one. The shared reader keeps throwing for
@@ -970,8 +981,7 @@ async function readDashboardData() {
     scanner,
     latestAutomationRun: latestAutomationRunOrNull(latestAutomation),
     currentPatch,
-    claimedFixes,
-    claimsUnavailable: false,
+    ...claims,
     observations,
     publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
     evidenceUnavailable: false,

@@ -369,6 +369,31 @@ describe("getClaimedFixesForCurrentPatch", () => {
   });
 });
 
+describe("readClaimedFixesForCurrentPatch", () => {
+  it("throws when the current-patch read fails", async () => {
+    selectFailure = "official_patch_notes";
+    const { readClaimedFixesForCurrentPatch } = await import("@/lib/officialPatch.server");
+
+    await expect(readClaimedFixesForCurrentPatch(fakeSupabase())).rejects.toThrow(
+      "official patch notes read failed",
+    );
+  });
+
+  it("throws when the claimed-fixes read fails", async () => {
+    tables.official_patch_notes.push({
+      board_no: "105",
+      is_current: true,
+      published_at: "2026-07-03T03:00:00.000Z",
+    });
+    selectFailure = "official_patch_claimed_fixes";
+    const { readClaimedFixesForCurrentPatch } = await import("@/lib/officialPatch.server");
+
+    await expect(readClaimedFixesForCurrentPatch(fakeSupabase())).rejects.toThrow(
+      "official claimed fixes read failed",
+    );
+  });
+});
+
 describe("patchVersionOptions", () => {
   it("offers current, one previous, and other", async () => {
     const { patchVersionOptions } = await import("@/lib/officialPatch.server");

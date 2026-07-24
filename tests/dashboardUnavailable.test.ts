@@ -34,6 +34,7 @@ vi.mock("@/lib/officialPatch.server", () => ({
     sourceUrl: null,
   }),
   getClaimedFixesForCurrentPatch: mocks.claimedFixes,
+  readClaimedFixesForCurrentPatch: mocks.claimedFixes,
 }));
 vi.mock("@/lib/automation/settings", () => ({
   getAutomationControlState: mocks.controlState,
@@ -124,6 +125,22 @@ describe("dashboard loader under a failed read", () => {
     expect(data.evidenceUnavailable).toBe(true);
     expect(data.claimsUnavailable).toBe(true);
     expect(data.claimedFixes).toEqual([]);
+  });
+
+  it("keeps the evidence board when only the claims register fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation(() => okQuery());
+    mocks.claimedFixes.mockRejectedValueOnce(new Error("claims read failed"));
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.claimsUnavailable).toBe(true);
+    expect(data.claimedFixes).toEqual([]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("official-claims read failed"),
+      expect.objectContaining({ message: "claims read failed" }),
+    );
   });
 
   it("keeps the evidence board when only the source-signal read fails", async () => {
