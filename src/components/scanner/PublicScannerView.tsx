@@ -52,20 +52,22 @@ export function PublicScannerView({
   // must visibly add up (reviewed = filtered + re-observed + kept); the working
   // set is a right-now state with its own units (leads / areas / issues).
   const flow = radar.connected ? radar.funnel7d : null;
+  // The awaiting count is an admin number. The public caption still changes with
+  // the state, but states it in words instead of printing the queue depth.
   const problemAreasCaption =
     radar.activeLeadClusters === 0
-      ? "Distinct issue areas holding at least one tracked lead"
+      ? "Distinct issue areas holding at least one tracked lead — a lead goes public only on corroboration or an approved report"
       : data.awaiting === 0
         ? "Every area carries a public link or an approved report"
         : data.awaiting >= radar.activeLeadClusters
-          ? "Holding leads — none corroborated enough to publish yet"
-          : `${data.awaiting} of ${radar.activeLeadClusters} still awaiting corroboration`;
+          ? "Holding leads — none corroborated enough for a public link yet"
+          : "Some areas still await corroboration; the rest carry a public link or an approved report";
   const stock = [
     {
       key: "tracked",
       label: "Tracked leads",
       value: radar.recurring.trackedLeads,
-      caption: `Sourced pages the radar is holding across ${radar.activeLeadClusters} problem area${radar.activeLeadClusters === 1 ? "" : "s"}`,
+      caption: "Public pages the radar is holding for this patch",
       valueClass:
         radar.recurring.trackedLeads > 0 ? "stat-band__value stat-band__value--blue" : "stat-band__value",
     },
@@ -93,7 +95,7 @@ export function PublicScannerView({
           <h1 className="dispatch-pagehead__title">How the radar reads the web</h1>
           <p className="dispatch-pagehead__dek">
             Public pages about Crimson Desert {patchVersion}, screened into private candidates, mapped leads, and
-            reviewed links. A radar lead is context with a source — never player evidence on its own.
+            vetted links. A radar lead is context with a source — never player evidence on its own.
           </p>
         </div>
         <div className="obs-scheduler">
@@ -115,7 +117,7 @@ export function PublicScannerView({
       {flow && flow.reviewed > 0 ? (
         <div aria-label="Weekly candidate flow">
           <p className="mono-label" style={{ marginBottom: 8 }}>
-            {flow.reviewed} candidates reviewed in the last 7 days
+            {flow.reviewed} candidate{flow.reviewed === 1 ? "" : "s"} reviewed in the last 7 days
           </p>
           <SegmentedFunnelBar
             reviewed={flow.reviewed}
@@ -156,7 +158,7 @@ export function PublicScannerView({
               <h2 className="obs-section-title">Ranked problem areas</h2>
             </div>
             <p className="obs-questions__note">
-              One readable view of the private and published working set. Counts are scanner leads, not people.
+              One readable view of private leads and public links. Counts are scanner leads, not people.
             </p>
           </div>
           <div className="obs-intelligence__grid">
@@ -176,7 +178,7 @@ export function PublicScannerView({
                     />
                   </span>
                   <span className="obs-ranked__count">
-                    {bucket.tracked} tracked{bucket.new7d > 0 ? ` · ${bucket.new7d} new` : ""}
+                    {bucket.tracked} tracked{bucket.new7d > 0 ? ` · ${bucket.new7d} new this week` : ""}
                   </span>
                 </li>
               ))}
@@ -197,6 +199,9 @@ export function PublicScannerView({
                 Discovery time is not publication time. When a source omits its date, the radar says so instead of guessing.
               </p>
             </aside>
+            <p className="radar-note" style={{ gridColumn: "1 / -1" }}>
+              Tracked is the current working set for this patch; new counts the last 7 days.
+            </p>
           </div>
         </section>
       ) : null}
@@ -246,8 +251,8 @@ export function PublicScannerView({
         <div className="obs-questions__header">
           <h2 className="dispatch-kicker">Questions from the radar</h2>
           <p className="obs-questions__note">
-            Mapped leads, not evidence. A tap adds a counted player signal without publishing the private
-            candidate link.
+            Mapped leads, not evidence. A tap adds a counted player signal without making a private lead
+            public.
           </p>
         </div>
         {leadQuestions.length > 0 ? (
@@ -304,7 +309,7 @@ export function PublicScannerView({
         <p className="obs-rule-band__copy">
           Raw submissions, rejected candidates, scanner logs, and source URLs that fail review stay private. A
           link displays only after an approved player report plus source trust, or corroboration across
-          independent sources — and it stays a lead either way. Published issues show their reviewed links and
+          independent sources — and it stays a lead either way. Published issues show their vetted links and
           approved excerpts so you can check each input yourself.
         </p>
         <div className="obs-rule-band__link">

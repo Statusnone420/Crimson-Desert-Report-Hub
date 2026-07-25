@@ -80,7 +80,7 @@ function evidenceSentence(input: IssueReadoutInput): string {
   const parts: string[] = [];
   if (input.directReportCount > 0) parts.push(plural(input.directReportCount, "player report"));
   if (input.confirmations.affectedCount > 0) {
-    parts.push(plural(input.confirmations.affectedCount, "one-tap confirmation"));
+    parts.push(plural(input.confirmations.affectedCount, "player tap"));
   }
   if (parts.length === 0) return "No player evidence on this patch yet.";
   return `${parts.join(" · ")} on this patch.`;
@@ -194,7 +194,7 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
     const players = plural(c.affectedCount, "player");
     return {
       state: "watching",
-      label: "Watching",
+      label: "Open",
       tone: "dim",
       sentence: `${players} so far ${c.affectedCount === 1 ? "has" : "have"} this too — not enough distinct networks to weigh yet.`,
       ask: haveItAsk(),
@@ -204,7 +204,7 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
 
   return {
     state: "watching",
-    label: "Watching",
+    label: "Open",
     tone: "dim",
     sentence: "The scanner checks public sources every run. Nothing's turned up this patch.",
     ask: null,

@@ -179,6 +179,12 @@ export default async function DispatchHomePage() {
   const topWatch =
     boardClusters.find((cluster) => cluster.readout.state !== "public_sources_unavailable") ??
     (leadDataUnavailable ? null : d.topClusters[0] ?? null);
+  // That fallback can land on a cluster the published gate rejected — the
+  // ordinary state just after a patch-family rollover, when public clusters
+  // persist but every per-patch count has reset to zero. The headline's noun
+  // follows the tier the entry is actually in, or it names the leader of a
+  // board the dek reports as empty two lines below.
+  const topWatchIsPublished = topWatch !== null && boardClusters.includes(topWatch);
   const contestedSubject = mostContested?.title.replace(
     /\s+(?:persists|continues)(?:\s+after\s+(?:the\s+)?fix)?$/i,
     "",
@@ -188,7 +194,7 @@ export default async function DispatchHomePage() {
     : publicLeadDataUnavailable
       ? `Patch ${patch.version} is live. Source-backed issue status is temporarily incomplete.`
     : topWatch
-      ? `${topWatch.title} leads the ${patch.version} watchlist.`
+      ? `${topWatch.title} leads the ${patch.version} ${topWatchIsPublished ? "board" : "watchlist"}.`
       : `Patch ${patch.version} is live. Here’s what changed and what to watch.`;
   // Every lead-band count speaks the stored register; the claims section's
   // cap line is the single surface that discloses a truncated source total.
@@ -198,8 +204,10 @@ export default async function DispatchHomePage() {
     : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}.`;
   const officialClaimsLabel = d.claimsUnavailable
     ? "official claims unavailable"
-    : `${d.claimedFixes.length} official claims`;
-  const claimsLabel = d.claimsUnavailable ? "claims unavailable" : `${d.claimedFixes.length} claims`;
+    : `${d.claimedFixes.length} official ${d.claimedFixes.length === 1 ? "claim" : "claims"}`;
+  const claimsLabel = d.claimsUnavailable
+    ? "claims unavailable"
+    : `${d.claimedFixes.length} ${d.claimedFixes.length === 1 ? "claim" : "claims"}`;
   const heroDek = d.evidenceUnavailable
     ? `The board can't read its evidence store right now. Patch facts stay current; report and issue counts are missing, not zero.`
     : publicLeadDataUnavailable
@@ -207,7 +215,7 @@ export default async function DispatchHomePage() {
     : leadDataUnavailable
       ? `Player evidence and published source-backed issues are readable, but some radar-lead details are unavailable right now. Missing lead data is not zero.`
     : topWatch
-      ? `${claimRegisterSentence} The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
+      ? `${claimRegisterSentence} The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar holds ${radarData.recurring.trackedLeads} tracked ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
       : `${claimRegisterSentence} No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
   const showContextBand = Boolean(
     radar.steamPulse.length > 0 || radar.platformContext || radar.pulseReadFailures.length > 0,
@@ -237,9 +245,10 @@ export default async function DispatchHomePage() {
     sharedQuietClock === null && !d.evidenceUnavailable && !verdictsElsewhere;
   // Below 900px only one claim row renders, so a quiet row must carry its own
   // short marker there — the section line alone can't say which row it covers.
-  // These guards are REQUIRED: an unreadable evidence register or an untied
-  // verdict must never render as a countable "No verdicts yet", and an
-  // all-quiet section already says it once in the shared line.
+  // Here too the outage/pointer guards are defensive: under either flag no row
+  // carries a poll, so votedClaimRows is already empty and a countable
+  // "No verdicts yet" cannot render. An all-quiet section says it once in the
+  // shared line instead.
   const quietRowMarker =
     sharedQuietClock !== null &&
     votedClaimRows.length > 0 &&
@@ -339,7 +348,7 @@ export default async function DispatchHomePage() {
                 <div className="platform-meter__fill" style={{ width: `${Math.round((reports / max) * 100)}%` }} />
               </div>
               <span className="platform-meter__count">
-                {reports} rpt · {confirms} confirm
+                {reports} rpt · {confirms} tap
               </span>
             </div>
           );
@@ -419,7 +428,7 @@ export default async function DispatchHomePage() {
                 <span className="record-block__value">{patch.version}</span>
               </div>
               <div className="record-block__row">
-                <span>Published</span>
+                <span>Patch date</span>
                 <span className="record-block__value">{publishedDateLabel ?? "not recorded"}</span>
               </div>
               <div className="record-block__row">
@@ -489,7 +498,7 @@ export default async function DispatchHomePage() {
               <i aria-hidden="true">→</i>
             </Link>
           </div>
-          <ul className="brief-lead__meta dispatch-desktop-only" aria-label="Current evidence counts">
+          <ul className="brief-lead__meta dispatch-desktop-only" aria-label="Current patch counts">
             {d.evidenceUnavailable ? (
               <>
                 <li>{officialClaimsLabel}</li>
@@ -503,10 +512,14 @@ export default async function DispatchHomePage() {
             ) : (
               <>
                 <li>{officialClaimsLabel}</li>
-                <li>{boardClusters.length} published issues</li>
+                <li>
+                  {boardClusters.length} published issue{boardClusters.length === 1 ? "" : "s"}
+                </li>
               </>
             )}
-            <li>{radarData.recurring.trackedLeads} tracked radar leads</li>
+            <li>
+              {radarData.recurring.trackedLeads} tracked lead{radarData.recurring.trackedLeads === 1 ? "" : "s"}
+            </li>
             <li>
               {radarData.connected && radarData.health.lastScanAt
                 ? `last scan ${relativeTimeShort(radarData.health.lastScanAt)}`
@@ -529,10 +542,14 @@ export default async function DispatchHomePage() {
             ) : (
               <>
                 <span>{claimsLabel}</span>
-                <span>{boardClusters.length} issues</span>
+                <span>
+                  {boardClusters.length} published issue{boardClusters.length === 1 ? "" : "s"}
+                </span>
               </>
             )}
-            <span>{radarData.recurring.trackedLeads} radar leads</span>
+            <span>
+              {radarData.recurring.trackedLeads} tracked lead{radarData.recurring.trackedLeads === 1 ? "" : "s"}
+            </span>
           </div>
           <nav className="brief-lead__toc dispatch-desktop-only" aria-label="In this edition">
             <span className="brief-lead__toc-label">In This Edition</span>
@@ -605,7 +622,7 @@ export default async function DispatchHomePage() {
                   </span>
                   <span>
                     <i className="pulse-legend__taps" aria-hidden="true" />
-                    one-tap confirmations
+                    player taps
                   </span>
                 </div>
                 {activity.radarAvailable ? (
@@ -613,7 +630,7 @@ export default async function DispatchHomePage() {
                     <span className="pulse-legend-group__name">Radar intelligence</span>
                     <span>
                       <i className="pulse-legend__leads" aria-hidden="true" />
-                      new kept leads
+                      new leads
                     </span>
                     <span>
                       <i className="pulse-legend__reobs" aria-hidden="true" />
@@ -685,10 +702,13 @@ export default async function DispatchHomePage() {
                   </div>
                 </>
               )}
+              {/* Both numbers come from the scanner scoreboard (`radar`, getPublicScannerData),
+                  not the patch radar read (`radarData`) — same week, one source. */}
               <div className="pulse-stat pulse-stat--secondary">
                 <div className="pulse-stat__value">{radar.keptThisWeek}</div>
                 <div className="pulse-stat__caption">
-                  Public leads kept by the radar this week, out of {radar.reviewedThisWeek} reviewed.
+                  Public leads kept by the radar this week, out of {radar.reviewedThisWeek} candidates reviewed
+                  in the same week.
                 </div>
               </div>
             </div>
@@ -734,15 +754,19 @@ export default async function DispatchHomePage() {
                 </div>
               </div>
               <div className="stat-band__cell">
-                <div className="stat-band__label">Active problem areas</div>
+                <div className="stat-band__label">Problem areas</div>
                 <div className="stat-band__value">{radarData.activeLeadClusters}</div>
-                <div className="stat-band__caption">Distinct issue areas holding at least one tracked lead</div>
+                <div className="stat-band__caption">
+                  Distinct issue areas holding at least one tracked lead — a lead goes public only on
+                  corroboration or an approved report
+                </div>
               </div>
               <div className="stat-band__cell">
                 <div className="stat-band__label">Recurring leads</div>
                 <div className="stat-band__value">{radarData.recurring.recurringLeads}</div>
                 <div className="stat-band__caption">
-                  Of {radarData.recurring.trackedLeads} tracked leads, seen up to{" "}
+                  Of {radarData.recurring.trackedLeads} tracked lead
+                  {radarData.recurring.trackedLeads === 1 ? "" : "s"}, seen up to{" "}
                   {Math.max(1, radarData.recurring.maxSeenCount)}× so far
                 </div>
               </div>
@@ -771,7 +795,10 @@ export default async function DispatchHomePage() {
                 <div className="radar-main">
                   <div className="radar-working-set">
                     <b>{radarData.recurring.trackedLeads}</b>
-                    <span>tracked leads · ranked by problem area below</span>
+                    <span>
+                      tracked lead{radarData.recurring.trackedLeads === 1 ? "" : "s"} · ranked by problem area
+                      below
+                    </span>
                   </div>
                   {radarData.categories.length > 0 ? (
                     <ol className="radar-cats" aria-label="Tracked radar leads ranked by problem area">
@@ -792,8 +819,10 @@ export default async function DispatchHomePage() {
                               />
                             </div>
                             <span className="radar-cat__count">
-                              {bucket.tracked} lead{bucket.tracked === 1 ? "" : "s"}
-                              {bucket.new7d > 0 ? <span className="is-blue"> · {bucket.new7d} new</span> : null}
+                              {bucket.tracked} tracked lead{bucket.tracked === 1 ? "" : "s"}
+                              {bucket.new7d > 0 ? (
+                                <span className="is-blue"> · {bucket.new7d} new this week</span>
+                              ) : null}
                             </span>
                           </li>
                         ));
@@ -803,7 +832,7 @@ export default async function DispatchHomePage() {
                   {radarData.weekly.length > 1 ? (
                     <div>
                       <p className="brief-band__caption" style={{ marginBottom: 6 }}>
-                        Working set by first-seen week — each color is a problem area:
+                        Tracked leads by first-seen week — each color is a problem area:
                       </p>
                       <WeeklyStackedColumns weeks={radarData.weekly} categories={radarSectors} width={620} height={148} />
                     </div>
@@ -811,7 +840,8 @@ export default async function DispatchHomePage() {
                   {radarData.funnel7d.reviewed > 0 ? (
                     <div>
                       <p className="brief-band__caption" style={{ marginBottom: 8 }}>
-                        This week the radar reviewed {radarData.funnel7d.reviewed} public candidates:
+                        This week the radar reviewed {radarData.funnel7d.reviewed} public candidate
+                        {radarData.funnel7d.reviewed === 1 ? "" : "s"}:
                       </p>
                       <SegmentedFunnelBar
                         reviewed={radarData.funnel7d.reviewed}
@@ -861,7 +891,8 @@ export default async function DispatchHomePage() {
                       <div>{nextCheckLabel(radarData.health.nextEligibleAt)}</div>
                     ) : null}
                     <div>
-                      Source dates: {radarData.dateCoverage.withSourceDate} of {radarData.dateCoverage.tracked} leads
+                      Source dates: {radarData.dateCoverage.withSourceDate} of {radarData.dateCoverage.tracked}{" "}
+                      tracked lead{radarData.dateCoverage.tracked === 1 ? "" : "s"}
                     </div>
                   </div>
                 </div>
@@ -933,7 +964,8 @@ export default async function DispatchHomePage() {
                   {statusLine(leadStory, true)}
                   <h3 className="board-lead__title">{leadStory.title}</h3>
                   <p className="board-secondary__meta dispatch-mobile-only">
-                    {leadStory.directReportCount} reports · {leadStory.confirmations.totalCount} taps
+                    {leadStory.directReportCount} report{leadStory.directReportCount === 1 ? "" : "s"} ·{" "}
+                    {leadStory.confirmations.totalCount} tap{leadStory.confirmations.totalCount === 1 ? "" : "s"}
                   </p>
                   {displayDescription(leadStory.title, leadStory.description) ? (
                     <p className="board-lead__summary">{displayDescription(leadStory.title, leadStory.description)}</p>
@@ -950,7 +982,8 @@ export default async function DispatchHomePage() {
                     <p className="board-secondary__summary">{displayDescription(cluster.title, cluster.description)}</p>
                   ) : null}
                   <p className="board-secondary__meta">
-                    {cluster.directReportCount} reports · {cluster.confirmations.totalCount} taps ·{" "}
+                    {cluster.directReportCount} report{cluster.directReportCount === 1 ? "" : "s"} ·{" "}
+                    {cluster.confirmations.totalCount} tap{cluster.confirmations.totalCount === 1 ? "" : "s"} ·{" "}
                     {(CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category).toLowerCase()}
                   </p>
                   <span className="board-secondary__link">
@@ -999,11 +1032,12 @@ export default async function DispatchHomePage() {
                   {quietClaimRows.length === claimRows.length
                     ? `No player verdicts on any of these ${claimRows.length} claims yet`
                     : `No player verdicts yet on ${quietClaimRows.length} of these ${claimRows.length} claims`}{" "}
-                  — they were recorded on different days, so each carries its own{" "}
+                  — their{" "}
                   <Link href="/about#claim-clock" className="dispatch-link">
-                    claim clock
-                  </Link>
-                  .{votedClaimRows.length > 0 ? " Verdicts count taps made after the clock, this patch only." : ""}
+                    claim clocks
+                  </Link>{" "}
+                  don&rsquo;t all start on the same date, so each row carries its own.
+                  {votedClaimRows.length > 0 ? " Verdicts count taps made after the clock, this patch only." : ""}
                 </>
               ) : votedClaimRows.length > 0 ? (
                 <>
@@ -1029,7 +1063,11 @@ export default async function DispatchHomePage() {
                 </>
               )}
               {claimCapTotal !== null ? (
-                <> Showing the first {claimRows.length} of {claimCapTotal} official fixes.</>
+                <>
+                  {" "}
+                  Showing {claimRows.length === 1 ? "" : "the first "}
+                  {claimRows.length} of {claimCapTotal} official fixes.
+                </>
               ) : null}
             </p>
             <div className="claim-rows">
@@ -1082,7 +1120,7 @@ export default async function DispatchHomePage() {
             <div className="brief-band__header">
               <h2 className="dispatch-kicker">{sectionNo("wire")} · From The Wire</h2>
               <span className="brief-band__note dispatch-desktop-only">
-                Reviewed coverage on {patch.version}, dated by the source.
+                Vetted coverage on {patch.version}, dated by the source.
               </span>
             </div>
             <div className="wire-grid">
@@ -1148,13 +1186,17 @@ export default async function DispatchHomePage() {
           <div>
             <p className="observatory-footnote__label">From the Observatory</p>
             <p className="observatory-footnote__copy dispatch-desktop-only">
-              The radar reviewed <span className="num-ink">{radar.reviewedThisWeek}</span> public candidates this
-              week, kept <span className="num-ink">{radar.keptThisWeek}</span>, published{" "}
-              <span className="num-ink">{radar.published}</span>.
+              The radar reviewed <span className="num-ink">{radar.reviewedThisWeek}</span> public candidate
+              {radar.reviewedThisWeek === 1 ? "" : "s"} this week and kept{" "}
+              <span className="num-ink">{radar.keptThisWeek}</span>. The board currently shows{" "}
+              <span className="num-ink">{radar.published}</span> published issue
+              {radar.published === 1 ? "" : "s"}.
             </p>
             <p className="observatory-footnote__copy dispatch-mobile-only">
               Radar this week: <span className="num-ink">{radar.reviewedThisWeek}</span> reviewed ·{" "}
-              <span className="num-ink">{radar.keptThisWeek}</span> kept
+              <span className="num-ink">{radar.keptThisWeek}</span> kept. Board now:{" "}
+              <span className="num-ink">{radar.published}</span> published issue
+              {radar.published === 1 ? "" : "s"}.
             </p>
           </div>
           <span className="observatory-footnote__link">

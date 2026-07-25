@@ -47,6 +47,24 @@ export default function AboutPage() {
           <dd className="method-registers__def">Pearl Abyss said it. That starts a question, not an answer.</dd>
         </dl>
 
+        <dl className="method-registers" id="numbers">
+          <dt className="method-registers__term">Published</dt>
+          <dd className="method-registers__def">An issue with a full card.</dd>
+          <dt className="method-registers__term">Watchlist</dt>
+          <dd className="method-registers__def">A public issue that isn&rsquo;t published yet.</dd>
+          <dt className="method-registers__term">Watched</dt>
+          <dd className="method-registers__def">Both together, counted across every patch — not just this one.</dd>
+          <dt className="method-registers__term">Tracked leads</dt>
+          <dd className="method-registers__def">
+            Pages the radar is holding for this patch — some public links, some still private. Still{" "}
+            <em>leads</em>, not reports.
+          </dd>
+          <dt className="method-registers__term">Problem areas</dt>
+          <dd className="method-registers__def">Distinct areas holding at least one tracked lead.</dd>
+          <dt className="method-registers__term">Reviewed</dt>
+          <dd className="method-registers__def">Candidates the radar screened — not the coverage we vetted.</dd>
+        </dl>
+
         <div className="method-rows">
           <details className="method-row" id="claim-clock">
             <summary className="method-row__q">

@@ -49,7 +49,7 @@ describe("dispatch brief composer", () => {
     expect(brief.headline).toBe("Reports are easing since 1.13.01 landed.");
     expect(brief.dek).toContain("12 player reports");
     expect(brief.dek).toContain("6 player taps");
-    expect(brief.pulseHeadline).toContain("Signal is easing");
+    expect(brief.pulseHeadline).toContain("Reports are easing");
     // launch week 5+4+3+2+1+1+1 = 17; latest 7 days 2+1+1+1+1+0+1 = 7 → −59%.
     expect(brief.weeklyDeltaPct).toBe(-59);
     expect(formatWeeklyDelta(brief)).toBe("−59%");
@@ -80,7 +80,9 @@ describe("dispatch brief composer", () => {
     expect(brief.trend).toBe("quiet");
     expect(brief.radarLed).toBe(false);
     expect(brief.headline).toBe("A quiet board on 1.13.01.");
-    expect(brief.pulseHeadline).toBe("No player signals filed yet this patch. A quiet board is a real reading.");
+    expect(brief.pulseHeadline).toBe(
+      "No player reports or taps filed yet this patch. A quiet board is a real reading.",
+    );
     expect(brief.dek).toContain("never fills in blanks");
   });
 

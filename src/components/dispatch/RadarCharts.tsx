@@ -73,7 +73,7 @@ export function DivergingActivityChart({
       viewBox={`0 0 ${width} ${height}`}
       className="pulse-chart"
       role="img"
-      aria-label={`Daily activity across ${shown.length} days. Player evidence above the line: ${totals.reports} structured reports and ${totals.taps} one-tap confirmations. Radar intelligence below the line: ${totals.newLeads} new kept leads and ${totals.reobservations} re-observations. The two registers are charted separately and never combined.`}
+      aria-label={`Daily activity across ${shown.length} day${shown.length === 1 ? "" : "s"}. Player evidence above the line: ${totals.reports} structured report${totals.reports === 1 ? "" : "s"} and ${totals.taps} player tap${totals.taps === 1 ? "" : "s"}. Radar intelligence below the line: ${totals.newLeads} new lead${totals.newLeads === 1 ? "" : "s"} and ${totals.reobservations} re-observation${totals.reobservations === 1 ? "" : "s"}. The two registers are charted separately and never combined.`}
     >
       {/* Central axis: the visual boundary between evidence and intelligence. */}
       <line x1="0" y1={axisY} x2={width} y2={axisY} stroke="rgba(236,227,208,0.28)" strokeWidth="1" />
@@ -134,15 +134,15 @@ export function ActivityDataTable({ series, maxDays }: { series: ActivityDay[]; 
     <div className="sr-only">
       <table aria-label="Daily activity by day: player evidence and radar intelligence as separate series">
         <caption>
-          Daily activity by day. Reports and confirmations are player evidence; new leads and re-observations are
+          Daily activity by day. Reports and taps are player evidence; new leads and re-observations are
           scanner intelligence and never count as evidence.
         </caption>
         <thead>
           <tr>
             <th scope="col">Date</th>
             <th scope="col">Structured reports</th>
-            <th scope="col">One-tap confirmations</th>
-            <th scope="col">New radar leads</th>
+            <th scope="col">Player taps</th>
+            <th scope="col">New leads</th>
             <th scope="col">Radar re-observations</th>
           </tr>
         </thead>
@@ -173,8 +173,9 @@ export type RadarScreenSector = { category: string; label: string; color: string
  * area (equal sweep, fixed category order, labeled at the rim with its hue
  * carried by the rim arc, never the label text). Each BLIP is one lead —
  * distance from center is one of six semantic recency bands, blip area grows
- * with times seen, and published leads are solid while private ones are hollow
- * outlines. Position carries identity, so the category hues are redundant.
+ * with times seen, and leads with a public link are solid while private ones
+ * are hollow outlines. Position carries identity, so the category hues are
+ * redundant.
  */
 export function RadarScreen({
   points,
@@ -208,7 +209,7 @@ export function RadarScreen({
       viewBox={`0 0 ${size} ${size}`}
       className="radar-screen"
       role="img"
-      aria-label={`Radar screen: ${points.length} tracked leads plotted by problem area and semantic recency bands from center to rim: ${recencySummary}. Solid blips are published, hollow blips are private. By area: ${summary}.`}
+      aria-label={`Radar screen: ${points.length} tracked lead${points.length === 1 ? "" : "s"} plotted by problem area and semantic recency bands from center to rim: ${recencySummary}. Solid blips are public links, hollow blips are private leads. By area: ${summary}.`}
     >
       {/* Six ring boundaries: one for each named recency band. */}
       {RADAR_RECENCY_BANDS.map((band, index) => (
@@ -288,7 +289,7 @@ export function RadarScreen({
             opacity={point.isPublic ? 1 : 0.9}
             data-recency-band={point.recencyBand}
           >
-            <title>{`${sector.label} lead · ${radarPointDescription(point)} ${point.isPublic ? "Published." : "Private."}`}</title>
+            <title>{`${sector.label} lead · ${radarPointDescription(point)} ${point.isPublic ? "Public link." : "Private lead."}`}</title>
           </circle>
         );
       })}
@@ -317,7 +318,7 @@ export function SegmentedFunnelBar({
     <div
       className="funnel-bar-wrap"
       role="img"
-      aria-label={`Of ${reviewed} candidates reviewed, ${kept} were kept as new leads, ${reobserved} were re-observations of known leads, and ${filtered} were filtered out.`}
+      aria-label={`In the last 7 days, of ${reviewed} candidate${reviewed === 1 ? "" : "s"} reviewed, ${kept} ${kept === 1 ? "was kept as a new lead" : "were kept as new leads"}, ${reobserved} ${reobserved === 1 ? "was a re-observation of a known lead" : "were re-observations of known leads"}, and ${filtered} ${filtered === 1 ? "was" : "were"} filtered out.`}
     >
       <div className="funnel-bar">
         <div className="funnel-bar__kept" style={{ width: `${pct(kept)}%` }} />
@@ -372,7 +373,7 @@ export function WeeklyStackedColumns({
       viewBox={`0 0 ${width} ${height}`}
       className="weekly-columns"
       role="img"
-      aria-label={`Tracked leads by first-seen week across ${weeks.length} weeks, stacked by problem area: ${grand} leads in total, peak week ${peak}. Counts only still-tracked leads.`}
+      aria-label={`Tracked leads by first-seen week across ${weeks.length} week${weeks.length === 1 ? "" : "s"}, stacked by problem area: ${grand} lead${grand === 1 ? "" : "s"} in total, peak week ${peak}. Counts only tracked leads.`}
     >
       <line x1="0" y1={padT + plotH} x2={width} y2={padT + plotH} stroke="rgba(236,227,208,0.28)" strokeWidth="1" />
       <text x={0} y={10} fontFamily="var(--font-mono)" fontSize="10" fill="var(--dispatch-quiet)">
@@ -497,7 +498,7 @@ export function CategorySparklines({
               height={height}
               viewBox={`0 0 ${width} ${height}`}
               role="img"
-              aria-label={`${cat.label}: ${values.join(", ")} still-tracked leads first seen per week, oldest first.`}
+              aria-label={`${cat.label}: ${values.join(", ")} tracked leads first seen per week, oldest first.`}
             >
               <polyline points={pointsAttr} fill="none" stroke={cat.color} strokeWidth="2.5" strokeLinejoin="round" />
             </svg>
@@ -512,7 +513,7 @@ export function CategorySparklines({
  * Recurrence small multiples: the recurrence field split into one tinted
  * panel per problem area. All panels share both scales so panels compare
  * honestly; the panel label names the category, so the hue is redundant.
- * Solid dots are published leads, hollow dots private ones.
+ * Solid dots are leads with a public link, hollow dots private ones.
  */
 export function RecurrenceSmallMultiples({
   points,
@@ -560,7 +561,7 @@ export function RecurrenceSmallMultiples({
               height={h}
               viewBox={`0 0 ${w} ${h}`}
               role="img"
-              aria-label={`${cat.label}: ${pts.length} leads by days tracked (0 to ${maxDays}) and times seen (1 to ${maxSeen}×).`}
+              aria-label={`${cat.label}: ${pts.length} lead${pts.length === 1 ? "" : "s"} by days tracked (0 to ${maxDays}) and times seen (1 to ${maxSeen}×).`}
             >
               <line x1={padL} y1={8 + plotH} x2={w - 4} y2={8 + plotH} stroke="rgba(236,227,208,0.2)" strokeWidth="1" />
               {[...grouped.values()].map(({ point, count }) => {
@@ -581,7 +582,7 @@ export function RecurrenceSmallMultiples({
                     strokeWidth={point.isPublic ? 0 : 1.8}
                     opacity={point.isPublic ? 1 : 0.9}
                   >
-                    <title>{`${count === 1 ? "1 lead" : `${count} leads`} · seen ${point.seenCount}× · tracked ${point.daysTracked}d${point.isPublic ? " · published" : " · private"}`}</title>
+                    <title>{`${count === 1 ? "1 lead" : `${count} leads`} · seen ${point.seenCount}× · tracked ${point.daysTracked}d${point.isPublic ? " · public link" : " · private lead"}`}</title>
                   </circle>
                 );
               })}

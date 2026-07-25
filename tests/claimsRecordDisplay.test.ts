@@ -278,7 +278,7 @@ describe("claims record consolidated status line", () => {
     // its own clock, and the shared line explains why without pointing at
     // rows a narrow viewport may hide.
     expect(markup).toContain("No player verdicts on any of these 2 claims yet");
-    expect(markup).toContain("they were recorded on different days, so each carries its own");
+    expect(markup).toContain("all start on the same date, so each row carries its own.");
     expect(markup).toContain("claim clock running since JUL 10");
     expect(markup).toContain("claim clock running since JUL 12");
     expect(count(markup, "No player verdicts yet · claim clock running since")).toBe(2);
@@ -344,7 +344,7 @@ describe("claims record consolidated status line", () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
     expect(markup).toContain("No player verdicts yet on 2 of these 3 claims");
-    expect(markup).toContain("they were recorded on different days, so each carries its own");
+    expect(markup).toContain("all start on the same date, so each row carries its own.");
     expect(count(markup, "Verdicts count taps made after the clock, this patch only.")).toBe(1);
     expect(markup).toContain("verdict-bar");
     expect(count(markup, "No player verdicts yet · claim clock running since")).toBe(2);

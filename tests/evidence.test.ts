@@ -52,15 +52,19 @@ describe("splitWatchlistByCandidates", () => {
 });
 
 describe("monitoredAreasNote", () => {
-  it("uses the singular 'area' for one monitored cluster", () => {
+  it("counts the monitored remainder into the watchlist tier at any count", () => {
     expect(monitoredAreasNote(1)).toBe(
-      "Monitoring 1 more known problem area — no player reports or public sources yet.",
+      "Monitoring 1 more on the watchlist — no player reports or public sources yet.",
+    );
+    expect(monitoredAreasNote(2)).toBe(
+      "Monitoring 2 more on the watchlist — no player reports or public sources yet.",
     );
   });
 
-  it("uses the plural 'areas' for more than one", () => {
-    expect(monitoredAreasNote(2)).toBe(
-      "Monitoring 2 more known problem areas — no player reports or public sources yet.",
-    );
+  it("never calls the monitored remainder a problem area, or claims it is known", () => {
+    // "Problem areas" is the locked public name for the radar's
+    // activeLeadClusters metric — a different population entirely. "Known"
+    // overclaimed: these are exactly the clusters with no evidence yet.
+    expect(monitoredAreasNote(3)).not.toMatch(/problem area|known/);
   });
 });
