@@ -670,6 +670,123 @@ if (previewSeedFile) {
   console.log(`[preview-seed] loaded ${previewSeedFile}`);
 }
 
+/**
+ * Test-only fixture reset. Every table above is a module-level array that the
+ * write handlers mutate in place, and one server process serves the whole run —
+ * both Playwright projects included. Without a reset, an admin write test hands
+ * the next test (and the next project's screenshots) a different fixture.
+ */
+const resettableTables = [
+  clusters,
+  bugReports,
+  excerpts,
+  signals,
+  automationRuns,
+  rejectedCandidates,
+  automationSettings,
+  issueConfirmations,
+  officialPatchNotes,
+  officialPatchClaimedFixes,
+  patchObservations,
+  scannerDecisions,
+  scannerFeedbackRules,
+];
+const pristineTables = resettableTables.map((table) => structuredClone(table));
+
+let mockIdSeq = 0;
+/** Stable ids per server run: production returns uuids, but nothing reads their shape. */
+const nextMockId = (prefix) => `mock-${prefix}-${(mockIdSeq += 1)}`;
+
+function resetFixture() {
+  resettableTables.forEach((table, index) => {
+    table.splice(0, table.length, ...structuredClone(pristineTables[index]));
+  });
+  mockIdSeq = 0;
+}
+
+/**
+ * What this shim covers, and what it does not. The five admin RPCs below are
+ * implemented against their migration semantics, so every reject/undo/override
+ * control on /admin and /scanner works locally and under Playwright.
+ *
+ * Still unimplemented: "Keep as relevant" (and the rescueRejectedCandidate
+ * action). That path runs the whole scanner pipeline before its RPC — a run
+ * ledger insert, a signal upsert, a cluster stats recompute — so it needs POST
+ * /automation_runs, POST /source_signals and PATCH
+ * /automation_rejected_candidates, not just the RPC. It still 404s here. Also
+ * unimplemented: the scan trigger itself, which is a live provider run.
+ */
+const SCANNER_DECISIONS = ["relevant", "off_topic", "wrong_patch", "not_issue_report", "duplicate"];
+const OBSERVATION_DECISIONS = ["off_topic", "wrong_patch", "not_issue_report", "duplicate"];
+const RULE_SCOPES = ["exact_url", "source_path", "source_domain"];
+const URL_HASH_SHAPE = /^[0-9a-f]{64}$/;
+
+/**
+ * PostgREST error envelope. The wording matters as much as the status:
+ * isMissingSupabaseRpc (src/lib/supabaseCompatibility.ts) reads a message that
+ * names the function alongside "not found"/"schema cache" as "this RPC does not
+ * exist", and the caller then silently takes a legacy path. None of the messages
+ * below name their function, which is what keeps a mock failure honest.
+ */
+function sendPgError(res, method, status, message, code) {
+  sendJson(res, method, status, { message, code, details: null, hint: null });
+}
+const badInput = (res, method, message) => sendPgError(res, method, 400, message, "22023");
+const missingRow = (res, method, message) => sendPgError(res, method, 404, message, "P0002");
+
+/** BEFORE INSERT OR UPDATE trigger on issue_clusters: an override outranks auto_public. */
+function clampClusterVisibility(cluster) {
+  if (cluster.admin_visibility_override === "force_public") cluster.is_public = true;
+  if (cluster.admin_visibility_override === "force_hidden") cluster.is_public = false;
+  return cluster;
+}
+
+/** BEFORE INSERT OR UPDATE trigger on source_signals: signals of a force-hidden cluster stay hidden. */
+function enforceHiddenClusterSignal(signal) {
+  const cluster = clusters.find((item) => item.id === signal.cluster_id);
+  if (cluster?.admin_visibility_override !== "force_hidden") return signal;
+  signal.public_status = "hidden";
+  signal.promoted_at = null;
+  signal.promotion_reason = "admin_force_hidden";
+  return signal;
+}
+
+function bumpClusterRevision(clusterId) {
+  const cluster = clusters.find((item) => item.id === clusterId);
+  if (cluster) cluster.visibility_revision = Number(cluster.visibility_revision ?? 0) + 1;
+}
+
+/** One live rule per scope: recording a new one revokes whatever it replaces. */
+function supersedeRulesForScope(scopeType, scopeValue, newRuleId, at) {
+  for (const rule of scannerFeedbackRules) {
+    if (rule.id === newRuleId) continue;
+    if (rule.scope_type !== scopeType || rule.scope_value !== scopeValue) continue;
+    if (rule.revoked_at) continue;
+    rule.revoked_at = at;
+    rule.superseded_by_rule_id = newRuleId;
+  }
+}
+
+/**
+ * The validation the two decision RPCs share, in the migration's order — the
+ * order is the contract, because the operator sees the first message that fires.
+ * Returns an error message, or null when the payload is good.
+ */
+function validateDecisionPayload(payload, { decisions, reason, confirmBroad }) {
+  if (!payload.p_target_url || !String(payload.p_target_url).trim()) return "target URL is required";
+  if (!URL_HASH_SHAPE.test(String(payload.p_target_url_hash ?? ""))) return "target URL hash is invalid";
+  if (!decisions.includes(payload.p_decision)) {
+    return decisions === OBSERVATION_DECISIONS ? "invalid observation decision" : "invalid scanner decision";
+  }
+  if (reason.length < 3 || reason.length > 500) return "decision reason must be 3 to 500 characters";
+  if (!RULE_SCOPES.includes(payload.p_scope_type)) return "invalid rule scope";
+  if (!payload.p_scope_value || !String(payload.p_scope_value).trim()) return "rule scope value is required";
+  if (payload.p_scope_type !== "exact_url" && !confirmBroad) {
+    return "broader feedback rules require explicit confirmation";
+  }
+  return null;
+}
+
 function sendJson(res, method, status, data, headers = {}) {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -691,6 +808,16 @@ function readBody(req) {
 
 function filterRows(table, url) {
   let rows = [...table];
+
+  // PostgREST renders .is(column, null) as `column=is.null`. Until the admin
+  // RPCs existed nothing here ever set these columns, so ignoring the filter was
+  // harmless; now a decided candidate, a revoked rule and an undone decision all
+  // have to leave their lists. Seed rows omit the columns entirely, which counts
+  // as null the way Postgres would read a null column.
+  for (const [column, value] of url.searchParams.entries()) {
+    if (value === "is.null") rows = rows.filter((row) => row[column] == null);
+  }
+
   const id = url.searchParams.get("id");
   if (id?.startsWith("eq.")) rows = rows.filter((row) => row.id === id.slice(3));
 
@@ -804,6 +931,15 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${supabasePort}`);
   if (req.method === "OPTIONS") {
     sendJson(res, req.method, 204, {});
+    return;
+  }
+
+  // Test-only: hand the next test the fixture this one started with. Admin write
+  // tests call this in afterEach so their writes cannot drift a later test's
+  // screenshot — the two Playwright projects share this one process.
+  if (url.pathname === "/__test__/reset" && req.method === "POST") {
+    resetFixture();
+    sendJson(res, req.method, 200, { reset: true });
     return;
   }
 
@@ -945,6 +1081,343 @@ const server = createServer(async (req, res) => {
       visibility_revision: Number(cluster.visibility_revision ?? 0) + 1,
     });
     sendJson(res, req.method, 200, true);
+    return;
+  }
+
+  // Teach the scanner about a rejected candidate or kill a bad live lead.
+  // Mirrors supabase/migrations/20260722170106_scanner_feedback_and_platform_pulse.sql:74-232.
+  if (url.pathname === "/rest/v1/rpc/record_scanner_decision" && req.method === "POST") {
+    const raw = await readBody(req);
+    const payload = raw ? JSON.parse(raw) : {};
+    const candidateId = payload.p_candidate_id ?? null;
+    const signalId = payload.p_signal_id ?? null;
+    const reason = String(payload.p_reason ?? "").trim();
+    const confirmBroad = payload.p_confirm_broad === true;
+
+    if ((candidateId === null) === (signalId === null)) {
+      badInput(res, req.method, "exactly one candidate or signal is required");
+      return;
+    }
+    const invalid = validateDecisionPayload(payload, { decisions: SCANNER_DECISIONS, reason, confirmBroad });
+    if (invalid) {
+      badInput(res, req.method, invalid);
+      return;
+    }
+    if (signalId !== null && payload.p_scope_type !== "exact_url") {
+      badInput(res, req.method, "source-signal feedback must target one exact URL");
+      return;
+    }
+    if (signalId !== null && payload.p_decision === "relevant") {
+      badInput(res, req.method, "a retained source signal is already relevant");
+      return;
+    }
+    if (payload.p_expires_at && Date.parse(payload.p_expires_at) <= now()) {
+      badInput(res, req.method, "rule expiry must be in the future");
+      return;
+    }
+
+    const candidate = candidateId === null ? null : rejectedCandidates.find((row) => row.id === candidateId);
+    if (candidateId !== null && !candidate) {
+      missingRow(res, req.method, "rejected candidate not found");
+      return;
+    }
+    const signal = signalId === null ? null : signals.find((row) => row.id === signalId);
+    if (signalId !== null && !signal) {
+      missingRow(res, req.method, "source signal not found");
+      return;
+    }
+
+    const at = new Date(now()).toISOString();
+    const decisionId = nextMockId("decision");
+    const ruleId = nextMockId("rule");
+    scannerDecisions.push({
+      id: decisionId,
+      created_at: at,
+      candidate_id: candidateId,
+      signal_id: signalId,
+      observation_id: null,
+      target_url: payload.p_target_url,
+      target_url_hash: payload.p_target_url_hash,
+      source_domain: payload.p_source_domain ?? null,
+      decision: payload.p_decision,
+      reason,
+      actor: "admin",
+      undone_at: null,
+    });
+    scannerFeedbackRules.push({
+      id: ruleId,
+      created_at: at,
+      decision_id: decisionId,
+      // The check constraint ties action to decision, so it is derived, never taken from the caller.
+      action: payload.p_decision === "relevant" ? "allow" : "block",
+      decision: payload.p_decision,
+      scope_type: payload.p_scope_type,
+      scope_value: payload.p_scope_value,
+      reason,
+      confirmed_at: payload.p_scope_type === "exact_url" || confirmBroad ? at : null,
+      expires_at: payload.p_expires_at ?? null,
+      revoked_at: null,
+      superseded_by_rule_id: null,
+    });
+    supersedeRulesForScope(payload.p_scope_type, payload.p_scope_value, ruleId, at);
+
+    if (candidate) {
+      candidate.decision_id = decisionId;
+      candidate.feedback_rule_id = ruleId;
+      candidate.decided_at = at;
+    }
+    let affectedClusterId = null;
+    if (signal) {
+      Object.assign(signal, {
+        public_status: "hidden",
+        promoted_at: null,
+        promotion_reason: "operator_feedback_blocked",
+      });
+      enforceHiddenClusterSignal(signal);
+      affectedClusterId = signal.cluster_id ?? null;
+      if (affectedClusterId) bumpClusterRevision(affectedClusterId);
+    }
+
+    sendJson(res, req.method, 200, [
+      { decision_id: decisionId, rule_id: ruleId, affected_cluster_id: affectedClusterId },
+    ]);
+    return;
+  }
+
+  // Hide a Wire/Asks observation and remember why.
+  // Mirrors supabase/migrations/20260724200000_observation_moderation.sql:24-153.
+  if (url.pathname === "/rest/v1/rpc/record_observation_decision" && req.method === "POST") {
+    const raw = await readBody(req);
+    const payload = raw ? JSON.parse(raw) : {};
+    const reason = String(payload.p_reason ?? "").trim();
+    const confirmBroad = payload.p_confirm_broad === true;
+
+    if (!payload.p_observation_id) {
+      badInput(res, req.method, "observation id is required");
+      return;
+    }
+    const invalid = validateDecisionPayload(payload, { decisions: OBSERVATION_DECISIONS, reason, confirmBroad });
+    if (invalid) {
+      badInput(res, req.method, invalid);
+      return;
+    }
+    if (payload.p_expires_at && Date.parse(payload.p_expires_at) <= now()) {
+      badInput(res, req.method, "rule expiry must be in the future");
+      return;
+    }
+    const observation = patchObservations.find((row) => row.id === payload.p_observation_id);
+    if (!observation) {
+      missingRow(res, req.method, "observation not found");
+      return;
+    }
+    // The hide IS the guard: `where is_public = true` matching zero rows is what
+    // rejects a second decision on an already-hidden item, and it writes nothing.
+    if (observation.is_public !== true) {
+      sendPgError(
+        res,
+        req.method,
+        500,
+        "observation is already hidden — undo its existing decision before deciding again",
+        "55000",
+      );
+      return;
+    }
+    observation.is_public = false;
+
+    const at = new Date(now()).toISOString();
+    const decisionId = nextMockId("decision");
+    const ruleId = nextMockId("rule");
+    scannerDecisions.push({
+      id: decisionId,
+      created_at: at,
+      candidate_id: null,
+      signal_id: null,
+      observation_id: observation.id,
+      target_url: payload.p_target_url,
+      target_url_hash: payload.p_target_url_hash,
+      source_domain: payload.p_source_domain ?? null,
+      decision: payload.p_decision,
+      reason,
+      actor: "admin",
+      undone_at: null,
+    });
+    scannerFeedbackRules.push({
+      id: ruleId,
+      created_at: at,
+      decision_id: decisionId,
+      action: "block",
+      decision: payload.p_decision,
+      scope_type: payload.p_scope_type,
+      scope_value: payload.p_scope_value,
+      reason,
+      confirmed_at: payload.p_scope_type === "exact_url" || confirmBroad ? at : null,
+      expires_at: payload.p_expires_at ?? null,
+      revoked_at: null,
+      superseded_by_rule_id: null,
+    });
+    supersedeRulesForScope(payload.p_scope_type, payload.p_scope_value, ruleId, at);
+
+    sendJson(res, req.method, 200, [{ decision_id: decisionId, rule_id: ruleId }]);
+    return;
+  }
+
+  // Take a lesson back. Mirrors the LATER definition at
+  // supabase/migrations/20260724200000_observation_moderation.sql:157-216.
+  if (url.pathname === "/rest/v1/rpc/undo_scanner_decision" && req.method === "POST") {
+    const raw = await readBody(req);
+    const payload = raw ? JSON.parse(raw) : {};
+    const decision = scannerDecisions.find((row) => row.id === payload.p_decision_id && row.undone_at == null);
+    // No argument validation upstream either: an unknown or already-undone id is
+    // a quiet `undone: false`, never an error, and the caller turns that into its
+    // own message.
+    if (!decision) {
+      sendJson(res, req.method, 200, [{ undone: false, affected_cluster_id: null }]);
+      return;
+    }
+
+    const at = new Date(now()).toISOString();
+    decision.undone_at = at;
+    for (const rule of scannerFeedbackRules) {
+      // No `revoked_at is null` filter here, and coalesce keeps an earlier
+      // revocation — a rule superseded by a later decision stays stamped with
+      // the time it actually lost, not the time of this undo.
+      if (rule.decision_id === decision.id) rule.revoked_at = rule.revoked_at ?? at;
+    }
+    for (const candidate of rejectedCandidates) {
+      // Deliberately skips rescued candidates: undo revokes the rule but never
+      // pulls a published lead back, so a rescue is not fully reversible.
+      if (candidate.decision_id !== decision.id || candidate.rescued_at != null) continue;
+      candidate.decision_id = null;
+      candidate.feedback_rule_id = null;
+      candidate.decided_at = null;
+    }
+    if (decision.observation_id) {
+      const observation = patchObservations.find((row) => row.id === decision.observation_id);
+      if (observation) observation.is_public = true;
+    }
+    let affectedClusterId = null;
+    if (decision.signal_id) {
+      // Undo does not un-hide the signal itself; it bumps the revision and lets
+      // the app's refresh recompute what the cluster should show.
+      affectedClusterId = signals.find((row) => row.id === decision.signal_id)?.cluster_id ?? null;
+      if (affectedClusterId) bumpClusterRevision(affectedClusterId);
+    }
+
+    sendJson(res, req.method, 200, [{ undone: true, affected_cluster_id: affectedClusterId }]);
+    return;
+  }
+
+  // Break-glass visibility. Mirrors the 3-argument definition at
+  // supabase/migrations/20260722170106_scanner_feedback_and_platform_pulse.sql:422-486.
+  if (url.pathname === "/rest/v1/rpc/set_cluster_visibility_override" && req.method === "POST") {
+    const raw = await readBody(req);
+    const payload = raw ? JSON.parse(raw) : {};
+    const visibility = payload.p_visibility;
+    const reason = String(payload.p_reason ?? "").trim();
+
+    if (!["auto", "force_public", "force_hidden"].includes(visibility)) {
+      badInput(res, req.method, "invalid visibility override");
+      return;
+    }
+    if (visibility !== "auto" && (reason.length < 3 || reason.length > 500)) {
+      badInput(res, req.method, "visibility override reason required");
+      return;
+    }
+    const cluster = clusters.find((row) => row.id === payload.p_cluster_id);
+    if (!cluster) {
+      missingRow(res, req.method, "issue cluster not found");
+      return;
+    }
+
+    // SQL evaluates every SET expression against the pre-update row, so the old
+    // values are read once up front. Assigning in sequence would let the new
+    // override decide what the restore columns remember.
+    const previous = {
+      override: cluster.admin_visibility_override ?? null,
+      isPublic: cluster.is_public,
+      autoPublic: cluster.auto_public,
+      restoreIsPublic: cluster.visibility_restore_is_public ?? null,
+      restoreAutoPublic: cluster.visibility_restore_auto_public ?? null,
+    };
+    const returningToAuto = visibility === "auto";
+    Object.assign(cluster, {
+      visibility_restore_is_public: returningToAuto
+        ? null
+        : previous.override === null
+          ? previous.isPublic
+          : (previous.restoreIsPublic ?? previous.isPublic),
+      visibility_restore_auto_public: returningToAuto
+        ? null
+        : previous.override === null
+          ? previous.autoPublic
+          : (previous.restoreAutoPublic ?? previous.autoPublic),
+      admin_visibility_override: returningToAuto ? null : visibility,
+      admin_visibility_reason: returningToAuto ? null : reason,
+      admin_visibility_changed_at: returningToAuto ? null : new Date(now()).toISOString(),
+      auto_public: returningToAuto ? (previous.restoreAutoPublic ?? previous.autoPublic) : previous.autoPublic,
+      is_public:
+        visibility === "force_public"
+          ? true
+          : visibility === "force_hidden"
+            ? false
+            : (previous.restoreIsPublic ?? previous.isPublic),
+      visibility_revision: Number(cluster.visibility_revision ?? 0) + 1,
+    });
+    clampClusterVisibility(cluster);
+
+    if (visibility === "force_hidden") {
+      for (const signal of signals) {
+        if (signal.cluster_id !== cluster.id) continue;
+        Object.assign(signal, {
+          public_status: "hidden",
+          promoted_at: null,
+          promotion_reason: "admin_force_hidden",
+        });
+      }
+    }
+
+    sendJson(res, req.method, 200, null);
+    return;
+  }
+
+  // Break-glass patch pointer. Mirrors
+  // supabase/migrations/20260710021010_atomic_current_patch_override.sql:1-62.
+  if (url.pathname === "/rest/v1/rpc/set_current_patch_override" && req.method === "POST") {
+    const raw = await readBody(req);
+    const payload = raw ? JSON.parse(raw) : {};
+    const version = payload.p_patch_version;
+    if (!version || !/^[0-9]+\.[0-9]{1,2}(\.[0-9]{1,2})?$/.test(String(version))) {
+      // This one raises without an errcode, so it lands as P0001 rather than 22023.
+      sendPgError(res, req.method, 400, "invalid patch version", "P0001");
+      return;
+    }
+    if (!payload.p_observed_at) {
+      sendPgError(res, req.method, 400, "observed time is required", "P0001");
+      return;
+    }
+
+    for (const note of officialPatchNotes) {
+      if (note.is_current === true) note.is_current = false;
+    }
+    // board_no is synthesized from the version, so re-overriding the same version
+    // updates one manual row instead of stacking them.
+    const boardNo = `manual-${version}`;
+    const manual = {
+      title: `Manual override: Patch ${version}`,
+      patch_version: version,
+      official_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice",
+      published_at: null,
+      summary: null,
+      observed_at: payload.p_observed_at,
+      is_current: true,
+    };
+    const existing = officialPatchNotes.find((note) => note.board_no === boardNo);
+    // claimed_fix_total is absent from both the insert and the conflict update, so
+    // a manual override never clears a count the scraper wrote.
+    if (existing) Object.assign(existing, manual);
+    else officialPatchNotes.push({ id: nextMockId("patch-note"), board_no: boardNo, ...manual });
+
+    sendJson(res, req.method, 200, null);
     return;
   }
 
