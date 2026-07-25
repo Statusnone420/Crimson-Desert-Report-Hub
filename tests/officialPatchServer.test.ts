@@ -27,7 +27,13 @@ const tables: Record<TableName, Row[]> = {
 const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters: Filter[] }[] = [];
 const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
 let selectFailure: TableName | null = null;
+let selectFailureCode: string | null = null;
 let rpcFailure: string | null = null;
+// Simulates a database that predates the section/claimed_fix_total migration:
+// selects naming the new columns fail with 42703 and the 9-argument sync
+// call fails with PGRST202, exactly as PostgREST reports them.
+let legacySchema = false;
+const LEGACY_COLUMN_PATTERN = /\b(?:claimed_fix_total|section)\b/;
 
 class FakeQuery {
   private filters: Filter[] = [];
@@ -38,12 +44,14 @@ class FakeQuery {
   private limitCount: number | null = null;
   private patch: Row | null = null;
   private selecting = false;
+  private selectedColumns = "";
   private upsertRow: Row | null = null;
 
   constructor(private readonly table: TableName) {}
 
-  select() {
+  select(columns = "") {
     this.selecting = true;
+    this.selectedColumns = columns;
     return this;
   }
 
@@ -123,7 +131,18 @@ class FakeQuery {
     }
 
     if (this.selecting) {
-      if (selectFailure === this.table) return { data: null, error: { message: `${this.table} read failed` } };
+      if (selectFailure === this.table) {
+        return {
+          data: null,
+          error: { message: `${this.table} read failed`, ...(selectFailureCode ? { code: selectFailureCode } : {}) },
+        };
+      }
+      if (legacySchema && LEGACY_COLUMN_PATTERN.test(this.selectedColumns)) {
+        return {
+          data: null,
+          error: { code: "42703", message: `column ${this.table}.claimed_fix_total does not exist` },
+        };
+      }
       let rows = tables[this.table].filter((row) => this.filters.every((filter) => row[filter.column] === filter.value));
       if (this.orderColumn) {
         const column = this.orderColumn;
@@ -147,11 +166,23 @@ function resetDb() {
   mutations.length = 0;
   rpcCalls.length = 0;
   selectFailure = null;
+  selectFailureCode = null;
   rpcFailure = null;
+  legacySchema = false;
 }
 
 async function syncOfficialPatchNoteRpc(args: Record<string, unknown>) {
+  rpcCalls.push({ name: "sync_official_patch_note_with_claimed_fixes", args });
   if (rpcFailure) return { data: null, error: { message: rpcFailure } };
+  if (legacySchema && "p_claimed_fix_total" in args) {
+    return {
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.sync_official_patch_note_with_claimed_fixes in the schema cache",
+      },
+    };
+  }
 
   const row = {
     board_no: args.p_board_no,
@@ -161,9 +192,9 @@ async function syncOfficialPatchNoteRpc(args: Record<string, unknown>) {
     published_at: args.p_published_at,
     summary: args.p_summary,
     observed_at: args.p_observed_at,
+    ...(legacySchema ? {} : { claimed_fix_total: args.p_claimed_fix_total ?? null }),
     is_current: true,
   };
-  rpcCalls.push({ name: "sync_official_patch_note_with_claimed_fixes", args });
   for (const existing of tables.official_patch_notes) {
     if (existing.is_current === true) existing.is_current = false;
   }
@@ -181,12 +212,18 @@ async function syncOfficialPatchNoteRpc(args: Record<string, unknown>) {
     row: null,
     filters: [{ column: "board_no", value: row.board_no }],
   });
-  const claimedFixes = (args.p_claimed_fixes ?? []) as { fix_text: string; category: string | null }[];
+  const claimedFixes = (args.p_claimed_fixes ?? []) as {
+    fix_text: string;
+    category: string | null;
+    section?: string | null;
+  }[];
   const fixRows = claimedFixes.map((fix, position) => ({
     board_no: row.board_no,
     position,
     fix_text: fix.fix_text,
     category: fix.category,
+    // The legacy function never saw the extra jsonb key; it simply ignored it.
+    ...(legacySchema ? {} : { section: fix.section ?? null }),
   }));
   if (fixRows.length > 0) {
     tables.official_patch_claimed_fixes.push(...fixRows);
@@ -218,7 +255,11 @@ const note = {
   officialUrl: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
   publishedAt: "2026-07-03T03:00:00.000Z",
   summary: "Stability improvements.",
-  claimedFixes: ["Fixed an issue where the map crashed the game.", "Fixed FPS drops during combat."],
+  claimedFixes: [
+    { text: "Fixed an issue where the map crashed the game.", section: "Content" },
+    { text: "Fixed FPS drops during combat.", section: null },
+  ],
+  claimedFixTotal: 2,
 };
 
 describe("syncOfficialPatchNote claimed fixes persistence", () => {
@@ -238,9 +279,10 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
       args: {
         p_board_no: "105",
         p_claimed_fixes: [
-          { fix_text: "Fixed an issue where the map crashed the game.", category: "crash_startup" },
-          { fix_text: "Fixed FPS drops during combat.", category: "performance" },
+          { fix_text: "Fixed an issue where the map crashed the game.", category: "crash_startup", section: "Content" },
+          { fix_text: "Fixed FPS drops during combat.", category: "performance", section: null },
         ],
+        p_claimed_fix_total: 2,
       },
     });
 
@@ -253,8 +295,8 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
       (mutation) => mutation.table === "official_patch_claimed_fixes" && mutation.type === "insert",
     );
     expect(insertMutation?.row).toEqual([
-      { board_no: "105", position: 0, fix_text: "Fixed an issue where the map crashed the game.", category: "crash_startup" },
-      { board_no: "105", position: 1, fix_text: "Fixed FPS drops during combat.", category: "performance" },
+      { board_no: "105", position: 0, fix_text: "Fixed an issue where the map crashed the game.", category: "crash_startup", section: "Content" },
+      { board_no: "105", position: 1, fix_text: "Fixed FPS drops during combat.", category: "performance", section: null },
     ]);
 
     // stale row was cleared, only the fresh two remain
@@ -262,7 +304,7 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
   });
 
   it("clears prior rows and inserts nothing when the note has no claimed fixes", async () => {
-    mocks.fetchLatestOfficialPatchNote.mockResolvedValue({ ...note, claimedFixes: [] });
+    mocks.fetchLatestOfficialPatchNote.mockResolvedValue({ ...note, claimedFixes: [], claimedFixTotal: 0 });
     tables.official_patch_claimed_fixes.push({ board_no: "105", position: 0, fix_text: "stale row", category: null });
 
     const { syncOfficialPatchNote } = await import("@/lib/officialPatch.server");
@@ -328,6 +370,33 @@ describe("syncOfficialPatchNote claimed fixes persistence", () => {
     ]);
     expect(mutations).toEqual([]);
   });
+
+  it("retries through the legacy 8-argument function on a pre-migration schema", async () => {
+    legacySchema = true;
+    mocks.fetchLatestOfficialPatchNote.mockResolvedValue(note);
+
+    const { syncOfficialPatchNote } = await import("@/lib/officialPatch.server");
+    const result = await syncOfficialPatchNote(fakeSupabase(), { now: new Date("2026-07-05T00:00:00.000Z") });
+
+    expect(result.status).toBe("synced");
+    expect(rpcCalls).toHaveLength(2);
+    expect(rpcCalls[0].args).toHaveProperty("p_claimed_fix_total", 2);
+    expect(rpcCalls[1].args).not.toHaveProperty("p_claimed_fix_total");
+    // The legacy function stored the claims — nothing was lost in the window.
+    expect(tables.official_patch_claimed_fixes).toHaveLength(2);
+    expect(tables.official_patch_claimed_fixes[0]).not.toHaveProperty("section");
+  });
+
+  it("does not retry when the sync fails for a non-schema reason", async () => {
+    rpcFailure = "permission denied";
+    mocks.fetchLatestOfficialPatchNote.mockResolvedValue(note);
+
+    const { syncOfficialPatchNote } = await import("@/lib/officialPatch.server");
+
+    await expect(syncOfficialPatchNote(fakeSupabase(), { now: new Date("2026-07-05T00:00:00.000Z") })).rejects.toThrow(
+      "official patch sync failed: permission denied",
+    );
+  });
 });
 
 describe("getClaimedFixesForCurrentPatch", () => {
@@ -342,8 +411,8 @@ describe("getClaimedFixesForCurrentPatch", () => {
     const result = await getClaimedFixesForCurrentPatch(fakeSupabase());
 
     expect(result).toEqual([
-      { fixText: "First fix.", category: null },
-      { fixText: "Second fix.", category: "performance" },
+      { fixText: "First fix.", category: null, section: null },
+      { fixText: "Second fix.", category: "performance", section: null },
     ]);
   });
 
@@ -370,8 +439,66 @@ describe("getClaimedFixesForCurrentPatch", () => {
 });
 
 describe("readClaimedFixesForCurrentPatch", () => {
+  it("returns sections and the register total on the migrated schema", async () => {
+    tables.official_patch_notes.push({
+      board_no: "105",
+      is_current: true,
+      published_at: "2026-07-03T03:00:00.000Z",
+      claimed_fix_total: 72,
+    });
+    tables.official_patch_claimed_fixes.push(
+      { board_no: "105", position: 0, fix_text: "First fix.", category: null, section: "Content" },
+      { board_no: "105", position: 1, fix_text: "Second fix.", category: "performance", section: null },
+    );
+
+    const { readClaimedFixesForCurrentPatch } = await import("@/lib/officialPatch.server");
+    const register = await readClaimedFixesForCurrentPatch(fakeSupabase());
+
+    expect(register).toEqual({
+      fixes: [
+        { fixText: "First fix.", category: null, section: "Content" },
+        { fixText: "Second fix.", category: "performance", section: null },
+      ],
+      totalClaimedFixes: 72,
+    });
+  });
+
+  it("falls back to the legacy flat read when the schema predates the columns", async () => {
+    legacySchema = true;
+    tables.official_patch_notes.push({
+      board_no: "105",
+      is_current: true,
+      published_at: "2026-07-03T03:00:00.000Z",
+    });
+    tables.official_patch_claimed_fixes.push({
+      board_no: "105",
+      position: 0,
+      fix_text: "First fix.",
+      category: null,
+    });
+
+    const { readClaimedFixesForCurrentPatch } = await import("@/lib/officialPatch.server");
+    const register = await readClaimedFixesForCurrentPatch(fakeSupabase());
+
+    // The legacy schema still renders the flat claims — never "unavailable".
+    expect(register).toEqual({
+      fixes: [{ fixText: "First fix.", category: null, section: null }],
+      totalClaimedFixes: null,
+    });
+  });
+
   it("throws when the current-patch read fails", async () => {
     selectFailure = "official_patch_notes";
+    const { readClaimedFixesForCurrentPatch } = await import("@/lib/officialPatch.server");
+
+    await expect(readClaimedFixesForCurrentPatch(fakeSupabase())).rejects.toThrow(
+      "official patch notes read failed",
+    );
+  });
+
+  it("never treats a permission error as a missing column", async () => {
+    selectFailure = "official_patch_notes";
+    selectFailureCode = "42501";
     const { readClaimedFixesForCurrentPatch } = await import("@/lib/officialPatch.server");
 
     await expect(readClaimedFixesForCurrentPatch(fakeSupabase())).rejects.toThrow(

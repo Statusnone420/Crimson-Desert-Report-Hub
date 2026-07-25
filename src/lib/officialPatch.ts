@@ -1,6 +1,8 @@
 export const OFFICIAL_NOTICE_LIST_URL = "https://crimsondesert.pearlabyss.com/en-US/News/Notice";
 export const OFFICIAL_NOTICE_DETAIL_URL = "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail";
 
+export type ClaimedFixLine = { text: string; section: string | null };
+
 export type OfficialPatchNote = {
   boardNo: string;
   title: string;
@@ -8,7 +10,8 @@ export type OfficialPatchNote = {
   officialUrl: string;
   publishedAt: string | null;
   summary: string | null;
-  claimedFixes: string[];
+  claimedFixes: ClaimedFixLine[];
+  claimedFixTotal: number;
 };
 
 export type OfficialPatchFetchLike = (url: string, init?: { headers?: Record<string, string>; cache?: RequestCache }) => Promise<{
@@ -110,20 +113,75 @@ function cleanSummary(value: string): string {
 const FIX_LANGUAGE = /\b(fixed|resolved|addressed|corrected|no longer)\b/i;
 const IMPROVED_ISSUE_LANGUAGE = /\bimproved\s+an?\s+issue\b/i;
 
-export function parseClaimedFixes(html: string): string[] {
-  const fixes: string[] = [];
+// Section headings on the official board render as 20px-styled spans — the
+// pages carry no heading tags — and only inside the board_content container.
+// The pattern tolerates attribute and style-property ordering but is anchored
+// on both sides of the font-size token, so lookalikes (--font-size, 20pxx,
+// data-style) never qualify; arbitrary bold text is never a heading, and a
+// page without the container yields no sections at all: claims then render as
+// the flat list. Start-only container scope is deliberate: a candidate after
+// the container's close can never sit above an in-container claim, so it can
+// never mislabel one.
+const SECTION_HEADING_PATTERN =
+  /<span[^>]*\sstyle="(?:[^"]*[\s;])?font-size:\s*20px(?![\w.%])[^"]*"[^>]*>([\s\S]*?)<\/span>/gi;
+const BOARD_CONTENT_START_PATTERN = /<div[^>]*class="[^"]*\bboard_content\b[^"]*"[^>]*>/i;
+const SECTION_TEXT_MAX_LENGTH = 48;
+
+// text: null marks a heading rejected for length — it still ends the previous
+// section, so the claims under it render unlabeled instead of inheriting a
+// group the source never put them in.
+type SectionCandidate = { index: number; text: string | null };
+
+function parseSectionCandidates(html: string): SectionCandidate[] {
+  const containerStart = html.search(BOARD_CONTENT_START_PATTERN);
+  if (containerStart < 0) return [];
+  const candidates: SectionCandidate[] = [];
+  for (const match of html.matchAll(SECTION_HEADING_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index < containerStart) continue;
+    const text = decodeHtml(stripHtmlTags(match[1] ?? ""));
+    if (!text) continue;
+    // The post title renders as a heading too; it must never label a group.
+    if (patchVersionFromTitle(text)) continue;
+    candidates.push({ index, text: text.length > SECTION_TEXT_MAX_LENGTH ? null : text });
+  }
+  return candidates;
+}
+
+export function parseClaimedFixes(html: string): { fixes: ClaimedFixLine[]; totalFixLines: number } {
+  const liMatches = [...html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)];
+  // Bold text inside a bullet is emphasis, not a heading above it.
+  const sections = parseSectionCandidates(html).filter(
+    (candidate) =>
+      !liMatches.some((li) => {
+        const start = li.index ?? 0;
+        return candidate.index >= start && candidate.index < start + li[0].length;
+      }),
+  );
+  const fixes: ClaimedFixLine[] = [];
   const seen = new Set<string>();
-  for (const match of html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
+  let totalFixLines = 0;
+  for (const match of liMatches) {
     const text = decodeHtml(stripHtmlTags(match[1] ?? ""));
     if (!text || text.length < 12 || text.length > 300) continue;
     if (!FIX_LANGUAGE.test(text) && !IMPROVED_ISSUE_LANGUAGE.test(text)) continue;
     const key = text.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    fixes.push(text);
-    if (fixes.length >= 30) break;
+    // Count every kept-shaped line so a capped record can say "first 30 of N"
+    // instead of passing the cap off as the whole register.
+    totalFixLines += 1;
+    if (fixes.length >= 30) continue;
+    const start = match.index ?? 0;
+    // A claim's section is the nearest heading above it in document order.
+    let section: string | null = null;
+    for (const candidate of sections) {
+      if (candidate.index >= start) break;
+      section = candidate.text;
+    }
+    fixes.push({ text, section });
   }
-  return fixes;
+  return { fixes, totalFixLines };
 }
 
 export function parseOfficialPatchDetail(
@@ -133,6 +191,7 @@ export function parseOfficialPatchDetail(
   const title = parseMetaContent(html, "og:title")?.replace(/^\[Updates\]\s*/, "").replace(/\s*\|\s*Crimson Desert$/, "") ?? base.title;
   const patchVersion = patchVersionFromTitle(title) ?? base.patchVersion;
   const summary = parseMetaContent(html, "description") ?? parseMetaContent(html, "og:description");
+  const { fixes: claimedFixes, totalFixLines } = parseClaimedFixes(html);
 
   return {
     ...base,
@@ -140,7 +199,8 @@ export function parseOfficialPatchDetail(
     patchVersion,
     publishedAt: parsePublishedAt(html),
     summary: summary ? cleanSummary(summary).slice(0, 360) : null,
-    claimedFixes: parseClaimedFixes(html),
+    claimedFixes,
+    claimedFixTotal: totalFixLines,
   };
 }
 

@@ -2508,6 +2508,7 @@ describe("official patch metadata", () => {
       publishedAt: "2026-07-03T03:00:00.000Z",
       summary: "This patch adds fixes and stability improvements.",
       claimedFixes: [],
+      claimedFixTotal: 0,
     });
   });
 
@@ -2519,11 +2520,14 @@ describe("official patch metadata", () => {
       <li>Fixed the map crash.</li>
     `;
 
-    expect(parseClaimedFixes(html)).toEqual([
-      "Fixed an issue where the map crashed the game.",
-      "Improved an issue where frame rates would drop in certain environments.",
-      "Fixed the map crash.",
-    ]);
+    expect(parseClaimedFixes(html)).toEqual({
+      fixes: [
+        { text: "Fixed an issue where the map crashed the game.", section: null },
+        { text: "Improved an issue where frame rates would drop in certain environments.", section: null },
+        { text: "Fixed the map crash.", section: null },
+      ],
+      totalFixLines: 3,
+    });
   });
 
   it("drops claimed fix candidates outside the 12-300 char bounds", () => {
@@ -2532,20 +2536,23 @@ describe("official patch metadata", () => {
       <li>Fixed ${"a".repeat(295)}.</li>
     `;
 
-    expect(parseClaimedFixes(html)).toEqual([]);
+    expect(parseClaimedFixes(html)).toEqual({ fixes: [], totalFixLines: 0 });
   });
 
   it("strips nested tags before evaluating claimed fix text", () => {
     const html = `<li>Fixed an issue where <b>the map</b> crashed <i>the game</i>.</li>`;
 
-    expect(parseClaimedFixes(html)).toEqual(["Fixed an issue where the map crashed the game."]);
+    expect(parseClaimedFixes(html).fixes).toEqual([
+      { text: "Fixed an issue where the map crashed the game.", section: null },
+    ]);
   });
 
-  it("dedupes claimed fixes by lowercased text and caps at 30", () => {
+  it("dedupes claimed fixes by lowercased text and caps at 30 while counting the rest", () => {
     const html = Array.from({ length: 35 }, (_, index) => `<li>Fixed issue number ${index}.</li>`).join("\n");
 
-    const fixes = parseClaimedFixes(html);
+    const { fixes, totalFixLines } = parseClaimedFixes(html);
     expect(fixes).toHaveLength(30);
-    expect(new Set(fixes.map((fix) => fix.toLowerCase())).size).toBe(30);
+    expect(totalFixLines).toBe(35);
+    expect(new Set(fixes.map((fix) => fix.text.toLowerCase())).size).toBe(30);
   });
 });

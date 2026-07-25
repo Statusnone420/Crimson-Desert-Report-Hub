@@ -780,6 +780,7 @@ async function dashboardFallbackData(evidenceUnavailable: boolean) {
   let currentPatch: Awaited<ReturnType<typeof getCurrentPatchMetadata>> | null = null;
   let claims: Awaited<ReturnType<typeof readDashboardClaims>> = {
     claimedFixes: [],
+    claimedFixTotal: null,
     claimsUnavailable: false,
   };
   if (evidenceUnavailable && hasSupabaseServiceConfig()) {
@@ -826,14 +827,17 @@ async function getDashboardDataUncached() {
 
 async function readDashboardClaims(supabase: ReturnType<typeof createServiceClient>) {
   try {
+    const register = await readClaimedFixesForCurrentPatch(supabase);
     return {
-      claimedFixes: await readClaimedFixesForCurrentPatch(supabase),
+      claimedFixes: register.fixes,
+      claimedFixTotal: register.totalClaimedFixes,
       claimsUnavailable: false,
     };
   } catch (error) {
     console.error("[dashboard] official-claims read failed; claims unavailable, not zero", error);
     return {
       claimedFixes: [],
+      claimedFixTotal: null,
       claimsUnavailable: true,
     };
   }

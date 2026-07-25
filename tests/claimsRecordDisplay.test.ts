@@ -88,6 +88,7 @@ function dashboardData(overrides: Record<string, unknown> = {}) {
     topClusters: [],
     currentPatch,
     claimedFixes: [],
+    claimedFixTotal: null,
     claimsUnavailable: false,
     evidenceUnavailable: false,
     sourceLeadsUnavailable: false,
@@ -453,5 +454,123 @@ describe("claims record consolidated status line", () => {
     expect(count(markup, "tracked per issue on the")).toBe(1);
     expect(markup).toContain("this exact line");
     expect(markup).not.toContain("these exact lines");
+  });
+});
+
+/**
+ * Claims group under the source's own section headings — consecutive runs in
+ * source order, never re-sorted — and a capped register says so instead of
+ * passing the first 30 off as the whole list. Legacy data (null sections, null
+ * total) must degrade to the exact flat record shipped before the migration.
+ */
+describe("claims record section grouping and truncation honesty", () => {
+  beforeEach(() => {
+    mocks.getDailySignalRollup.mockResolvedValue(null);
+    mocks.getPublicScannerData.mockResolvedValue({
+      reviewedThisWeek: 9,
+      keptThisWeek: 3,
+      published: 1,
+      steamPulse: [],
+      platformContext: null,
+      pulseReadFailures: [],
+    });
+    mocks.getPatchRadarData.mockResolvedValue({
+      connected: false,
+      daily: [],
+      categories: [],
+      weekly: [],
+      recurrence: [],
+      recurring: { trackedLeads: 0 },
+    });
+  });
+
+  it("labels consecutive section runs in source order, desktop-only", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          { fixText: "Fixed an issue where bosses turned transparent.", category: null, section: "Content" },
+          { fixText: "Fixed an issue where crops stopped growing.", category: null, section: "Content" },
+          { fixText: "Fixed an issue where the crosshair lingered.", category: null, section: "Controls" },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(count(markup, 'class="claim-group__label dispatch-desktop-only"')).toBe(2);
+    expect(markup.indexOf(">Content</h3>")).toBeGreaterThan(-1);
+    expect(markup.indexOf(">Content</h3>")).toBeLessThan(markup.indexOf(">Controls</h3>"));
+    // Grouping never disturbs the shared intro or the row set.
+    expect(count(markup, "claims-intro")).toBe(1);
+    expect(markup).toContain("No player verdicts on any of these 3 claims yet");
+  });
+
+  it("leaves a null-section run unlabeled so legacy rows degrade to the flat list", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          { fixText: "Fixed an issue where bosses turned transparent.", category: null, section: "Content" },
+          { fixText: "Fixed an issue where crops stopped growing.", category: null, section: null },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(count(markup, 'class="claim-group__label dispatch-desktop-only"')).toBe(1);
+  });
+
+  it("renders the pre-migration record byte-flat when nothing carries a section", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          { fixText: "Fixed a claimed issue one.", category: null, section: null },
+          { fixText: "Fixed a claimed issue two.", category: null, section: null },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(count(markup, "claim-group__label")).toBe(0);
+    expect(markup).not.toContain("Showing the first");
+  });
+
+  it("says a capped register is capped — and reports the source total in the hero", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixTotal: 40,
+        claimedFixes: [
+          { fixText: "Fixed a claimed issue one.", category: null, section: "Content" },
+          { fixText: "Fixed a claimed issue two.", category: null, section: "Content" },
+          { fixText: "Fixed a claimed issue three.", category: null, section: "Others" },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(count(markup, "Showing the first 3 of 40 official fixes.")).toBe(1);
+    // Every other surface keeps the stored register count: one number story
+    // per viewport, with the cap line as the single truncation disclosure.
+    expect(markup).toContain("Pearl Abyss lists 3 claimed fixes.");
+    expect(markup).not.toContain("lists 40 claimed");
+  });
+
+  it("never renders the cap line when the register is complete", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixTotal: 2,
+        claimedFixes: [
+          { fixText: "Fixed a claimed issue one.", category: null, section: "Content" },
+          { fixText: "Fixed a claimed issue two.", category: null, section: "Content" },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(markup).not.toContain("Showing the first");
+    expect(markup).toContain("Pearl Abyss lists 2 claimed fixes.");
   });
 });
