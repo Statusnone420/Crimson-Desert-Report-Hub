@@ -57,6 +57,10 @@ input, select, textarea {
   padding: 7px 10px;
 }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 
 /* ── Chrome ─────────────────────────────────────────────────────────── */
 .shell-top {
