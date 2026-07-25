@@ -169,6 +169,13 @@ export default async function DispatchHomePage() {
     : topWatch
       ? `${topWatch.title} leads the ${patch.version} watchlist.`
       : `Patch ${patch.version} is live. Here’s what changed and what to watch.`;
+  const claimRegisterSentence = d.claimsUnavailable
+    ? "The official claimed-fix register is unavailable right now."
+    : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}.`;
+  const officialClaimsLabel = d.claimsUnavailable
+    ? "official claims unavailable"
+    : `${d.claimedFixes.length} official claims`;
+  const claimsLabel = d.claimsUnavailable ? "claims unavailable" : `${d.claimedFixes.length} claims`;
   const heroDek = d.evidenceUnavailable
     ? `The board can't read its evidence store right now. Patch facts stay current; report and issue counts are missing, not zero.`
     : publicLeadDataUnavailable
@@ -176,8 +183,8 @@ export default async function DispatchHomePage() {
     : leadDataUnavailable
       ? `Player evidence and published source-backed issues are readable, but some radar-lead details are unavailable right now. Missing lead data is not zero.`
     : topWatch
-      ? `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
-      : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
+      ? `${claimRegisterSentence} The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
+      : `${claimRegisterSentence} No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
   const showContextBand = Boolean(
     radar.steamPulse.length > 0 || radar.platformContext || radar.pulseReadFailures.length > 0,
   );
@@ -415,19 +422,17 @@ export default async function DispatchHomePage() {
           <ul className="brief-lead__meta dispatch-desktop-only" aria-label="Current evidence counts">
             {d.evidenceUnavailable ? (
               <>
-                <li>
-                  {d.claimsUnavailable ? "official claims unavailable" : `${d.claimedFixes.length} official claims`}
-                </li>
+                <li>{officialClaimsLabel}</li>
                 <li>evidence counts unavailable</li>
               </>
             ) : publicLeadDataUnavailable ? (
               <>
-                <li>{d.claimedFixes.length} official claims</li>
+                <li>{officialClaimsLabel}</li>
                 <li>source-backed issue count unavailable</li>
               </>
             ) : (
               <>
-                <li>{d.claimedFixes.length} official claims</li>
+                <li>{officialClaimsLabel}</li>
                 <li>{boardClusters.length} published issues</li>
               </>
             )}
@@ -443,17 +448,17 @@ export default async function DispatchHomePage() {
           <div className="brief-fact-strip dispatch-mobile-only">
             {d.evidenceUnavailable ? (
               <>
-                <span>{d.claimsUnavailable ? "claims unavailable" : `${d.claimedFixes.length} claims`}</span>
+                <span>{claimsLabel}</span>
                 <span>counts unavailable</span>
               </>
             ) : publicLeadDataUnavailable ? (
               <>
-                <span>{d.claimedFixes.length} claims</span>
+                <span>{claimsLabel}</span>
                 <span>issue count unavailable</span>
               </>
             ) : (
               <>
-                <span>{d.claimedFixes.length} claims</span>
+                <span>{claimsLabel}</span>
                 <span>{boardClusters.length} issues</span>
               </>
             )}
@@ -591,11 +596,19 @@ export default async function DispatchHomePage() {
                     <div className="pulse-stat__caption">{weeklyDeltaSentence(brief)}</div>
                   </div>
                   <div className="pulse-stat pulse-stat--secondary">
-                    <div className="pulse-stat__value pulse-stat__value--crimson">
-                      {mostContested?.readout.poll?.stillCount ?? 0}
+                    <div
+                      className={
+                        d.claimsUnavailable
+                          ? "pulse-stat__value"
+                          : "pulse-stat__value pulse-stat__value--crimson"
+                      }
+                    >
+                      {d.claimsUnavailable ? "—" : (mostContested?.readout.poll?.stillCount ?? 0)}
                     </div>
                     <div className="pulse-stat__caption">
-                      {mostContested
+                      {d.claimsUnavailable
+                        ? "Claimed-fix verdicts are unavailable right now."
+                        : mostContested
                         ? `Players still tapping "still happening" on ${mostContested.title}.`
                         : "No claimed fix is contested by player taps right now."}
                     </div>

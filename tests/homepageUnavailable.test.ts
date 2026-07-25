@@ -98,6 +98,31 @@ describe("homepage independent-register outages", () => {
     );
   });
 
+  it("never renders fallback claim counts when claims are unavailable", async () => {
+    for (const publicLeadsUnavailable of [false, true]) {
+      mocks.getDashboardData.mockResolvedValue({
+        ...emptyClaimEvidenceOutage,
+        claimsUnavailable: true,
+        evidenceUnavailable: false,
+        sourceLeadsUnavailable: publicLeadsUnavailable,
+        publicLeadsUnavailable,
+      });
+
+      const markup = renderToStaticMarkup(await DispatchHomePage());
+
+      expect(markup).toContain("official claims unavailable");
+      expect(markup).toContain(">claims unavailable</span>");
+      expect(markup).not.toContain("Pearl Abyss lists 0 claimed fixes");
+      expect(markup).not.toContain(">0 official claims</li>");
+      expect(markup).not.toContain(">0 claims</span>");
+      expect(markup).toContain("Claimed-fix verdicts are unavailable right now.");
+      expect(markup).not.toContain("No claimed fix is contested by player taps right now.");
+      if (!publicLeadsUnavailable) {
+        expect(markup).toContain("The official claimed-fix register is unavailable right now.");
+      }
+    }
+  });
+
   it("keeps independently read radar totals visible during an evidence outage", async () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
