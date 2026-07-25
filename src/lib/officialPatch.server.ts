@@ -222,26 +222,30 @@ type ClaimedFixRow = { fix_text: string; category: string | null };
 
 export type ClaimedFix = { fixText: string; category: string | null };
 
+export async function readClaimedFixesForCurrentPatch(supabase: SupabaseClient): Promise<ClaimedFix[]> {
+  const { data: currentRows, error: currentError } = await supabase
+    .from("official_patch_notes")
+    .select("board_no")
+    .eq("is_current", true)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .limit(1);
+  if (currentError) throw new Error(`official patch notes read failed: ${currentError.message}`);
+  const boardNo = ((currentRows ?? []) as { board_no: string }[])[0]?.board_no;
+  if (!boardNo) return [];
+
+  const { data: fixRows, error: fixError } = await supabase
+    .from("official_patch_claimed_fixes")
+    .select("fix_text, category")
+    .eq("board_no", boardNo)
+    .order("position", { ascending: true });
+  if (fixError) throw new Error(`official claimed fixes read failed: ${fixError.message}`);
+
+  return ((fixRows ?? []) as ClaimedFixRow[]).map((row) => ({ fixText: row.fix_text, category: row.category }));
+}
+
 export async function getClaimedFixesForCurrentPatch(supabase: SupabaseClient): Promise<ClaimedFix[]> {
   try {
-    const { data: currentRows, error: currentError } = await supabase
-      .from("official_patch_notes")
-      .select("board_no")
-      .eq("is_current", true)
-      .order("published_at", { ascending: false, nullsFirst: false })
-      .limit(1);
-    if (currentError) return [];
-    const boardNo = ((currentRows ?? []) as { board_no: string }[])[0]?.board_no;
-    if (!boardNo) return [];
-
-    const { data: fixRows, error: fixError } = await supabase
-      .from("official_patch_claimed_fixes")
-      .select("fix_text, category")
-      .eq("board_no", boardNo)
-      .order("position", { ascending: true });
-    if (fixError) return [];
-
-    return ((fixRows ?? []) as ClaimedFixRow[]).map((row) => ({ fixText: row.fix_text, category: row.category }));
+    return await readClaimedFixesForCurrentPatch(supabase);
   } catch {
     return [];
   }
