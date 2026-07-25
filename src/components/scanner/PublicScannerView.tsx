@@ -262,8 +262,7 @@ export function PublicScannerView({
                   <h3 className="obs-question__title">{cluster.title}</h3>
                   <p className="obs-question__explainer">
                     The scanner mapped {cluster.candidateSignalCount}{" "}
-                    {cluster.candidateSignalCount === 1 ? "lead" : "leads"} to this issue. Leads do not change its
-                    evidence count.
+                    {cluster.candidateSignalCount === 1 ? "lead" : "leads"} to this issue.
                   </p>
                 </div>
                 <div className="obs-question__tap">
@@ -300,39 +299,18 @@ export function PublicScannerView({
         </p>
       ) : null}
 
-      <section className="obs-rule-band" aria-label="Display rule">
-        <div className="obs-rule-band__label">Display rule</div>
+      <section className="obs-rule-band" aria-label="Privacy and publishing">
+        <h2 className="obs-rule-band__label">Privacy &amp; publishing</h2>
         <p className="obs-rule-band__copy">
-          Source links display only after an approved player report plus source trust, or corroboration across
-          independent sources (with stricter thresholds for untrusted sites). The link still remains a lead, not
-          player evidence.
+          Raw submissions, rejected candidates, scanner logs, and source URLs that fail review stay private. A
+          link displays only after an approved player report plus source trust, or corroboration across
+          independent sources — and it stays a lead either way. Published issues show their reviewed links and
+          approved excerpts so you can check each input yourself.
         </p>
         <div className="obs-rule-band__link">
-          <Link href="/about" className="dispatch-link">
+          <Link href="/about#source" className="dispatch-link">
             Read the method ↗
           </Link>
-        </div>
-      </section>
-
-      <section className="obs-method" aria-label="Privacy and publishing posture">
-        <div className="obs-method__col">
-          <h2 className="obs-method__heading">Privacy</h2>
-          <p className="obs-method__copy">
-            Raw submissions, rejected candidates, scanner logs, and source URLs that fail review stay private.
-          </p>
-        </div>
-        <div className="obs-method__col">
-          <h2 className="obs-method__heading">Publishing rule</h2>
-          <p className="obs-method__copy">
-            A full issue card needs an approved player report or corroboration from independent public sources.
-          </p>
-        </div>
-        <div className="obs-method__col">
-          <h2 className="obs-method__heading">Published links</h2>
-          <p className="obs-method__copy">
-            Published issues show reviewed source links and approved report excerpts so readers can inspect each
-            input themselves.
-          </p>
         </div>
       </section>
 

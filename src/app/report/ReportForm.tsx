@@ -552,9 +552,8 @@ export function ReportForm({
           <div className="assistant-rail__next">
             <span className="report-section-label">What happens next</span>
             <p className="assistant-rail__copy">
-              Checked and sorted into the right issue automatically. Raw words stay private — only counts and a
-              neutral summary go public. Duplicates merge, so one real patch problem reads as one moderated issue
-              cluster.
+              Checked, merged with any duplicates, and sorted into the right issue automatically. Raw words stay
+              private — only counts and a neutral summary go public.
             </p>
           </div>
         </details>

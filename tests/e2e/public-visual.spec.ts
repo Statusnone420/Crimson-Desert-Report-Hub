@@ -440,7 +440,27 @@ test.describe("public surface visual regression", () => {
     ).toBeVisible();
     await expect(page.getByText("1 fixed for me")).toBeVisible();
     await expect(page.getByText("2 still happening")).toBeVisible();
-    await expect(page.getByText(/NO PLAYER VERDICTS YET · CLAIM CLOCK RUNNING SINCE/i)).toBeVisible();
+    // One shared status line replaces the per-row clocks when quiet claims share
+    // a clock date; "claim clock" deep-links to its Method definition.
+    const claimsIntro = page.locator("#claims .claims-intro");
+    await expect(claimsIntro).toContainText(
+      /Players have answered 1 of these 2 claims; the other one has no verdicts yet/,
+    );
+    await expect(claimsIntro).toContainText("Verdicts count taps made after the clock, this patch only.");
+    await expect(claimsIntro.getByRole("link", { name: "claim clock" })).toHaveAttribute(
+      "href",
+      "/about#claim-clock",
+    );
+    // Desktop shows every row, so quiet rows carry no repeated clock; their
+    // mobile-only marker stays hidden at this width — asserted on computed
+    // display so a dropped media rule fails here, not in production.
+    await expect(page.locator("#claims .verdict-clock").filter({ visible: true })).toHaveCount(0);
+    expect(
+      await page
+        .locator("#claims .verdict-clock")
+        .first()
+        .evaluate((element) => getComputedStyle(element).display),
+    ).toBe("none");
     // From the wire: dated coverage only, dated by the SOURCE, never by the scanner.
     await expect(page.locator("#wire").getByText(/^\d{2} · From The Wire$/)).toBeVisible();
     await expect(page.getByText("Reviewed coverage on 1.13.01, dated by the source.")).toBeVisible();
@@ -514,12 +534,16 @@ test.describe("public surface visual regression", () => {
       const screen = document.querySelector("#radar .radar-screen-wrap")?.getBoundingClientRect();
       const main = document.querySelector("#radar .radar-main")?.getBoundingClientRect();
       const caption = document.querySelector("#radar .radar-screen-caption");
-      const claimClock = document.querySelector("#claims .verdict-clock");
-      if (!section || !screen || !main || !caption || !claimClock) return null;
+      const claimsIntro = document.querySelector("#claims .claims-intro");
+      const rowClock = document.querySelector("#claims .verdict-clock");
+      if (!section || !screen || !main || !caption || !claimsIntro || !rowClock) return null;
       return {
         captionFontSize: Number.parseFloat(getComputedStyle(caption).fontSize),
         captionTransform: getComputedStyle(caption).textTransform,
-        claimClockTransform: getComputedStyle(claimClock).textTransform,
+        claimClockTransform: getComputedStyle(claimsIntro).textTransform,
+        // The #claims .verdict-clock override must keep row clocks and the
+        // quiet marker out of uppercase mono shouting.
+        rowClockTransform: getComputedStyle(rowClock).textTransform,
         mainLeft: main.left,
         mainTop: main.top,
         screenRight: screen.right,
@@ -534,6 +558,7 @@ test.describe("public surface visual regression", () => {
     expect(desktopLayout?.captionFontSize ?? 0).toBeGreaterThanOrEqual(11);
     expect(desktopLayout?.captionTransform).toBe("none");
     expect(desktopLayout?.claimClockTransform).toBe("none");
+    expect(desktopLayout?.rowClockTransform).toBe("none");
     await expectHealthyPage(page, problems);
 
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -558,6 +583,20 @@ test.describe("public surface visual regression", () => {
       await expect(page.getByText(/\d+ reports/).first()).toBeVisible();
       await expect(page.getByText("01 · Patch Pulse")).toBeVisible();
       await expect(page.getByRole("button", { name: /Happening to me/ })).toBeVisible();
+      // The one claim row this width renders must state which side of the
+      // section line it is on — a verdict bar or its own quiet marker.
+      const visibleClaimRow = page.locator("#claims .claim-row:not(.claim-row--overflow)");
+      await expect(visibleClaimRow).toHaveCount(1);
+      await expect(visibleClaimRow.locator(".verdict-bar, .verdict-clock").first()).toBeVisible();
+      // The quiet-row marker's own display is unsuppressed below 900px even
+      // inside a hidden overflow row — the fixture's visible row carries a
+      // bar, so this is the only way to exercise the marker's media rule.
+      expect(
+        await page
+          .locator("#claims .verdict-clock")
+          .first()
+          .evaluate((element) => getComputedStyle(element).display),
+      ).toBe("block");
       const tapBounds = await page.getByRole("button", { name: /Happening to me/ }).boundingBox();
       expect(tapBounds && tapBounds.height >= 44 ? "tall enough" : `too short: ${tapBounds?.height}`).toBe(
         "tall enough",
@@ -810,6 +849,13 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Questions from the radar" })).toBeVisible();
     await expect(page.getByText("Mount and input lockups")).toBeVisible();
     await expect(page.getByRole("button", { name: /Happening to me/ })).toBeVisible();
+    // The section note carries the register once; per-question rows keep only their counts.
+    await expect(page.getByText("Leads do not change its evidence count.")).toHaveCount(0);
+    // One merged Privacy & publishing band replaces the Display-rule + three-column method repeat.
+    await expect(page.getByRole("heading", { name: "Privacy & publishing" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Read the method ↗" })).toHaveAttribute("href", "/about#source");
+    await expect(page.getByRole("heading", { name: "Privacy", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Published links" })).toHaveCount(0);
     // One ranked working-set view replaces the repeated scatterplot and sparkline families.
     await expect(page.getByRole("heading", { name: "Ranked problem areas" })).toBeVisible();
     await expect(page.getByRole("list", { name: "Tracked radar leads ranked by problem area" })).toBeVisible();

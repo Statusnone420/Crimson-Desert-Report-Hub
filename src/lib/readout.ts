@@ -184,7 +184,7 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
       state: "radar_lead",
       label: "Radar lead",
       tone: "blue",
-      sentence: `The scanner spotted this ${plural(input.candidateSignalCount, "time")}. A lead is a rumor with a link, not evidence.${playerRead}`,
+      sentence: `The scanner spotted this ${plural(input.candidateSignalCount, "time")} — a lead, not evidence.${playerRead}`,
       ask: haveItAsk(),
       poll: null,
     };
