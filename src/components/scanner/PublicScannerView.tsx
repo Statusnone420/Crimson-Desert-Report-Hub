@@ -162,7 +162,7 @@ export function PublicScannerView({
             </p>
           </div>
           <div className="obs-intelligence__grid">
-            <ol className="obs-ranked" aria-label="Tracked radar leads ranked by problem area">
+            <ol className="obs-ranked" aria-label="Tracked leads ranked by problem area">
               {radar.categories.map((bucket, index) => (
                 <li key={bucket.category} className="obs-ranked__row">
                   <span className="obs-ranked__rank">{String(index + 1).padStart(2, "0")}</span>

@@ -39,5 +39,5 @@ export function splitWatchlistByCandidates<T extends { candidateSignalCount: num
 }
 
 export function monitoredAreasNote(count: number): string {
-  return `Monitoring ${count} more on the watchlist — no player reports or public sources yet.`;
+  return `Monitoring ${count} additional watchlist issue${count === 1 ? "" : "s"}.`;
 }

@@ -58,6 +58,12 @@ export default async function IssuesPage() {
   const contestedEntries = restEntries.filter((cluster) => cluster.readout.poll !== null);
   const minorEntries = restEntries.filter((cluster) => cluster.readout.poll === null);
   const radarEntries = candidates;
+  // The watchlist splits into the entries this section renders and a monitored
+  // remainder, so each half states its own share of the total rather than
+  // leaving the reader to subtract one number from another.
+  const watchlistShownNote = `Showing ${radarEntries.length} of ${watchlist.length} watchlist issue${
+    watchlist.length === 1 ? "" : "s"
+  }`;
 
   function statusLine({ cluster }: { cluster: (typeof clusters)[number] }) {
     const tone = cluster.readout.tone;
@@ -327,7 +333,9 @@ export default async function IssuesPage() {
           <>
             <p className="issue-group-label">
               Radar leads
-              <span className="issue-group-label__note">source signals · not player evidence</span>
+              <span className="issue-group-label__note">
+                {watchlistShownNote} · source signals · not player evidence
+              </span>
             </p>
             <div className="issue-minors">
             {radarEntries.map((cluster) => (

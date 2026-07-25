@@ -52,13 +52,9 @@ describe("splitWatchlistByCandidates", () => {
 });
 
 describe("monitoredAreasNote", () => {
-  it("counts the monitored remainder into the watchlist tier at any count", () => {
-    expect(monitoredAreasNote(1)).toBe(
-      "Monitoring 1 more on the watchlist — no player reports or public sources yet.",
-    );
-    expect(monitoredAreasNote(2)).toBe(
-      "Monitoring 2 more on the watchlist — no player reports or public sources yet.",
-    );
+  it("states the remainder's own share of the watchlist, inflected at one", () => {
+    expect(monitoredAreasNote(1)).toBe("Monitoring 1 additional watchlist issue.");
+    expect(monitoredAreasNote(2)).toBe("Monitoring 2 additional watchlist issues.");
   });
 
   it("never calls the monitored remainder a problem area, or claims it is known", () => {
