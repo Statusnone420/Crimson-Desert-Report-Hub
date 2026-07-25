@@ -7,74 +7,206 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
   return routeMetadata("Method", "/about", parent);
 }
 
+const WIKI = {
+  privacy: `${SOURCE_URL}/blob/main/docs/wiki/Privacy-and-Moderation.md`,
+  sources: `${SOURCE_URL}/blob/main/docs/wiki/Data-Sources-and-Automation.md`,
+};
+
+/**
+ * The site answers what a reader needs to read the board correctly: one line,
+ * plus a couple of sentences if they open it. Thresholds, schema, provider
+ * costs, and moderation procedure stay in the public repo — this page links to
+ * them rather than restating them.
+ *
+ * Each row's answer lives in the summary, so a deep link that lands on a
+ * collapsed row still reads without opening it. `id="privacy"` is load-bearing:
+ * the site footer links to /about#privacy from every page.
+ */
 export default function AboutPage() {
   return (
     <PublicShell active="method">
       <div className="dispatch-container">
-        <header className="dispatch-pagehead" style={{ paddingBottom: 40 }}>
+        <header className="dispatch-pagehead" style={{ paddingBottom: 34 }}>
           <div className="dispatch-pagehead__copy">
-            <p className="dispatch-kicker">The Method · Purpose and privacy</p>
+            <p className="dispatch-kicker">The Method</p>
             <h1 className="dispatch-pagehead__title">How this tracker thinks</h1>
             <p className="dispatch-pagehead__dek">
-              A community-run way to turn scattered patch complaints into structured, moderated evidence — without
-              turning any of it into a verdict.
+              What the words on this site mean, and what we won&rsquo;t claim to know.
             </p>
           </div>
         </header>
 
-        <div className="method-grid">
-          <section className="method-block">
-            <h2 className="method-block__heading">What it is</h2>
-            <p className="method-block__copy">
-              An unofficial, fan-run confirmation board. It organizes structured player reports, one-tap
-              confirmations, and public source leads without turning any of them into a verdict. Not affiliated
-              with Pearl Abyss, Reddit, or X — no Pearl Abyss assets, logos, or artwork are used here.
-            </p>
-          </section>
+        <dl className="method-registers" id="registers">
+          <dt className="method-registers__term">Reports are evidence</dt>
+          <dd className="method-registers__def">You wrote it yourself. The strongest input here.</dd>
+          <dt className="method-registers__term">Confirmations are signals</dt>
+          <dd className="method-registers__def">A tap. Counted, never a verdict.</dd>
+          <dt className="method-registers__term">Source links are leads</dt>
+          <dd className="method-registers__def">A rumor with a link.</dd>
+          <dt className="method-registers__term">Official notes are context</dt>
+          <dd className="method-registers__def">Pearl Abyss said it. That starts a question, not an answer.</dd>
+        </dl>
 
-          <section className="method-block" id="privacy">
-            <h2 className="method-block__heading">Privacy posture</h2>
-            <p className="method-block__copy">
-              No accounts. No email. No ads. No analytics trackers. Submissions are anonymous — the server stores
-              a salted one-way hash of the submitter IP for spam limiting only. Raw IPs are never stored. Raw
-              report text stays private: public excerpts are either moderator-approved or deterministic neutral
-              summaries, never your raw words.
-            </p>
-          </section>
-
-          <section className="method-block">
-            <h2 className="method-block__heading">Evidence, signals, and leads</h2>
-            <p className="method-block__copy">
-              Reports are evidence: structured submissions stay private except for counts and approved excerpts.
-              Confirmations are signals: anonymous taps count what players say without declaring a verdict. Source
-              links are leads: inspectable context that never becomes player evidence. The{" "}
-              <Link href="/scanner" className="dispatch-link">
-                Observatory
-              </Link>{" "}
-              shows how public chatter is filtered while private candidates stay private.
-            </p>
-          </section>
-
-          <section className="method-block method-block--stacked">
-            <div>
-              <h2 className="method-block__heading">Public source</h2>
-              <p className="method-block__copy">
-                The website code is public for transparency, privacy review, and community contributions.
-                Deployment secrets are never committed.{" "}
-                <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener" className="dispatch-link">
-                  View the source on GitHub
-                </a>
+        <div className="method-rows">
+          <details className="method-row" id="claim-clock">
+            <summary className="method-row__q">
+              <span className="method-row__ask">What is a claim clock?</span>
+              <span className="method-row__mark" aria-hidden="true" />
+              <span className="method-row__say">
+                When this tracker records an official fix claim, the clock starts. Only what players say after
+                that counts toward whether the fix held.
+              </span>
+            </summary>
+            <div className="method-row__more">
+              <p>
+                It marks a moment, it doesn&rsquo;t run out. No amount of silence turns a claimed fix into a
+                confirmed one — only players saying so does that.
+              </p>
+              <p>
+                It resets on the next patch. A fix claimed in one patch isn&rsquo;t a claim about the one after
+                it.
               </p>
             </div>
-            <div>
-              <h2 className="method-block__heading">Use official support too</h2>
-              <p className="method-block__copy">
-                This site aggregates community evidence; it does not replace official channels. If you have crash
-                dumps, logs, or a PERS ID, file the official report first and reference it in your community
-                report here.
+          </details>
+
+          <details className="method-row" id="radar">
+            <summary className="method-row__q">
+              <span className="method-row__ask">Does a radar lead mean the bug is real?</span>
+              <span className="method-row__mark" aria-hidden="true" />
+              <span className="method-row__say">
+                No. A lead is a public page that exists and mentioned something. Finding it proves nothing.
+              </span>
+            </summary>
+            <div className="method-row__more">
+              <p>
+                An empty category doesn&rsquo;t mean nothing is wrong either — it means nothing turned up. Titles
+                and links stay private until something backs them up.
+              </p>
+              <p>
+                Teaching the scanner changes what it keeps next time. It can&rsquo;t put a link past the
+                publishing bar. The{" "}
+                <Link href="/scanner" className="dispatch-link">
+                  Observatory
+                </Link>{" "}
+                shows the whole flow.
               </p>
             </div>
-          </section>
+          </details>
+
+          <details className="method-row" id="freshness">
+            <summary className="method-row__q">
+              <span className="method-row__ask">How do you know a source is about this patch?</span>
+              <span className="method-row__mark" aria-hidden="true" />
+              <span className="method-row__say">
+                It has to name this patch outright, or have gone up on or after patch day. When a page
+                doesn&rsquo;t say when it went up, we say that instead of guessing.
+              </span>
+            </summary>
+            <div className="method-row__more">
+              <p>
+                Times on the radar are when we last saw a page, not when anything happened in the game.
+              </p>
+            </div>
+          </details>
+
+          <details className="method-row" id="privacy">
+            <summary className="method-row__q">
+              <span className="method-row__ask">What do you store about me?</span>
+              <span className="method-row__mark" aria-hidden="true" />
+              <span className="method-row__say">
+                No account, no email, no trackers, and never your IP address. Your raw report text stays private.
+              </span>
+            </summary>
+            <div className="method-row__more">
+              <p>
+                To limit spam we keep a scrambled fingerprint of your connection. It can&rsquo;t be turned back
+                into an address and it never appears on the site.
+              </p>
+              <p>
+                What can show up publicly: a count, a summary built from the options you picked, or a short
+                excerpt a moderator approved — never your raw words by default. The save-file helper on the
+                report page reads files in your browser, and the files themselves never leave your machine. Only
+                the short note it writes — which you can edit or delete before sending — goes in with your
+                report.
+              </p>
+            </div>
+          </details>
+
+          <details className="method-row" id="quiet">
+            <summary className="method-row__q">
+              <span className="method-row__ask">Why does quiet not count as fixed?</span>
+              <span className="method-row__mark" aria-hidden="true" />
+              <span className="method-row__say">
+                Because nobody answered. Silence never turns green here — an issue with no answers is just an
+                issue with no answers.
+              </span>
+            </summary>
+            <div className="method-row__more">
+              <p>Report and tap counts are never invented, estimated, or rounded.</p>
+            </div>
+          </details>
+
+          <details className="method-row" id="source">
+            <summary className="method-row__q">
+              <span className="method-row__ask">When does a source link go public?</span>
+              <span className="method-row__mark" aria-hidden="true" />
+              <span className="method-row__say">
+                When a trusted source lines up with an approved player report, or several independent sources say
+                the same thing. It stays a lead either way.
+              </span>
+            </summary>
+            <div className="method-row__more">
+              <p>
+                A link from a site we don&rsquo;t know needs more backup than one from a site we do — a report
+                alone isn&rsquo;t enough to publish it. Links that don&rsquo;t clear the bar stay private unless a
+                maintainer publishes one by hand.
+              </p>
+              <p>
+                Published issues show the links and excerpts behind them, so you can check them yourself instead
+                of taking our word for it.
+              </p>
+            </div>
+          </details>
+
+          <details className="method-row" id="official-support">
+            <summary className="method-row__q">
+              <span className="method-row__ask">Should I still report to Pearl Abyss?</span>
+              <span className="method-row__mark" aria-hidden="true" />
+              <span className="method-row__say">
+                Yes — first. Nothing filed here reaches them.
+              </span>
+            </summary>
+            <div className="method-row__more">
+              <p>
+                Crash dumps, logs, and a PERS ID belong in the official report — Pearl Abyss is the only one who
+                can actually fix it. Mention it in your{" "}
+                <Link href="/report" className="dispatch-link">
+                  report here
+                </Link>{" "}
+                afterward so the record shows you did.
+              </p>
+            </div>
+          </details>
+        </div>
+
+        <div className="method-outro">
+          <p className="method-outro__copy">
+            Everything else is in the public repo — how the counting works, what gets stored, what it costs to
+            run, and every rule a moderator follows.
+          </p>
+          <p className="method-outro__copy">
+            <a href={WIKI.privacy} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+              Privacy &amp; moderation
+            </a>
+            {" · "}
+            <a href={WIKI.sources} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+              Data sources
+            </a>
+            {" · "}
+            <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+              View the source on GitHub
+            </a>
+          </p>
         </div>
       </div>
     </PublicShell>

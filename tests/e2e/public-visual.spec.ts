@@ -756,11 +756,31 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText(/public signals backed by separate sources|public chatter becomes evidence/i)).toHaveCount(0);
     // The manual-review overpromise must not ship: excerpts can be neutral auto-summaries.
     await expect(page.getByText(/reviewed by a moderator before any excerpt/)).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Public source" })).toBeVisible();
-    await expect(page.locator("#main-content").getByRole("link", { name: "Observatory" })).toHaveAttribute(
+
+    // Method is the canonical reference the rest of the site points at. Rows
+    // stay closed, and each one answers in its summary — so a deep link that
+    // lands on a collapsed row still reads without being opened.
+    const rows = page.locator(".method-row");
+    await expect(rows).toHaveCount(7);
+    for (const anchor of ["claim-clock", "radar", "freshness", "privacy", "quiet", "source", "official-support"]) {
+      const row = page.locator(`#${anchor}`);
+      await expect(row).not.toHaveAttribute("open", /.*/);
+      await expect(row.locator(".method-row__say")).toBeVisible();
+    }
+    // The footer links to #privacy from every page.
+    await expect(page.locator("#privacy")).toBeVisible();
+
+    // Opening a row reveals its detail, including the cross-links that live there.
+    await page.locator("#claim-clock .method-row__q").click();
+    await expect(page.locator("#claim-clock .method-row__more")).toBeVisible();
+    await page.locator("#claim-clock .method-row__q").click();
+
+    await page.locator("#radar .method-row__q").click();
+    await expect(page.locator("#radar").getByRole("link", { name: "Observatory" })).toHaveAttribute(
       "href",
       "/scanner",
     );
+    await page.locator("#radar .method-row__q").click();
     await expect(page.getByRole("link", { name: "View the source on GitHub" })).toHaveAttribute(
       "href",
       "https://github.com/Statusnone420/Crimson-Desert-Report-Hub",
