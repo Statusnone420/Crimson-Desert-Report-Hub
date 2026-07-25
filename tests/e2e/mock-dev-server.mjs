@@ -450,7 +450,7 @@ const officialPatchClaimedFixes = [
   {
     board_no: "105",
     position: 0,
-    fix_text: "Fixed an issue where opening the world map could crash or freeze the client.",
+    fix_text: "[PS5] Fixed an issue where opening the world map could crash or freeze the client.",
     category: "crash_startup",
     section: "Content",
   },

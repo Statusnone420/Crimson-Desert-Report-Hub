@@ -402,7 +402,7 @@ const seed = {
     },
   ],
   official_patch_claimed_fixes: [
-    ["Fixed an issue where the motion of a character on a mount could appear unnatural.", "controls_gameplay", "Content"],
+    ["[Oongka/Damiane] Fixed an issue where the motion of a character on a mount could appear unnatural.", "controls_gameplay", "Content"],
     ["Fixed an issue where sound effects would not play after certain battles.", null, "Content"],
     ["Fixed an issue where performance could drop in crowded areas.", "performance", "Graphics / Settings"],
     ["Fixed various localization errors across all languages.", null, "Localization"],
