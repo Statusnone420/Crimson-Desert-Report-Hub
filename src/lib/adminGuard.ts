@@ -17,6 +17,13 @@ export async function isAdmin(): Promise<boolean> {
   return verifySessionToken(store.get(ADMIN_COOKIE)?.value, secret);
 }
 
-export async function requireAdmin(): Promise<void> {
-  if (!(await isAdmin())) redirect("/admin/login");
+/**
+ * Pages pass their own path so an expired session returns the operator to the
+ * page they were headed to after sign-in. Server actions call this bare — a
+ * mid-action expiry has no page to go back to.
+ */
+export async function requireAdmin(returnTo?: string): Promise<void> {
+  if (!(await isAdmin())) {
+    redirect(returnTo ? `/admin/login?from=${encodeURIComponent(returnTo)}` : "/admin/login");
+  }
 }

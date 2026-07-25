@@ -325,8 +325,56 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 .dispatch-nav__link--report:hover { color: var(--crimson-bright); }
 .dispatch-nav__link--report[aria-current="page"] { color: var(--dispatch-ink); }
 
-.dispatch-nav__link--signout { color: var(--amber); font-weight: 600; }
-.dispatch-nav__link--signout:hover { color: var(--amber-bright); }
+/* Phase 4: destinations vs utilities. The operator bar splits into page links
+   and a bordered utility cluster; the export confirm strip drops below it. */
+.dispatch-nav--operator { justify-content: space-between; }
+.operator-nav__pages { display: flex; align-items: center; gap: 30px; }
+.operator-utils { display: flex; align-items: center; gap: 10px; }
+.operator-utils__label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--dispatch-quiet);
+  text-transform: uppercase;
+  border-right: 1px solid var(--rule-soft);
+  padding-right: 10px;
+}
+.operator-utils__btn {
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-btn);
+  color: var(--dispatch-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 5px 10px;
+}
+.operator-utils__btn:hover { color: var(--dispatch-ink); border-color: var(--rule-strong); }
+.operator-utils__btn--signout { color: var(--amber); }
+.operator-utils__btn--signout:hover { color: var(--amber-bright); }
+.export-confirm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-btn);
+  background: var(--dispatch-raised);
+  margin-top: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--dispatch-ink-2);
+}
+.export-confirm p { margin: 0; flex: 1; min-width: 260px; }
+.export-confirm__cancel {
+  background: none;
+  border: 0;
+  color: var(--blue);
+  font-size: 13px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.export-confirm__cancel:hover { text-decoration: underline; }
 
 .dispatch-nav__short { display: none; }
 

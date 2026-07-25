@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { signOutAdmin } from "@/app/admin/actions";
 import { AdminControls } from "@/components/AdminControls";
+import { OperatorNav } from "@/components/dispatch/OperatorNav";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import { SOURCE_URL } from "@/lib/site";
@@ -151,13 +151,6 @@ export function PublicShell({
   );
 }
 
-const OPERATOR_NAV: Array<{ key: OperatorNavKey | "export"; href: string; label: string }> = [
-  { key: "review", href: "/admin", label: "REPORT REVIEW" },
-  { key: "scanner", href: "/scanner", label: "SCANNER MONITOR" },
-  { key: "compile", href: "/admin/compile", label: "COMPILE DOSSIER" },
-  { key: "export", href: "/api/admin/export", label: "EXPORT CSV" },
-];
-
 /** Operator chrome: amber topline, console nav, session-truthful footer. */
 export async function OperatorShell({
   active,
@@ -181,29 +174,7 @@ export async function OperatorShell({
           </p>
           <div className="nameplate__meta nameplate__meta--right">{dispatchDateline()}</div>
         </div>
-        <nav className="dispatch-nav dispatch-nav--operator" aria-label="Operator">
-          {OPERATOR_NAV.map((item) =>
-            item.key === "export" ? (
-              <a key={item.key} href={item.href} className="dispatch-nav__link">
-                {item.label}
-              </a>
-            ) : (
-              <Link
-                key={item.key}
-                href={item.href}
-                className="dispatch-nav__link"
-                aria-current={active === item.key ? "page" : undefined}
-              >
-                {item.label}
-              </Link>
-            ),
-          )}
-          <form action={signOutAdmin} style={{ display: "contents" }}>
-            <button type="submit" className="dispatch-nav__link dispatch-nav__link--signout">
-              Sign out
-            </button>
-          </form>
-        </nav>
+        <OperatorNav active={active} />
       </header>
       <main id="main-content">{children}</main>
       <footer className="dispatch-footer">

@@ -988,8 +988,18 @@ test.describe("public surface visual regression", () => {
     expect(adminStatusRequests).toBe(1);
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/admin\/login$/);
+
+    // An expired-session navigation carries its destination through sign-in:
+    // the operator lands back on the page they were headed to, not the
+    // console home. The plain guard bounce still works and names its origin.
     await page.goto("/admin");
-    await expect(page).toHaveURL(/\/admin\/login$/);
+    await expect(page).toHaveURL(/\/admin\/login\?from=%2Fadmin$/);
+    await page.goto("/admin/compile");
+    await expect(page).toHaveURL(/\/admin\/login\?from=%2Fadmin%2Fcompile$/);
+    await page.getByLabel("Password").fill("admin-password");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/admin\/compile$/);
+    await expect(page.getByRole("heading", { name: "Compile Pearl Abyss dossier" })).toBeVisible();
     await expectHealthyPage(page, problems);
   });
 
