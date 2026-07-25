@@ -10,7 +10,12 @@ import { needsFullIssueCard } from "@/lib/evidence";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
-  claimedFixes: vi.fn(async (): Promise<{ fixText: string; category: string | null }[]> => []),
+  claimedFixes: vi.fn(
+    async (): Promise<{
+      fixes: { fixText: string; category: string | null; section: string | null }[];
+      totalClaimedFixes: number | null;
+    }> => ({ fixes: [], totalClaimedFixes: null }),
+  ),
   controlState: vi.fn(async (): Promise<{ paused: boolean; updatedAt: string | null }> => ({
     paused: false,
     updatedAt: null,
@@ -33,7 +38,7 @@ vi.mock("@/lib/officialPatch.server", () => ({
     title: "Hotfix 1.13.01",
     sourceUrl: null,
   }),
-  getClaimedFixesForCurrentPatch: mocks.claimedFixes,
+  getClaimedFixesForCurrentPatch: async () => (await mocks.claimedFixes()).fixes,
   readClaimedFixesForCurrentPatch: mocks.claimedFixes,
 }));
 vi.mock("@/lib/automation/settings", () => ({
@@ -107,13 +112,19 @@ describe("dashboard loader under a failed read", () => {
     // The claims tables are not the evidence tables. A bug_reports failure
     // must not erase Pearl Abyss's claimed fixes from the record.
     vi.spyOn(console, "error").mockImplementation(() => {});
-    mocks.claimedFixes.mockResolvedValueOnce([{ fixText: "Fixed map-open crash", category: "crash_startup" }]);
+    mocks.claimedFixes.mockResolvedValueOnce({
+      fixes: [{ fixText: "Fixed map-open crash", category: "crash_startup", section: "Content" }],
+      totalClaimedFixes: 1,
+    });
     const { getDashboardData } = await import("@/lib/queries");
     const data = await getDashboardData();
 
     expect(data.evidenceUnavailable).toBe(true);
     expect(data.claimsUnavailable).toBe(false);
-    expect(data.claimedFixes).toEqual([{ fixText: "Fixed map-open crash", category: "crash_startup" }]);
+    expect(data.claimedFixes).toEqual([
+      { fixText: "Fixed map-open crash", category: "crash_startup", section: "Content" },
+    ]);
+    expect(data.claimedFixTotal).toBe(1);
   });
 
   it("marks claims unavailable when their own read also fails", async () => {

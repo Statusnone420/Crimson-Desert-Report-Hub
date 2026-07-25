@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
 import { PublicShell } from "@/components/dispatch/Chrome";
@@ -169,6 +170,9 @@ export default async function DispatchHomePage() {
     : topWatch
       ? `${topWatch.title} leads the ${patch.version} watchlist.`
       : `Patch ${patch.version} is live. Here’s what changed and what to watch.`;
+  // Every lead-band count speaks the stored register; the claims section's
+  // cap line is the single surface that discloses a truncated source total.
+  // Per-surface number vocabulary is Phase 3b work.
   const claimRegisterSentence = d.claimsUnavailable
     ? "The official claimed-fix register is unavailable right now."
     : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}.`;
@@ -221,6 +225,25 @@ export default async function DispatchHomePage() {
     votedClaimRows.length > 0 &&
     !d.evidenceUnavailable &&
     !verdictsElsewhere;
+
+  /**
+   * Rows group under the source's own section headings — consecutive runs in
+   * source order, never re-sorted. A run with no captured section renders
+   * unlabeled, so pre-section data degrades to the flat list.
+   */
+  const claimGroups = claimRows.reduce<{ section: string | null; rows: typeof claimRows }[]>(
+    (groups, row) => {
+      const last = groups[groups.length - 1];
+      if (last && last.section === row.claim.section) last.rows.push(row);
+      else groups.push({ section: row.claim.section, rows: [row] });
+      return groups;
+    },
+    [],
+  );
+  // The record stores at most the parser cap; when the source notes list
+  // more, the section says so instead of passing the cap off as complete.
+  const claimCapTotal =
+    d.claimedFixTotal !== null && d.claimedFixTotal > claimRows.length ? d.claimedFixTotal : null;
 
   // Context lanes: real-dated only, coverage and asks never share a module.
   const wire = d.observations.coverage.slice(0, 3);
@@ -985,31 +1008,45 @@ export default async function DispatchHomePage() {
                   running since {sharedQuietClock}.
                 </>
               )}
+              {claimCapTotal !== null ? (
+                <> Showing the first {claimRows.length} of {claimCapTotal} official fixes.</>
+              ) : null}
             </p>
             <div className="claim-rows">
-            {claimRows.map((row, index) => (
-              <div
-                key={`${row.claim.fixText}-${index}`}
-                className={
-                  mobileClaimRow && row === mobileClaimRow ? "claim-row" : "claim-row claim-row--overflow"
-                }
-              >
-                <blockquote className="claim-row__quote">&ldquo;{row.claim.fixText}&rdquo;</blockquote>
-                <div className="claim-row__verdict">
-                  {row.poll && row.poll.fixedCount + row.poll.stillCount > 0 ? (
-                    verdictSplit(row.poll, verdictNote(row.poll))
-                  ) : rowLevelClaimClocks ? (
-                    <div className="verdict-clock">
-                      No player verdicts yet · claim clock running since {row.clockSince}
+            {claimGroups.map((group, groupIndex) => (
+              <Fragment key={`claim-group-${groupIndex}`}>
+                {group.section ? (
+                  // Their heading, verbatim — hidden below 900px where only
+                  // one row renders and a label would point at hidden rows.
+                  <h3 className="claim-group__label dispatch-desktop-only">{group.section}</h3>
+                ) : null}
+                {group.rows.map((row, rowIndex) => {
+                  return (
+                    <div
+                      key={`${row.claim.fixText}-${groupIndex}-${rowIndex}`}
+                      className={
+                        mobileClaimRow && row === mobileClaimRow ? "claim-row" : "claim-row claim-row--overflow"
+                      }
+                    >
+                      <blockquote className="claim-row__quote">&ldquo;{row.claim.fixText}&rdquo;</blockquote>
+                      <div className="claim-row__verdict">
+                        {row.poll && row.poll.fixedCount + row.poll.stillCount > 0 ? (
+                          verdictSplit(row.poll, verdictNote(row.poll))
+                        ) : rowLevelClaimClocks ? (
+                          <div className="verdict-clock">
+                            No player verdicts yet · claim clock running since {row.clockSince}
+                          </div>
+                        ) : quietRowMarker ? (
+                          // Desktop shows every row, so a bare quote reads as
+                          // quiet next to the section line; the one-row mobile
+                          // cut needs this marker to say the claim's state.
+                          <div className="verdict-clock dispatch-mobile-only">No verdicts yet</div>
+                        ) : null}
+                      </div>
                     </div>
-                  ) : quietRowMarker ? (
-                    // Desktop shows every row, so a bare quote reads as quiet
-                    // next to the section line; the one-row mobile cut needs
-                    // this marker to say which state the visible claim is in.
-                    <div className="verdict-clock dispatch-mobile-only">No verdicts yet</div>
-                  ) : null}
-                </div>
-              </div>
+                  );
+                })}
+              </Fragment>
             ))}
             </div>
           </section>

@@ -461,6 +461,18 @@ test.describe("public surface visual regression", () => {
         .first()
         .evaluate((element) => getComputedStyle(element).display),
     ).toBe("none");
+    // Claims group under the source's own section headings — verbatim,
+    // desktop-only — and a capped register says so instead of passing the
+    // stored rows off as the whole list.
+    const groupLabels = page.locator("#claims .claim-group__label");
+    await expect(groupLabels).toHaveCount(2);
+    await expect(groupLabels.nth(0)).toHaveText("Content");
+    await expect(groupLabels.nth(1)).toHaveText("Graphics / Settings");
+    await expect(groupLabels.nth(0)).toBeVisible();
+    await expect(claimsIntro).toContainText("Showing the first 2 of 5 official fixes.");
+    // Lead-band counts speak the stored register; the cap line above is the
+    // one surface that discloses the larger source total.
+    await expect(page.getByText("Pearl Abyss lists 2 claimed fixes.")).toBeVisible();
     // From the wire: dated coverage only, dated by the SOURCE, never by the scanner.
     await expect(page.locator("#wire").getByText(/^\d{2} · From The Wire$/)).toBeVisible();
     await expect(page.getByText("Reviewed coverage on 1.13.01, dated by the source.")).toBeVisible();
@@ -597,6 +609,15 @@ test.describe("public surface visual regression", () => {
           .first()
           .evaluate((element) => getComputedStyle(element).display),
       ).toBe("block");
+      // Section labels are desktop furniture: this width renders one row, and
+      // a group label would point at rows the cut hides.
+      await expect(page.locator("#claims .claim-group__label").filter({ visible: true })).toHaveCount(0);
+      expect(
+        await page
+          .locator("#claims .claim-group__label")
+          .first()
+          .evaluate((element) => getComputedStyle(element).display),
+      ).toBe("none");
       const tapBounds = await page.getByRole("button", { name: /Happening to me/ }).boundingBox();
       expect(tapBounds && tapBounds.height >= 44 ? "tall enough" : `too short: ${tapBounds?.height}`).toBe(
         "tall enough",

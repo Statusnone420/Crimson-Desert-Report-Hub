@@ -1306,6 +1306,28 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 .claims-intro { font-size: 14px; color: var(--dispatch-faint); margin-top: 8px; margin-bottom: 28px; }
 .claim-rows { margin-top: 24px; }
 
+/* The source's own section heading, verbatim: a strong rule opens each group
+   the same way the record opens its lists. */
+.claim-group__label {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dispatch-quiet);
+  border-top: 2px solid var(--rule-strong);
+  padding-top: 14px;
+  margin: 30px 0 14px;
+}
+.claim-rows .claim-group__label:first-child { margin-top: 0; }
+/* The label's rule already separates the group; the row under it stays open.
+   Desktop-only: below 900px the labels are hidden and the one-row cut keeps
+   its own spacing. */
+@media (min-width: 900px) {
+  .claim-group__label + .claim-row,
+  .claim-group__label + .claim-row:first-of-type { border-top: 0; padding-top: 0; }
+}
+
 .claim-row {
   display: grid;
   grid-template-columns: 1fr 420px;

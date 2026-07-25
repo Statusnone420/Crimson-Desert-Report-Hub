@@ -195,15 +195,16 @@ export async function syncOfficialPatchNote(
   const changed = existing.source !== "official" || existing.version !== note.patchVersion || existing.officialUrl !== note.officialUrl;
   const observedAt = changed || !existing.observedAt ? observedAtNow : existing.observedAt;
 
-  const fixRows = note.claimedFixes.map((fixText) => {
-    const category = classifySignal(fixText).category;
+  const fixRows = note.claimedFixes.map((line) => {
+    const category = classifySignal(line.text).category;
     return {
-      fix_text: fixText,
+      fix_text: line.text,
       category: category === "other" ? null : category,
+      section: line.section,
     };
   });
 
-  const { error: syncError } = await supabase.rpc("sync_official_patch_note_with_claimed_fixes", {
+  const legacySyncArgs = {
     p_board_no: note.boardNo,
     p_title: note.title,
     p_patch_version: note.patchVersion,
@@ -212,40 +213,126 @@ export async function syncOfficialPatchNote(
     p_summary: note.summary,
     p_observed_at: observedAt,
     p_claimed_fixes: fixRows,
+  };
+  const { error: syncError } = await supabase.rpc("sync_official_patch_note_with_claimed_fixes", {
+    ...legacySyncArgs,
+    p_claimed_fix_total: note.claimedFixTotal,
   });
-  if (syncError) throw new Error(`official patch sync failed: ${syncError.message}`);
+  if (syncError && isMissingFunctionError(syncError)) {
+    // Pre-migration schema: the legacy 8-argument function still exists and
+    // ignores the extra jsonb keys. Sections and the total land on the first
+    // sync after the migration applies; nothing else is lost meanwhile.
+    const { error: legacyError } = await supabase.rpc(
+      "sync_official_patch_note_with_claimed_fixes",
+      legacySyncArgs,
+    );
+    if (legacyError) throw new Error(`official patch sync failed: ${legacyError.message}`);
+  } else if (syncError) {
+    throw new Error(`official patch sync failed: ${syncError.message}`);
+  }
 
   return { status: "synced", changed, patch: noteToCurrent(note, observedAt) };
 }
 
-type ClaimedFixRow = { fix_text: string; category: string | null };
+type ClaimedFixRow = { fix_text: string; category: string | null; section?: string | null };
 
-export type ClaimedFix = { fixText: string; category: string | null };
+export type ClaimedFix = { fixText: string; category: string | null; section: string | null };
 
-export async function readClaimedFixesForCurrentPatch(supabase: SupabaseClient): Promise<ClaimedFix[]> {
-  const { data: currentRows, error: currentError } = await supabase
+export type ClaimedFixRegister = {
+  fixes: ClaimedFix[];
+  // Kept-shaped lines in the source notes, cap included; null when the sync
+  // that stored this patch predates the column. Lets the record say
+  // "the first 30 of N" instead of passing the cap off as the whole register.
+  totalClaimedFixes: number | null;
+};
+
+/**
+ * Rolling deploys can pair this build with a schema that predates the
+ * section/claimed_fix_total columns and the 9-argument sync function.
+ * EXACTLY a missing-column read (42703) or a missing-function call
+ * (42883 / PGRST202) falls back to the legacy shape; every other failure —
+ * permissions, network, data — stays a real failure and surfaces.
+ */
+const MISSING_COLUMN_CODE = "42703";
+const MISSING_FUNCTION_CODES = new Set(["42883", "PGRST202"]);
+
+type DbErrorLike = { code?: string; message: string };
+
+function isMissingColumnError(error: DbErrorLike): boolean {
+  return error.code === MISSING_COLUMN_CODE;
+}
+
+function isMissingFunctionError(error: DbErrorLike): boolean {
+  return error.code !== undefined && MISSING_FUNCTION_CODES.has(error.code);
+}
+
+function currentBoardQuery(supabase: SupabaseClient, columns: string) {
+  return supabase
     .from("official_patch_notes")
-    .select("board_no")
+    .select(columns)
     .eq("is_current", true)
     .order("published_at", { ascending: false, nullsFirst: false })
     .limit(1);
-  if (currentError) throw new Error(`official patch notes read failed: ${currentError.message}`);
-  const boardNo = ((currentRows ?? []) as { board_no: string }[])[0]?.board_no;
-  if (!boardNo) return [];
+}
 
-  const { data: fixRows, error: fixError } = await supabase
+async function readCurrentBoard(
+  supabase: SupabaseClient,
+): Promise<{ boardNo: string; totalClaimedFixes: number | null } | null> {
+  const rich = await currentBoardQuery(supabase, "board_no, claimed_fix_total");
+  if (!rich.error) {
+    const row = ((rich.data ?? []) as unknown as { board_no: string; claimed_fix_total?: number | null }[])[0];
+    return row?.board_no ? { boardNo: row.board_no, totalClaimedFixes: row.claimed_fix_total ?? null } : null;
+  }
+  if (!isMissingColumnError(rich.error)) {
+    throw new Error(`official patch notes read failed: ${rich.error.message}`);
+  }
+  const legacy = await currentBoardQuery(supabase, "board_no");
+  if (legacy.error) throw new Error(`official patch notes read failed: ${legacy.error.message}`);
+  const row = ((legacy.data ?? []) as unknown as { board_no: string }[])[0];
+  return row?.board_no ? { boardNo: row.board_no, totalClaimedFixes: null } : null;
+}
+
+function boardFixesQuery(supabase: SupabaseClient, boardNo: string, columns: string) {
+  return supabase
     .from("official_patch_claimed_fixes")
-    .select("fix_text, category")
+    .select(columns)
     .eq("board_no", boardNo)
     .order("position", { ascending: true });
-  if (fixError) throw new Error(`official claimed fixes read failed: ${fixError.message}`);
+}
 
-  return ((fixRows ?? []) as ClaimedFixRow[]).map((row) => ({ fixText: row.fix_text, category: row.category }));
+async function readBoardFixes(supabase: SupabaseClient, boardNo: string): Promise<ClaimedFix[]> {
+  const rich = await boardFixesQuery(supabase, boardNo, "fix_text, category, section");
+  if (!rich.error) {
+    return ((rich.data ?? []) as unknown as ClaimedFixRow[]).map((row) => ({
+      fixText: row.fix_text,
+      category: row.category,
+      section: row.section ?? null,
+    }));
+  }
+  if (!isMissingColumnError(rich.error)) {
+    throw new Error(`official claimed fixes read failed: ${rich.error.message}`);
+  }
+  const legacy = await boardFixesQuery(supabase, boardNo, "fix_text, category");
+  if (legacy.error) throw new Error(`official claimed fixes read failed: ${legacy.error.message}`);
+  return ((legacy.data ?? []) as unknown as ClaimedFixRow[]).map((row) => ({
+    fixText: row.fix_text,
+    category: row.category,
+    section: null,
+  }));
+}
+
+export async function readClaimedFixesForCurrentPatch(supabase: SupabaseClient): Promise<ClaimedFixRegister> {
+  const current = await readCurrentBoard(supabase);
+  if (!current) return { fixes: [], totalClaimedFixes: null };
+  return {
+    fixes: await readBoardFixes(supabase, current.boardNo),
+    totalClaimedFixes: current.totalClaimedFixes,
+  };
 }
 
 export async function getClaimedFixesForCurrentPatch(supabase: SupabaseClient): Promise<ClaimedFix[]> {
   try {
-    return await readClaimedFixesForCurrentPatch(supabase);
+    return (await readClaimedFixesForCurrentPatch(supabase)).fixes;
   } catch {
     return [];
   }

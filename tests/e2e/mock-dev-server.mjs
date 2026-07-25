@@ -441,6 +441,7 @@ const officialPatchNotes = [
     published_at: "2026-07-08T05:51:00.000Z",
     summary: "Official hotfix metadata used by Playwright visual tests.",
     observed_at: isoMinutesAgo(40),
+    claimed_fix_total: 5,
     is_current: true,
   },
 ];
@@ -451,12 +452,14 @@ const officialPatchClaimedFixes = [
     position: 0,
     fix_text: "Fixed an issue where opening the world map could crash or freeze the client.",
     category: "crash_startup",
+    section: "Content",
   },
   {
     board_no: "105",
     position: 1,
     fix_text: "Fixed an issue where performance could drop in crowded areas.",
     category: "performance",
+    section: "Graphics / Settings",
   },
 ];
 
