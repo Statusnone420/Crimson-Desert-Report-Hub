@@ -119,6 +119,57 @@ test.describe("operator write paths", () => {
     await expectHealthyPage(page, problems);
   });
 
+  test("keeping a candidate as relevant clears it from the desk and records a KEEP lesson", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+    await page.goto("/scanner");
+
+    // The whole rescue pipeline runs before this returns: run ledger insert,
+    // deterministic extraction (no OPENROUTER key in the harness), cluster
+    // routing, signal insert, stats refresh, decision RPC, rescued_at mark.
+    // Any missing shim surface fails the POST here, not silently downstream.
+    const candidate = page
+      .locator("article.decision-card")
+      .filter({ hasText: "Base PS5 performance mode drops after update" });
+    await expect(candidate).toHaveCount(1);
+    await submitAction(page, () => candidate.getByRole("button", { name: "Keep as relevant" }).click());
+
+    // rescued_at plus the decision row leave the undecided-only desk query
+    // nothing to return, and the Relevant decision surfaces as an allow rule.
+    await expect(candidate).toHaveCount(0);
+    const lessons = page.locator('section[aria-label="Active scanner feedback rules"]');
+    await expect(lessons.getByText("KEEP", { exact: true })).toBeVisible();
+    await expect(
+      lessons.getByText("Operator inspected this page and confirmed it is a relevant Crimson Desert issue lead."),
+    ).toBeVisible();
+
+    // Undo revokes the KEEP rule but must NOT return the candidate: undo
+    // deliberately skips a rescued candidate, so the card staying gone is the
+    // proof that rescued_at actually landed — the desk filter alone would also
+    // hide a candidate that only carried a decision row.
+    await submitAction(page, () => lessons.getByRole("button", { name: "Undo" }).first().click());
+    await expect(lessons.getByText("No scanner lessons yet.")).toBeVisible();
+    await expect(candidate).toHaveCount(0);
+
+    // A rescue has no UI control that fully reverses it, so this test cleans up
+    // after itself instead of relying on a later test to re-invalidate the
+    // tagged public caches: rendering /scanner repopulated PUBLIC_DASHBOARD
+    // entries with post-rescue rows, and the fixture reset alone cannot evict
+    // them. Reset first, then re-assert the current patch — a write the app
+    // itself revalidates all public tags for, against the restored rows.
+    const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
+    expect(reset.ok(), "mid-test fixture reset failed").toBe(true);
+    await page.goto("/admin");
+    const patchLedger = page
+      .locator("details")
+      .filter({ has: page.getByText("Current patch override", { exact: true }) })
+      .first();
+    await patchLedger.locator(":scope > summary").click();
+    await patchLedger.getByLabel("New current patch").fill("1.13.01");
+    await submitAction(page, () => patchLedger.getByRole("button", { name: "Set current patch" }).click());
+    await expectHealthyPage(page, problems);
+  });
+
   test("forcing an issue hidden takes it off the board, and reset hands it back to the engine", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);

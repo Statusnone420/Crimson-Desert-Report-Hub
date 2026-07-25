@@ -676,6 +676,9 @@ if (previewSeedFile) {
  * both Playwright projects included. Without a reset, an admin write test hands
  * the next test (and the next project's screenshots) a different fixture.
  */
+/** Re-observation ledger rows written when a rescue re-sees a known URL. Starts empty. */
+const signalObservationEvents = [];
+
 const resettableTables = [
   clusters,
   bugReports,
@@ -690,6 +693,7 @@ const resettableTables = [
   patchObservations,
   scannerDecisions,
   scannerFeedbackRules,
+  signalObservationEvents,
 ];
 const pristineTables = resettableTables.map((table) => structuredClone(table));
 
@@ -709,12 +713,17 @@ function resetFixture() {
  * implemented against their migration semantics, so every reject/undo/override
  * control on /admin and /scanner works locally and under Playwright.
  *
- * Still unimplemented: "Keep as relevant" (and the rescueRejectedCandidate
- * action). That path runs the whole scanner pipeline before its RPC — a run
- * ledger insert, a signal upsert, a cluster stats recompute — so it needs POST
- * /automation_runs, POST /source_signals and PATCH
- * /automation_rejected_candidates, not just the RPC. It still 404s here. Also
- * unimplemented: the scan trigger itself, which is a live provider run.
+ * "Keep as relevant" (rescueRejectedCandidate) is also covered: the rescue
+ * pipeline's run-ledger insert, signal upsert, re-observation ledger,
+ * auto-cluster create and rescued_at mark all have real handlers, and the
+ * extraction step needs no stub — without OPENROUTER_API_KEY the app itself
+ * falls back to deterministic extraction before any network call.
+ *
+ * Still unimplemented: the scan trigger itself, which is a live provider run,
+ * and the issue_clusters slug unique index — POST here never returns 23505, so
+ * createCluster's slug-conflict recovery has no harness coverage (unreachable
+ * from a clean fixture: a repeat rescue short-circuits at
+ * findExistingSignalCluster before createCluster runs).
  */
 const SCANNER_DECISIONS = ["relevant", "off_topic", "wrong_patch", "not_issue_report", "duplicate"];
 const OBSERVATION_DECISIONS = ["off_topic", "wrong_patch", "not_issue_report", "duplicate"];
@@ -813,9 +822,12 @@ function filterRows(table, url) {
   // RPCs existed nothing here ever set these columns, so ignoring the filter was
   // harmless; now a decided candidate, a revoked rule and an undone decision all
   // have to leave their lists. Seed rows omit the columns entirely, which counts
-  // as null the way Postgres would read a null column.
+  // as null the way Postgres would read a null column. The negation matters for
+  // the rescue path: findExistingSignalCluster asks for clustered signals only,
+  // and ignoring `not.is.null` would route a rescue into whatever row came first.
   for (const [column, value] of url.searchParams.entries()) {
     if (value === "is.null") rows = rows.filter((row) => row[column] == null);
+    if (value === "not.is.null") rows = rows.filter((row) => row[column] != null);
   }
 
   const id = url.searchParams.get("id");
@@ -902,6 +914,36 @@ function filterRows(table, url) {
   const key = url.searchParams.get("key");
   if (key?.startsWith("eq.")) rows = rows.filter((row) => row.key === key.slice(3));
 
+  // The rescue path's lookups: signal memory by external hash, existing-cluster
+  // routing by semantic fingerprint (excluding Steam reviews), and the routable
+  // cluster read that must not see auto-created clusters.
+  const externalIdHashFilter = url.searchParams.get("external_id_hash");
+  if (externalIdHashFilter?.startsWith("eq.")) {
+    rows = rows.filter((row) => row.external_id_hash === externalIdHashFilter.slice(3));
+  }
+
+  const semanticFingerprint = url.searchParams.get("semantic_fingerprint");
+  if (semanticFingerprint?.startsWith("eq.")) {
+    rows = rows.filter((row) => row.semantic_fingerprint === semanticFingerprint.slice(3));
+  }
+
+  // SQL three-valued logic: NULL <> x and NULL NOT LIKE x are unknown, so a
+  // null column drops the row in both negations, same as Postgres.
+  const source = url.searchParams.get("source");
+  if (source?.startsWith("neq.")) {
+    rows = rows.filter((row) => row.source != null && row.source !== source.slice(4));
+  }
+
+  const slug = url.searchParams.get("slug");
+  if (slug?.startsWith("eq.")) rows = rows.filter((row) => row.slug === slug.slice(3));
+  if (slug?.startsWith("not.like.")) {
+    // SQL LIKE, anchored; % is the only wildcard the codebase uses.
+    const pattern = new RegExp(
+      `^${slug.slice(9).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*")}$`,
+    );
+    rows = rows.filter((row) => row.slug != null && !pattern.test(String(row.slug)));
+  }
+
   const order = url.searchParams.get("order");
   if (order?.startsWith("created_at.desc")) {
     rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -954,6 +996,23 @@ const server = createServer(async (req, res) => {
     const rows = filterRows(clusters, url);
     for (const row of rows) Object.assign(row, patch);
     sendJson(res, req.method, 200, rows);
+    return;
+  }
+
+  // createCluster: a rescue whose signal routes nowhere gets a fresh auto-cluster.
+  if (url.pathname === "/rest/v1/issue_clusters" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const row = clampClusterVisibility({
+      id: nextMockId("cluster"),
+      created_at: new Date(now()).toISOString(),
+      admin_visibility_override: null,
+      visibility_revision: 0,
+      ...parsed,
+    });
+    clusters.push(row);
+    const wantsObject = (req.headers.accept ?? "").includes("vnd.pgrst.object");
+    sendJson(res, req.method, 201, wantsObject ? row : [row]);
     return;
   }
 
@@ -1017,13 +1076,69 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // upsertSignal's first-observation branch; its reobserve branch rides the
+  // pre-existing PATCH handler further down. The force-hidden trigger applies
+  // on insert exactly as trg_enforce_hidden_cluster_signal would.
+  if (url.pathname === "/rest/v1/source_signals" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const row = { id: nextMockId("signal"), ...parsed };
+    enforceHiddenClusterSignal(row);
+    signals.push(row);
+    sendJson(res, req.method, 201, [row]);
+    return;
+  }
+
+  // Rescue idempotency ledger: re-seeing a known URL records an event row. Only
+  // reachable when signals carry external_id_hash — production-shaped preview
+  // seeds, not the Playwright fixture. The app's observationLedgerAvailable
+  // latch lives in the Next process and survives fixture resets.
+  if (url.pathname === "/rest/v1/signal_observation_events" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const row = { id: nextMockId("observation-event"), ...parsed };
+    signalObservationEvents.push(row);
+    sendJson(res, req.method, 201, [row]);
+    return;
+  }
+
   if (url.pathname === "/rest/v1/automation_runs" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(automationRuns, url));
     return;
   }
 
+  // createRunLedger: insert returning id, then finalizeRunLedger patches it closed.
+  if (url.pathname === "/rest/v1/automation_runs" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const row = { id: nextMockId("run"), created_at: new Date(now()).toISOString(), ...parsed };
+    automationRuns.push(row);
+    const wantsObject = (req.headers.accept ?? "").includes("vnd.pgrst.object");
+    sendJson(res, req.method, 201, wantsObject ? row : [row]);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/automation_runs" && req.method === "PATCH") {
+    const raw = await readBody(req);
+    const patch = raw ? JSON.parse(raw) : {};
+    const rows = filterRows(automationRuns, url);
+    for (const row of rows) Object.assign(row, patch);
+    sendJson(res, req.method, 200, rows);
+    return;
+  }
+
   if (url.pathname === "/rest/v1/automation_rejected_candidates" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(rejectedCandidates, url));
+    return;
+  }
+
+  // The rescued_at mark that takes a kept candidate off the teaching desk.
+  if (url.pathname === "/rest/v1/automation_rejected_candidates" && req.method === "PATCH") {
+    const raw = await readBody(req);
+    const patch = raw ? JSON.parse(raw) : {};
+    const rows = filterRows(rejectedCandidates, url);
+    for (const row of rows) Object.assign(row, patch);
+    sendJson(res, req.method, 200, rows);
     return;
   }
 
