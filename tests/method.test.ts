@@ -61,6 +61,16 @@ describe("method reference", () => {
     expect(aboutSource).toMatch(/docs\/wiki\//);
   });
 
+  it("starts the claim clock when this tracker records the official claim", () => {
+    const claimClock = aboutSource.slice(
+      aboutSource.indexOf('id="claim-clock"'),
+      aboutSource.indexOf('id="radar"'),
+    );
+
+    expect(claimClock).toContain("When this tracker records an official fix claim, the clock starts.");
+    expect(claimClock).not.toContain("the clock marks that moment");
+  });
+
   it("does not overpromise moderation or certainty the code cannot back", () => {
     // Excerpts can be deterministic enum-derived summaries with no human in
     // the loop; a lead is never evidence; quiet is never a fix.

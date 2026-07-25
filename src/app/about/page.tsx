@@ -53,8 +53,8 @@ export default function AboutPage() {
               <span className="method-row__ask">What is a claim clock?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                Pearl Abyss claims a fix, and the clock marks that moment. Only what players say after it counts
-                toward whether the fix held.
+                When this tracker records an official fix claim, the clock starts. Only what players say after
+                that counts toward whether the fix held.
               </span>
             </summary>
             <div className="method-row__more">
