@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report review — Phase 4 mockup (default)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#" aria-current="page">Report Review</a>
+    <a href="#">Scanner Monitor</a>
+    <a href="#">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button class="util-btn" type="button">↓ Export CSV<span class="sr-only"> — downloads the full private report table</span></button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<main class="page">
+
+  <!-- 1 · STATUS AND REQUIRED WORK -->
+  <header class="pagehead">
+    <div>
+      <p class="kicker kicker--amber">Operator · Admin controls</p>
+      <h1>Report review</h1>
+      <p class="dek">Auto-sorted reports, flagged submissions, and the short list of exceptions that actually need you.</p>
+    </div>
+    <div class="pagehead__meta">Live queue · Refreshes on load</div>
+  </header>
+
+  <div class="stat-band" aria-label="Queue summary">
+    <div>
+      <div class="stat-label">Needs you</div>
+      <div class="stat-value stat-value--green">0</div>
+      <div class="stat-caption">No exceptions</div>
+    </div>
+    <div>
+      <div class="stat-label">Auto-sorted</div>
+      <div class="stat-value">1</div>
+      <div class="stat-caption">Approved automatically</div>
+    </div>
+    <div>
+      <div class="stat-label">Flagged reports</div>
+      <div class="stat-value">0</div>
+      <div class="stat-caption">Waiting for your call</div>
+    </div>
+    <div>
+      <div class="stat-label">Filtered as spam</div>
+      <div class="stat-value">0</div>
+      <div class="stat-caption">Blocked automatically</div>
+    </div>
+  </div>
+
+  <!-- 2 · PRIMARY TASK -->
+  <section class="skeleton-section" aria-label="Flagged for review">
+    <div class="section-head">
+      <div>
+        <p class="kicker">Flagged for review</p>
+      </div>
+      <p class="note">Oldest first · showing all 0</p>
+    </div>
+    <p class="all-clear">✓ All clear — no flagged reports need review</p>
+    <p class="op-note" style="margin-top:6px">New flags appear here with the full private text, the auto-sort reason, and approve / reject / spam controls with cluster selection.</p>
+  </section>
+
+  <!-- 3 · OPTIONAL WORK — none on this page; the queue is the work. -->
+
+  <!-- 4 · RECORDS / HISTORY -->
+  <section class="skeleton-section ledger" aria-label="Exception ledgers">
+    <div class="section-head">
+      <div><p class="kicker">Records</p></div>
+    </div>
+    <details>
+      <summary>
+        <span class="mono-label">Lifecycle exceptions</span>
+        <span class="ledger-copy">The system decides labels from counts. Only unsure claim matches and your own locks appear here.</span>
+        <span class="ledger-count ledger-count--amber">1 item ›</span>
+      </summary>
+      <div class="ledger-body"><p class="op-note">Collapsed in this state — see the exception mockup.</p></div>
+    </details>
+    <details>
+      <summary>
+        <span class="mono-label">Visibility overrides</span>
+        <span class="ledger-copy">Only active break-glass changes appear here, each with its reason and a one-click return to engine control.</span>
+        <span class="ledger-count ledger-count--amber">6 active ›</span>
+      </summary>
+      <div class="ledger-body"><p class="op-note">Collapsed in this state.</p></div>
+    </details>
+  </section>
+
+  <!-- 5 · ADVANCED / BREAK-GLASS -->
+  <section class="skeleton-section ledger" aria-label="Break-glass configuration">
+    <div class="section-head">
+      <div><p class="kicker">Break-glass</p></div>
+      <p class="note">Deliberate friction lives here on purpose. Nothing in this band is part of a normal day.</p>
+    </div>
+    <details>
+      <summary>
+        <span class="mono-label">Current patch override</span>
+        <span class="ledger-copy">If the scanner stops finding Pearl Abyss patch notes, set the current patch by hand. The next successful scan takes control back. Changing it also swaps which observations the Scanner Monitor desk can moderate.</span>
+        <span class="ledger-count ledger-count--green">Synced 1.15.00 ›</span>
+      </summary>
+      <div class="ledger-body"><p class="op-note">Collapsed in this state.</p></div>
+    </details>
+  </section>
+
+</main>
+</body>
+</html>

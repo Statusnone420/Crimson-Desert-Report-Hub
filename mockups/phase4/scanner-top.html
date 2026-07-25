@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanner monitor — Phase 4 mockup (status and action)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#">Report Review</a>
+    <a href="#" aria-current="page">Scanner Monitor</a>
+    <a href="#">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button class="util-btn" type="button">↓ Export CSV</button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<main class="page">
+<div class="scanner-grid">
+
+  <nav class="section-nav" aria-label="Sections on this page">
+    <a href="#status" aria-current="true">Status</a>
+    <a href="#teach">Teach<span class="section-nav__count">30</span></a>
+    <a href="#records">Records<span class="section-nav__count">57</span></a>
+    <a href="#lanes">Context lanes</a>
+    <a href="#lessons">Lessons<span class="section-nav__count">41</span></a>
+    <a href="#history">Scan history</a>
+    <a href="#budget">Cadence &amp; budget</a>
+  </nav>
+
+  <div>
+
+  <!-- 1 · STATUS AND REQUIRED WORK -->
+  <header class="pagehead" id="status">
+    <div>
+      <p class="kicker kicker--amber">Operator · The Observatory</p>
+      <h1>Today's radar desk</h1>
+      <p class="dek">What changed, what keeps recurring, and what needs you — with the full review, rescue, and budget workflows below.</p>
+      <p class="count-note" style="margin-top:10px;color:var(--green)">● Active · last scan 58m ago · next check in 2m · most recent kept lead 1h ago</p>
+    </div>
+    <div class="cost-group">
+      <div class="cost-group__row">
+        <button class="c-secondary" type="button">Test scan without publishing</button>
+        <span class="cost-chip">Spends credits</span>
+      </div>
+      <div class="cost-group__row">
+        <button class="c-primary" type="button">Run capped scan now</button>
+        <span class="cost-chip">Spends credits</span>
+      </div>
+      <p class="op-note" style="max-width:34ch">Both runs buy real search credits and LLM calls; a test run only skips publishing. Neither can be reverted.</p>
+    </div>
+  </header>
+
+  <div class="stat-band stat-band--five" aria-label="Since the last day">
+    <div>
+      <div class="stat-label">New leads · 24h</div>
+      <div class="stat-value" style="color:var(--blue)">5</div>
+      <div class="stat-caption">40 in the last 7 days</div>
+    </div>
+    <div>
+      <div class="stat-label">Re-observed · 24h</div>
+      <div class="stat-value" style="color:var(--blue)">8</div>
+      <div class="stat-caption">29 of 57 tracked leads recur</div>
+    </div>
+    <div>
+      <div class="stat-label">Needs attention</div>
+      <div class="stat-value stat-value--amber">1</div>
+      <div class="stat-caption">Run or provider health needs a look</div>
+    </div>
+    <div>
+      <div class="stat-label">Failed runs · 7d</div>
+      <div class="stat-value stat-value--crimson">1</div>
+      <div class="stat-caption">177 ok · 7 skipped</div>
+    </div>
+    <div>
+      <div class="stat-label">Source dates</div>
+      <div class="stat-value">2/57</div>
+      <div class="stat-caption">Leads with a real publication date</div>
+    </div>
+  </div>
+
+  <div class="inbox inbox--attention" aria-label="Operator action inbox">
+    <div>
+      <p class="kicker kicker--amber">Action inbox · The only required work on this page</p>
+      <h3>1 scanner health item needs a look</h3>
+      <p class="op-note">Yesterday's 3:00 AM scheduled run failed on a provider timeout. Everything else is optional teaching.</p>
+    </div>
+    <a class="c-quiet" href="#history">Open scan history →</a>
+  </div>
+
+  <!-- 2 · PRIMARY TASK is the inbox above; when it is empty this page has no required work. -->
+
+  <!-- 3 · OPTIONAL WORK -->
+  <section class="skeleton-section ledger" id="teach" aria-label="Teach the scanner">
+    <details open>
+      <summary>
+        <span class="mono-label">Teach · Optional</span>
+        <span class="ledger-copy">Auto-rejected pages are not assignments. They stay private and expire on their own; teach only when a bad pattern is worth remembering.</span>
+        <span class="ledger-count">Showing 2 of 30 recent ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+          <input type="search" placeholder="Search title, source, or rejection reason" style="flex:1;max-width:420px">
+          <span class="count-note">30 recent candidates · older ones expired</span>
+        </div>
+
+        <article class="review-card">
+          <div class="review-card__meta">reddit.com · discovered 2h ago · screened: not about Crimson Desert · expires in 7d</div>
+          <h3>That was Baldur's Gate 3 for me : r/Steam</h3>
+          <p class="body">My recommendation is to just pick one of the companions and engage in their storyline. There's SO much to take in at once…</p>
+          <div class="decision-row">
+            <button class="c-secondary" type="button">Keep as relevant</button>
+            <button class="c-destructive" type="button">Reject and teach…</button>
+            <a class="c-quiet" href="#" style="margin-left:auto">Inspect source ↗</a>
+          </div>
+          <div class="decision-scopes">
+            <p class="scope-line"><b>Keep</b> runs a real rescue — it spends an LLM call and publishes a private lead. Undo later revokes the lesson but the rescued lead stays.</p>
+          </div>
+        </article>
+
+        <button class="c-quiet" type="button">Show 28 more optional candidates →</button>
+      </div>
+    </details>
+  </section>
+
+  <!-- 4 · RECORDS / HISTORY (collapsed at the top; the deep-history mockup opens them) -->
+  <section class="skeleton-section ledger" id="records" aria-label="Automatic scanner records">
+    <details>
+      <summary>
+        <span class="mono-label">Automatic records</span>
+        <span class="ledger-copy">What the scanner kept. Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.</span>
+        <span class="ledger-count">20 most recent of 57 tracked ›</span>
+      </summary>
+    </details>
+    <details id="lanes">
+      <summary>
+        <span class="mono-label">Context lanes</span>
+        <span class="ledger-copy">Wire and Asks on the Brief. Rejecting an item hides it immediately and records an undoable lesson.</span>
+        <span class="ledger-count">12 public items ›</span>
+      </summary>
+    </details>
+    <details id="lessons">
+      <summary>
+        <span class="mono-label">Active lessons</span>
+        <span class="ledger-copy">What the scanner will remember. Every lesson keeps its Undo; hiding an issue never poisons discovery.</span>
+        <span class="ledger-count">41 active ›</span>
+      </summary>
+    </details>
+    <details id="history">
+      <summary>
+        <span class="mono-label">Scan history &amp; diagnostics</span>
+        <span class="ledger-copy">Every run with its funnel, spend, skips, and errors.</span>
+        <span class="ledger-count ledger-count--amber">1 failed · 7d ›</span>
+      </summary>
+    </details>
+  </section>
+
+  <!-- 5 · ADVANCED -->
+  <section class="skeleton-section ledger" id="budget" aria-label="Cadence and budget">
+    <details>
+      <summary>
+        <span class="mono-label">Cadence &amp; budget</span>
+        <span class="ledger-copy">How often the scanner wakes, search depth, and the monthly credit and LLM caps. One form — settings save together.</span>
+        <span class="ledger-count">Hourly · $2.00 cap ›</span>
+      </summary>
+    </details>
+  </section>
+
+  </div>
+</div>
+</main>
+</body>
+</html>

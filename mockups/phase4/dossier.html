@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dossiers — Phase 4 mockup (output and history)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#">Report Review</a>
+    <a href="#">Scanner Monitor</a>
+    <a href="#" aria-current="page">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button class="util-btn" type="button">↓ Export CSV</button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<main class="page">
+
+  <!-- 1 · STATUS -->
+  <header class="pagehead">
+    <div>
+      <p class="kicker kicker--amber">Operator · Admin controls</p>
+      <h1>Compile Pearl Abyss dossier</h1>
+      <p class="dek">Bundle the current patch's evidence — counts, verdicts, approved excerpts, reviewed links — into a document you can hand to official support.</p>
+    </div>
+    <div class="pagehead__meta">Patch 1.15.00 · 1 approved report · 1 verified</div>
+  </header>
+
+  <!-- 2 · PRIMARY TASK -->
+  <section class="skeleton-section" aria-label="Compile" style="border-top:0;padding-top:0">
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <label style="display:flex;gap:8px;align-items:center;margin:0;font-size:14px;color:var(--dispatch-dim)">
+        <input type="checkbox" style="width:auto"> Draft with AI (free OpenRouter prose model)
+      </label>
+      <button class="c-primary" type="button">Compile now</button>
+      <span class="op-note">Aggregates are deterministic. AI only rewrites prose and falls back cleanly.</span>
+    </div>
+  </section>
+
+  <!-- 4 · RECORDS: current output -->
+  <section class="skeleton-section" aria-label="Dossier output">
+    <div class="section-head">
+      <div><p class="kicker">Generated Jul 24, 2026, 8:53 PM · Deterministic</p></div>
+      <p class="note">Older runs stay reachable below — bookmarked run links keep working.</p>
+    </div>
+    <div style="background:var(--dispatch-inset);border:1px solid var(--rule-soft);border-radius:var(--r-btn);padding:18px 20px;font-family:var(--font-mono);font-size:13px;color:var(--dispatch-ink-2);line-height:1.7;max-height:340px;overflow:auto">
+# Crimson Desert community report dossier — patch 1.15.00<br><br>
+Generated 2026-07-25 by the Crimson Desert Report Hub (unofficial community tracker).<br><br>
+## Executive summary<br><br>
+This dossier separates 0 automated community signals, 1 approved direct report, and 1 verified report for patch 1.15.00. The largest direct-report category is Performance with 1 report. Most affected platform: PC (Steam).<br><br>
+## Top issues<br><br>
+| Rank | Issue | Community signals | Direct reports | Verified | Fix status |<br>
+| 1 | FPS / performance regression since 1.13.00 | 0 | 1 | 1 | reported |
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;margin-top:12px">
+      <button class="c-secondary" type="button">Copy to clipboard</button>
+      <span class="op-note">Focus the box to select all — the fallback when the clipboard is unavailable.</span>
+    </div>
+  </section>
+
+  <!-- 4 · RECORDS: previous runs -->
+  <section class="skeleton-section" aria-label="Previous runs">
+    <div class="section-head">
+      <div><p class="kicker">Previous runs</p></div>
+      <p class="note">10 most recent shown · older runs stay reachable by their links</p>
+    </div>
+    <div class="line-item">
+      <div class="line-item__main"><a href="#">Jul 24, 2026, 8:53 PM</a></div>
+      <span class="count-note">Deterministic</span>
+    </div>
+    <div class="line-item">
+      <div class="line-item__main"><a href="#">Jul 20, 2026, 3:23 PM</a></div>
+      <span class="count-note">Deterministic</span>
+    </div>
+    <div class="line-item">
+      <div class="line-item__main"><a href="#">Jul 5, 2026, 7:22 PM</a></div>
+      <span class="count-note">Deterministic</span>
+    </div>
+  </section>
+
+  <!-- 5 · ADVANCED: none. This page deliberately has no break-glass band. -->
+
+</main>
+</body>
+</html>

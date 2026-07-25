@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report review — Phase 4 mockup (exception state)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#" aria-current="page">Report Review</a>
+    <a href="#">Scanner Monitor</a>
+    <a href="#">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button class="util-btn" type="button">↓ Export CSV</button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<main class="page">
+
+  <!-- 1 · STATUS AND REQUIRED WORK -->
+  <header class="pagehead">
+    <div>
+      <p class="kicker kicker--amber">Operator · Admin controls</p>
+      <h1>Report review</h1>
+      <p class="dek">Auto-sorted reports, flagged submissions, and the short list of exceptions that actually need you.</p>
+    </div>
+    <div class="pagehead__meta">Live queue · Refreshes on load</div>
+  </header>
+
+  <div class="stat-band" aria-label="Queue summary">
+    <div>
+      <div class="stat-label">Needs you</div>
+      <div class="stat-value stat-value--crimson">2</div>
+      <div class="stat-caption">1 flagged report · 1 unsure claim match</div>
+    </div>
+    <div>
+      <div class="stat-label">Auto-sorted</div>
+      <div class="stat-value">1</div>
+      <div class="stat-caption">Approved automatically</div>
+    </div>
+    <div>
+      <div class="stat-label">Flagged reports</div>
+      <div class="stat-value stat-value--amber">1</div>
+      <div class="stat-caption">Waiting for your call</div>
+    </div>
+    <div>
+      <div class="stat-label">Filtered as spam</div>
+      <div class="stat-value">0</div>
+      <div class="stat-caption">Blocked automatically</div>
+    </div>
+  </div>
+
+  <!-- 2 · PRIMARY TASK -->
+  <section class="skeleton-section" aria-label="Flagged for review">
+    <div class="section-head">
+      <div><p class="kicker">Flagged for review</p></div>
+      <p class="note">Oldest first · showing 1 of 1</p>
+    </div>
+
+    <article class="review-card">
+      <div class="review-card__meta">PS5 Pro · Performance · Major · Every session · patch 1.15.00 · 7/25/2026, 9:12 AM · flagged: possible duplicate wording</div>
+      <h3>Cross-save sync stalls at 99% after the 1.15.00 hotfix</h3>
+      <p class="body">Since the hotfix, uploading a save from the pause menu hangs at 99% for about two minutes, then reports success. Loading the same save on PC shows a three-day-old state. Wired connection, PS Plus active, no VPN.</p>
+      <p class="detail">Repro: pause menu → Cross-Save → upload → wait at 99% → check PC client.</p>
+      <p class="detail">Evidence: <a href="#" class="line-item__url">https://youtu.be/mock-cross-save-stall</a></p>
+
+      <div class="decision-row">
+        <label style="margin:0"><span class="count-note" style="display:block;margin-bottom:4px">Cluster</span>
+          <select><option>Cross-save sync failures</option><option>No cluster</option><option>FPS regression since 1.13</option></select>
+        </label>
+        <label style="flex:1;margin:0"><span class="count-note" style="display:block;margin-bottom:4px">Public excerpt · anonymized · max 500 chars</span>
+          <input type="text" value="Cross-save upload hangs at 99%, then PC loads a days-old save.">
+        </label>
+        <button class="c-primary" type="button">Approve</button>
+        <button class="c-destructive" type="button">Reject</button>
+        <button class="c-destructive" type="button">Spam</button>
+      </div>
+      <div class="decision-scopes">
+        <p class="scope-line"><b>Approve</b> publishes the excerpt and counts this report as evidence for the selected cluster.</p>
+        <p class="scope-line">All three decisions are final: the report leaves this queue and cannot be re-decided. Reject and Spam also write the cluster selection above.</p>
+      </div>
+      <p class="inline-error"><b>Excerpt not saved:</b> the public excerpt insert failed, so the report is still flagged. Your text and cluster choice are kept above — press Approve to retry.</p>
+    </article>
+  </section>
+
+  <!-- 4 · RECORDS / HISTORY (expanded) -->
+  <section class="skeleton-section ledger" aria-label="Exception ledgers">
+    <div class="section-head">
+      <div><p class="kicker">Records</p></div>
+    </div>
+
+    <details open>
+      <summary>
+        <span class="mono-label">Lifecycle exceptions</span>
+        <span class="ledger-copy">The system decides labels from counts. Only unsure claim matches and your own locks appear here.</span>
+        <span class="ledger-count ledger-count--amber">1 item ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div class="line-item" style="flex-wrap:wrap">
+          <div class="line-item__main">
+            <div class="line-item__title">Crashes and startup hangs</div>
+            <div class="line-item__sub">Locked by you. System would show: Fix claimed — unverified.</div>
+          </div>
+          <span class="count-note">Maintainer lock</span>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-basis:100%;margin-top:8px">
+            <select><option>Fix claimed — unverified</option><option>Open</option><option>Marked fixed by maintainer</option><option>Still happening</option></select>
+            <button class="c-secondary" type="button">Lock</button>
+            <button class="c-undo" type="button">Clear lock</button>
+          </div>
+          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear — the lifecycle engine will not touch its status while locked.</p>
+        </div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>
+        <span class="mono-label">Visibility overrides</span>
+        <span class="ledger-copy">Only active break-glass changes appear here, each with its reason and a one-click return to engine control.</span>
+        <span class="ledger-count ledger-count--amber">2 active ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div class="line-item">
+          <div class="line-item__main">
+            <div class="line-item__title">Cross Save crashes when loading save from main menu, requires PS Plus?</div>
+            <div class="line-item__sub"><span class="rule-tag" style="color:var(--amber)">FORCED PUBLIC · LIVE</span> · Held public while duplicate reports are merged · changed 7/23/2026</div>
+          </div>
+          <button class="c-undo" type="button">Reset to automatic</button>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <div class="line-item__title">Since the 1.14.00 patch, constant graphics glitches on Xbox</div>
+            <div class="line-item__sub"><span class="rule-tag" style="color:var(--amber)">FORCED HIDDEN · HIDDEN</span> · Existing override created before reason tracking · changed 7/23/2026</div>
+          </div>
+          <button class="c-undo" type="button">Reset to automatic</button>
+        </div>
+
+        <div class="breakglass">
+          <p class="breakglass__label">Break-glass · Create a new override</p>
+          <p class="op-note" style="margin:8px 0 10px">Search engine-owned issues by title. Forcing visibility changes the public Issue Board immediately.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <input type="search" placeholder="Issue title (2+ characters)" style="min-width:240px">
+            <select><option>Force hidden</option><option>Force public</option></select>
+            <input type="text" placeholder="Why are you overriding the engine?" style="flex:1;min-width:220px">
+          </div>
+          <label style="display:flex;gap:8px;align-items:flex-start;margin:10px 0;color:var(--dispatch-dim);font-size:13px">
+            <input type="checkbox" style="width:auto;margin-top:3px">
+            I understand this immediately changes the public Issue Board and stays in force until I reset it.
+          </label>
+          <button class="c-breakglass" type="button">Apply break-glass override</button>
+        </div>
+      </div>
+    </details>
+  </section>
+
+</main>
+</body>
+</html>

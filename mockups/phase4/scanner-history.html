@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanner monitor — Phase 4 mockup (deep history)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#">Report Review</a>
+    <a href="#" aria-current="page">Scanner Monitor</a>
+    <a href="#">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button class="util-btn" type="button">↓ Export CSV</button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<main class="page">
+<div class="scanner-grid">
+
+  <nav class="section-nav" aria-label="Sections on this page">
+    <a href="#status">Status</a>
+    <a href="#teach">Teach<span class="section-nav__count">30</span></a>
+    <a href="#records">Records<span class="section-nav__count">57</span></a>
+    <a href="#lanes">Context lanes</a>
+    <a href="#lessons" aria-current="true">Lessons<span class="section-nav__count">41</span></a>
+    <a href="#history">Scan history</a>
+    <a href="#budget">Cadence &amp; budget</a>
+  </nav>
+
+  <div>
+
+  <!-- Deep in the page: the section nav is what keeps this reachable without scrolling the whole desk. -->
+
+  <section class="skeleton-section ledger" id="lessons" aria-label="Active scanner feedback rules" style="border-top:0;padding-top:0">
+    <details open>
+      <summary>
+        <span class="mono-label">Active lessons</span>
+        <span class="ledger-copy">What the scanner will remember. Visibility and learning stay separate: hiding an issue never poisons discovery — only an explicit decision creates a rule.</span>
+        <span class="ledger-count">Showing 4 of 41 ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+          <input type="search" placeholder="Filter by URL, domain, or reason" style="flex:1;max-width:420px">
+          <select><option>All rules</option><option>KEEP only</option><option>BLOCK only</option></select>
+        </div>
+
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--keep">KEEP</span> <span class="count-note">exact url · 1d ago</span>
+            <div class="line-item__url">reddit.com/r/CrimsonDesert/comments/1uyd185/patch_1150_new_game_hopefully</div>
+            <div class="line-item__sub">Operator inspected this page and confirmed it is a relevant Crimson Desert issue lead.</div>
+          </div>
+          <button class="c-undo c-undo--partial" type="button">Undo</button>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--block">BLOCK OFF-TOPIC</span> <span class="count-note">source domain · 1d ago</span>
+            <div class="line-item__url">thecrimson.com</div>
+            <div class="line-item__sub">Reviewed source: not about Crimson Desert.</div>
+          </div>
+          <button class="c-undo" type="button">Undo</button>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--block">BLOCK WRONG PATCH</span> <span class="count-note">exact url · 20h ago</span>
+            <div class="line-item__url">reddit.com/r/CrimsonDesert/comments/1s18051/blinding_flash_is_no_longer_showing_me_points_of</div>
+            <div class="line-item__sub">4 months ago.</div>
+          </div>
+          <button class="c-undo" type="button">Undo</button>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--block">BLOCK DUPLICATE</span> <span class="count-note">exact url · 2h ago</span>
+            <div class="line-item__url">steamcommunity.com/app/3321460?curator_clanid=4777282&amp;l=german</div>
+            <div class="line-item__sub">Reviewed source: not a bug report.</div>
+          </div>
+          <button class="c-undo" type="button">Undo</button>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+          <button class="c-quiet" type="button">Show 37 more lessons →</button>
+          <span class="count-note">A KEEP undo revokes the rule only — the rescued lead stays</span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section class="skeleton-section ledger" id="history" aria-label="Scan history and diagnostics">
+    <details open>
+      <summary>
+        <span class="mono-label">Scan history &amp; diagnostics</span>
+        <span class="ledger-copy">Every run with its funnel, spend, skips, and errors. The one failure that needs you is first.</span>
+        <span class="ledger-count ledger-count--amber">Showing 3 of 184 · 7d ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--block">FAILED</span> <span class="count-note">scheduled · Jul 24, 3:00 AM</span>
+            <div class="line-item__sub">Provider timeout after 2 search queries · 2 credits spent · 0 kept · error: tavily_timeout</div>
+          </div>
+          <a class="c-quiet" href="#">Details</a>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag" style="color:var(--green)">OK</span> <span class="count-note">scheduled · Jul 25, 2:00 PM</span>
+            <div class="line-item__sub">Found 5, kept 0 · 5 not issue reports · 1 credit · 6 LLM calls · $0.01</div>
+          </div>
+          <a class="c-quiet" href="#">Details</a>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag" style="color:var(--green)">OK</span> <span class="count-note">manual rescue · Jul 25, 1:04 PM</span>
+            <div class="line-item__sub">1 candidate rescued · 0 credits · 1 LLM call · $0.00</div>
+          </div>
+          <a class="c-quiet" href="#">Details</a>
+        </div>
+        <button class="c-quiet" type="button">Browse all 184 runs →</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="skeleton-section ledger" id="budget" aria-label="Cadence and budget">
+    <details open>
+      <summary>
+        <span class="mono-label">Cadence &amp; budget · Advanced</span>
+        <span class="ledger-copy">One form on purpose: these settings describe one policy and save together.</span>
+        <span class="ledger-count">Hourly · $2.00 cap ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;max-width:820px">
+          <label>How often
+            <select style="width:100%"><option>Hourly</option><option>Every 2 hours</option><option>Paused</option></select>
+          </label>
+          <label>Search depth per run
+            <select style="width:100%"><option>3 credits</option><option>5 credits</option></select>
+          </label>
+          <label>Monthly search cap
+            <input type="text" value="1000" style="width:100%">
+          </label>
+          <label>Monthly LLM cap ($)
+            <input type="text" value="2" style="width:100%">
+          </label>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:14px">
+          <button class="c-secondary" type="button">Save settings</button>
+          <span class="op-note">Saving writes the whole policy at once. Pausing keeps your chosen cadence for when you resume.</span>
+        </div>
+        <p class="scope-line" style="margin-top:10px">The LLM cap governs scheduled and manual scans. Candidate rescues are capped separately by the server-side monthly budget.</p>
+      </div>
+    </details>
+  </section>
+
+  </div>
+</div>
+</main>
+</body>
+</html>
