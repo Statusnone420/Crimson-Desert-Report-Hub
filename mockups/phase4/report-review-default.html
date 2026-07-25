@@ -24,10 +24,17 @@
   </div>
   <div class="shell-utilities">
     <span class="shell-utilities__label">Utilities</span>
-    <button class="util-btn" type="button">↓ Export CSV<span class="sr-only"> — downloads the full private report table</span></button>
+    <button class="util-btn" type="button">↓ Export CSV…<span class="sr-only"> — downloads the full private report table</span></button>
     <button class="util-btn" type="button">Sign out</button>
   </div>
 </nav>
+
+<!-- The confirm step Export CSV… opens. Shown inline in this state. -->
+<div class="confirm-strip" role="alertdialog" aria-label="Confirm export">
+  <span><b>Export the complete private report table?</b> Descriptions, repro steps, hardware specs, and IDs — everything reports contain, including what never becomes public.</span>
+  <button class="c-secondary" type="button">Download CSV</button>
+  <button class="c-quiet" type="button">Cancel</button>
+</div>
 
 <main class="page">
 

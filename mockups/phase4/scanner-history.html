@@ -24,7 +24,7 @@
   </div>
   <div class="shell-utilities">
     <span class="shell-utilities__label">Utilities</span>
-    <button class="util-btn" type="button">↓ Export CSV</button>
+    <button class="util-btn" type="button">↓ Export CSV…</button>
     <button class="util-btn" type="button">Sign out</button>
   </div>
 </nav>
@@ -65,7 +65,10 @@
             <div class="line-item__url">reddit.com/r/CrimsonDesert/comments/1uyd185/patch_1150_new_game_hopefully</div>
             <div class="line-item__sub">Operator inspected this page and confirmed it is a relevant Crimson Desert issue lead.</div>
           </div>
-          <button class="c-undo c-undo--partial" type="button">Undo</button>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+            <button class="c-undo c-undo--partial" type="button">Forget lesson</button>
+            <span class="stays-note">Rescued lead stays</span>
+          </div>
         </div>
         <div class="line-item">
           <div class="line-item__main">
@@ -92,9 +95,9 @@
           <button class="c-undo" type="button">Undo</button>
         </div>
 
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:14px">
           <button class="c-quiet" type="button">Show 37 more lessons →</button>
-          <span class="count-note">A KEEP undo revokes the rule only — the rescued lead stays</span>
+          <span class="count-note">Forgetting a KEEP lesson never restores the candidate, deletes the rescued lead, or refunds spend — BLOCK undos are full reversals</span>
         </div>
       </div>
     </details>

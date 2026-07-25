@@ -93,6 +93,11 @@ input, select, textarea {
   padding: 5px 10px;
 }
 .util-btn:hover { color: var(--dispatch-ink); border-color: var(--rule-strong); }
+.confirm-strip {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  border: 1px solid var(--rule); border-radius: var(--r-btn); background: var(--dispatch-raised);
+  margin: 14px 28px 0; padding: 10px 14px; font-size: 13px; color: var(--dispatch-ink-2);
+}
 
 .page { max-width: 1180px; margin: 0 auto; padding: 30px 28px 80px; }
 
@@ -156,8 +161,10 @@ input, select, textarea {
 .scope-line { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--dispatch-faint); }
 .scope-line::before { content: "▸"; color: var(--crimson); font-size: 10px; }
 
-/* 5 · Recovery/Undo: distinct by glyph and mono label, never color alone.
-      Sits adjacent to what it reverses. */
+/* 5 · Recovery: distinct by glyph and mono label, never color alone.
+      Sits adjacent to what it reverses. The ↩ glyph and the word "Undo" are
+      reserved for FULL reversal; a partial reversal names what it actually
+      does ("Forget lesson") and states what stays, right next to it. */
 .c-undo {
   background: none; border: 1px solid var(--rule); border-radius: var(--r-btn);
   color: var(--dispatch-ink-2); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em;
@@ -165,7 +172,8 @@ input, select, textarea {
 }
 .c-undo::before { content: "↩ "; }
 .c-undo:hover { border-color: var(--rule-strong); }
-.c-undo--partial::after { content: " · rule only"; color: var(--dispatch-quiet); }
+.c-undo--partial::before { content: ""; }
+.stays-note { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--dispatch-quiet); text-transform: uppercase; }
 
 /* 6 · Break-glass: lives only inside this panel. Amber edge, mono warrant,
       deliberate friction (reason + acknowledgement) stays. */
@@ -231,7 +239,7 @@ input, select, textarea {
 .line-item__title { color: var(--dispatch-ink-2); }
 .line-item__sub { font-size: 12.5px; color: var(--dispatch-faint); }
 .line-item__url { font-family: var(--font-mono); font-size: 12.5px; color: var(--dispatch-ink-2); word-break: break-all; }
-.rule-tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; }
+.rule-tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; margin-right: 8px; }
 .rule-tag--block { color: var(--crimson); }
 .rule-tag--keep { color: var(--green); }
 

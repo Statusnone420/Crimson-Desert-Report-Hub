@@ -56,8 +56,24 @@ Seven classes; same intent uses the same class and wording on every page.
 Required on every mutation: disabled/pending state (existing pendingText pattern),
 inline errors that name the problem and recovery and preserve entered data,
 explicit success confirmation, and risk never carried by color alone (every color
-is paired with a text badge or glyph). Partial reversibility is stated on the
-control: a KEEP undo reads `Undo · rule only`.
+is paired with a text badge or glyph).
+
+**Reversal language (owner-locked 2026-07-25).** The `↩` glyph and the word
+"Undo" are reserved for full reversal. A partial reversal names what it actually
+does — a KEEP lesson's control reads **Forget lesson** with **rescued lead
+stays** adjacent (accessible text, not a tooltip) — and its consequence copy
+states all three limits: forgetting never restores the candidate, never deletes
+the rescued lead, never refunds spend. Cost language is likewise fixed: both
+scan runs "spend real search credits and LLM calls — a test run only suppresses
+public changes. Neither run is reversible"; Keep as relevant "spends an LLM
+call, creates a private lead, and records a scanner lesson" (always "creates",
+never "publishes" — the lead is private). The same consequence, pending,
+success, failure, disabled, and reversal wording applies to equivalent controls
+on every page.
+
+**Export CSV (owner-locked).** The utility control reads `Export CSV…` and opens
+a confirm step that names the payload — the complete private report table,
+including everything that never becomes public — before downloading.
 
 ## Parity dispositions
 
@@ -79,19 +95,23 @@ acknowledgement (risks #15/#16).
 OperatorShell page, capability unchanged). COMPILE DOSSIER label → Dossiers.
 Scanner sections → one page + local section nav (no route changes).
 
-**Retire as verified dead — pending owner approval:** `/admin/source-monitor`
+**Retire as verified dead — owner-approved 2026-07-25, delete during Phase 4
+implementation:** `/admin/source-monitor`
 stub and the six `revalidatePath("/admin/source-monitor")` calls (risk #20,
 gap #13); `runRedditMonitor` (risk #23); `RejectedArchive` + the
 `rescueRejectedCandidate` compat action (risk #21; its unit and auth tests
 retire with it); `setAutomationPaused` (risk #22, unwired duplicate); the hidden
 `modelPreset` input and unreachable `paused` form branch (risk #26).
 
+**In scope — owner-approved 2026-07-25:** return-to after re-auth (gap #3).
+`requireAdmin` redirects carry the original destination and every sign-in
+surface honors it, so a session expiry on any operator page returns there.
+
 **Defer with named reason:** self-expiring rules via `expires_at` (risk #25 — a
-real feature, not a redesign); return-to after re-auth (gap #3 — login-flow
-contract change, unresolved decision 3); admin error-boundary chrome (gap #1 —
-failure surface must not change silently in a UI pass); rescue-vs-scan budget
-split (gap #10 — server contract; the mockup copy states the split honestly
-instead); robots `index,follow` on admin routes (gap #14 — separate hardening PR).
+real feature, not a redesign); admin error-boundary chrome (gap #1 — failure
+surface must not change silently in a UI pass); rescue-vs-scan budget split
+(gap #10 — server contract; the mockup copy states the split honestly instead);
+robots `index,follow` on admin routes (gap #14 — separate hardening PR).
 
 **If better UX would need a server or database contract change, stop and flag it.**
 
