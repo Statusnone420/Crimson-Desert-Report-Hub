@@ -39,7 +39,7 @@
     <a href="scanner-top.html#status">Status</a>
     <a href="#teach">Teach<span class="section-nav__count">30</span></a>
     <a href="scanner-top.html#records">Records<span class="section-nav__count">57</span></a>
-    <a href="scanner-top.html#lanes">Context lanes</a>
+    <a href="#lanes">Context lanes<span class="section-nav__count">12</span></a>
     <a href="#lessons" aria-current="true">Lessons<span class="section-nav__count">41</span></a>
     <a href="#history">Scan history</a>
     <a href="#budget">Cadence &amp; budget</a>
@@ -99,6 +99,7 @@
                   <input type="checkbox" name="confirm_broad" value="true" disabled>
                   I understand this broader rule can affect future scanner results.
                 </label>
+                <p class="scope-line"><b>Record decision</b> keeps this candidate private and records the selected blocking rule. Undo revokes the rule and returns an unrescued candidate to this desk only while it has not expired.</p>
                 <button class="c-destructive" type="submit">Record decision</button>
               </form>
             </details>
@@ -117,6 +118,30 @@
         </article>
 
         <button class="c-quiet" type="button">Show 28 more optional candidates →</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="skeleton-section ledger" id="lanes" aria-label="Public context lanes">
+    <details open>
+      <summary>
+        <span class="mono-label">Context lanes</span>
+        <span class="ledger-copy">The 40 most recent current-patch Wire and Asks items. A hidden card keeps its observation-level recovery beside the item; Active lessons keeps the rule-level recovery.</span>
+        <span class="ledger-count">1 hidden · 40-row window ›</span>
+      </summary>
+      <div class="ledger-body">
+        <article class="review-card">
+          <div class="review-card__meta">Hidden · Wire lane · Press · no source date — never shown publicly · seen 2×</div>
+          <h3>Crimson Tide announces preseason roster</h3>
+          <p class="body">Unrelated college football coverage matched the game title and was removed from the public lane.</p>
+          <p class="detail">thecrimson.com · <a href="#" class="line-item__url">Open source ↗</a></p>
+          <form>
+            <input type="hidden" name="decision_id" value="mock-decision-off-topic">
+            <p class="scope-line">Hidden by a recorded decision. Undo restores the item and revokes its rule.</p>
+            <button class="c-undo" type="submit">Undo — restore item and revoke rule</button>
+          </form>
+        </article>
+        <p class="count-note">Items outside this current-patch 40-row card window are not browseable here. Any still-active decision remains recoverable from Active lessons below.</p>
       </div>
     </details>
   </section>

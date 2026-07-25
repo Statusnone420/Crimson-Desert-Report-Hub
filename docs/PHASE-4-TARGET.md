@@ -25,21 +25,31 @@ route does not). Every page uses the same skeleton:
 1. Status and required work — stat band + the page's only required items, visible.
 2. Primary task — flagged queue / action inbox / compile form.
 3. Optional work — teaching desk etc., collapsed by default.
-4. Records and history — collapsed ledgers with `showing X of Y` counts.
+4. Records and history — collapsed ledgers with honest window labels; use
+   `showing X of Y` only when the live read supplies a true total.
 5. Advanced / break-glass — last band, amber-edged panels, friction intact.
 
 Scanner Monitor adds a **persistent local section nav** (sticky rail on desktop,
 sticky chip row on mobile): Status · Teach · Records · Context lanes · Lessons ·
-Scan history · Cadence & budget, each with its live count.
+Scan history · Cadence & budget, each with its live count or named query window.
 
 **Navigation vs utilities:** the top bar's left register holds the three page
 destinations only. Export CSV and Sign out move to a visually distinct utility
 cluster on the right — both capabilities preserved on every OperatorShell page.
 
-**No endless lists.** Every list states its window against the true total
-(flagged: `oldest first · showing N of M`; leads: `20 most recent of 57 tracked`;
-lessons/history: `showing N of M` + filter + browse-more). Windows the queries
-impose are stated, never implied away.
+**No endless lists.** Every list states its window against the true total when
+the live read supplies one (flagged: `oldest first · showing N of M`; leads:
+`20 most recent of 57 tracked`; lessons/history: `showing N of M` + filter +
+browse-more). When production exposes only a hard window, the console names
+that window without inventing a total or a browse control.
+
+**Dossier truthfulness.** The current compiler aggregates approved reports,
+public scanner signals, issue clusters, and up to 1,000 approved excerpts across
+storage; `currentPatch.version` labels the output but does not filter those
+rows. Phase 4 must call this a tracker-wide snapshot with current-patch context,
+never patch-scoped evidence. Dossier history remains the newest 10 runs.
+A saved `?run=<id>` URL still opens directly, but older runs are not
+discoverable from the page.
 
 ## Control grammar
 
@@ -99,7 +109,10 @@ scanner policy stays ONE form, visually sectioned (risks #4/#5); the lifecycle
 select still omits `acknowledged` (risk #9); Keep-as-relevant stays outside the
 feedback-learning gate (risk #11); the Steam-review teaching refusal keeps its
 explanatory sentence (risk #31); both Undo surfaces for observation decisions
-remain (risk #29); both teaching forms remain distinct (risk #28); the
+remain for observations inside the current-patch 40-row desk, while Active
+lessons remains the recovery path for active decisions outside that window or
+after a patch change (risks #17/#29); both teaching forms remain distinct (risk
+#28); the
 visibility-override browser keeps its search gate, result cap, reason, and
 acknowledgement (risks #15/#16).
 
@@ -123,7 +136,12 @@ surface honors it, so a session expiry on any operator page returns there.
 real feature, not a redesign); admin error-boundary chrome (gap #1 — failure
 surface must not change silently in a UI pass); rescue-vs-scan budget split
 (gap #10 — server contract; the mockup copy states the split honestly instead);
-robots `index,follow` on admin routes (gap #14 — separate hardening PR).
+robots `index,follow` on admin routes (gap #14 — separate hardening PR); true
+dossier patch scoping and stored run scope (the current schema has no patch
+scope for dossier runs); dossier history totals and browsing beyond the newest
+10 (server read contract); context-lane browsing beyond the 40 most recent
+current-patch observations (server read contract; Active lessons preserves an
+Undo for every still-active decision).
 
 **If better UX would need a server or database contract change, stop and flag it.**
 
@@ -135,5 +153,6 @@ without full-page scrolling; equivalent controls identical across pages;
 different-risk controls visibly distinct without relying on color; explicit
 keyboard order, visible focus, labels, disclosure state, and live status
 feedback; desktop primary, every control operable at 390px; every active
-Undo/Reset path reachable; public and operator scanner data boundaries never
+decision has at least one reachable Undo/Reset path, with all currently rendered
+recovery surfaces preserved; public and operator scanner data boundaries never
 merged; all parity dispositions honored against the inventory IDs.

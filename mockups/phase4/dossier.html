@@ -36,9 +36,9 @@
     <div>
       <p class="kicker kicker--amber">Operator · Admin controls</p>
       <h1>Compile Pearl Abyss dossier</h1>
-      <p class="dek">Bundle the current patch's evidence — counts, verdicts, approved excerpts, reviewed links — into a document you can hand to official support.</p>
+      <p class="dek">Bundle the tracker's current evidence snapshot — counts, verdicts, approved excerpts, reviewed links — into a document you can hand to official support. The current patch is report context, not an evidence filter.</p>
     </div>
-    <div class="pagehead__meta">Patch 1.15.00</div>
+    <div class="pagehead__meta">Current patch context · 1.15.00</div>
   </header>
 
   <div class="stat-band" aria-label="Dossier status">
@@ -50,17 +50,17 @@
     <div>
       <div class="stat-label">Approved evidence</div>
       <div class="stat-value">1</div>
-      <div class="stat-caption">Direct reports in this patch</div>
+      <div class="stat-caption">All approved direct reports in storage</div>
     </div>
     <div>
       <div class="stat-label">Verified</div>
       <div class="stat-value">1</div>
-      <div class="stat-caption">Reports with a public excerpt</div>
+      <div class="stat-caption">All reports with an approved public excerpt</div>
     </div>
     <div>
-      <div class="stat-label">Previous runs</div>
+      <div class="stat-label">Recent runs</div>
       <div class="stat-value">3</div>
-      <div class="stat-caption">Latest Jul 24, 8:53 PM</div>
+      <div class="stat-caption">Shown from the newest-10 window</div>
     </div>
   </div>
 
@@ -75,22 +75,22 @@
       <!-- Without an AI key, production disables the checkbox and changes its
            label to "Draft with AI: disabled, no AI key configured". -->
     </form>
-    <p class="scope-line" style="margin-top:10px"><b>Compile</b> appends a new run to the history below — every click writes one more entry, and runs are never deleted.</p>
+    <p class="scope-line" style="margin-top:10px"><b>Compile</b> reads all approved reports, all public scanner signals, all issue clusters, and up to the 1,000 newest approved excerpts in storage. Patch 1.15.00 supplies context in the generated heading; it does not filter those rows. Every click appends one run, and runs are never deleted.</p>
   </section>
 
   <!-- 4 · RECORDS: current output -->
   <section class="skeleton-section" aria-label="Dossier output">
     <div class="section-head">
       <div><p class="kicker">Generated Jul 24, 2026, 8:53 PM · Deterministic</p></div>
-      <p class="note">Older runs stay reachable below — bookmarked run links keep working.</p>
+      <p class="note">This page lists the newest 10 runs. A saved run URL still opens directly; older runs are not discoverable here.</p>
     </div>
-    <textarea readonly rows="12" spellcheck="false" aria-label="Generated dossier markdown" onfocus="this.select()" style="display:block;width:100%;background:var(--dispatch-inset);border:1px solid var(--rule-soft);border-radius:var(--r-btn);padding:18px 20px;font-family:var(--font-mono);font-size:13px;color:var(--dispatch-ink-2);line-height:1.7;resize:vertical"># Crimson Desert community report dossier — patch 1.15.00
+    <textarea readonly rows="12" spellcheck="false" aria-label="Generated dossier markdown" onfocus="this.select()" style="display:block;width:100%;background:var(--dispatch-inset);border:1px solid var(--rule-soft);border-radius:var(--r-btn);padding:18px 20px;font-family:var(--font-mono);font-size:13px;color:var(--dispatch-ink-2);line-height:1.7;resize:vertical"># Crimson Desert community report dossier — current patch context 1.15.00
 
 Generated 2026-07-25 by the Crimson Desert Report Hub (unofficial community tracker).
 
 ## Executive summary
 
-This dossier separates 0 automated community signals, 1 approved direct report, and 1 verified report for patch 1.15.00. The largest direct-report category is Performance with 1 report. Most affected platform: PC (Steam).
+This tracker-wide snapshot separates 0 automated community signals, 1 approved direct report, and 1 verified report. Current patch 1.15.00 supplies report context; it does not filter the stored evidence. The largest direct-report category is Performance with 1 report. Most affected platform: PC (Steam).
 
 ## Top issues
 
@@ -102,13 +102,13 @@ This dossier separates 0 automated community signals, 1 approved direct report, 
     </div>
   </section>
 
-  <!-- 4 · RECORDS: previous runs, collapsed like every history band -->
-  <section class="skeleton-section ledger" aria-label="Previous runs">
+  <!-- 4 · RECORDS: recent runs, collapsed like every history band -->
+  <section class="skeleton-section ledger" aria-label="Recent runs">
     <details>
       <summary>
-        <span class="mono-label">Previous runs</span>
-        <span class="ledger-copy">Every past dossier by its timestamp. The list windows at the 10 most recent; older runs stay reachable by their links.</span>
-        <span class="ledger-count">Showing 3 of 3 ›</span>
+        <span class="mono-label">Recent runs</span>
+        <span class="ledger-copy">Newest 10 only. Saved <code>?run=</code> URLs open directly, but older runs are not browseable from this page.</span>
+        <span class="ledger-count">Showing 3 recent runs ›</span>
       </summary>
       <div class="ledger-body">
         <div class="line-item">

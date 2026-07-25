@@ -91,14 +91,14 @@
         <button class="c-destructive" type="submit" name="decision" value="spam">Spam</button>
       </form>
       <div class="decision-scopes">
-        <p class="scope-line"><b>Approve</b> publishes the excerpt and counts this report as evidence for the selected cluster.</p>
+        <p class="scope-line"><b>Approve</b> marks the report approved. With a selected cluster, it counts as evidence and normally makes that cluster public on the Issue Board immediately; an active Force hidden override still wins. A non-empty anonymized excerpt is inserted separately afterward.</p>
         <p class="scope-line">All three decisions are final: the report leaves this queue and cannot be re-decided. Reject and Spam also write the cluster selection above.</p>
       </div>
       <!-- The write order is preserved from production: the approval commits
            before the excerpt insert, so an excerpt failure leaves the report
            approved and gone from this queue. The error tells that truth
            instead of promising a retry that does not exist. -->
-      <p class="inline-error"><b>Excerpt not saved:</b> the report was approved and has left this queue, but its public excerpt failed to persist — and approval decisions can't be re-opened. The approval stands without a public excerpt; copy your text now if you want to keep it.</p>
+      <p class="inline-error"><b>Excerpt not saved:</b> the report was approved and has left this queue. Its selected-cluster evidence update stands, and that cluster is public unless an active Force hidden override wins, but the public excerpt failed to persist. Approval decisions can't be re-opened; copy your text now if you want to keep it.</p>
     </article>
   </section>
 

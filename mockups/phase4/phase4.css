@@ -287,6 +287,7 @@ input, select, textarea {
   }
   .section-nav a { border-left: 0; border-bottom: 2px solid transparent; padding: 4px 2px; white-space: nowrap; }
   .section-nav a[aria-current="true"] { border-bottom-color: var(--crimson); }
+  .scanner-grid section[id] { scroll-margin-top: 56px; }
   .decision-row { align-items: stretch; flex-direction: column; }
   .decision-row select, .decision-row input[type="text"] { width: 100%; }
   .ledger summary { grid-template-columns: 1fr auto; }
