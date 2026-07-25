@@ -134,6 +134,7 @@ export default async function DispatchHomePage() {
       : null,
     claimedFixCount: d.claimedFixes.length,
     contestedClaimCount: contestedClusters.length,
+    evidenceUnavailable: d.evidenceUnavailable,
     series,
     radar: radarData.connected
       ? {
@@ -152,19 +153,38 @@ export default async function DispatchHomePage() {
   const boardClusters = d.topClusters.filter(needsFullIssueCard);
   const top3 = boardClusters.slice(0, 3);
   const [leadStory, ...secondaryStories] = top3;
-  const topWatch = leadStory ?? d.topClusters[0] ?? null;
+  const leadDataUnavailable = d.sourceLeadsUnavailable && !d.evidenceUnavailable;
+  const publicLeadDataUnavailable = d.publicLeadsUnavailable && !d.evidenceUnavailable;
+  const topWatch =
+    boardClusters.find((cluster) => cluster.readout.state !== "public_sources_unavailable") ??
+    (leadDataUnavailable ? null : d.topClusters[0] ?? null);
   const contestedSubject = mostContested?.title.replace(
     /\s+(?:persists|continues)(?:\s+after\s+(?:the\s+)?fix)?$/i,
     "",
   );
   const heroHeadline = mostContested
     ? `${contestedSubject} remains contested in ${patch.version}.`
+    : publicLeadDataUnavailable
+      ? `Patch ${patch.version} is live. Source-backed issue status is temporarily incomplete.`
     : topWatch
       ? `${topWatch.title} leads the ${patch.version} watchlist.`
       : `Patch ${patch.version} is live. Here’s what changed and what to watch.`;
-  const heroDek = topWatch
-    ? `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
-    : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}. No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
+  const claimRegisterSentence = d.claimsUnavailable
+    ? "The official claimed-fix register is unavailable right now."
+    : `Pearl Abyss lists ${d.claimedFixes.length} claimed ${d.claimedFixes.length === 1 ? "fix" : "fixes"}.`;
+  const officialClaimsLabel = d.claimsUnavailable
+    ? "official claims unavailable"
+    : `${d.claimedFixes.length} official claims`;
+  const claimsLabel = d.claimsUnavailable ? "claims unavailable" : `${d.claimedFixes.length} claims`;
+  const heroDek = d.evidenceUnavailable
+    ? `The board can't read its evidence store right now. Patch facts stay current; report and issue counts are missing, not zero.`
+    : publicLeadDataUnavailable
+      ? `The board can read player reports and taps, but not its public-source lead register right now. Lead-backed issue counts and rankings are missing, not zero.`
+    : leadDataUnavailable
+      ? `Player evidence and published source-backed issues are readable, but some radar-lead details are unavailable right now. Missing lead data is not zero.`
+    : topWatch
+      ? `${claimRegisterSentence} The board is watching ${boardClusters.length} published ${boardClusters.length === 1 ? "issue" : "issues"}, while the radar tracks ${radarData.recurring.trackedLeads} sourced ${radarData.recurring.trackedLeads === 1 ? "lead" : "leads"} without treating them as player evidence.`
+      : `${claimRegisterSentence} No player-backed issue is published yet; the radar is still screening public sources for changes worth checking.`;
   const showContextBand = Boolean(
     radar.steamPulse.length > 0 || radar.platformContext || radar.pulseReadFailures.length > 0,
   );
@@ -334,20 +354,26 @@ export default async function DispatchHomePage() {
               </div>
               <div className="record-block__row">
                 <span>Claimed fixes</span>
-                <span className="record-block__value">{d.claimedFixes.length}</span>
+                <span className="record-block__value">
+                  {d.claimsUnavailable ? "unreadable" : d.claimedFixes.length}
+                </span>
               </div>
               <div className="record-block__row">
                 <span>Player verdict</span>
                 <span
                   className={
-                    contestedClusters.length > 0
+                    !d.evidenceUnavailable && contestedClusters.length > 0
                       ? "record-block__value record-block__value--amber"
                       : "record-block__value"
                   }
                 >
-                  {d.claimedFixes.length === 0
-                    ? "no claims"
-                    : `${contestedClusters.length} of ${d.claimedFixes.length} contested`}
+                  {d.claimsUnavailable
+                    ? "unreadable right now"
+                    : d.claimedFixes.length === 0
+                      ? "no claims"
+                      : d.evidenceUnavailable
+                        ? "unreadable right now"
+                        : `${contestedClusters.length} of ${d.claimedFixes.length} contested`}
                 </span>
               </div>
               <div className="record-block__row">
@@ -368,12 +394,23 @@ export default async function DispatchHomePage() {
           <div className="brief-lead__actions" aria-label="Start with the current patch">
             <a className="brief-lead__action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">
               <span>What changed</span>
-              <strong>{d.claimedFixes.length} official fix {d.claimedFixes.length === 1 ? "claim" : "claims"}</strong>
+              <strong>
+                {d.claimsUnavailable
+                  ? "Official patch notes"
+                  : `${d.claimedFixes.length} official fix ${d.claimedFixes.length === 1 ? "claim" : "claims"}`}
+              </strong>
               <i aria-hidden="true">↗</i>
             </a>
             <Link className="brief-lead__action" href="/issues">
               <span>What appears broken</span>
-              <strong>{topWatch?.title ?? "No published player issue yet"}</strong>
+              <strong>
+                {topWatch?.title ??
+                  (d.evidenceUnavailable
+                    ? "Issue board unreadable right now"
+                    : publicLeadDataUnavailable
+                      ? "Source-backed issue list incomplete right now"
+                      : "No published player issue yet")}
+              </strong>
               <i aria-hidden="true">→</i>
             </Link>
             <Link className="brief-lead__action" href="/report">
@@ -383,8 +420,22 @@ export default async function DispatchHomePage() {
             </Link>
           </div>
           <ul className="brief-lead__meta dispatch-desktop-only" aria-label="Current evidence counts">
-            <li>{d.claimedFixes.length} official claims</li>
-            <li>{boardClusters.length} published issues</li>
+            {d.evidenceUnavailable ? (
+              <>
+                <li>{officialClaimsLabel}</li>
+                <li>evidence counts unavailable</li>
+              </>
+            ) : publicLeadDataUnavailable ? (
+              <>
+                <li>{officialClaimsLabel}</li>
+                <li>source-backed issue count unavailable</li>
+              </>
+            ) : (
+              <>
+                <li>{officialClaimsLabel}</li>
+                <li>{boardClusters.length} published issues</li>
+              </>
+            )}
             <li>{radarData.recurring.trackedLeads} tracked radar leads</li>
             <li>
               {radarData.connected && radarData.health.lastScanAt
@@ -395,8 +446,22 @@ export default async function DispatchHomePage() {
             </li>
           </ul>
           <div className="brief-fact-strip dispatch-mobile-only">
-            <span>{d.claimedFixes.length} claims</span>
-            <span>{boardClusters.length} issues</span>
+            {d.evidenceUnavailable ? (
+              <>
+                <span>{claimsLabel}</span>
+                <span>counts unavailable</span>
+              </>
+            ) : publicLeadDataUnavailable ? (
+              <>
+                <span>{claimsLabel}</span>
+                <span>issue count unavailable</span>
+              </>
+            ) : (
+              <>
+                <span>{claimsLabel}</span>
+                <span>{boardClusters.length} issues</span>
+              </>
+            )}
             <span>{radarData.recurring.trackedLeads} radar leads</span>
           </div>
           <nav className="brief-lead__toc dispatch-desktop-only" aria-label="In this edition">
@@ -517,20 +582,39 @@ export default async function DispatchHomePage() {
               ) : null}
             </div>
             <div className="pulse-stats">
-              <div className="pulse-stat">
-                <div className="pulse-stat__value">{formatWeeklyDelta(brief)}</div>
-                <div className="pulse-stat__caption">{weeklyDeltaSentence(brief)}</div>
-              </div>
-              <div className="pulse-stat pulse-stat--secondary">
-                <div className="pulse-stat__value pulse-stat__value--crimson">
-                  {mostContested?.readout.poll?.stillCount ?? 0}
+              {brief.evidenceUnavailable ? (
+                <div className="pulse-stat">
+                  <div className="pulse-stat__value">—</div>
+                  <div className="pulse-stat__caption">
+                    Evidence counts are unavailable right now — missing, not zero.
+                  </div>
                 </div>
-                <div className="pulse-stat__caption">
-                  {mostContested
-                    ? `Players still tapping "still happening" on ${mostContested.title}.`
-                    : "No claimed fix is contested by player taps right now."}
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="pulse-stat">
+                    <div className="pulse-stat__value">{formatWeeklyDelta(brief)}</div>
+                    <div className="pulse-stat__caption">{weeklyDeltaSentence(brief)}</div>
+                  </div>
+                  <div className="pulse-stat pulse-stat--secondary">
+                    <div
+                      className={
+                        d.claimsUnavailable
+                          ? "pulse-stat__value"
+                          : "pulse-stat__value pulse-stat__value--crimson"
+                      }
+                    >
+                      {d.claimsUnavailable ? "—" : (mostContested?.readout.poll?.stillCount ?? 0)}
+                    </div>
+                    <div className="pulse-stat__caption">
+                      {d.claimsUnavailable
+                        ? "Claimed-fix verdicts are unavailable right now."
+                        : mostContested
+                        ? `Players still tapping "still happening" on ${mostContested.title}.`
+                        : "No claimed fix is contested by player taps right now."}
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="pulse-stat pulse-stat--secondary">
                 <div className="pulse-stat__value">{radar.keptThisWeek}</div>
                 <div className="pulse-stat__caption">
@@ -743,20 +827,35 @@ export default async function DispatchHomePage() {
             <h2 className="dispatch-kicker">{sectionNo("board")} · The Issue Board</h2>
             <span style={{ fontSize: 13 }}>
               <Link href="/issues" className="dispatch-link">
-                All {boardClusters.length} published issue{boardClusters.length === 1 ? "" : "s"} →
+                {d.evidenceUnavailable || publicLeadDataUnavailable
+                  ? "Issue board →"
+                  : `All ${boardClusters.length} published issue${boardClusters.length === 1 ? "" : "s"} →`}
               </Link>
             </span>
           </div>
+          {leadDataUnavailable ? (
+            <p className="brief-band__caption" style={{ marginTop: 8 }}>
+              {publicLeadDataUnavailable
+                ? "Public-source lead details are unavailable right now. Player evidence stays live; lead-backed rankings are incomplete."
+                : "Some radar-lead details are unavailable right now. Player evidence and published source-backed issues stay live."}
+            </p>
+          ) : null}
           {top3.length === 0 ? (
             <div className="board-empty">
-              <p>
-                No published issues yet for {patch.version}. Publishing needs a player report or corroborated
-                sources —{" "}
-                <Link href="/about" className="dispatch-link">
-                  read the method
-                </Link>
-                .
-              </p>
+              {d.evidenceUnavailable ? (
+                <p>The issue board can&rsquo;t be read right now — nothing here is being counted as zero.</p>
+              ) : publicLeadDataUnavailable ? (
+                <p>Public-source leads can&rsquo;t be read right now — no lead-backed issue is being counted as zero.</p>
+              ) : (
+                <p>
+                  No published issues yet for {patch.version}. Publishing needs a player report or corroborated
+                  sources —{" "}
+                  <Link href="/about" className="dispatch-link">
+                    read the method
+                  </Link>
+                  .
+                </p>
+              )}
             </div>
           ) : (
             <div className="board-grid">
@@ -817,6 +916,10 @@ export default async function DispatchHomePage() {
                 <div className="claim-row__verdict">
                   {row.poll && row.poll.fixedCount + row.poll.stillCount > 0 ? (
                     verdictSplit(row.poll, verdictNote(row.poll))
+                  ) : d.evidenceUnavailable ? (
+                    <div className="verdict-note">
+                      Player verdicts can&rsquo;t be read right now — not counted as zero.
+                    </div>
                   ) : row.attributed ? (
                     <div className="verdict-clock">
                       No player verdicts yet · claim clock running since {row.clockSince}

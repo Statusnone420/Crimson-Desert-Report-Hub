@@ -36,6 +36,8 @@ export type DispatchBriefInput = {
   series: DailySignalDay[] | null;
   /** Null when the radar is unavailable in this environment. */
   radar?: RadarActivity | null;
+  /** True when the evidence reads failed — the counts are missing, not zero. */
+  evidenceUnavailable?: boolean;
   now?: Date;
 };
 
@@ -53,6 +55,8 @@ export type DispatchBrief = {
   weeklyDeltaPct: number | null;
   launchWeekReports: number;
   latestWeekReports: number;
+  /** Mirrors the input flag so the page can suppress count-backed cells. */
+  evidenceUnavailable: boolean;
 };
 
 function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
@@ -105,6 +109,25 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
   const kickerParts = [`PATCH ${input.patchVersion}`, patchTypeLabel(input.patchVersion)];
   if (dayNumber !== null) kickerParts.push(`DAY ${dayNumber}`);
   const kicker = kickerParts.join(" · ");
+
+  // A failed evidence read is its own state, never a quiet board: every
+  // count-backed sentence below would be fabricated from zeros we never read.
+  if (input.evidenceUnavailable) {
+    return {
+      kicker,
+      headline: `The board can't read its evidence right now.`,
+      dek: `Player reports and taps for ${input.patchVersion} could not be read just now, so their counts are missing — not zero. Official patch facts stay current.`,
+      pulseHeadline: "Evidence counts are unavailable right now. Missing is not zero.",
+      trend: "quiet",
+      radarLed: false,
+      dayNumber,
+      weeklyComparisonState,
+      weeklyDeltaPct: null,
+      launchWeekReports: 0,
+      latestWeekReports: 0,
+      evidenceUnavailable: true,
+    };
+  }
 
   const contested = input.contested && input.contested.stillCount > input.contested.fixedCount ? input.contested : null;
 
@@ -169,6 +192,7 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
     weeklyDeltaPct,
     launchWeekReports,
     latestWeekReports,
+    evidenceUnavailable: false,
   };
 }
 

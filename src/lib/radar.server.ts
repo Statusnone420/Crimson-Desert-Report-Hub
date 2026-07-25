@@ -119,7 +119,8 @@ export type PatchRadarData = {
   /** Source-date observability: how many tracked leads carry a real publication date. */
   dateCoverage: { withSourceDate: number; tracked: number };
   eligibility: Record<CurrentPatchEligibilityReason, number>;
-  evidence: { reports: number; taps: number };
+  /** Null when the evidence count reads failed — unavailable, not zero. */
+  evidence: { reports: number; taps: number } | null;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -180,7 +181,8 @@ export function emptyPatchRadarData(patch: { version: string; publishedAt: strin
     },
     dateCoverage: { withSourceDate: 0, tracked: 0 },
     eligibility: emptyEligibility(),
-    evidence: { reports: 0, taps: 0 },
+    // A disconnected radar read nothing — evidence counts are unavailable, not zero.
+    evidence: null,
   };
 }
 
@@ -265,7 +267,7 @@ export function composePatchRadarData(input: {
   patch: { version: string; publishedAt: string | null };
   paused: boolean;
   cadenceMinutes: number;
-  evidence: { reports: number; taps: number };
+  evidence: { reports: number; taps: number } | null;
   now?: Date;
 }): PatchRadarData {
   const now = input.now ?? new Date();
@@ -537,7 +539,24 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
         .eq("moderation_status", "approved"),
       supabase.from("issue_confirmations").select("id", { count: "exact", head: true }),
     ]);
-    if (runsRes.error || latestTerminalRunRes.error) return emptyPatchRadarData(currentPatch);
+    // Only the radar's own reads disconnect the radar.
+    if (runsRes.error || latestTerminalRunRes.error) {
+      console.error(
+        "[radar] run read failed; reporting disconnected instead of zeros",
+        runsRes.error ?? latestTerminalRunRes.error,
+      );
+      return emptyPatchRadarData(currentPatch);
+    }
+    // Evidence counts are a different register: their failure must not erase a
+    // healthy radar, and a healthy radar must not print zero evidence — the
+    // counts degrade to null (unavailable) on their own.
+    const evidenceCountsFailed = Boolean(reportsRes.error || tapsRes.error);
+    if (evidenceCountsFailed) {
+      console.error(
+        "[radar] evidence count read failed; reporting counts unavailable, radar intact",
+        reportsRes.error ?? tapsRes.error,
+      );
+    }
 
     return composePatchRadarData({
       signals,
@@ -546,7 +565,7 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
       patch: currentPatch,
       paused: control.paused,
       cadenceMinutes: control.minIntervalMinutes,
-      evidence: { reports: reportsRes.count ?? 0, taps: tapsRes.count ?? 0 },
+      evidence: evidenceCountsFailed ? null : { reports: reportsRes.count ?? 0, taps: tapsRes.count ?? 0 },
     });
   } catch {
     return emptyPatchRadarData(await radarPatchContext());

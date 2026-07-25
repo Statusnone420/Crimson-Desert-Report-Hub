@@ -9,7 +9,7 @@ import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/auto
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
-import { getClaimedFixesForCurrentPatch, getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { getCurrentPatchMetadata, readClaimedFixesForCurrentPatch } from "@/lib/officialPatch.server";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
 import {
   canonicalIgdbUrl,
@@ -493,6 +493,7 @@ export function countDistinctVerifiedReportsByCluster(rows: VerifiedReportCluste
 
 type ClusterCounts = {
   signalCount: number;
+  publicSignalsUnavailable: boolean;
   directReportCount: number;
   verifiedReportCount?: number;
   candidateSignalCount: number;
@@ -535,6 +536,7 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
     adminOverride: Boolean(cluster.admin_override),
     storedFixStatus: cluster.fix_status,
     patchVersion: counts.patchVersion,
+    publicSignalsUnavailable: counts.publicSignalsUnavailable,
   });
   // Confirmations join the ranking only once their tally is escalated (>= threshold networks).
   const escalatedConfirms = confirmations.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS ? confirmations.affectedCount : 0;
@@ -737,62 +739,163 @@ export async function getPublicObservations(
   }
 }
 
+/**
+ * House rule (see readConfirmationRowsByClusterForPatchFamily): a failed read
+ * throws — it never flattens into an empty success that renders as a zero.
+ */
+function requireRows<T>(what: string, result: { data: T[] | null; error: { message?: string | null } | null }): T[] {
+  if (result.error) throw new Error(`${what} read failed: ${result.error.message ?? "unknown error"}`);
+  return result.data ?? [];
+}
+
+/**
+ * Scanner run history is context, not evidence. Its failure degrades to the
+ * existing "no recorded run" state on its own — it must not flip the whole
+ * board to evidence-unavailable and hide validly read reports and issues.
+ */
+function latestAutomationRunOrNull(result: {
+  data: unknown[] | null;
+  error: { message?: string | null } | null;
+}): PublicAutomationRunRow | null {
+  if (result.error) {
+    console.error("[dashboard] automation-run read failed; showing no recorded run", result.error);
+    return null;
+  }
+  return ((result.data ?? []) as PublicAutomationRunRow[])[0] ?? null;
+}
+
+/**
+ * One shape for both "this environment has no database" and "the database
+ * could not be read". Only the flag differs: an unconfigured preview renders
+ * a quiet board on purpose, while a failed read must render as unavailable —
+ * fabricated zeros would tell readers the board is quiet when it is blind.
+ *
+ * Official claims and patch facts live in their own tables, independent of
+ * the evidence store, so an evidence outage re-reads them through their own
+ * path instead of erasing them. If that read fails too, claims stay [] and
+ * an explicit availability flag keeps that failure distinct from a successful
+ * zero-claim read.
+ */
+async function dashboardFallbackData(evidenceUnavailable: boolean) {
+  let currentPatch: Awaited<ReturnType<typeof getCurrentPatchMetadata>> | null = null;
+  let claims: Awaited<ReturnType<typeof readDashboardClaims>> = {
+    claimedFixes: [],
+    claimsUnavailable: false,
+  };
+  if (evidenceUnavailable && hasSupabaseServiceConfig()) {
+    const supabase = createServiceClient();
+    currentPatch = await getCurrentPatchMetadata(supabase).catch(() => null);
+    claims = await readDashboardClaims(supabase);
+  }
+  return {
+    total: 0,
+    communitySignals: 0,
+    directReports: 0,
+    verifiedReports: 0,
+    weekDelta: 0,
+    byCategory: {},
+    signalByCategory: {},
+    platforms: {},
+    gpus: {},
+    topClusters: [],
+    pendingCount: 0,
+    latestReportAt: null,
+    scanner: { paused: false, updatedAt: null },
+    latestAutomationRun: null,
+    currentPatch: currentPatch ?? (await getCurrentPatchMetadata()),
+    ...claims,
+    observations: EMPTY_OBSERVATION_LANES,
+    publicFindings: [],
+    evidenceUnavailable,
+    // A full evidence outage leaves the lead fields unread too; an
+    // unconfigured environment reads neither, deliberately.
+    sourceLeadsUnavailable: evidenceUnavailable,
+    publicLeadsUnavailable: evidenceUnavailable,
+  };
+}
+
 async function getDashboardDataUncached() {
-  if (!hasSupabaseServiceConfig()) {
+  if (!hasSupabaseServiceConfig()) return dashboardFallbackData(false);
+  try {
+    return await readDashboardData();
+  } catch (error) {
+    console.error("[dashboard] evidence read failed; rendering the unavailable state, not zeros", error);
+    return dashboardFallbackData(true);
+  }
+}
+
+async function readDashboardClaims(supabase: ReturnType<typeof createServiceClient>) {
+  try {
     return {
-      total: 0,
-      communitySignals: 0,
-      directReports: 0,
-      verifiedReports: 0,
-      weekDelta: 0,
-      byCategory: {},
-      signalByCategory: {},
-      platforms: {},
-      gpus: {},
-      topClusters: [],
-      pendingCount: 0,
-      latestReportAt: null,
-      scanner: { paused: false, updatedAt: null },
-      latestAutomationRun: null,
-      currentPatch: await getCurrentPatchMetadata(),
+      claimedFixes: await readClaimedFixesForCurrentPatch(supabase),
+      claimsUnavailable: false,
+    };
+  } catch (error) {
+    console.error("[dashboard] official-claims read failed; claims unavailable, not zero", error);
+    return {
       claimedFixes: [],
-      observations: EMPTY_OBSERVATION_LANES,
-      publicFindings: [],
+      claimsUnavailable: true,
     };
   }
+}
 
+async function readDashboardData() {
   const supabase = createServiceClient();
 
-  const { data: reports } = await supabase
-    .from("bug_reports")
-    .select("category, platform, created_at, patch_version, cluster_id, hardware_specs")
-    .eq("moderation_status", "approved");
-  const rows = (reports ?? []) as DashboardReportRow[];
+  const rows = requireRows(
+    "approved reports",
+    await supabase
+      .from("bug_reports")
+      .select("category, platform, created_at, patch_version, cluster_id, hardware_specs")
+      .eq("moderation_status", "approved"),
+  ) as DashboardReportRow[];
 
-  const { data: clusterData } = await supabase
-    .from("issue_clusters")
-    .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public")
-    .eq("is_public", true);
+  const clusterData = requireRows(
+    "public clusters",
+    await supabase
+      .from("issue_clusters")
+      .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public")
+      .eq("is_public", true),
+  );
 
-  const { data: signals } = await supabase
+  // Source signals are lead context, not player evidence: their failure
+  // disables the lead-derived fields on their own instead of blanking the
+  // validly read evidence board.
+  const signalsRes = await supabase
     .from("source_signals")
     .select("id, cluster_id, source, source_url, title, summary, category, confidence, observed_at, source_published_at, public_status")
     .eq("public_status", "public");
-  const rawSignalRows = (signals ?? []) as SignalRow[];
+  const sourceLeadsUnavailable = Boolean(signalsRes.error);
+  if (signalsRes.error) {
+    console.error("[dashboard] source-signal read failed; lead fields unavailable, evidence intact", signalsRes.error);
+  }
+  const rawSignalRows = (signalsRes.data ?? []) as SignalRow[];
 
-  const { data: verified } = await supabase
-    .from("approved_excerpts")
-    .select("report_id, bug_reports(cluster_id)")
-    .limit(1000);
-  const verifiedRows = (verified ?? []) as VerifiedReportClusterRow[];
+  // Verified-excerpt and pending-moderation metrics are ancillary — neither
+  // feeds readouts, ranking, or any homepage cell. They degrade on their own
+  // (logged) instead of taking validly read evidence down with them.
+  const verifiedRes = await supabase.from("approved_excerpts").select("report_id, bug_reports(cluster_id)").limit(1000);
+  if (verifiedRes.error) {
+    console.error("[dashboard] approved-excerpt read failed; verified metric unavailable", verifiedRes.error);
+  }
+  const verifiedRows = (verifiedRes.data ?? []) as VerifiedReportClusterRow[];
 
-  const { count: pendingCount } = await supabase
+  const pendingRes = await supabase
     .from("bug_reports")
     .select("id", { count: "exact", head: true })
     .eq("moderation_status", "pending");
+  if (pendingRes.error) {
+    console.error("[dashboard] pending-count read failed; moderation metric unavailable", pendingRes.error);
+  }
+  const pendingCount = pendingRes.error ? null : pendingRes.count ?? 0;
 
-  const [scanner, latestAutomation, currentPatch, claimedFixes] = await Promise.all([
-    getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+  const [scanner, latestAutomation, currentPatch, claims] = await Promise.all([
+    // Scanner configuration is provider context: its failure degrades to the
+    // neutral control state (logged) instead of blanking the evidence board.
+    getAutomationControlState(supabase as unknown as AutomationSettingsClient).catch((error: unknown) => {
+      console.error("[dashboard] automation-settings read failed; showing neutral scanner state", error);
+      return { paused: false, updatedAt: null };
+    }),
     supabase
       .from("automation_runs")
       .select(
@@ -803,9 +906,19 @@ async function getDashboardDataUncached() {
       .order("started_at", { ascending: false })
       .limit(1),
     getCurrentPatchMetadata(supabase),
-    getClaimedFixesForCurrentPatch(supabase),
+    readDashboardClaims(supabase),
   ]);
-  const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
+  // Candidate counts read the same lead register; their failure folds into
+  // the lead flag, not the evidence one. The shared reader keeps throwing for
+  // callers that want the strict behavior.
+  let candidateSignalCounts: Record<string, number> = {};
+  let candidateLeadsFailed = false;
+  try {
+    candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
+  } catch (error) {
+    candidateLeadsFailed = true;
+    console.error("[dashboard] candidate-signal read failed; lead fields unavailable, evidence intact", error);
+  }
   const observations = await getPublicObservations(supabase, {
     version: currentPatch.version,
     publishedAt: currentPatch.publishedAt ?? null,
@@ -813,7 +926,7 @@ async function getDashboardDataUncached() {
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
   const confirmationsByCluster = await readConfirmationRowsByClusterForPatchFamily(supabase, currentPatch.version);
-  const publicClusters = (clusterData ?? []) as ClusterRow[];
+  const publicClusters = clusterData as ClusterRow[];
   const fixClaimedAtByCluster = Object.fromEntries(
     publicClusters.map((cluster) => [
       cluster.id,
@@ -838,6 +951,7 @@ async function getDashboardDataUncached() {
     .map((cluster) =>
       decorateCluster(cluster, {
         signalCount: signalByCluster[cluster.id] ?? 0,
+        publicSignalsUnavailable: sourceLeadsUnavailable,
         directReportCount: directByCluster[cluster.id] ?? 0,
         verifiedReportCount: verifiedByCluster[cluster.id] ?? 0,
         candidateSignalCount: candidateSignalCounts[cluster.id] ?? 0,
@@ -862,14 +976,17 @@ async function getDashboardDataUncached() {
     platforms: countBy(currentReportRows, (row) => row.platform),
     gpus: countGpus(currentReportRows),
     topClusters,
-    pendingCount: pendingCount ?? 0,
+    pendingCount,
     latestReportAt: latestReportAtFromRows(currentReportRows),
     scanner,
-    latestAutomationRun: ((latestAutomation.data ?? []) as PublicAutomationRunRow[])[0] ?? null,
+    latestAutomationRun: latestAutomationRunOrNull(latestAutomation),
     currentPatch,
-    claimedFixes,
+    ...claims,
     observations,
     publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
+    evidenceUnavailable: false,
+    sourceLeadsUnavailable: sourceLeadsUnavailable || candidateLeadsFailed,
+    publicLeadsUnavailable: sourceLeadsUnavailable,
   };
 }
 
@@ -934,6 +1051,7 @@ async function getIssuesDataUncached() {
     .map((cluster) =>
       decorateCluster(cluster, {
         signalCount: signalByCluster[cluster.id] ?? 0,
+        publicSignalsUnavailable: false,
         directReportCount: directByCluster[cluster.id] ?? 0,
         candidateSignalCount: candidateSignalCounts[cluster.id] ?? 0,
         postCurrentPatchReportCount: postCurrentPatchReportByCluster[cluster.id] ?? 0,

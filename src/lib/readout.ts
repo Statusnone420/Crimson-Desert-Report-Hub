@@ -7,6 +7,7 @@ export type ReadoutState =
   | "fix_claimed_unverified"
   | "confirmed"
   | "public_sources"
+  | "public_sources_unavailable"
   | "radar_lead"
   | "watching";
 
@@ -22,6 +23,7 @@ export type IssueReadoutInput = {
   adminOverride: boolean;
   storedFixStatus: string;
   patchVersion: string;
+  publicSignalsUnavailable?: boolean;
 };
 
 export type IssueReadoutAsk = {
@@ -142,6 +144,17 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
       label: pluralVoices ? "Confirmed by players" : "Player-reported",
       tone: "crimson",
       sentence: evidenceSentence(input),
+      ask: haveItAsk(),
+      poll: null,
+    };
+  }
+
+  if (input.publicSignalsUnavailable) {
+    return {
+      state: "public_sources_unavailable",
+      label: "Source leads unavailable",
+      tone: "blue",
+      sentence: "Public-source leads can't be read right now. Their count is missing, not zero.",
       ask: haveItAsk(),
       poll: null,
     };
