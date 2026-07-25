@@ -417,7 +417,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.locator(".radar-screen text").filter({ hasText: "TRACKED" })).toHaveCount(0);
     await expect(page.locator('.radar-screen [data-recency-band="under_6h"]').first()).toBeVisible();
     await expect(page.locator('.radar-screen [data-recency-band="1_3d"]').first()).toBeVisible();
-    await expect(page.getByRole("list", { name: "Tracked radar leads ranked by problem area" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Tracked leads ranked by problem area" })).toBeVisible();
     // Season almanac: one ramp per register, never blended.
     await expect(page.getByRole("img", { name: /Season calendar, evidence row/ })).toBeVisible();
     await expect(page.getByRole("img", { name: /Season calendar, radar row/ })).toBeVisible();
@@ -775,8 +775,8 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("A cluster earns its full section", { exact: false })).toHaveCount(0);
     await expect(page.getByText("Seeing one of these? Report it", { exact: true })).toHaveCount(0);
     // The collapsed monitored line, when watchlist seeds exist, is a single muted
-    // line — never a per-seed card. It reads "Monitoring N more on the watchlist …".
-    const monitoredLine = page.getByText(/Monitoring \d+ more on the watchlist/);
+    // line — never a per-seed card. It reads "Monitoring N additional watchlist issues."
+    const monitoredLine = page.getByText(/Monitoring \d+ additional watchlist issues?\./);
     if ((await monitoredLine.count()) > 0) {
       await expect(monitoredLine.first()).toBeVisible();
     }
@@ -898,7 +898,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("heading", { name: "Published links" })).toHaveCount(0);
     // One ranked working-set view replaces the repeated scatterplot and sparkline families.
     await expect(page.getByRole("heading", { name: "Ranked problem areas" })).toBeVisible();
-    await expect(page.getByRole("list", { name: "Tracked radar leads ranked by problem area" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Tracked leads ranked by problem area" })).toBeVisible();
     await expect(page.getByText(/Real publication dates: \d+\/\d+/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Context, not evidence" })).toBeVisible();
     await expect(page.getByRole("heading", { name: /Review count/ })).toBeVisible();

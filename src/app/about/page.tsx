@@ -49,7 +49,9 @@ export default function AboutPage() {
 
         <dl className="method-registers" id="numbers">
           <dt className="method-registers__term">Published</dt>
-          <dd className="method-registers__def">An issue with a full card.</dd>
+          <dd className="method-registers__def">
+            A full issue card published on this site. Publication is visibility, not an evidence verdict.
+          </dd>
           <dt className="method-registers__term">Watchlist</dt>
           <dd className="method-registers__def">A public issue that isn&rsquo;t published yet.</dd>
           <dt className="method-registers__term">Watched</dt>

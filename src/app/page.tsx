@@ -801,7 +801,7 @@ export default async function DispatchHomePage() {
                     </span>
                   </div>
                   {radarData.categories.length > 0 ? (
-                    <ol className="radar-cats" aria-label="Tracked radar leads ranked by problem area">
+                    <ol className="radar-cats" aria-label="Tracked leads ranked by problem area">
                       {(() => {
                         const max = Math.max(...radarData.categories.map((bucket) => bucket.tracked), 1);
                         return radarData.categories.map((bucket) => (
