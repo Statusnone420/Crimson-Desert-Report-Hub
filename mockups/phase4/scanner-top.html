@@ -105,35 +105,14 @@
   <!-- 2 · PRIMARY TASK is the inbox above; when it is empty this page has no required work. -->
 
   <!-- 3 · OPTIONAL WORK -->
+  <!-- Optional work is collapsed by default; the deep-history mockup shows it opened. -->
   <section class="skeleton-section ledger" id="teach" aria-label="Teach the scanner">
-    <details open>
+    <details>
       <summary>
         <span class="mono-label">Teach · Optional</span>
         <span class="ledger-copy">Auto-rejected pages are not assignments. They stay private and expire on their own; teach only when a bad pattern is worth remembering.</span>
-        <span class="ledger-count">Showing 2 of 30 recent ›</span>
+        <span class="ledger-count">30 recent candidates ›</span>
       </summary>
-      <div class="ledger-body">
-        <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
-          <input type="search" placeholder="Search title, source, or rejection reason" style="flex:1;max-width:420px">
-          <span class="count-note">30 recent candidates · older ones expired</span>
-        </div>
-
-        <article class="review-card">
-          <div class="review-card__meta">reddit.com · discovered 2h ago · screened: not about Crimson Desert · expires in 7d</div>
-          <h3>That was Baldur's Gate 3 for me : r/Steam</h3>
-          <p class="body">My recommendation is to just pick one of the companions and engage in their storyline. There's SO much to take in at once…</p>
-          <div class="decision-row">
-            <button class="c-secondary" type="button">Keep as relevant</button>
-            <button class="c-destructive" type="button">Reject and teach…</button>
-            <a class="c-quiet" href="#" style="margin-left:auto">Inspect source ↗</a>
-          </div>
-          <div class="decision-scopes">
-            <p class="scope-line"><b>Keep</b> spends an LLM call, creates a private lead, and records a scanner lesson. Forgetting the lesson later does not restore this candidate, delete the lead, or refund the spend.</p>
-          </div>
-        </article>
-
-        <button class="c-quiet" type="button">Show 28 more optional candidates →</button>
-      </div>
     </details>
   </section>
 

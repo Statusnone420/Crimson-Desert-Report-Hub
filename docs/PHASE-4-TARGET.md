@@ -1,8 +1,10 @@
 # Phase 4 target contract — operator console
 
 Stage 1 deliverable. The mockup under `mockups/phase4/` renders this contract; the
-inventory (`PHASE-4-ADMIN-INVENTORY.md`, 327 entries) is the behavior-preservation
-manifest behind it. This document is the target; the inventory is the floor.
+inventory (`docs/PHASE-4-ADMIN-INVENTORY.md`, 327 entries) is the
+behavior-preservation manifest behind it — its risk-register and gap numbers are
+the IDs this document cites. This document is the target; the inventory is the
+floor.
 
 ## Goal
 

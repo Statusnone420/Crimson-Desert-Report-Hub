@@ -44,9 +44,46 @@
 
   <div>
 
-  <!-- Deep in the page: the section nav is what keeps this reachable without scrolling the whole desk. -->
+  <!-- Deep in the page: the section nav is what keeps this reachable without
+       scrolling the whole desk. Optional sections render opened here because
+       the operator opened them — collapsed is still the default state. -->
 
-  <section class="skeleton-section ledger" id="lessons" aria-label="Active scanner feedback rules" style="border-top:0;padding-top:0">
+  <section class="skeleton-section ledger" id="teach" aria-label="Teach the scanner" style="border-top:0;padding-top:0">
+    <details open>
+      <summary>
+        <span class="mono-label">Teach · Optional</span>
+        <span class="ledger-copy">Auto-rejected pages are not assignments. They stay private and expire on their own; teach only when a bad pattern is worth remembering.</span>
+        <span class="ledger-count">Showing 2 of 30 recent ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+          <input type="search" placeholder="Search title, source, or rejection reason" style="flex:1;max-width:420px">
+          <span class="count-note">30 recent candidates · older ones expired</span>
+        </div>
+
+        <article class="review-card">
+          <div class="review-card__meta">reddit.com · discovered 2h ago · screened: not about Crimson Desert · expires in 7d</div>
+          <h3>That was Baldur's Gate 3 for me : r/Steam</h3>
+          <p class="body">My recommendation is to just pick one of the companions and engage in their storyline. There's SO much to take in at once…</p>
+          <div class="decision-row">
+            <span class="cost-group__row">
+              <button class="c-secondary" type="button">Keep as relevant</button>
+              <span class="cost-chip">Spends credits</span>
+            </span>
+            <button class="c-destructive" type="button">Reject and teach…</button>
+            <a class="c-quiet" href="#" style="margin-left:auto">Inspect source ↗</a>
+          </div>
+          <div class="decision-scopes">
+            <p class="scope-line"><b>Keep</b> spends an LLM call, creates a private lead, and records a scanner lesson. Forgetting the lesson later does not restore this candidate, delete the lead, or refund the spend.</p>
+          </div>
+        </article>
+
+        <button class="c-quiet" type="button">Show 28 more optional candidates →</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="skeleton-section ledger" id="lessons" aria-label="Active scanner feedback rules">
     <details open>
       <summary>
         <span class="mono-label">Active lessons</span>
@@ -65,9 +102,9 @@
             <div class="line-item__url">reddit.com/r/CrimsonDesert/comments/1uyd185/patch_1150_new_game_hopefully</div>
             <div class="line-item__sub">Operator inspected this page and confirmed it is a relevant Crimson Desert issue lead.</div>
           </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right">
             <button class="c-undo c-undo--partial" type="button">Forget lesson</button>
-            <span class="stays-note">Rescued lead stays</span>
+            <span class="stays-note">Candidate not restored · lead stays · spend not refunded</span>
           </div>
         </div>
         <div class="line-item">
