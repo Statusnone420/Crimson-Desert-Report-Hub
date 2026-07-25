@@ -77,6 +77,12 @@
             <a class="c-quiet" href="#" style="margin-left:auto">Inspect source ↗</a>
           </div>
           <div class="decision-scopes">
+            <!-- This is the normal state. Pre-migration (scanner learning
+                 unavailable) Keep stays available but records no lesson, and
+                 this line reads instead: "Keep spends an LLM call and creates
+                 a private lead. Scanner learning is unavailable until the
+                 schema update, so this rescue records no lesson to forget."
+                 See docs/PHASE-4-TARGET.md, Reversal language. -->
             <p class="scope-line"><b>Keep</b> spends an LLM call, creates a private lead, and records a scanner lesson. Forgetting the lesson later does not restore this candidate, delete the lead, or refund the spend.</p>
           </div>
         </article>

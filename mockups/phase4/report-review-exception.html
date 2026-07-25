@@ -93,7 +93,11 @@
         <p class="scope-line"><b>Approve</b> publishes the excerpt and counts this report as evidence for the selected cluster.</p>
         <p class="scope-line">All three decisions are final: the report leaves this queue and cannot be re-decided. Reject and Spam also write the cluster selection above.</p>
       </div>
-      <p class="inline-error"><b>Excerpt not saved:</b> the public excerpt insert failed, so the report is still flagged. Your text and cluster choice are kept above — press Approve to retry.</p>
+      <!-- The write order is preserved from production: the approval commits
+           before the excerpt insert, so an excerpt failure leaves the report
+           approved and gone from this queue. The error tells that truth
+           instead of promising a retry that does not exist. -->
+      <p class="inline-error"><b>Excerpt not saved:</b> the report was approved and has left this queue, but its public excerpt failed to persist — and approval decisions can't be re-opened. The approval stands without a public excerpt; copy your text now if you want to keep it.</p>
     </article>
   </section>
 
@@ -107,9 +111,23 @@
       <summary>
         <span class="mono-label">Lifecycle exceptions</span>
         <span class="ledger-copy">The system decides labels from counts. Only unsure claim matches and your own locks appear here.</span>
-        <span class="ledger-count ledger-count--amber">1 item ›</span>
+        <span class="ledger-count ledger-count--amber">2 items ›</span>
       </summary>
       <div class="ledger-body">
+        <!-- The unsure claim match that Needs you counts: engine-owned, so it
+             offers Lock but no Clear. Locked rows are excluded from the count. -->
+        <div class="line-item" style="flex-wrap:wrap">
+          <div class="line-item__main">
+            <div class="line-item__title">Cross-save sync failures</div>
+            <div class="line-item__sub">Needs review: official notes may claim this fix in 1.15.00 — unsure match.</div>
+          </div>
+          <span class="count-note">Needs review</span>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-basis:100%;margin-top:8px">
+            <select><option>Fix claimed — unverified</option><option>Open</option><option>Marked fixed by maintainer</option><option>Still happening</option></select>
+            <button class="c-secondary" type="button">Lock</button>
+          </div>
+          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear — the lifecycle engine will not touch its status while locked.</p>
+        </div>
         <div class="line-item" style="flex-wrap:wrap">
           <div class="line-item__main">
             <div class="line-item__title">Crashes and startup hangs</div>

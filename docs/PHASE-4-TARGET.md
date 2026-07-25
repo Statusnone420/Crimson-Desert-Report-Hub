@@ -60,7 +60,7 @@ inline errors that name the problem and recovery and preserve entered data,
 explicit success confirmation, and risk never carried by color alone (every color
 is paired with a text badge or glyph).
 
-**Reversal language (owner-locked 2026-07-25).** The `↩` glyph and the word
+**Reversal language (locked 2026-07-25).** The `↩` glyph and the word
 "Undo" are reserved for full reversal. A partial reversal names what it actually
 does — a KEEP lesson's control reads **Forget lesson** with **rescued lead
 stays** adjacent (accessible text, not a tooltip) — and its consequence copy
@@ -73,7 +73,15 @@ never "publishes" — the lead is private). The same consequence, pending,
 success, failure, disabled, and reversal wording applies to equivalent controls
 on every page.
 
-**Export CSV (owner-locked).** The utility control reads `Export CSV…` and opens
+Degraded state, pre-migration: when scanner learning is unavailable
+(`feedbackLearningAvailable` false, or the decision RPC is missing on a rolling
+deploy), Keep stays available — that asymmetry is deliberate — but the rescue
+records no lesson. Its scope line must then read: "Keep spends an LLM call and
+creates a private lead. Scanner learning is unavailable until the schema
+update, so this rescue records no lesson to forget." Never promise a lesson, or
+a Forget path, that the degraded state cannot produce.
+
+**Export CSV (locked).** The utility control reads `Export CSV…` and opens
 a confirm step that names the payload — the complete private report table,
 including everything that never becomes public — before downloading.
 
@@ -97,7 +105,7 @@ acknowledgement (risks #15/#16).
 OperatorShell page, capability unchanged). COMPILE DOSSIER label → Dossiers.
 Scanner sections → one page + local section nav (no route changes).
 
-**Retire as verified dead — owner-approved 2026-07-25, delete during Phase 4
+**Retire as verified dead — settled 2026-07-25, delete during Phase 4
 implementation:** `/admin/source-monitor`
 stub and the six `revalidatePath("/admin/source-monitor")` calls (risk #20,
 gap #13); `runRedditMonitor` (risk #23); `RejectedArchive` + the
@@ -105,7 +113,7 @@ gap #13); `runRedditMonitor` (risk #23); `RejectedArchive` + the
 retire with it); `setAutomationPaused` (risk #22, unwired duplicate); the hidden
 `modelPreset` input and unreachable `paused` form branch (risk #26).
 
-**In scope — owner-approved 2026-07-25:** return-to after re-auth (gap #3).
+**In scope — settled 2026-07-25:** return-to after re-auth (gap #3).
 `requireAdmin` redirects carry the original destination and every sign-in
 surface honors it, so a session expiry on any operator page returns there.
 
