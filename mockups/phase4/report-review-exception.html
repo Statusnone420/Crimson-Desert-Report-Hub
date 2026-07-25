@@ -78,17 +78,18 @@
       <p class="detail">Repro: pause menu → Cross-Save → upload → wait at 99% → check PC client.</p>
       <p class="detail">Evidence: <a href="#" class="line-item__url">https://youtu.be/mock-cross-save-stall</a></p>
 
-      <div class="decision-row">
+      <form class="decision-row">
+        <input type="hidden" name="id" value="mock-report-cross-save-stall">
         <label style="margin:0"><span class="count-note" style="display:block;margin-bottom:4px">Cluster</span>
-          <select><option>Cross-save sync failures</option><option>No cluster</option><option>FPS regression since 1.13</option></select>
+          <select name="cluster_id"><option value="">No cluster</option><option value="mock-cross-save-cluster" selected>Cross-save sync failures</option><option value="mock-fps-regression-cluster">FPS regression since 1.13</option></select>
         </label>
         <label style="flex:1;margin:0"><span class="count-note" style="display:block;margin-bottom:4px">Public excerpt · anonymized · max 500 chars</span>
-          <input type="text" value="Cross-save upload hangs at 99%, then PC loads a days-old save.">
+          <input type="text" name="excerpt" maxlength="500" value="Cross-save upload hangs at 99%, then PC loads a days-old save.">
         </label>
-        <button class="c-primary" type="button">Approve</button>
-        <button class="c-destructive" type="button">Reject</button>
-        <button class="c-destructive" type="button">Spam</button>
-      </div>
+        <button class="c-primary" type="submit" name="decision" value="approved">Approve</button>
+        <button class="c-destructive" type="submit" name="decision" value="rejected">Reject</button>
+        <button class="c-destructive" type="submit" name="decision" value="spam">Spam</button>
+      </form>
       <div class="decision-scopes">
         <p class="scope-line"><b>Approve</b> publishes the excerpt and counts this report as evidence for the selected cluster.</p>
         <p class="scope-line">All three decisions are final: the report leaves this queue and cannot be re-decided. Reject and Spam also write the cluster selection above.</p>
@@ -122,10 +123,13 @@
             <div class="line-item__sub">Needs review: official notes may claim this fix in 1.15.00 — unsure match.</div>
           </div>
           <span class="count-note">Needs review</span>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-basis:100%;margin-top:8px">
-            <select><option>Fix claimed — unverified</option><option>Open</option><option>Marked fixed by maintainer</option><option>Still happening</option></select>
-            <button class="c-secondary" type="button">Lock</button>
-          </div>
+          <form style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-basis:100%;margin-top:8px">
+            <input type="hidden" name="cluster_id" value="mock-cross-save-cluster">
+            <label><span class="count-note" style="display:block;margin-bottom:4px">Lifecycle status</span>
+              <select name="fix_status"><option value="reported">Open</option><option value="fix_claimed" selected>Fix claimed — unverified</option><option value="verified_fixed">Marked fixed by maintainer</option><option value="persists">Still happening</option></select>
+            </label>
+            <button class="c-secondary" type="submit">Lock</button>
+          </form>
           <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear — the lifecycle engine will not touch its status while locked.</p>
         </div>
         <div class="line-item" style="flex-wrap:wrap">
@@ -134,10 +138,18 @@
             <div class="line-item__sub">Locked by you. System would show: Fix claimed — unverified.</div>
           </div>
           <span class="count-note">Maintainer lock</span>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-basis:100%;margin-top:8px">
-            <select><option>Fix claimed — unverified</option><option>Open</option><option>Marked fixed by maintainer</option><option>Still happening</option></select>
-            <button class="c-secondary" type="button">Lock</button>
-            <button class="c-undo" type="button">Clear lock</button>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;flex-basis:100%;margin-top:8px">
+            <form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <input type="hidden" name="cluster_id" value="mock-crashes-cluster">
+              <label><span class="count-note" style="display:block;margin-bottom:4px">Lifecycle status</span>
+                <select name="fix_status"><option value="reported">Open</option><option value="fix_claimed" selected>Fix claimed — unverified</option><option value="verified_fixed">Marked fixed by maintainer</option><option value="persists">Still happening</option></select>
+              </label>
+              <button class="c-secondary" type="submit">Lock</button>
+            </form>
+            <form>
+              <input type="hidden" name="cluster_id" value="mock-crashes-cluster">
+              <button class="c-undo" type="submit">Clear lock</button>
+            </form>
           </div>
           <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear — the lifecycle engine will not touch its status while locked.</p>
         </div>
@@ -156,29 +168,56 @@
             <div class="line-item__title">Cross Save crashes when loading save from main menu, requires PS Plus?</div>
             <div class="line-item__sub"><span class="rule-tag" style="color:var(--amber)">FORCED PUBLIC · LIVE</span> · Held public while duplicate reports are merged · changed 7/23/2026</div>
           </div>
-          <button class="c-undo" type="button">Reset to automatic</button>
+          <form>
+            <input type="hidden" name="cluster_id" value="mock-cross-save-cluster">
+            <input type="hidden" name="visibility" value="auto">
+            <button class="c-undo" type="submit">Reset to automatic</button>
+          </form>
         </div>
         <div class="line-item">
           <div class="line-item__main">
             <div class="line-item__title">Since the 1.14.00 patch, constant graphics glitches on Xbox</div>
             <div class="line-item__sub"><span class="rule-tag" style="color:var(--amber)">FORCED HIDDEN · HIDDEN</span> · Existing override created before reason tracking · changed 7/23/2026</div>
           </div>
-          <button class="c-undo" type="button">Reset to automatic</button>
+          <form>
+            <input type="hidden" name="cluster_id" value="mock-graphics-cluster">
+            <input type="hidden" name="visibility" value="auto">
+            <button class="c-undo" type="submit">Reset to automatic</button>
+          </form>
         </div>
 
         <div class="breakglass">
           <p class="breakglass__label">Break-glass · Create a new override</p>
           <p class="op-note" style="margin:8px 0 10px">Search engine-owned issues by title. Forcing visibility changes the public Issue Board immediately.</p>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-            <input type="search" placeholder="Issue title (2+ characters)" style="min-width:240px">
-            <select><option>Force hidden</option><option>Force public</option></select>
-            <input type="text" placeholder="Why are you overriding the engine?" style="flex:1;min-width:220px">
-          </div>
-          <label style="display:flex;gap:8px;align-items:flex-start;margin:10px 0;color:var(--dispatch-dim);font-size:13px">
-            <input type="checkbox" style="width:auto;margin-top:3px">
-            I understand this immediately changes the public Issue Board and stays in force until I reset it.
+          <!-- Production keeps the write behind a two-character search gate,
+               caps results at eight, and exposes the form only after the
+               operator opens one identified engine-owned result. -->
+          <label><span class="count-note" style="display:block;margin-bottom:4px">Issue title</span>
+            <input type="search" value="FPS" minlength="2" placeholder="Search issue title" style="min-width:240px">
           </label>
-          <button class="c-breakglass" type="button">Apply break-glass override</button>
+          <p class="op-note" role="status" style="margin:8px 0">1 matching issue · showing at most 8</p>
+          <details open style="border-top:1px solid var(--rule-soft);padding-top:10px">
+            <summary style="display:flex;justify-content:space-between;gap:12px;cursor:pointer">
+              <span>FPS / performance regression since 1.13.00</span>
+              <span class="count-note">PUBLIC · ENGINE OWNED · Override…</span>
+            </summary>
+            <form style="margin-top:12px">
+              <input type="hidden" name="cluster_id" value="mock-fps-regression-cluster">
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                <label><span class="count-note" style="display:block;margin-bottom:4px">Temporary visibility</span>
+                  <select name="visibility"><option value="force_hidden">Force hidden</option><option value="force_public">Force public</option></select>
+                </label>
+                <label style="flex:1;min-width:220px"><span class="count-note" style="display:block;margin-bottom:4px">Why are you overriding the engine?</span>
+                  <textarea name="reason" minlength="3" maxlength="500" required style="width:100%"></textarea>
+                </label>
+              </div>
+              <label style="display:flex;gap:8px;align-items:flex-start;margin:10px 0;color:var(--dispatch-dim);font-size:13px">
+                <input type="checkbox" name="confirm_override" value="true" required style="width:auto;margin-top:3px">
+                I understand this immediately changes the public Issue Board and stays in force until I reset it.
+              </label>
+              <button class="c-breakglass" type="submit">Apply break-glass override</button>
+            </form>
+          </details>
         </div>
       </div>
     </details>

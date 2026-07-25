@@ -68,18 +68,20 @@ states all three limits: forgetting never restores the candidate, never deletes
 the rescued lead, never refunds spend. Cost language is likewise fixed: both
 scan runs "spend real search credits and LLM calls — a test run only suppresses
 public changes. Neither run is reversible"; Keep as relevant "spends an LLM
-call, creates a private lead, and records a scanner lesson" (always "creates",
-never "publishes" — the lead is private). The same consequence, pending,
-success, failure, disabled, and reversal wording applies to equivalent controls
-on every page.
+call, creates a rescued lead, and records a scanner lesson." The signal is
+inserted private, then normal evidence and override rules recompute its final
+visibility. Always say "creates"; never imply that the lesson itself publishes
+the lead. The same consequence, pending, success, failure, disabled, and
+reversal wording applies to equivalent controls on every page.
 
 Degraded state, pre-migration: when scanner learning is unavailable
 (`feedbackLearningAvailable` false, or the decision RPC is missing on a rolling
 deploy), Keep stays available — that asymmetry is deliberate — but the rescue
 records no lesson. Its scope line must then read: "Keep spends an LLM call and
-creates a private lead. Scanner learning is unavailable until the schema
-update, so this rescue records no lesson to forget." Never promise a lesson, or
-a Forget path, that the degraded state cannot produce.
+creates a rescued lead; normal evidence rules determine its visibility. Scanner
+learning is unavailable until the schema update, so this rescue records no
+lesson to forget." Never promise a lesson, or a Forget path, that the degraded
+state cannot produce.
 
 **Export CSV (locked).** The utility control reads `Export CSV…` and opens
 a confirm step that names the payload — the complete private report table,
@@ -107,7 +109,7 @@ Scanner sections → one page + local section nav (no route changes).
 
 **Retire as verified dead — settled 2026-07-25, delete during Phase 4
 implementation:** `/admin/source-monitor`
-stub and the six `revalidatePath("/admin/source-monitor")` calls (risk #20,
+stub and the seven `revalidatePath("/admin/source-monitor")` calls (risk #20,
 gap #13); `runRedditMonitor` (risk #23); `RejectedArchive` + the
 `rescueRejectedCandidate` compat action (risk #21; its unit and auth tests
 retire with it); `setAutomationPaused` (risk #22, unwired duplicate); the hidden
