@@ -1350,7 +1350,10 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 /* The source's own bracket tag ("[PS5] …") as an overline above the quote —
    designed metadata instead of data spill in the serif. One register below
    the group label (lighter weight and ink) so a tagged row opening a group
-   never reads as a two-line section heading. */
+   never reads as a two-line section heading. A tag may reach the splitter's
+   40-character limit with no space to break at, which at 320px is wider than
+   the column: `anywhere` (not `break-word`) is what shrinks the grid track's
+   min-content too, so the chip wraps instead of pushing the page sideways. */
 .claim-tag {
   display: block;
   font-family: var(--font-mono);
@@ -1361,6 +1364,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   text-transform: uppercase;
   color: var(--dispatch-muted);
   margin-bottom: 7px;
+  overflow-wrap: anywhere;
 }
 
 .claim-row__verdict { display: flex; flex-direction: column; gap: 10px; min-width: 0; }

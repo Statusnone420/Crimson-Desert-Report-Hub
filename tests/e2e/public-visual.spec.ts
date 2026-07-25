@@ -635,6 +635,14 @@ test.describe("public surface visual regression", () => {
       );
 
       await expectHealthyPage(page, problems);
+
+      // The longest tag the splitter accepts is 40 characters, and nothing
+      // guarantees a space to break at. Those glyphs are wider than the 320px
+      // column, so the chip has to wrap rather than push the page sideways.
+      await visibleClaimRow.locator(".claim-tag").evaluate((element) => {
+        element.textContent = "OongkaDamianeKhaleedRustyGauntletBossFix";
+      });
+      await expectHealthyPage(page, problems);
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
