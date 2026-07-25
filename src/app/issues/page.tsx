@@ -45,6 +45,11 @@ export default async function IssuesPage() {
   const watchlist = clusters.filter((cluster) => !needsFullIssueCard(cluster));
   const { candidates, monitored } = splitWatchlistByCandidates(watchlist);
   const stillHappening = clusters.filter((cluster) => cluster.readout.state === "still_happening").length;
+  // Watched is the whole public set: published entries plus the watchlist
+  // remainder, and the two always sum to it. It has never been patch-scoped
+  // though the page kicker names a patch, so the caption says so wherever the
+  // number is read — desktop band and mobile statline alike.
+  const watchedCaption = `${active.length} published + ${watchlist.length} on the watchlist · every patch, not just ${currentPatch.version}`;
 
   // Entry treatment by evidence weight: the first full entry leads at the
   // largest scale; entries with an active claim poll get the claim-verdict
@@ -59,11 +64,11 @@ export default async function IssuesPage() {
     const category = (
       CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category
     ).toUpperCase();
-    const metaParts = [`${cluster.directReportCount} REPORTS`];
+    const metaParts = [`${cluster.directReportCount} REPORT${cluster.directReportCount === 1 ? "" : "S"}`];
     if (cluster.signalCount > 0) {
       metaParts.push(`${cluster.signalCount} SOURCE LINK${cluster.signalCount === 1 ? "" : "S"}`);
     }
-    metaParts.push(`${cluster.confirmations.totalCount} TAPS`);
+    metaParts.push(`${cluster.confirmations.totalCount} TAP${cluster.confirmations.totalCount === 1 ? "" : "S"}`);
     return (
       <div className={`status-line status-line--${tone}`}>
         <span className="status-line__dot" aria-hidden="true" />
@@ -102,7 +107,7 @@ export default async function IssuesPage() {
               />
             </div>
             <span className="platform-meter__count">
-              {row.reports} rpt · {row.confirms} confirm
+              {row.reports} rpt · {row.confirms} tap
             </span>
           </div>
         ))}
@@ -169,17 +174,19 @@ export default async function IssuesPage() {
 
   function linksRail({ cluster }: { cluster: (typeof clusters)[number] }) {
     const signals = signalsByCluster[cluster.id] ?? [];
+    const shownSignals = Math.min(signals.length, 3);
+    const railLabel = `Link${shownSignals === 1 ? "" : "s"} seen in the wild`;
     return (
       <div className="issue-rail">
         {signals.length > 0 ? (
           <>
             <div className="dispatch-desktop-only">
-              <div className="issue-rail__label">Links seen in the wild</div>
+              <div className="issue-rail__label">{railLabel}</div>
               {signalRailItems({ cluster })}
             </div>
             <details className="issue-rail__details dispatch-mobile-only">
               <summary>
-                Links seen in the wild · {Math.min(signals.length, 3)} ▾
+                {railLabel} · {shownSignals} ▾
               </summary>
               {signalRailItems({ cluster })}
             </details>
@@ -234,7 +241,7 @@ export default async function IssuesPage() {
           <Link href="/about" className="dispatch-link">
             read the method
           </Link>
-          . Source candidates stay private until they are corroborated.
+          . Leads stay private until they are corroborated.
         </p>
         <div className="flex flex-wrap items-center gap-4">
           <Link href="/report" className="dispatch-btn">
@@ -372,7 +379,7 @@ export default async function IssuesPage() {
             <h1 className="dispatch-pagehead__title">What players are reporting</h1>
             <p className="dispatch-pagehead__dek">
               Every count below is a report or tap someone actually sent — the board never fills in blanks.
-              Entries need player evidence, a signal, or a published lead; the radar tracks more in
+              Entries need player evidence, a signal, or a public link; the radar tracks more in
               aggregate on{" "}
               <Link href="/scanner" className="dispatch-link">
                 the Observatory
@@ -382,11 +389,13 @@ export default async function IssuesPage() {
             <p className="issues-statline dispatch-mobile-only">
               {clusters.length} watched · {evidenceBacked.length} with reports · {stillHappening} still happening
             </p>
+            <p className="issues-statline dispatch-mobile-only">{watchedCaption}</p>
           </div>
           <div className="stat-band stat-band--inline dispatch-desktop-only" aria-label="Issue board summary">
             <div className="stat-band__cell">
               <div className="stat-band__label">Watched</div>
               <div className="stat-band__value">{clusters.length}</div>
+              <div className="stat-band__caption">{watchedCaption}</div>
             </div>
             <div className="stat-band__cell">
               <div className="stat-band__label">With reports</div>

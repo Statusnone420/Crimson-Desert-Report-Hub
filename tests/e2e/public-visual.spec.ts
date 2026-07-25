@@ -395,10 +395,10 @@ test.describe("public surface visual regression", () => {
     // 01 · Patch Pulse: diverging chart — evidence above the axis, radar
     // intelligence below, four separately labeled series plus text restatement.
     await expect(page.getByText("01 · Patch Pulse")).toBeVisible();
-    await expect(page.getByRole("img", { name: /Daily activity across \d+ days/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /Daily activity across \d+ days?/ })).toBeVisible();
     await expect(page.getByText("structured reports", { exact: true })).toBeVisible();
-    await expect(page.getByText("one-tap confirmations", { exact: true })).toBeVisible();
-    await expect(page.getByText("new kept leads", { exact: true })).toBeVisible();
+    await expect(page.getByText("player taps", { exact: true })).toBeVisible();
+    await expect(page.getByText("new leads", { exact: true })).toBeVisible();
     await expect(page.getByText("re-observations", { exact: true })).toBeVisible();
     const pulseData = page.locator('table[aria-label^="Daily activity by day"]');
     await expect(pulseData).toHaveCount(1);
@@ -412,7 +412,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Re-observations · 7d")).toBeVisible();
     await expect(page.getByText("Public-source intelligence, counted in aggregate. Never player evidence.")).toBeVisible();
     // The radar screen: polar working-set field, position first, hues redundant.
-    await expect(page.getByRole("img", { name: /Radar screen: \d+ tracked leads/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /Radar screen: \d+ tracked leads?/ })).toBeVisible();
     await expect(page.getByText(/Recency from center: latest scan/i)).toBeVisible();
     await expect(page.locator(".radar-screen text").filter({ hasText: "TRACKED" })).toHaveCount(0);
     await expect(page.locator('.radar-screen [data-recency-band="under_6h"]').first()).toBeVisible();
@@ -431,7 +431,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByRole("link", { name: /All \d+ published issues →/ })).toHaveAttribute("href", "/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Map-open crash persists after fix" })).toBeVisible();
-    await expect(page.getByText(/\d+ rpt · \d+ confirm/).first()).toBeVisible();
+    await expect(page.getByText(/\d+ rpt · \d+ tap/).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Happening to me/ })).toBeVisible();
     // Claims record: verbatim official text; verdicts only where the data ties them.
     await expect(page.locator("#claims").getByText(/^\d{2} · The Claims Record$/)).toBeVisible();
@@ -482,7 +482,7 @@ test.describe("public surface visual regression", () => {
     await expect(page.locator("#claims")).not.toContainText("[PS5]");
     // From the wire: dated coverage only, dated by the SOURCE, never by the scanner.
     await expect(page.locator("#wire").getByText(/^\d{2} · From The Wire$/)).toBeVisible();
-    await expect(page.getByText("Reviewed coverage on 1.13.01, dated by the source.")).toBeVisible();
+    await expect(page.getByText("Vetted coverage on 1.13.01, dated by the source.")).toBeVisible();
     await expect(
       page.getByText("Crimson Desert 1.13.01 hotfix tested: smoother, but not settled"),
     ).toBeVisible();
@@ -559,7 +559,7 @@ test.describe("public surface visual regression", () => {
       return {
         captionFontSize: Number.parseFloat(getComputedStyle(caption).fontSize),
         captionTransform: getComputedStyle(caption).textTransform,
-        claimClockTransform: getComputedStyle(claimsIntro).textTransform,
+        claimsIntroTransform: getComputedStyle(claimsIntro).textTransform,
         // The #claims .verdict-clock override must keep row clocks and the
         // quiet marker out of uppercase mono shouting.
         rowClockTransform: getComputedStyle(rowClock).textTransform,
@@ -576,7 +576,7 @@ test.describe("public surface visual regression", () => {
     expect(desktopLayout?.sectionHeight ?? Number.POSITIVE_INFINITY).toBeLessThan(1_100);
     expect(desktopLayout?.captionFontSize ?? 0).toBeGreaterThanOrEqual(11);
     expect(desktopLayout?.captionTransform).toBe("none");
-    expect(desktopLayout?.claimClockTransform).toBe("none");
+    expect(desktopLayout?.claimsIntroTransform).toBe("none");
     expect(desktopLayout?.rowClockTransform).toBe("none");
     await expectHealthyPage(page, problems);
 
@@ -747,7 +747,7 @@ test.describe("public surface visual regression", () => {
 
     await expect(page.getByRole("heading", { name: "What players are reporting" })).toBeVisible();
     await expect(page.getByText(/Issue Board · Patch 1\.13\.01/i)).toBeVisible();
-    const publicLinks = page.getByText("Links seen in the wild");
+    const publicLinks = page.getByText(/Links? seen in the wild/);
     if ((await publicLinks.count()) > 0) {
       // Below 900px the links rail sits behind a disclosure; open it first.
       const disclosure = page.locator("details.issue-rail__details summary").first();
@@ -761,7 +761,7 @@ test.describe("public surface visual regression", () => {
       // Public entries never wear confidence chrome — that authority theater is gone.
       await expect(page.getByText("High confidence")).toHaveCount(0);
     } else {
-      await expect(page.getByText(/Source candidates stay private until they are corroborated/)).toBeVisible();
+      await expect(page.getByText(/Leads stay private until they are corroborated/)).toBeVisible();
       await expect(page.getByRole("link", { name: "Scanner funnel" })).toHaveAttribute("href", "/scanner");
       await expect(page.getByRole("link", { name: "File a report" })).toHaveAttribute("href", "/report");
     }
@@ -775,8 +775,8 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("A cluster earns its full section", { exact: false })).toHaveCount(0);
     await expect(page.getByText("Seeing one of these? Report it", { exact: true })).toHaveCount(0);
     // The collapsed monitored line, when watchlist seeds exist, is a single muted
-    // line — never a per-seed card. It reads "Monitoring N more known problem …".
-    const monitoredLine = page.getByText(/Monitoring \d+ more known problem area/);
+    // line — never a per-seed card. It reads "Monitoring N more on the watchlist …".
+    const monitoredLine = page.getByText(/Monitoring \d+ more on the watchlist/);
     if ((await monitoredLine.count()) > 0) {
       await expect(monitoredLine.first()).toBeVisible();
     }
@@ -878,7 +878,7 @@ test.describe("public surface visual regression", () => {
     // Flow and stock never share a row: the week's partition must visibly add
     // up in the bar, and the working set carries explicit units.
     await expect(page.getByText("This week · the candidate flow")).toBeVisible();
-    await expect(page.getByText(/\d+ candidates reviewed in the last 7 days/)).toBeVisible();
+    await expect(page.getByText(/\d+ candidates? reviewed in the last 7 days/)).toBeVisible();
     await expect(page.getByText("Right now · the working set")).toBeVisible();
     await expect(page.getByText("Tracked leads", { exact: true })).toBeVisible();
     await expect(page.getByText("Problem areas", { exact: true })).toBeVisible();

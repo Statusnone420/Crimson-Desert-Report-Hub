@@ -336,8 +336,8 @@ export function PlatformPulseCards({
               <CollectingHistory lane="review" snapshotCount={steamHistory.snapshotCount} />
             )}
             <p className="context-card__note">
-              Latest sample screened {latestSteam.reviewsScanned} changed reviews, found {latestSteam.issueLanguageCount} with issue language,
-              and retained {latestSteam.leadsRetained} private radar {latestSteam.leadsRetained === 1 ? "lead" : "leads"}. Review text is not counted as a player report.
+              Latest sample screened {latestSteam.reviewsScanned} changed {latestSteam.reviewsScanned === 1 ? "review" : "reviews"}, found {latestSteam.issueLanguageCount} with issue language,
+              and kept {latestSteam.leadsRetained} private radar {latestSteam.leadsRetained === 1 ? "lead" : "leads"}. Review text is not counted as a player report.
             </p>
           </article>
         ) : null}

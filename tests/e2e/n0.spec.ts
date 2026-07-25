@@ -6,7 +6,9 @@ test("all public surfaces remain complete and calm with zero community input", a
   // The lead stays useful at N=0, while the pulse states that quiet is a real
   // reading instead of turning the empty database into the headline.
   await expect(page.getByText(/Patch .* is live\. Here’s what changed and what to watch\./)).toBeVisible();
-  await expect(page.getByText("No player signals filed yet this patch. A quiet board is a real reading.")).toBeVisible();
+  await expect(
+    page.getByText("No player reports or taps filed yet this patch. A quiet board is a real reading."),
+  ).toBeVisible();
   await expect(page.getByText(/No published issues yet for/)).toBeVisible();
   await expect(page.getByText(/be the first|waiting on the community|players testing|until a player report/i)).toHaveCount(0);
   // Modules with nothing to say close ranks instead of rendering empty shells.

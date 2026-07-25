@@ -135,6 +135,8 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
   const radarActive = radar !== null && radar.newLeads7d + radar.reobservations7d > 0;
   const radarLed = quiet && radarActive;
 
+  // No surface renders `headline` or `dek` today — the homepage builds its own hero
+  // copy inline, so the sentences composed below reach the tests only.
   const trendHeadline: Record<BriefTrend, string> = {
     quiet: radarLed
       ? `The board is quiet on ${input.patchVersion} — the radar isn't.`
@@ -171,14 +173,14 @@ export function composeDispatchBrief(input: DispatchBriefInput): DispatchBrief {
     trend === "quiet"
       ? radarLed
         ? "Player evidence is quiet; the radar is still finding public chatter. The two never mix."
-        : "No player signals filed yet this patch. A quiet board is a real reading."
+        : "No player reports or taps filed yet this patch. A quiet board is a real reading."
       : weeklyComparisonState === "in_progress"
         ? "The first week is still in progress — no launch-week comparison yet."
       : trend === "easing"
-        ? "Signal is easing — weekly report volume is below the launch week."
+        ? "Reports are easing — weekly volume is below the launch week."
         : trend === "rising"
-          ? "Signal is rising — weekly report volume is above the launch week."
-          : "Signal is flat — weekly report volume is holding at the launch-week level.";
+          ? "Reports are rising — weekly volume is above the launch week."
+          : "Reports are flat — weekly volume is holding at the launch-week level.";
 
   return {
     kicker,
@@ -207,7 +209,7 @@ export function weeklyDeltaSentence(
   brief: Pick<DispatchBrief, "weeklyDeltaPct" | "trend" | "weeklyComparisonState">,
 ): string {
   if (brief.weeklyComparisonState === "in_progress") {
-    return "Launch-week comparison starts after seven days of signal.";
+    return "Launch-week comparison starts after seven days of reports.";
   }
   if (brief.weeklyDeltaPct === null) {
     return "Reports this week; the launch week had none to compare against.";

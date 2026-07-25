@@ -127,6 +127,8 @@ describe("homepage independent-register outages", () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
     expect(markup).toContain('<div class="pulse-stat__value">3</div>');
-    expect(markup).toContain("Public leads kept by the radar this week, out of 9 reviewed.");
+    expect(markup).toContain(
+      "Public leads kept by the radar this week, out of 9 candidates reviewed in the same week.",
+    );
   });
 });

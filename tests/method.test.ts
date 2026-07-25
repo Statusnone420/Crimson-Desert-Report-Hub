@@ -56,8 +56,12 @@ describe("method reference", () => {
 
   it("stays a short answer sheet, not a reference manual", () => {
     // The detail belongs in the public repo. This ceiling is the guardrail
-    // that keeps the page from drifting back into an essay.
-    expect(proseLength(aboutSource)).toBeLessThan(3600);
+    // that keeps the page from drifting back into an essay. Raised once, in
+    // Phase 3b, to seat the number-word glossary: locking a public vocabulary
+    // without a glossary would leave defined words with nowhere to look them
+    // up. The headroom stays deliberately thin so the next addition argues
+    // for itself too.
+    expect(proseLength(aboutSource)).toBeLessThan(3900);
     expect(aboutSource).toMatch(/docs\/wiki\//);
   });
 
