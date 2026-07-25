@@ -59,6 +59,26 @@ function officialHost(url: string): string {
   }
 }
 
+/**
+ * The source prefixes some fix lines with a bracket tag ("[PS5] Fixed…",
+ * "[Oongka/Damiane] Fixed…"). Only a single leading tag of 40 chars or fewer
+ * splits, and only when quote text remains and that remainder doesn't open
+ * with another bracket — a half-split would put the removed data spill right
+ * back at the head of the quote. Anything unhandled renders verbatim. The
+ * chip repeats the tag's own characters; the bracket punctuation is the only
+ * thing not shown.
+ */
+const CLAIM_TAG_PATTERN = /^\[([^\[\]]{1,40})\]\s*([\s\S]+)$/;
+
+function splitClaimTag(fixText: string): { tag: string; quote: string } | null {
+  const match = CLAIM_TAG_PATTERN.exec(fixText);
+  if (!match) return null;
+  const tag = match[1].trim();
+  const quote = match[2].trim();
+  if (!tag || !quote || quote.startsWith("[")) return null;
+  return { tag, quote };
+}
+
 function nextCheckLabel(iso: string): string {
   if (new Date(iso).getTime() <= Date.now()) return "Next check eligible now";
   return `Next eligible check ${relativeTimeShort(iso)}`;
@@ -1021,6 +1041,7 @@ export default async function DispatchHomePage() {
                   <h3 className="claim-group__label dispatch-desktop-only">{group.section}</h3>
                 ) : null}
                 {group.rows.map((row, rowIndex) => {
+                  const taggedClaim = splitClaimTag(row.claim.fixText);
                   return (
                     <div
                       key={`${row.claim.fixText}-${groupIndex}-${rowIndex}`}
@@ -1028,7 +1049,10 @@ export default async function DispatchHomePage() {
                         mobileClaimRow && row === mobileClaimRow ? "claim-row" : "claim-row claim-row--overflow"
                       }
                     >
-                      <blockquote className="claim-row__quote">&ldquo;{row.claim.fixText}&rdquo;</blockquote>
+                      <blockquote className="claim-row__quote">
+                        {taggedClaim ? <span className="claim-tag">{taggedClaim.tag}</span> : null}
+                        &ldquo;{taggedClaim ? taggedClaim.quote : row.claim.fixText}&rdquo;
+                      </blockquote>
                       <div className="claim-row__verdict">
                         {row.poll && row.poll.fixedCount + row.poll.stillCount > 0 ? (
                           verdictSplit(row.poll, verdictNote(row.poll))

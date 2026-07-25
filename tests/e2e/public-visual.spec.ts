@@ -473,6 +473,13 @@ test.describe("public surface visual regression", () => {
     // Lead-band counts speak the stored register; the cap line above is the
     // one surface that discloses the larger source total.
     await expect(page.getByText("Pearl Abyss lists 2 claimed fixes.")).toBeVisible();
+    // The source's bracket tag renders as an overline chip: tag characters
+    // above the quote, no bracket punctuation, untagged rows chip-free.
+    const claimTags = page.locator("#claims .claim-tag");
+    await expect(claimTags).toHaveCount(1);
+    await expect(claimTags.first()).toHaveText("PS5");
+    await expect(claimTags.first()).toBeVisible();
+    await expect(page.locator("#claims")).not.toContainText("[PS5]");
     // From the wire: dated coverage only, dated by the SOURCE, never by the scanner.
     await expect(page.locator("#wire").getByText(/^\d{2} · From The Wire$/)).toBeVisible();
     await expect(page.getByText("Reviewed coverage on 1.13.01, dated by the source.")).toBeVisible();
@@ -618,6 +625,10 @@ test.describe("public surface visual regression", () => {
           .first()
           .evaluate((element) => getComputedStyle(element).display),
       ).toBe("none");
+      // The bracket-tag chip is row-local metadata, not group furniture: it
+      // stays with its claim at every width.
+      await expect(visibleClaimRow.locator(".claim-tag")).toHaveText("PS5");
+      await expect(visibleClaimRow.locator(".claim-tag")).toBeVisible();
       const tapBounds = await page.getByRole("button", { name: /Happening to me/ }).boundingBox();
       expect(tapBounds && tapBounds.height >= 44 ? "tall enough" : `too short: ${tapBounds?.height}`).toBe(
         "tall enough",

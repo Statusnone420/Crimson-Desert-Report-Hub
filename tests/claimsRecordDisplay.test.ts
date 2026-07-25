@@ -574,3 +574,166 @@ describe("claims record section grouping and truncation honesty", () => {
     expect(markup).toContain("Pearl Abyss lists 2 claimed fixes.");
   });
 });
+
+/**
+ * Official bracket tags ("[PS5] Fixed…") render as a style-C overline chip:
+ * the tag's characters above the quote, the remainder inside it. Anything
+ * that is not exactly one leading short tag renders verbatim — the record
+ * never invents metadata the source didn't write.
+ */
+describe("claims record bracket-tag chips", () => {
+  beforeEach(() => {
+    mocks.getDailySignalRollup.mockResolvedValue(null);
+    mocks.getPublicScannerData.mockResolvedValue({
+      reviewedThisWeek: 9,
+      keptThisWeek: 3,
+      published: 1,
+      steamPulse: [],
+      platformContext: null,
+      pulseReadFailures: [],
+    });
+    mocks.getPatchRadarData.mockResolvedValue({
+      connected: false,
+      daily: [],
+      categories: [],
+      weekly: [],
+      recurrence: [],
+      recurring: { trackedLeads: 0 },
+    });
+  });
+
+  it("splits a leading bracket tag into an overline chip above the quote", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          {
+            fixText: "[Oongka/Damiane] Fixed an issue where the lock status of equipped gear would not be saved.",
+            category: null,
+            section: "Content",
+          },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(count(markup, 'class="claim-tag"')).toBe(1);
+    expect(markup).toContain('<span class="claim-tag">Oongka/Damiane</span>');
+    // The quote keeps the remainder verbatim; the raw bracket text is gone.
+    expect(markup).toContain("Fixed an issue where the lock status of equipped gear would not be saved.");
+    expect(markup).not.toContain("[Oongka/Damiane]");
+  });
+
+  it("renders untagged rows exactly as before", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          { fixText: "Fixed an issue where crops stopped growing.", category: null, section: "Content" },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(count(markup, "claim-tag")).toBe(0);
+    expect(markup).toContain("Fixed an issue where crops stopped growing.");
+  });
+
+  it("chips only the leading tag — mid-quote brackets stay in the quote", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          {
+            fixText: "[PS5] Fixed an issue where the [Interact] prompt would not appear.",
+            category: null,
+            section: "Controls",
+          },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(markup).toContain('<span class="claim-tag">PS5</span>');
+    expect(markup).toContain("Fixed an issue where the [Interact] prompt would not appear.");
+  });
+
+  it("never chips an over-long, empty, or nested-bracket prefix", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          {
+            fixText:
+              "[This bracketed preamble runs far past the forty character tag limit] Fixed an issue with saving.",
+            category: null,
+            section: null,
+          },
+          { fixText: "[] Fixed an issue where empty tags appeared.", category: null, section: null },
+          { fixText: "[A [nested] tag] Fixed an issue with brackets.", category: null, section: null },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    // All three render verbatim, brackets and all — no chip is invented.
+    expect(count(markup, "claim-tag")).toBe(0);
+    expect(markup).toContain(
+      "[This bracketed preamble runs far past the forty character tag limit] Fixed an issue with saving.",
+    );
+    expect(markup).toContain("[] Fixed an issue where empty tags appeared.");
+    expect(markup).toContain("[A [nested] tag] Fixed an issue with brackets.");
+  });
+
+  it("never chips a tag that has no quote text after it", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [{ fixText: "[Only a tag and nothing else]", category: null, section: null }],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(count(markup, "claim-tag")).toBe(0);
+    expect(markup).toContain("[Only a tag and nothing else]");
+  });
+
+  it("renders a double leading tag fully verbatim instead of half-splitting", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          { fixText: "[PS5] [Xbox] Fixed a double-tag line in certain situations.", category: null, section: null },
+          { fixText: "[PS5] [Xbox]", category: null, section: null },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    // A half-split would chip "PS5" and put raw "[Xbox]" back at the head of
+    // the quote — the exact spill the chip removes. Verbatim instead.
+    expect(count(markup, "claim-tag")).toBe(0);
+    expect(markup).toContain("[PS5] [Xbox] Fixed a double-tag line in certain situations.");
+    expect(markup).toContain("[PS5] [Xbox]");
+  });
+
+  it("never chips a whitespace-only tag or a whitespace-only remainder", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          // The regex alone accepts both of these; only the trim guards
+          // reject them. Without the guards the first renders an empty
+          // overline chip and the second a chip over an empty quote.
+          { fixText: "[ ] Fixed an issue where whitespace tags appeared.", category: null, section: null },
+          { fixText: "[PS5]   ", category: null, section: null },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(count(markup, "claim-tag")).toBe(0);
+    expect(markup).toContain("[ ] Fixed an issue where whitespace tags appeared.");
+    expect(markup).toContain("[PS5]");
+  });
+});
