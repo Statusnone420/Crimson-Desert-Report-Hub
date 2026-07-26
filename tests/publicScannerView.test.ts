@@ -72,6 +72,15 @@ describe("PublicScannerView with a failed scoreboard read", () => {
     expect(markup).toContain('<div class="stat-band__value stat-band__value--crimson">7</div>');
   });
 
+  it("does not report an empty run history when the heartbeat read failed", () => {
+    const markup = render({ ...scoreboard, scannerConnected: false, readFailures: ["heartbeat"] });
+
+    expect(markup).not.toContain("No runs recorded");
+    expect(markup).toContain("Last check unavailable");
+    // The scheduler state comes from the settings read, which succeeded.
+    expect(markup).toContain("Scanner paused");
+  });
+
   it("only calls the whole view offline when every register failed", () => {
     const partial = render({ ...scoreboard, scannerConnected: false, readFailures: ["published"] });
     const total = render({

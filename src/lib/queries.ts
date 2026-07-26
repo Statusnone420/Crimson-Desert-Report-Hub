@@ -1017,22 +1017,28 @@ async function getIssuesDataUncached() {
 
   const supabase = createServiceClient();
 
-  const { data: clusterData } = await supabase
+  // These three reads have always degraded to an empty board rather than
+  // throwing, and changing that would alter how /issues and the homepage
+  // behave. Instead the failure is reported alongside the data, so a caller
+  // that must not publish an unread count — the scanner scoreboard's
+  // `published` register — can tell "no public clusters" from "could not read".
+  const { data: clusterData, error: clusterError } = await supabase
     .from("issue_clusters")
     .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public")
     .eq("is_public", true);
 
-  const { data: reports } = await supabase
+  const { data: reports, error: reportsError } = await supabase
     .from("bug_reports")
     .select("cluster_id, platform, patch_version, created_at")
     .eq("moderation_status", "approved");
   const reportRows = (reports ?? []) as DashboardReportRow[];
 
-  const { data: signals } = await supabase
+  const { data: signals, error: signalsError } = await supabase
     .from("source_signals")
     .select("id, cluster_id, source, source_url, title, summary, category, confidence, observed_at, source_published_at, public_status")
     .eq("public_status", "public")
     .order("observed_at", { ascending: false });
+  const boardReadFailed = Boolean(clusterError || reportsError || signalsError);
   const currentPatch = await getCurrentPatchMetadata(supabase);
   const signalRows = filterPublicCurrentPatchSignals((signals ?? []) as SignalRow[], currentPatch);
   const currentReportRows = filterPatchFamilyReports(reportRows, currentPatch);
@@ -1082,7 +1088,7 @@ async function getIssuesDataUncached() {
 
   const excerptsByCluster = await readExcerptsByClusterForCurrentPatch(supabase, currentPatch);
 
-  return { clusters, excerptsByCluster, signalsByCluster, currentPatch };
+  return { clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed };
 }
 
 export const getIssuesData = unstable_cache(getIssuesDataUncached, ["issues-data"], {
@@ -1659,7 +1665,11 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     // Counting from raw sets here previously disagreed with the board.
     let published = 0;
     try {
-      const { clusters: decoratedClusters } = await getIssuesDataUncached();
+      const { clusters: decoratedClusters, boardReadFailed } = await getIssuesDataUncached();
+      // The board read degrades to empty rather than throwing, so an exception is
+      // not the only way this count can be wrong — an unread board would look
+      // like zero published issues.
+      if (boardReadFailed) throw new Error("issue board read failed");
       published = decoratedClusters.filter(needsFullIssueCard).length;
     } catch {
       failures.add("published");

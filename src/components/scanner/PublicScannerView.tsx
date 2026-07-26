@@ -117,7 +117,14 @@ export function PublicScannerView({
           </span>{" "}
           {schedulerLabel}
           <br />
-          {data.lastCheckedAt ? `Last checked ${timeAgo(data.lastCheckedAt)}` : "No runs recorded"}
+          {/* `null` here means two different things: the run history is empty, or
+              its read failed. Only the register can tell them apart, and "no runs
+              recorded" is a claim about the scanner rather than about the read. */}
+          {registerUnread(data.readFailures, "heartbeat")
+            ? "Last check unavailable"
+            : data.lastCheckedAt
+              ? `Last checked ${timeAgo(data.lastCheckedAt)}`
+              : "No runs recorded"}
         </div>
       </header>
 

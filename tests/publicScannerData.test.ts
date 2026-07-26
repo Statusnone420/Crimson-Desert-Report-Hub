@@ -194,7 +194,7 @@ describe("getPublicScannerData read failures", () => {
     expect(data.readFailures).toEqual(["awaiting"]);
   });
 
-  it("loses only awaiting when the public-signal cluster read fails", async () => {
+  it("fails both registers that depend on the public-signal read", async () => {
     resolveQuery = (trace) =>
       trace.table === "source_signals" && trace.operations.includes("eq:public_status:public")
         ? { data: null, error: denied }
@@ -203,8 +203,24 @@ describe("getPublicScannerData read failures", () => {
 
     const data = await getPublicScannerData();
 
-    expect(data.readFailures).toEqual(["awaiting"]);
+    // One query, two registers: public signals feed both the awaiting split and
+    // the issue board the published count is taken from. The week and heartbeat
+    // registers do not touch it and survive.
+    expect(data.readFailures).toEqual(["awaiting", "published"]);
     expect(data.scannerConnected).toBe(false);
+  });
+
+  it("marks published unavailable when the issue-board read degrades to empty", async () => {
+    // The board read returns empty rather than throwing on a query error, so an
+    // exception is not the only way this count can be wrong.
+    resolveQuery = (trace) =>
+      trace.table === "issue_clusters" ? { data: null, error: denied } : { data: [], error: null };
+    const { getPublicScannerData } = await import("@/lib/queries");
+
+    const data = await getPublicScannerData();
+
+    expect(data.readFailures).toContain("published");
+    expect(data.published).toBe(0);
   });
 
   it("marks every register unavailable when the whole read collapses", async () => {
