@@ -85,6 +85,7 @@ Search scanner feedback, promotion, and admin visibility changes:
 Search callers of new Supabase tables, columns, and RPCs:
 
 - Preserve the pre-migration path until the hosted migration is applied. Fall back only for a narrowly identified missing schema object; permission and other database failures must fail or be explicitly surfaced, never treated as empty success. A PR may add migration SQL, but must not apply it or write hosted data, and preview/dry-run paths must stay no-write.
+- Run migration SQL against the local stack before proposing it: `npm run db:start`, then `npm run db:reset` to rebuild the schema from every migration in order. Migration SQL that has never been executed is not reviewable — say so in the PR rather than arguing its behaviour from the code it mirrors. The local stack is a container on the developer machine; it is never linked to a hosted project, and `supabase db push` stays out of every workflow.
 
 ---
 
