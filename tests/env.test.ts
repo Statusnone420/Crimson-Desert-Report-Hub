@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { APPROVED_AUTOMATION_MODELS } from "@/lib/automation/budget";
 import {
   applyLlmCircuitToStatuses,
   automationBudgetUsd,
@@ -141,7 +142,7 @@ describe("integrationStatuses", () => {
         label: "AI extraction (OpenRouter)",
         connected: true,
         missingEnv: [],
-        detail: "Extracting signals with budget-capped DeepSeek V4 Flash.",
+        detail: "Reads each candidate page for what broke and on which platform. It never decides what gets published.",
       },
     ]);
   });
@@ -162,8 +163,23 @@ describe("integrationStatuses", () => {
     expect(ai).toMatchObject({
       connected: true,
       missingEnv: [],
-      detail: "Extracting signals with budget-capped DeepSeek V4 Flash.",
+      detail: "Reads each candidate page for what broke and on which platform. It never decides what gets published.",
     });
+  });
+
+  it("names no model on the public card, so approving another cannot make it wrong", () => {
+    const ai = integrationStatuses({ OPENROUTER_API_KEY: "o" }).find((s) => s.key === "ai_extraction");
+
+    expect(ai?.detail).not.toMatch(/deepseek|gemini|gpt-oss/i);
+  });
+
+  it("connects for every approved automation model", () => {
+    for (const model of APPROVED_AUTOMATION_MODELS) {
+      const ai = integrationStatuses({ OPENROUTER_API_KEY: "o", OPENROUTER_AUTOMATION_MODEL: model }).find(
+        (s) => s.key === "ai_extraction",
+      );
+      expect(ai).toMatchObject({ connected: true, missingEnv: [] });
+    }
   });
 
   it("reports AI extraction disconnected when the configured automation model is not approved", () => {

@@ -1,5 +1,6 @@
 import { CATEGORIES, PLATFORMS, type Category, type Platform } from "@/lib/constants";
 import {
+  isOpenRouterRoutingRefusal,
   maxOpenRouterRequestCostUsd,
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
   resolveOpenRouterCostUsd,
@@ -36,6 +37,7 @@ export type ExtractionFallbackReason =
   | "openrouter_invalid_json"
   | "openrouter_unexpected_charge"
   | "openrouter_cost_unverified"
+  | "openrouter_no_route"
   | "openrouter_budget_exceeded";
 
 export type ExtractionResult = ExtractedSignal & {
@@ -214,7 +216,11 @@ type AttemptOutcome =
   | { ok: true; signal: ExtractedSignal; costUsd: number }
   | {
       ok: false;
-      reason: "openrouter_provider_failure" | "openrouter_invalid_json" | "openrouter_cost_unverified";
+      reason:
+        | "openrouter_provider_failure"
+        | "openrouter_invalid_json"
+        | "openrouter_cost_unverified"
+        | "openrouter_no_route";
       costUsd: number | null;
     };
 
@@ -264,6 +270,9 @@ async function attemptOpenRouterExtraction(
   if (!response.ok) {
     try {
       const errorData = await response.json();
+      if (isOpenRouterRoutingRefusal(response.status, errorData)) {
+        return { ok: false, reason: "openrouter_no_route", costUsd: 0 };
+      }
       const errorCostUsd = await resolveOpenRouterCostUsd(
         errorData,
         apiKey,
@@ -339,6 +348,11 @@ export async function extractSignalWithOpenRouter(
       // Cost could not be verified, so the books assume the request cost its
       // worst-case ceiling. The run stops calling the LLM; the month does not.
       return deterministicResult(candidate, "openrouter_cost_unverified", callsUsed, costUsd + requestCostCeiling);
+    }
+    if (!outcome.ok && outcome.reason === "openrouter_no_route") {
+      // No provider satisfied the routing filters, so nothing was spent and a
+      // retry would be refused the same way. Stop and say why.
+      return deterministicResult(candidate, "openrouter_no_route", callsUsed, costUsd);
     }
     costUsd += outcome.costUsd;
     if (outcome.costUsd > requestCostCeiling + Number.EPSILON || costUsd > budgetRemainingUsd + Number.EPSILON) {

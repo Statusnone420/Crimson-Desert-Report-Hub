@@ -1,4 +1,5 @@
 import {
+  isOpenRouterRoutingRefusal,
   maxOpenRouterRequestCostUsd,
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
   resolveOpenRouterCostUsd,
@@ -42,7 +43,12 @@ export type ClaimMappingDecision = {
   llmCallsUsed: number;
   llmCostUsd: number;
   extractionModel: string | null;
-  circuitReason?: "openrouter_cost_unverified" | "openrouter_budget_exceeded";
+  /**
+   * A run-level skip this decision should record. The two money reasons also
+   * feed the cost-safety circuit; `openrouter_no_route` deliberately does not —
+   * it exists so the run stops asking a route that has already refused it.
+   */
+  skipReason?: "openrouter_cost_unverified" | "openrouter_budget_exceeded" | "openrouter_no_route";
 };
 
 export type ClaimMappingOptions = {
@@ -261,13 +267,25 @@ export async function mapClaimToClusterWithOpenRouter(
       llmCallsUsed: 1,
       llmCostUsd: requestCostCeiling,
       extractionModel: model,
-      circuitReason: "openrouter_cost_unverified",
+      skipReason: "openrouter_cost_unverified",
     };
   }
 
   if (!response.ok) {
     try {
       const errorData = await response.json();
+      if (isOpenRouterRoutingRefusal(response.status, errorData)) {
+        // No provider matched the routing filters, so nothing was spent. The run
+        // still needs to hear about it: every later claim would be refused the
+        // same way. It is not a circuit reason — the circuit ignores this skip.
+        return {
+          ...fallback("Needs review: no OpenRouter provider matched the scanner's cost and privacy limits."),
+          llmCallsUsed: 1,
+          llmCostUsd: 0,
+          extractionModel: model,
+          skipReason: "openrouter_no_route",
+        };
+      }
       const errorCostUsd = await resolveOpenRouterCostUsd(
         errorData,
         apiKey,
@@ -280,7 +298,7 @@ export async function mapClaimToClusterWithOpenRouter(
             llmCallsUsed: 1,
             llmCostUsd: errorCostUsd,
             extractionModel: model,
-            circuitReason: "openrouter_budget_exceeded",
+            skipReason: "openrouter_budget_exceeded",
           };
         }
         return { ...fallback(), llmCallsUsed: 1, llmCostUsd: errorCostUsd, extractionModel: model };
@@ -293,7 +311,7 @@ export async function mapClaimToClusterWithOpenRouter(
       llmCallsUsed: 1,
       llmCostUsd: requestCostCeiling,
       extractionModel: model,
-      circuitReason: "openrouter_cost_unverified",
+      skipReason: "openrouter_cost_unverified",
     };
   }
 
@@ -306,7 +324,7 @@ export async function mapClaimToClusterWithOpenRouter(
       llmCallsUsed: 1,
       llmCostUsd: requestCostCeiling,
       extractionModel: model,
-      circuitReason: "openrouter_cost_unverified",
+      skipReason: "openrouter_cost_unverified",
     };
   }
 
@@ -321,7 +339,7 @@ export async function mapClaimToClusterWithOpenRouter(
       llmCallsUsed: 1,
       llmCostUsd: requestCostCeiling,
       extractionModel: model,
-      circuitReason: "openrouter_cost_unverified",
+      skipReason: "openrouter_cost_unverified",
     };
   }
   if (costUsd > requestCostCeiling + Number.EPSILON || costUsd > budgetRemainingUsd + Number.EPSILON) {
@@ -330,7 +348,7 @@ export async function mapClaimToClusterWithOpenRouter(
       llmCallsUsed: 1,
       llmCostUsd: costUsd,
       extractionModel: model,
-      circuitReason: "openrouter_budget_exceeded",
+      skipReason: "openrouter_budget_exceeded",
     };
   }
 

@@ -19,7 +19,7 @@ const EASTERN_TIME_ZONE = "America/New_York";
 const SKIP_META: Record<string, MessageMeta> = {
   budget_capped: {
     label: "Budget capped",
-    detail: "The monthly automation budget was reached, so paid DeepSeek work stopped while free maintenance continues.",
+    detail: "The monthly automation budget was reached, so paid extraction stopped while free maintenance continues.",
     summaryLabel: "budget capped",
   },
   budget_read_failed: {
@@ -29,7 +29,7 @@ const SKIP_META: Record<string, MessageMeta> = {
   },
   budget_zero: {
     label: "Budget is zero",
-    detail: "Paid DeepSeek work is disabled by the monthly budget setting.",
+    detail: "Paid extraction is disabled by the monthly budget setting.",
     summaryLabel: "budget zero",
   },
   all_candidates_prefiltered: {
@@ -64,7 +64,7 @@ const SKIP_META: Record<string, MessageMeta> = {
   },
   llm_budget_capped: {
     label: "LLM cap reached",
-    detail: "The scanner reached its monthly DeepSeek cap; deterministic scanning and patch maintenance continue.",
+    detail: "The scanner reached its monthly LLM cap; deterministic scanning and patch maintenance continue.",
     summaryLabel: "LLM cap reached",
   },
   category_other: {
@@ -94,7 +94,7 @@ const SKIP_META: Record<string, MessageMeta> = {
   },
   openrouter_paid_model: {
     label: "OpenRouter model blocked",
-    detail: "The configured automation model was not the approved DeepSeek V4 Flash model, so deterministic extraction was used.",
+    detail: "The configured automation model is not on the approved list, so deterministic extraction was used.",
     summaryLabel: "OpenRouter model blocked",
   },
   openrouter_circuit_open: {
@@ -102,6 +102,12 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail:
       "OpenRouter is paused for safety: an out-of-bounds cost keeps it off for the month, and repeated unverifiable costs keep it off until those failures age out of the last 24 hours.",
     summaryLabel: "OpenRouter safety circuit open",
+  },
+  openrouter_no_route: {
+    label: "No provider matched the limits",
+    detail:
+      "No OpenRouter provider met the scanner's price ceiling, zero-retention rule, and required parameters at once, so nothing was called and deterministic extraction was used. Nothing was spent and the safety circuit is unaffected.",
+    summaryLabel: "no provider matched the limits",
   },
   openrouter_cost_unverified: {
     label: "OpenRouter cost unverified",
