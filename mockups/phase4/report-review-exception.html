@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report review — Phase 4 mockup (exception state)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#" aria-current="page">Report Review</a>
+    <a href="#">Scanner Monitor</a>
+    <a href="#">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button id="export-trigger" class="util-btn" type="button" aria-expanded="false" aria-controls="export-confirm">↓ Export CSV…</button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<!-- Closed export disclosure. Opening removes hidden and sets
+     aria-expanded=true; Download, Cancel, and Escape close it and return focus
+     to #export-trigger. -->
+<div id="export-confirm" class="confirm-strip" role="group" aria-labelledby="export-confirm-title" aria-describedby="export-confirm-detail" hidden>
+  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field review export: private descriptions, repro steps, hardware specs, PERS IDs, evidence URLs, and every moderation state. Submission and deduplication hashes are excluded.</span></span>
+  <a class="c-secondary" href="#">Download CSV</a>
+  <button class="c-quiet" type="button">Cancel</button>
+</div>
+
+<main id="main-content" class="page">
+
+  <!-- 1 · STATUS AND REQUIRED WORK -->
+  <header class="pagehead">
+    <div>
+      <p class="kicker kicker--amber">Operator · Admin controls</p>
+      <h1>Report review</h1>
+      <p class="dek">Report statuses, flagged submissions, and the short list of exceptions that actually need you.</p>
+    </div>
+    <div class="pagehead__meta">Live queue · Refreshes on load</div>
+  </header>
+
+  <div class="stat-band" aria-label="Queue summary">
+    <div>
+      <div class="stat-label">Needs you</div>
+      <div class="stat-value stat-value--crimson">2</div>
+      <div class="stat-caption">1 flagged report · 1 unsure claim match</div>
+    </div>
+    <div>
+      <div class="stat-label">Approved reports</div>
+      <div class="stat-value">1</div>
+      <div class="stat-caption">Currently approved</div>
+    </div>
+    <div>
+      <div class="stat-label">Flagged reports</div>
+      <div class="stat-value stat-value--amber">1</div>
+      <div class="stat-caption">Waiting for your call</div>
+    </div>
+    <div>
+      <div class="stat-label">Spam</div>
+      <div class="stat-value">0</div>
+      <div class="stat-caption">Currently marked spam</div>
+    </div>
+  </div>
+
+  <!-- 2 · PRIMARY TASK -->
+  <section class="skeleton-section" aria-label="Flagged for review">
+    <div class="section-head">
+      <div><p class="kicker">Flagged for review</p></div>
+      <p class="note">Oldest first · showing 1 of 1</p>
+    </div>
+
+    <article class="review-card">
+      <div class="review-card__meta">PS5 Pro · Performance · Major · Every session · patch 1.15.00 · 7/25/2026, 9:12 AM</div>
+      <h3>Cross-save sync stalls at 99% after the 1.15.00 hotfix</h3>
+      <p class="body">Since the hotfix, uploading a save from the pause menu hangs at 99% for about two minutes, then reports success. Loading the same save on PC shows a three-day-old state. Wired connection, PS Plus active, no VPN.</p>
+      <p class="detail">Repro: pause menu → Cross-Save → upload → wait at 99% → check PC client.</p>
+      <p class="detail">Evidence: <a href="#" class="line-item__url">https://youtu.be/mock-cross-save-stall</a></p>
+
+      <form class="decision-row">
+        <input type="hidden" name="id" value="mock-report-cross-save-stall">
+        <label style="margin:0"><span class="count-note" style="display:block;margin-bottom:4px">Cluster</span>
+          <select name="cluster_id"><option value="">No cluster</option><option value="mock-cross-save-cluster" selected>Cross-save sync failures</option><option value="mock-fps-regression-cluster">FPS regression since 1.13</option></select>
+        </label>
+        <label style="flex:1;margin:0"><span class="count-note" style="display:block;margin-bottom:4px">Public excerpt · anonymized · max 500 chars</span>
+          <input type="text" name="excerpt" maxlength="500" value="Cross-save upload hangs at 99%, then PC loads a days-old save.">
+        </label>
+        <button class="c-primary" type="submit" name="decision" value="approved">Approve</button>
+        <button class="c-destructive" type="submit" name="decision" value="rejected">Reject</button>
+        <button class="c-destructive" type="submit" name="decision" value="spam">Spam</button>
+      </form>
+      <div class="decision-scopes">
+        <p class="scope-line"><b>Approve</b> marks the report approved. With a selected cluster, it counts as evidence and normally makes that cluster public on the Issue Board immediately; an active Force hidden override still wins. A non-empty anonymized excerpt is inserted separately afterward. If that insert fails, approval and any resulting public visibility remain committed, the report leaves this queue, and there is no rendered excerpt retry.</p>
+        <p class="scope-line">All three decisions remove the report from the pending queue. The current console does not render a re-open or excerpt-retry control. Reject and Spam also write the cluster selection above.</p>
+      </div>
+      <!-- An excerpt-insert failure is deliberately not rendered here. Today
+           the approval commits first, the action then throws to the global
+           route error boundary, and the typed excerpt is lost. The pending
+           queue cannot render the now-approved report again. Although the
+           exported action has no pending-status guard, re-posting it is not a
+           safe recovery contract: it reruns moderation/visibility and can
+           append another public excerpt. Phase 4 does not invent a retry state
+           while the admin error-boundary gap remains deferred. -->
+    </article>
+  </section>
+
+  <!-- 4 · RECORDS / HISTORY (expanded) -->
+  <section class="skeleton-section ledger" aria-label="Exception ledgers">
+    <div class="section-head">
+      <div><p class="kicker">Records</p></div>
+    </div>
+
+    <details open>
+      <summary>
+        <span class="mono-label">Lifecycle exceptions</span>
+        <span class="ledger-copy">The system decides labels from counts. Only unsure claim matches and your own locks appear here.</span>
+        <span class="ledger-count ledger-count--amber">2 items ›</span>
+      </summary>
+      <div class="ledger-body">
+        <!-- The unsure claim match that Needs you counts: engine-owned, so it
+             offers Lock but no Clear. Locked rows are excluded from the count. -->
+        <div class="line-item" style="flex-wrap:wrap">
+          <div class="line-item__main">
+            <div class="line-item__title">Cross-save sync failures</div>
+            <div class="line-item__sub">Needs review: official notes may claim this fix in 1.15.00 — unsure match.</div>
+          </div>
+          <span class="count-note">Needs review</span>
+          <form style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-basis:100%;margin-top:8px">
+            <input type="hidden" name="cluster_id" value="mock-cross-save-cluster">
+            <label><span class="count-note" style="display:block;margin-bottom:4px">Lifecycle status</span>
+              <select name="fix_status"><option value="reported">Open</option><option value="fix_claimed" selected>Fix claimed — unverified</option><option value="verified_fixed">Marked fixed by maintainer</option><option value="persists">Still happening</option></select>
+            </label>
+            <!-- One explicit SubmitButton pending state: the native disabled
+                 attribute blocks pointer and keyboard activation; aria-busy
+                 and visible pendingText expose the in-flight mutation. -->
+            <button class="c-secondary is-pending" type="submit" disabled aria-busy="true" aria-live="polite">Locking...</button>
+          </form>
+          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> writes the selected lifecycle status, enables the maintainer override, and stores its reason. Fix claimed, Marked fixed, and Still happening also stamp the current patch version and a new claim clock; Open clears both. The lifecycle engine will not change that status until you press Clear lock.</p>
+        </div>
+        <div class="line-item" style="flex-wrap:wrap">
+          <div class="line-item__main">
+            <div class="line-item__title">Crashes and startup hangs</div>
+            <div class="line-item__sub">Locked by you. System would show: Fix claimed — unverified.</div>
+          </div>
+          <span class="count-note">Maintainer lock</span>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;flex-basis:100%;margin-top:8px">
+            <form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <input type="hidden" name="cluster_id" value="mock-crashes-cluster">
+              <label><span class="count-note" style="display:block;margin-bottom:4px">Lifecycle status</span>
+                <select name="fix_status"><option value="reported">Open</option><option value="fix_claimed" selected>Fix claimed — unverified</option><option value="verified_fixed">Marked fixed by maintainer</option><option value="persists">Still happening</option></select>
+              </label>
+              <button class="c-secondary" type="submit">Lock</button>
+            </form>
+            <form>
+              <input type="hidden" name="cluster_id" value="mock-crashes-cluster">
+              <button class="c-undo c-undo--partial" type="submit" aria-label="Clear lifecycle lock" aria-describedby="clear-crashes-lock-effect">Clear lock</button>
+            </form>
+          </div>
+          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> writes the selected lifecycle status, enables the maintainer override, and stores its reason. Fix claimed, Marked fixed, and Still happening also stamp the current patch version and a new claim clock; Open clears both. The lifecycle engine will not change that status until you press Clear lock.</p>
+          <p class="scope-line" id="clear-crashes-lock-effect" style="flex-basis:100%"><b>Clear lock</b> releases engine ownership and clears the stored reason and claim clock. The current lifecycle status remains until the next lifecycle scan.</p>
+        </div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>
+        <span class="mono-label">Visibility overrides</span>
+        <span class="ledger-copy">Only active break-glass changes appear here, each with its reason and a one-click return to engine control.</span>
+        <span class="ledger-count ledger-count--amber">2 active ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div class="line-item" style="flex-wrap:wrap">
+          <div class="line-item__main">
+            <div class="line-item__title">Cross Save crashes when loading save from main menu, requires PS Plus?</div>
+            <div class="line-item__sub"><span class="rule-tag" style="color:var(--amber)">FORCED PUBLIC · LIVE</span> · Held public while duplicate reports are merged · changed 7/23/2026</div>
+          </div>
+          <form>
+            <input type="hidden" name="cluster_id" value="mock-cross-save-cluster">
+            <input type="hidden" name="visibility" value="auto">
+            <button class="c-undo" type="submit" aria-describedby="reset-cross-save-effect">Reset to automatic</button>
+          </form>
+          <p class="scope-line" id="reset-cross-save-effect" style="flex-basis:100%"><b>Reset</b> clears the override reason and timestamp, immediately restores the cluster's saved automatic public baseline, and recomputes every signal's visibility in the same action, so the cluster and its signals may appear on or leave the Issue Board now. If the signal recompute fails, the reset itself is already committed and the failure is raised, not hidden.</p>
+        </div>
+        <div class="line-item" style="flex-wrap:wrap">
+          <div class="line-item__main">
+            <div class="line-item__title">Since the 1.14.00 patch, constant graphics glitches on Xbox</div>
+            <div class="line-item__sub"><span class="rule-tag" style="color:var(--amber)">FORCED HIDDEN · HIDDEN</span> · Existing override created before reason tracking · changed 7/23/2026</div>
+          </div>
+          <form>
+            <input type="hidden" name="cluster_id" value="mock-graphics-cluster">
+            <input type="hidden" name="visibility" value="auto">
+            <button class="c-undo" type="submit" aria-describedby="reset-graphics-effect">Reset to automatic</button>
+          </form>
+          <p class="scope-line" id="reset-graphics-effect" style="flex-basis:100%"><b>Reset</b> clears the override reason and timestamp, immediately restores the cluster's saved automatic public baseline, and recomputes every signal's visibility in the same action, so the cluster and its signals may appear on or leave the Issue Board now. If the signal recompute fails, the reset itself is already committed and the failure is raised, not hidden.</p>
+        </div>
+
+        <div class="breakglass">
+          <p class="breakglass__label">Break-glass · Create a new override</p>
+          <p class="op-note" style="margin:8px 0 10px">Search engine-owned issues by title. Forcing visibility changes the public Issue Board immediately.</p>
+          <!-- Production keeps the write behind a two-character search gate,
+               caps results at eight, and exposes the form only after the
+               operator opens one identified engine-owned result. -->
+          <label><span class="count-note" style="display:block;margin-bottom:4px">Issue title</span>
+            <input type="search" value="FPS" minlength="2" placeholder="Search issue title" style="min-width:240px">
+          </label>
+          <p class="op-note" role="status" style="margin:8px 0">1 matching issue · showing at most 8</p>
+          <details open style="border-top:1px solid var(--rule-soft);padding-top:10px">
+            <summary style="display:flex;justify-content:space-between;gap:12px;cursor:pointer">
+              <span>FPS / performance regression since 1.13.00</span>
+              <span class="count-note">PUBLIC · ENGINE OWNED · Override…</span>
+            </summary>
+            <form style="margin-top:12px">
+              <input type="hidden" name="cluster_id" value="mock-fps-regression-cluster">
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                <label><span class="count-note" style="display:block;margin-bottom:4px">Temporary visibility</span>
+                  <select name="visibility"><option value="force_hidden">Force hidden</option><option value="force_public">Force public</option></select>
+                </label>
+                <label style="flex:1;min-width:220px"><span class="count-note" style="display:block;margin-bottom:4px">Why are you overriding the engine?</span>
+                  <textarea name="reason" minlength="3" maxlength="500" required style="width:100%"></textarea>
+                </label>
+              </div>
+              <label style="display:flex;gap:8px;align-items:flex-start;margin:10px 0;color:var(--dispatch-dim);font-size:13px">
+                <input type="checkbox" name="confirm_override" value="true" required style="width:auto;margin-top:3px">
+                I understand this immediately changes the public Issue Board and stays in force until I reset it.
+              </label>
+              <button class="c-breakglass" type="submit">Apply break-glass override</button>
+            </form>
+          </details>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- 5 · ADVANCED / BREAK-GLASS — always present, including exception state. -->
+  <section class="skeleton-section ledger" aria-label="Break-glass configuration">
+    <div class="section-head">
+      <div><p class="kicker">Break-glass</p></div>
+      <p class="note">Deliberate friction lives here on purpose. Nothing in this band is part of a normal day.</p>
+    </div>
+    <details>
+      <summary>
+        <span class="mono-label">Current patch override</span>
+        <span class="ledger-copy">If the scanner stops finding Pearl Abyss patch notes, set the current patch by hand. This version-only override has no manual Undo; the next successful official patch sync takes control back. Changing it also swaps which observations the Scanner Monitor desk can moderate.</span>
+        <span class="ledger-count ledger-count--green">Synced 1.15.00 ›</span>
+      </summary>
+      <div class="ledger-body">
+        <form>
+          <label for="patch_version_override">New current patch</label>
+          <input id="patch_version_override" name="patch_version" placeholder="1.15.00" pattern="^\d+\.\d{1,2}(?:\.\d{1,2})?$" title="Version like 1.13.02" required>
+          <p class="scope-line">Set current patch makes this manual version current across the site. There is no Clear or Undo, and the manual row itself adds no official fix claims. Until the next successful official patch sync replaces it, every current-patch surface must label it Manual rather than Synced. It also changes the Scanner Monitor window: older observations lose card-level Undo; Active lessons retains rule revocation only while the rule remains active, unrevoked, and unexpired.</p>
+          <button class="c-breakglass" type="submit">Set current patch</button>
+        </form>
+      </div>
+    </details>
+  </section>
+
+</main>
+</body>
+</html>

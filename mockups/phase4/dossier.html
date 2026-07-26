@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dossiers — Phase 4 mockup (output and history)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#">Report Review</a>
+    <a href="#">Scanner Monitor</a>
+    <a href="#" aria-current="page">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button id="export-trigger" class="util-btn" type="button" aria-expanded="false" aria-controls="export-confirm">↓ Export CSV…</button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<!-- Closed export disclosure. Opening removes hidden and sets
+     aria-expanded=true; Download, Cancel, and Escape close it and return focus
+     to #export-trigger. -->
+<div id="export-confirm" class="confirm-strip" role="group" aria-labelledby="export-confirm-title" aria-describedby="export-confirm-detail" hidden>
+  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field review export: private descriptions, repro steps, hardware specs, PERS IDs, evidence URLs, and every moderation state. Submission and deduplication hashes are excluded.</span></span>
+  <a class="c-secondary" href="#">Download CSV</a>
+  <button class="c-quiet" type="button">Cancel</button>
+</div>
+
+<main id="main-content" class="page">
+
+  <!-- 1 · STATUS -->
+  <header class="pagehead">
+    <div>
+      <p class="kicker kicker--amber">Operator · Admin controls</p>
+      <h1>Compile Pearl Abyss dossier</h1>
+      <p class="dek">Bundle the tracker's current evidence snapshot — counts, verdicts, approved excerpts, reviewed links — into a document you can hand to official support. The current patch is report context, not an evidence filter.</p>
+    </div>
+    <div class="pagehead__meta">Current patch context · 1.15.00</div>
+  </header>
+
+  <div class="stat-band" aria-label="Dossier status">
+    <div>
+      <div class="stat-label">Workflow</div>
+      <div class="stat-value">On demand</div>
+      <div class="stat-caption">Nothing is queued; compile when you need a fresh snapshot</div>
+    </div>
+    <div>
+      <div class="stat-label">Approved evidence</div>
+      <div class="stat-value">1</div>
+      <div class="stat-caption">Approved rows returned by the tracker-wide read; not patch-filtered</div>
+    </div>
+    <div>
+      <div class="stat-label">Verified</div>
+      <div class="stat-value">1</div>
+      <div class="stat-caption">Distinct reports in the newest-1,000 excerpt rows</div>
+    </div>
+    <div>
+      <div class="stat-label">Recent runs</div>
+      <div class="stat-value">3</div>
+      <div class="stat-caption">Shown from the newest-10 window</div>
+    </div>
+  </div>
+
+  <!-- 2 · PRIMARY TASK -->
+  <section class="skeleton-section" aria-label="Compile" style="border-top:0;padding-top:0">
+    <form style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <label style="display:flex;gap:8px;align-items:center;margin:0;font-size:14px;color:var(--dispatch-dim)">
+        <input type="checkbox" name="use_ai" aria-describedby="dossier-ai-scope" style="width:auto"> Draft with AI (free OpenRouter prose model)
+      </label>
+      <button class="c-primary" type="submit">Compile now</button>
+      <span id="dossier-ai-scope" class="op-note">Opt-in sends the complete generated dossier to OpenRouter, including private approved-report issue titles, reproduction steps, and evidence URLs; unpublished cluster titles, fix status, and confidence; and public source URLs. The request uses data_collection: deny and zdr: true. Before this slice ships, Phase 4 will accept an AI draft only when every deterministic heading, fact, number, table cell, list item, URL, title, status, confidence value, and caveat survives unchanged; tampering, timeout, or provider failure must fall back to the deterministic draft.</span>
+      <!-- Without an AI key, production disables the checkbox and changes its
+           label to "Draft with AI: disabled, no AI key configured". -->
+    </form>
+    <p class="scope-line" style="margin-top:10px"><b>Compile</b> issues tracker-wide reads for approved reports, public scanner signals, and issue clusters, plus a newest-1,000 approved-excerpt read. Counts describe the rows those reads return; Patch 1.15.00 supplies context in the generated heading but does not filter them. Every successful compile appends one run, and the app has no delete path.</p>
+  </section>
+
+  <!-- 4 · RECORDS: current output -->
+  <section class="skeleton-section" aria-label="Dossier output">
+    <div class="section-head">
+      <div><p class="kicker">Generated Jul 24, 2026, 8:53 PM · Deterministic</p></div>
+      <p class="note">This page lists the newest 10 runs. A saved run URL still opens directly; older runs are not discoverable here.</p>
+    </div>
+    <textarea readonly rows="12" spellcheck="false" aria-label="Generated dossier markdown" onfocus="this.select()" style="display:block;width:100%;background:var(--dispatch-inset);border:1px solid var(--rule-soft);border-radius:var(--r-btn);padding:18px 20px;font-family:var(--font-mono);font-size:13px;color:var(--dispatch-ink-2);line-height:1.7;resize:vertical"># Crimson Desert community report dossier — current patch context 1.15.00
+
+Generated 2026-07-25 by the Crimson Desert Report Hub (unofficial community tracker).
+
+## Executive summary
+
+This tracker-wide returned-row snapshot separates 0 automated community signals, 1 approved direct report, and 1 verified report. Current patch 1.15.00 supplies report context; it does not filter the returned evidence. The largest direct-report category is Performance with 1 report. Most affected platform: PC (Steam).
+
+## Top issues
+
+| Rank | Issue | Community signals | Direct reports | Verified reports | Fix status | Confidence | Most-affected platform |
+| ---- | ----- | ----------------- | -------------- | ---------------- | ---------- | ---------- | ---------------------- |
+| 1 | FPS / performance regression since 1.13.00 | 0 | 1 | 1 | reported | medium | PC (Steam) |
+
+## Community signal summary
+
+- Total public automated community signals: 0
+- No public automated community signals yet.
+
+## Direct reports
+
+- Total approved direct reports: 1
+- Awaiting moderation: 0
+- Performance: 1 direct report
+
+## Platform and hardware breakdown
+
+- PC (Steam): 1 direct report
+
+## Reproduction patterns
+
+- **Cross-save upload stalls**: Upload from the pause menu and verify the save on PC.
+
+## Evidence links
+
+Direct report evidence links only. Automated source URLs are listed under Community signal summary.
+- https://youtu.be/mock-cross-save-stall
+
+## Verified reports
+
+- Total verified reports: 1
+- **FPS / performance regression since 1.13.00** (PC (Steam)): Frame pacing drops after loading a save.
+
+## Known confidence gaps
+
+- No low-confidence or unverified clusters. Signal-only clusters remain labeled separately from direct or verified evidence.
+
+## Recommended wording for Pearl Abyss
+
+> Community telemetry contains 0 automated public signals, 1 approved direct report, and 1 verified report.</textarea>
+    <div style="display:flex;gap:14px;align-items:center;margin-top:12px">
+      <button class="c-secondary" type="button">Copy to clipboard</button>
+      <span class="op-note">Focus the box to select all — the fallback when the clipboard is unavailable.</span>
+    </div>
+  </section>
+
+  <!-- 4 · RECORDS: recent runs, collapsed like every history band -->
+  <section class="skeleton-section ledger" aria-label="Recent runs">
+    <details>
+      <summary>
+        <span class="mono-label">Recent runs</span>
+        <span class="ledger-copy">Newest 10 only. Saved <code>?run=</code> URLs open directly, but older runs are not browseable from this page.</span>
+        <span class="ledger-count">Showing 3 recent runs ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div class="line-item">
+          <div class="line-item__main"><a href="#">Jul 24, 2026, 8:53 PM</a></div>
+          <span class="count-note">Deterministic</span>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main"><a href="#">Jul 20, 2026, 3:23 PM</a></div>
+          <span class="count-note">Deterministic</span>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main"><a href="#">Jul 5, 2026, 7:22 PM</a></div>
+          <span class="count-note">Deterministic</span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- 5 · ADVANCED: none. This page deliberately has no break-glass band. -->
+
+</main>
+</body>
+</html>

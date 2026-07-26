@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanner monitor — Phase 4 mockup (deep history)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#">Report Review</a>
+    <a href="#" aria-current="page">Scanner Monitor</a>
+    <a href="#">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button id="export-trigger" class="util-btn" type="button" aria-expanded="false" aria-controls="export-confirm">↓ Export CSV…</button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<!-- Closed export disclosure. Opening removes hidden and sets
+     aria-expanded=true; Download, Cancel, and Escape close it and return focus
+     to #export-trigger. -->
+<div id="export-confirm" class="confirm-strip" role="group" aria-labelledby="export-confirm-title" aria-describedby="export-confirm-detail" hidden>
+  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field review export: private descriptions, repro steps, hardware specs, PERS IDs, evidence URLs, and every moderation state. Submission and deduplication hashes are excluded.</span></span>
+  <a class="c-secondary" href="#">Download CSV</a>
+  <button class="c-quiet" type="button">Cancel</button>
+</div>
+
+<main id="main-content" class="page">
+<div class="scanner-grid">
+
+  <!-- This file and scanner-top.html mock ONE page in two scroll states, so
+       rail entries whose sections render in the other file's state link
+       across; in Stage 2 every target lives in the same document. -->
+  <nav class="section-nav" aria-label="Sections on this page">
+    <a href="scanner-top.html#status">Status</a>
+    <a href="#teach">Teach<span class="section-nav__count">30</span></a>
+    <a href="scanner-top.html#records">Records<span class="section-nav__count">20</span></a>
+    <a href="#lanes">Context lanes<span class="section-nav__count">12</span></a>
+    <a href="#lessons" aria-current="true">Lessons<span class="section-nav__count">41</span></a>
+    <a href="#history">Scan history</a>
+    <a href="#budget">Cadence &amp; budget</a>
+  </nav>
+
+  <div>
+
+  <!-- Deep in the page: the section nav is what keeps this reachable without
+       scrolling the whole desk. Optional sections render opened here because
+       the operator opened them — collapsed is still the default state. -->
+
+  <section class="skeleton-section ledger" id="teach" aria-label="Teach the scanner" style="border-top:0;padding-top:0">
+    <details open>
+      <summary>
+        <span class="mono-label">Teach · Optional</span>
+        <span class="ledger-copy">Auto-rejected pages are not assignments. They stay private and expire on their own; teach only when a bad pattern is worth remembering.</span>
+        <span class="ledger-count">Showing 1 of the 30-row window ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+          <label style="flex:1;min-width:180px;max-width:420px"><span class="sr-only">Search optional scanner review</span>
+            <input type="search" placeholder="Search title, source, or rejection reason" style="width:100%">
+          </label>
+          <span class="count-note">30 most recent eligible candidates loaded</span>
+        </div>
+
+        <article class="review-card">
+          <div class="review-card__meta">reddit.com · discovered 2h ago · screened: not about Crimson Desert · expires in 7d</div>
+          <h3>That was Baldur's Gate 3 for me : r/Steam</h3>
+          <p class="body">My recommendation is to just pick one of the companions and engage in their storyline. There's SO much to take in at once…</p>
+          <div class="decision-row">
+            <div class="cost-group__row">
+              <form>
+                <input type="hidden" name="id" value="mock-candidate-bg3">
+                <input type="hidden" name="decision" value="relevant">
+                <input type="hidden" name="scope" value="exact_url">
+                <input type="hidden" name="reason" value="Operator inspected this page and confirmed it is a relevant Crimson Desert issue lead.">
+                <button class="c-secondary" type="submit">Keep as relevant</button>
+              </form>
+              <span class="cost-chip">Up to 1 LLM call</span>
+            </div>
+            <details>
+              <summary class="c-destructive" style="list-style:none">Reject and teach…</summary>
+              <form style="margin-top:10px">
+                <input type="hidden" name="id" value="mock-candidate-bg3">
+                <label>Why is it wrong?
+                  <select name="decision"><option value="off_topic" selected>Off-topic</option><option value="wrong_patch">Wrong patch</option><option value="not_issue_report">Not an issue report</option><option value="duplicate">Duplicate</option></select>
+                </label>
+                <label>Operator reason
+                  <textarea name="reason" minlength="3" maxlength="500" required>Reviewed source: not about Crimson Desert.</textarea>
+                </label>
+                <label>Apply this lesson to
+                  <select id="mock-candidate-bg3-scope" name="scope"><option value="exact_url" selected>This exact page</option><option value="source_path">This source section</option><option value="source_domain">This entire domain</option></select>
+                </label>
+                <p class="scope-line">Rule target: <code id="mock-candidate-bg3-target">reddit.com/r/Steam/comments/mock-bg3</code></p>
+                <label id="mock-candidate-bg3-confirm" hidden>
+                  <input type="checkbox" name="confirm_broad" value="true" disabled>
+                  I understand this broader rule can affect future scanner results.
+                </label>
+                <p class="scope-line"><b>Record decision</b> keeps this candidate private and records the selected blocking rule. Revoke rule later stops future matching and returns this unrescued candidate to the desk only while it has not expired.</p>
+                <button class="c-destructive" type="submit">Record decision</button>
+              </form>
+            </details>
+            <a class="c-quiet" href="#" style="margin-left:auto">Inspect source ↗</a>
+          </div>
+          <div class="decision-scopes">
+            <!-- This is the normal state. Pre-migration (scanner learning
+                 unavailable) Keep stays available but records no lesson, and
+                  this line reads instead: "On success, Keep can use up to one
+                  OpenRouter generation call and persists or re-observes a
+                  rescued lead; normal evidence rules determine its visibility.
+                  Scanner learning is unavailable until the schema update, so
+                  this rescue records no lesson to forget."
+                  A readable relation with a missing decision RPC is not
+                  detected before submit: Reject and teach errors without
+                  changing the candidate; Keep completes and marks it rescued
+                  but records no lesson. Do not render an invented disabled
+                  state or promise a Forget path in that case.
+                  See docs/PHASE-4-TARGET.md, Reversal language. -->
+            <p class="scope-line"><b>Keep</b> starts a manual rescue. On success it persists or re-observes a private source signal, marks the candidate rescued, and normally records a scanner lesson. It uses no search credits and can make at most one OpenRouter generation call; missing configuration or allowance uses deterministic extraction with no provider call. Cost verification may add ID-only OpenRouter audit requests. Before this slice ships, that generation must send the private candidate title, snippet, canonicalized source URL, and unpublished cluster slugs/titles only with <code>data_collection: deny</code> and <code>zdr: true</code>. Normal evidence rules determine visibility. Forgetting the lesson later does not restore this candidate, delete the lead, or refund any spend.</p>
+          </div>
+        </article>
+
+        <button class="c-quiet" type="button">Show 29 more optional candidates →</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="skeleton-section ledger" id="lanes" aria-label="Public context lanes">
+    <details open>
+      <summary>
+        <span class="mono-label">Context lanes</span>
+        <span class="ledger-copy">The 40 most recent current-patch Wire and Asks items. A hidden card keeps its observation-level Undo beside the item; Active lessons keeps the separate rule-revocation path.</span>
+        <span class="ledger-count">12 shown in the 40-row window · 2 hidden ›</span>
+      </summary>
+      <div class="ledger-body">
+        <article class="review-card">
+          <div class="review-card__meta">Hidden · Wire lane · Press · no source date — never shown publicly · seen 2×</div>
+          <h3>Crimson Tide announces preseason roster</h3>
+          <p class="body">Unrelated college football coverage matched the game title and was removed from the public lane.</p>
+          <p class="detail">thecrimson.com · <a href="#" class="line-item__url">Open source ↗</a></p>
+          <form>
+            <input type="hidden" name="decision_id" value="mock-observation-decision-press">
+            <p class="scope-line">Hidden by a recorded decision. Undo restores the item and revokes its rule.</p>
+            <button class="c-undo" type="submit">Undo — restore item and revoke rule</button>
+          </form>
+        </article>
+        <p class="count-note">One representative hidden item is expanded here; the live fixture has 12 returned items, 2 hidden. Items outside this current-patch 40-row card window are not browseable here. After the required paginated rule read lands, only decisions with active, unrevoked, unexpired rules remain revocable from Active lessons below. A superseded or expired decision outside this card window has no current recovery surface.</p>
+      </div>
+    </details>
+  </section>
+
+  <section class="skeleton-section ledger" id="lessons" aria-label="Active scanner feedback rules">
+    <details open>
+      <summary>
+        <span class="mono-label">Active lessons</span>
+        <span class="ledger-copy">What the scanner will remember. Visibility and learning stay separate: hiding an issue never poisons discovery — only an explicit decision creates a rule.</span>
+        <!-- "41" is an exact total only after both active-rule consumers gain
+             the stable pagination required by PHASE-4-TARGET.md. The current
+             no-literal-limit query cannot support this claim. -->
+        <span class="ledger-count">Showing 4 of 41 ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+          <label style="flex:1;max-width:420px"><span class="sr-only">Filter lessons by URL, domain, or reason</span>
+            <input type="search" placeholder="Filter by URL, domain, or reason" style="width:100%">
+          </label>
+          <label><span class="sr-only">Filter lessons by rule type</span>
+            <select><option>All rules</option><option>KEEP only</option><option>BLOCK only</option></select>
+          </label>
+        </div>
+
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--keep">KEEP</span> <span class="count-note">exact url · 1d ago</span>
+            <div class="line-item__url">reddit.com/r/CrimsonDesert/comments/1uyd185/patch_1150_new_game_hopefully</div>
+            <div class="line-item__sub">Operator inspected this page and confirmed it is a relevant Crimson Desert issue lead.</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right">
+            <form>
+              <input type="hidden" name="decision_id" value="mock-decision-keep">
+              <button class="c-undo c-undo--partial" type="submit" aria-label="Forget Keep lesson" aria-describedby="forget-keep-effect">Forget lesson</button>
+            </form>
+            <span class="stays-note" id="forget-keep-effect">Candidate not restored · lead stays · spend not refunded</span>
+          </div>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--block">BLOCK OFF-TOPIC</span> <span class="count-note">source domain · 1d ago</span>
+            <div class="line-item__url">thecrimson.com</div>
+            <div class="line-item__sub">Reviewed source: not about Crimson Desert.</div>
+            <div class="line-item__sub" id="revoke-off-topic-effect">Stops future matches. When that was the decision target, an eligible unrescued candidate returns or an observation is restored; clustered signals recompute, unclustered signals stay hidden, and superseded rules stay revoked.</div>
+          </div>
+          <form><input type="hidden" name="decision_id" value="mock-decision-off-topic"><button class="c-undo c-undo--partial" type="submit" aria-label="Revoke off-topic domain rule" aria-describedby="revoke-off-topic-effect">Revoke rule</button></form>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--block">BLOCK WRONG PATCH</span> <span class="count-note">exact url · 20h ago</span>
+            <div class="line-item__url">reddit.com/r/CrimsonDesert/comments/1s18051/blinding_flash_is_no_longer_showing_me_points_of</div>
+            <div class="line-item__sub">4 months ago.</div>
+            <div class="line-item__sub" id="revoke-wrong-patch-effect">Stops future matches. When that was the decision target, an eligible unrescued candidate returns or an observation is restored; clustered signals recompute, unclustered signals stay hidden, and superseded rules stay revoked.</div>
+          </div>
+          <form><input type="hidden" name="decision_id" value="mock-decision-wrong-patch"><button class="c-undo c-undo--partial" type="submit" aria-label="Revoke wrong-patch URL rule" aria-describedby="revoke-wrong-patch-effect">Revoke rule</button></form>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--block">BLOCK DUPLICATE</span> <span class="count-note">exact url · 2h ago</span>
+            <div class="line-item__url">steamcommunity.com/app/3321460?curator_clanid=4777282&amp;l=german</div>
+            <div class="line-item__sub">Reviewed source: not a bug report.</div>
+            <div class="line-item__sub" id="revoke-duplicate-effect">Stops future matches. When that was the decision target, an eligible unrescued candidate returns or an observation is restored; clustered signals recompute, unclustered signals stay hidden, and superseded rules stay revoked.</div>
+          </div>
+          <form><input type="hidden" name="decision_id" value="mock-decision-duplicate"><button class="c-undo c-undo--partial" type="submit" aria-label="Revoke duplicate URL rule" aria-describedby="revoke-duplicate-effect">Revoke rule</button></form>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:14px">
+          <button class="c-quiet" type="button">Show 37 more lessons →</button>
+          <span class="count-note">Forget KEEP: candidate not restored, lead stays, no refund. Revoke BLOCK: future matching stops; candidates/observations restore when eligible, clustered signals recompute, unclustered signals stay hidden, and superseded rules do not reactivate.</span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section class="skeleton-section ledger" id="history" aria-label="Scan history and diagnostics">
+    <details open>
+      <summary>
+        <span class="mono-label">Scan history &amp; diagnostics</span>
+        <span class="ledger-copy">The newest 10 runs with their funnel, spend, skips, and errors. The failure that needs you is first.</span>
+        <span class="ledger-count ledger-count--amber">Showing 3 of the 10-run window ›</span>
+      </summary>
+      <div class="ledger-body">
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag rule-tag--block">FAILED</span> <span class="count-note">scheduled · Jul 24, 3:00 AM</span>
+            <div class="line-item__sub">Provider timeout after 2 search queries · 2 credits spent · 0 kept · error: tavily_timeout</div>
+          </div>
+          <a class="c-quiet" href="#">Details</a>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag" style="color:var(--green)">OK</span> <span class="count-note">scheduled · Jul 25, 2:00 PM</span>
+            <div class="line-item__sub">Found 5, kept 0 · 5 not issue reports · 1 credit · 6 LLM calls · $0.01</div>
+          </div>
+          <a class="c-quiet" href="#">Details</a>
+        </div>
+        <div class="line-item">
+          <div class="line-item__main">
+            <span class="rule-tag" style="color:var(--green)">OK</span> <span class="count-note">manual rescue · Jul 25, 1:04 PM</span>
+            <div class="line-item__sub">1 candidate rescued · 0 credits · 1 LLM call · $0.00</div>
+          </div>
+          <a class="c-quiet" href="#">Details</a>
+        </div>
+        <button class="c-quiet" type="button">Show 7 more recent runs →</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="skeleton-section ledger" id="budget" aria-label="Cadence and budget">
+    <details open>
+      <summary>
+        <span class="mono-label">Cadence &amp; budget · Advanced</span>
+        <span class="ledger-copy">One form on purpose: these settings describe one policy and save together.</span>
+        <span class="ledger-count">Hourly · 1,000 search credits/mo · LLM $2/mo ›</span>
+      </summary>
+      <div class="ledger-body">
+        <!-- Option sets and input constraints mirror the live parser exactly:
+             cadence 60/120/360/1440/paused, depth 1–3 credits, caps 0–1000 int
+             and $0–2 in $0.25 steps. The server clamps instead of rejecting,
+             so the browser constraints are what keep the display honest. -->
+        <form>
+          <!-- minIntervalMinutes is the saved non-paused cadence. It remains
+               load-bearing when cadence=paused; modelPreset is intentionally
+               absent because Phase 4 retires that single-value dimension. -->
+          <input type="hidden" name="minIntervalMinutes" value="60">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;max-width:820px">
+            <label>How often
+              <select name="cadence" style="width:100%"><option value="60" selected>Hourly</option><option value="120">Every 2 hours</option><option value="360">Every 6 hours</option><option value="1440">Daily</option><option value="paused">Paused</option></select>
+            </label>
+            <label>Scheduled search depth
+              <select name="scheduledSearchCreditsPerRun" style="width:100%"><option value="1">1 search credit</option><option value="2">2 search credits</option><option value="3" selected>3 search credits</option></select>
+            </label>
+            <label>Monthly search cap (credits)
+              <input name="monthlyTavilyCreditCap" type="number" min="0" max="1000" step="1" value="1000" style="width:100%">
+            </label>
+            <label>Monthly LLM cap ($)
+              <input name="monthlyLlmUsdCap" type="number" min="0" max="2" step="0.25" value="2" style="width:100%">
+            </label>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;margin-top:14px">
+            <button class="c-secondary" type="submit">Save settings</button>
+            <span class="op-note">Saving writes the whole policy at once. Pausing keeps your chosen cadence for when you resume.</span>
+          </div>
+        </form>
+        <p class="scope-line" style="margin-top:10px">The LLM cap governs scheduled and manual scans. Candidate rescues are capped separately by the server-side monthly budget.</p>
+      </div>
+    </details>
+  </section>
+
+  </div>
+</div>
+</main>
+<script>
+  (() => {
+    const scope = document.querySelector("#mock-candidate-bg3-scope");
+    const target = document.querySelector("#mock-candidate-bg3-target");
+    const confirmationLabel = document.querySelector("#mock-candidate-bg3-confirm");
+    const confirmation = confirmationLabel.querySelector("input");
+    const targets = {
+      exact_url: "reddit.com/r/Steam/comments/mock-bg3",
+      source_path: "reddit.com/r/Steam",
+      source_domain: "reddit.com",
+    };
+
+    const syncBroadScope = () => {
+      const broad = scope.value !== "exact_url";
+      target.textContent = targets[scope.value];
+      confirmationLabel.hidden = !broad;
+      confirmation.disabled = !broad;
+      confirmation.required = broad;
+      if (!broad) confirmation.checked = false;
+    };
+
+    scope.addEventListener("change", syncBroadScope);
+    syncBroadScope();
+  })();
+</script>
+</body>
+</html>
