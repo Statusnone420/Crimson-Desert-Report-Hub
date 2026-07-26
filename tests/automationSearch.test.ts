@@ -194,11 +194,18 @@ describe("Tavily extract request", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("returns null when the extract response has no usable results", async () => {
+  it("returns null when Tavily states it refused the URL", async () => {
+    // The real shape Reddit produces: 200, no results, the URL named in
+    // failed_results. Tavily does not bill this, so null means confirmed unbilled.
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ results: [] }),
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+      }),
     }));
 
     const raw = await tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
@@ -207,6 +214,39 @@ describe("Tavily extract request", () => {
     });
 
     expect(raw).toBeNull();
+  });
+
+  it("throws when an empty extract response never states a refusal", async () => {
+    // 200 with nothing usable and no stated refusal: Tavily may already have billed
+    // the work behind it. Returning null here would claim it was free.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [] }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it("throws when the extract response carries a result with blank text", async () => {
+    // Reported usage with empty raw_content is the same ambiguity: charged worst case.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [{ url: "https://old.reddit.com/x", raw_content: "   " }] }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
   });
 
   it("throws when the extract request fails", async () => {
