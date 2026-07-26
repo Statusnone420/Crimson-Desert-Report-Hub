@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { emptyPatchRadarData } from "@/lib/radar.server";
-import type { PublicScannerData } from "@/lib/queries";
+import type { AutomationRunRow, PublicScannerData } from "@/lib/queries";
 import type { IntegrationStatus } from "@/lib/env";
 import type { ScannerReadRegister } from "@/lib/scannerRegisters";
 
@@ -373,6 +373,7 @@ describe("AdminScannerView", () => {
       readFailures?: ScannerReadRegister[];
       weekReviewed?: number;
       integrations?: IntegrationStatus[];
+      failedRuns7d?: number;
     }) {
       const radar = emptyPatchRadarData(patch);
       return renderToStaticMarkup(createElement(AdminScannerView, {
@@ -404,6 +405,10 @@ describe("AdminScannerView", () => {
           ...radar,
           connected: overrides.radarConnected,
           funnel7d: { ...radar.funnel7d, reviewed: overrides.weekReviewed ?? 0 },
+          health: {
+            ...radar.health,
+            runs7d: { ...radar.health.runs7d, failed: overrides.failedRuns7d ?? 0 },
+          },
         },
         integrations: overrides.integrations ?? [],
         nowIso: "2026-07-22T18:00:00.000Z",
@@ -473,6 +478,116 @@ describe("AdminScannerView", () => {
       expect(markup).toContain("Radar yield");
       expect(markup).toContain('<span class="mono-label">unavailable</span>');
       expect(markup).not.toContain('class="desk-funnel__num desk-funnel__num--blue"');
+    });
+
+    it("says what the attention count is made of instead of repeating its neighbour", () => {
+      // With no provider paused this total equals the Failed runs cell two
+      // columns over. An unexplained duplicate reads as a second problem.
+      const markup = render({ radarConnected: true, failedRuns7d: 1 });
+
+      expect(markup).toContain("1 failed run · 7d");
+      expect(markup).not.toContain("Run or provider health needs a look");
+      expect(markup).toContain("1 scanner health item need");
+    });
+
+    it("counts a paused provider alongside failed runs in the same caption", () => {
+      const markup = render({
+        radarConnected: true,
+        failedRuns7d: 2,
+        integrations: [
+          {
+            key: "ai_extraction",
+            label: "AI extraction",
+            connected: true,
+            missingEnv: [],
+            detail: "The cost-safety circuit is open.",
+            paused: true,
+          },
+        ],
+      });
+
+      expect(markup).toContain("2 failed runs · 7d · 1 provider paused");
+    });
+
+    it("still says nothing is required when both parts are zero", () => {
+      const markup = render({ radarConnected: true, failedRuns7d: 0 });
+
+      expect(markup).toContain("No scanner intervention required");
+    });
+  });
+
+  describe("honest read windows", () => {
+    function run(index: number): AutomationRunRow {
+      return {
+        id: `run-${index}`,
+        started_at: `2026-07-2${index % 10}T12:00:00.000Z`,
+        finished_at: `2026-07-2${index % 10}T12:01:00.000Z`,
+        status: "success",
+        mode: "scheduled",
+        estimated_cost_usd: 0,
+        search_queries_used: 1,
+        llm_calls_used: 0,
+        signals_inserted: 0,
+        signals_deduped: 0,
+        clusters_promoted: 0,
+        intent: "broad_sweep",
+        search_results_seen: 0,
+        reddit_posts_seen: 0,
+        signals_reobserved: 0,
+        stale_signals_hidden: 0,
+        candidates_rescued: 0,
+        skips: [],
+        errors: [],
+        funnel: null,
+      };
+    }
+
+    function renderWithRuns(runs: AutomationRunRow[]) {
+      return renderToStaticMarkup(createElement(AdminScannerView, {
+        runs,
+        signals: [],
+        rejectedCandidates: [],
+        observations: [],
+        observationModerationAvailable: true,
+        feedbackRules: [],
+        feedbackLearningAvailable: true,
+        control: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 1000,
+          monthlyLlmUsdCap: 2,
+          modelPreset: "deepseek_v4_flash",
+          updatedAt: null,
+        },
+        activeRun: null,
+        latestRealRun: runs[0] ?? null,
+        latestFind: null,
+        scoreboard: healthyScoreboard,
+        radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
+        integrations: [],
+        nowIso: "2026-07-22T18:00:00.000Z",
+      }));
+    }
+
+    it("renders every run the read returned, not a shorter slice of it", () => {
+      // The query asks for the newest 10; rendering 8 dropped two reads on the
+      // floor and the page said nothing about it.
+      const runs = Array.from({ length: 10 }, (_, index) => run(index));
+      const markup = renderWithRuns(runs);
+
+      expect(markup.match(/class="op-history-row"/g)).toHaveLength(10);
+      // The raw-code disclosure was sliced to 8 too, so it lost the same two.
+      expect(markup.match(/Jul \d+, 2026, /g)).toHaveLength(10);
+      expect(markup).toContain("Scan history and diagnostics · newest 10");
+    });
+
+    it("names the window it actually holds when fewer runs exist", () => {
+      const markup = renderWithRuns([run(0), run(1), run(2)]);
+
+      expect(markup).toContain("Scan history and diagnostics · newest 3");
+      // No invented denominator: there is no total behind this read.
+      expect(markup).not.toMatch(/newest 3 of \d/);
     });
   });
 });

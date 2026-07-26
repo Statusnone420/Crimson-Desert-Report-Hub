@@ -371,6 +371,16 @@ export function AdminScannerView({
   // rather than this headline.
   const healthKnown = radar.connected && unknownCircuitIntegrations.length === 0;
   const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length;
+  // Name the parts. With no provider paused this total equals the failed-runs
+  // cell beside it, and an unexplained duplicate reads as a second problem.
+  const attentionParts = [
+    radar.health.runs7d.failed > 0
+      ? `${radar.health.runs7d.failed} failed run${radar.health.runs7d.failed === 1 ? "" : "s"} · 7d`
+      : null,
+    pausedIntegrations.length > 0
+      ? `${pausedIntegrations.length} provider${pausedIntegrations.length === 1 ? "" : "s"} paused`
+      : null,
+  ].filter(Boolean);
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
 
   return (
@@ -452,8 +462,8 @@ export function AdminScannerView({
             <div className="stat-band__caption">
               {!healthKnown
                 ? "A scanner health read failed, so this count is unavailable"
-                : attentionCount > 0
-                  ? "Run or provider health needs a look"
+                : attentionParts.length > 0
+                  ? attentionParts.join(" · ")
                   : "No scanner intervention required"}
             </div>
           </div>
@@ -645,7 +655,8 @@ export function AdminScannerView({
             </div>
             <p className="section-heading__note">
               Keep a missed lead, or record why a page is wrong. Exact-page rules are safest; broader rules require
-              an explicit confirmation and can always be undone.
+              an explicit confirmation and can always be undone. Showing the newest {rejectedCandidates.length}{" "}
+              unexpired {rejectedCandidates.length === 1 ? "candidate" : "candidates"} still eligible to teach from.
             </p>
           </div>
           <ScannerFeedbackDesk
@@ -675,9 +686,13 @@ export function AdminScannerView({
           </div>
 
           <details className="operator-disclosure">
-            <summary>Scan history and diagnostics</summary>
+            <summary>Scan history and diagnostics · newest {runs.length}</summary>
             <div className="operator-disclosure__body">
-              {runs.slice(0, 8).map((run) => (
+              {/* The read is the newest 10 runs and there is no total behind it,
+                  so this names its window rather than claiming a denominator.
+                  It renders every run it was given — slicing to 8 dropped two
+                  reads on the floor without saying so. */}
+              {runs.map((run) => (
                 <div key={run.id} className="op-history-row">
                   <span className="num-quiet">{formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}</span>
                   <span>{plainRunLine(run)}</span>
@@ -686,7 +701,7 @@ export function AdminScannerView({
               ))}
               <details className="raw-diagnostics">
                 <summary>Raw funnel, skip, and error codes</summary>
-                {runs.slice(0, 8).map((run) => (
+                {runs.map((run) => (
                   <p key={run.id}>
                     {formatEasternDateTime(run.started_at)}
                     {funnelSummary(run.funnel) ? ` · ${funnelSummary(run.funnel)}` : ""}
@@ -722,7 +737,10 @@ export function AdminScannerView({
       <section className="operator-records" aria-label="Automatic scanner records">
         <div className="section-heading section-heading--compact">
           <div><p className="dispatch-kicker">Automatic records</p><h2 className="section-heading__title">What the scanner kept</h2></div>
-          <p className="section-heading__note">Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.</p>
+          <p className="section-heading__note">
+            Inspect provenance, open the source, or remove one bad lead without hiding the whole issue. Newest{" "}
+            {signals.length} kept {signals.length === 1 ? "lead" : "leads"}, most recent first.
+          </p>
         </div>
         <div className="lead-record-grid">
           {recentSignals.length > 0
@@ -746,8 +764,9 @@ export function AdminScannerView({
             <h2 className="section-heading__title">Wire and Asks on the Brief</h2>
           </div>
           <p className="section-heading__note">
-            Everything the current patch&apos;s public context lanes hold. Undated items never render publicly.
-            Rejecting an item hides it immediately and records an undoable lesson.
+            The newest {observations.length} {observations.length === 1 ? "item" : "items"} this patch&apos;s public
+            context lanes hold, across every visibility state. Undated items never render publicly. Rejecting an item
+            hides it immediately and records an undoable lesson.
           </p>
         </div>
         <div className="lead-record-grid">
