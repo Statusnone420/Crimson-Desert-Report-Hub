@@ -385,8 +385,11 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Off deliberately. Analytics pulls in a log-collector container that cannot
+# reach the Docker socket on Windows and restart-loops. This stack exists to
+# run migrations and inspect the schema; it collects no logs worth keeping.
 [analytics]
-enabled = true
+enabled = false
 port = 54327
 # Configure one of the supported backends: `postgres`, `bigquery`.
 backend = "postgres"
