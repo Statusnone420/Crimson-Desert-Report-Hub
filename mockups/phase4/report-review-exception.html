@@ -146,7 +146,7 @@
                  and visible pendingText expose the in-flight mutation. -->
             <button class="c-secondary is-pending" type="submit" disabled aria-busy="true" aria-live="polite">Locking...</button>
           </form>
-          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear lock — the lifecycle engine will not touch its status while locked.</p>
+          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> writes the selected lifecycle status, enables the maintainer override, and stores its reason. Fix claimed, Marked fixed, and Still happening also stamp the current patch version and a new claim clock; Open clears both. The lifecycle engine will not change that status until you press Clear lock.</p>
         </div>
         <div class="line-item" style="flex-wrap:wrap">
           <div class="line-item__main">
@@ -167,7 +167,7 @@
               <button class="c-undo c-undo--partial" type="submit" aria-label="Clear lifecycle lock" aria-describedby="clear-crashes-lock-effect">Clear lock</button>
             </form>
           </div>
-          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear lock — the lifecycle engine will not touch its status while locked.</p>
+          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> writes the selected lifecycle status, enables the maintainer override, and stores its reason. Fix claimed, Marked fixed, and Still happening also stamp the current patch version and a new claim clock; Open clears both. The lifecycle engine will not change that status until you press Clear lock.</p>
           <p class="scope-line" id="clear-crashes-lock-effect" style="flex-basis:100%"><b>Clear lock</b> releases engine ownership and clears the stored reason and claim clock. The current lifecycle status remains until the next lifecycle scan.</p>
         </div>
       </div>
@@ -180,7 +180,7 @@
         <span class="ledger-count ledger-count--amber">2 active ›</span>
       </summary>
       <div class="ledger-body">
-        <div class="line-item">
+        <div class="line-item" style="flex-wrap:wrap">
           <div class="line-item__main">
             <div class="line-item__title">Cross Save crashes when loading save from main menu, requires PS Plus?</div>
             <div class="line-item__sub"><span class="rule-tag" style="color:var(--amber)">FORCED PUBLIC · LIVE</span> · Held public while duplicate reports are merged · changed 7/23/2026</div>
@@ -188,10 +188,11 @@
           <form>
             <input type="hidden" name="cluster_id" value="mock-cross-save-cluster">
             <input type="hidden" name="visibility" value="auto">
-            <button class="c-undo" type="submit">Reset to automatic</button>
+            <button class="c-undo" type="submit" aria-describedby="reset-cross-save-effect">Reset to automatic</button>
           </form>
+          <p class="scope-line" id="reset-cross-save-effect" style="flex-basis:100%"><b>Reset</b> clears the override reason and timestamp and immediately restores the cluster's saved automatic public baseline, so it may appear on or leave the Issue Board now. Signals hidden by Force hidden wait for the next normal visibility refresh.</p>
         </div>
-        <div class="line-item">
+        <div class="line-item" style="flex-wrap:wrap">
           <div class="line-item__main">
             <div class="line-item__title">Since the 1.14.00 patch, constant graphics glitches on Xbox</div>
             <div class="line-item__sub"><span class="rule-tag" style="color:var(--amber)">FORCED HIDDEN · HIDDEN</span> · Existing override created before reason tracking · changed 7/23/2026</div>
@@ -199,8 +200,9 @@
           <form>
             <input type="hidden" name="cluster_id" value="mock-graphics-cluster">
             <input type="hidden" name="visibility" value="auto">
-            <button class="c-undo" type="submit">Reset to automatic</button>
+            <button class="c-undo" type="submit" aria-describedby="reset-graphics-effect">Reset to automatic</button>
           </form>
+          <p class="scope-line" id="reset-graphics-effect" style="flex-basis:100%"><b>Reset</b> clears the override reason and timestamp and immediately restores the cluster's saved automatic public baseline, so it may appear on or leave the Issue Board now. Signals hidden by Force hidden wait for the next normal visibility refresh.</p>
         </div>
 
         <div class="breakglass">
