@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanner monitor — Phase 4 mockup (status and action)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="phase4.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="shell-top">
+  <div class="shell-status">Operator console · Signed in</div>
+  <div class="brand">Crimson Desert <em>Report Hub</em></div>
+  <div class="shell-status shell-date">Saturday, July 25, 2026</div>
+</header>
+
+<nav class="shell-nav" aria-label="Operator navigation">
+  <div class="shell-nav__pages">
+    <a href="#">Report Review</a>
+    <a href="#" aria-current="page">Scanner Monitor</a>
+    <a href="#">Dossiers</a>
+  </div>
+  <div class="shell-utilities">
+    <span class="shell-utilities__label">Utilities</span>
+    <button id="export-trigger" class="util-btn" type="button" aria-expanded="false" aria-controls="export-confirm">↓ Export CSV…</button>
+    <button class="util-btn" type="button">Sign out</button>
+  </div>
+</nav>
+
+<!-- Closed export disclosure. Opening removes hidden and sets
+     aria-expanded=true; Download, Cancel, and Escape close it and return focus
+     to #export-trigger. -->
+<div id="export-confirm" class="confirm-strip" role="group" aria-labelledby="export-confirm-title" aria-describedby="export-confirm-detail" hidden>
+  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field review export: private descriptions, repro steps, hardware specs, PERS IDs, evidence URLs, and every moderation state. Submission and deduplication hashes are excluded.</span></span>
+  <a class="c-secondary" href="#">Download CSV</a>
+  <button class="c-quiet" type="button">Cancel</button>
+</div>
+
+<main id="main-content" class="page">
+<div class="scanner-grid">
+
+  <nav class="section-nav" aria-label="Sections on this page">
+    <a href="#status" aria-current="true">Status</a>
+    <a href="#teach">Teach<span class="section-nav__count">30</span></a>
+    <a href="#records">Records<span class="section-nav__count">20</span></a>
+    <a href="#lanes">Context lanes<span class="section-nav__count">12</span></a>
+    <a href="#lessons">Lessons<span class="section-nav__count">41</span></a>
+    <a href="#history">Scan history</a>
+    <a href="#budget">Cadence &amp; budget</a>
+  </nav>
+
+  <div>
+
+  <!-- 1 · STATUS AND REQUIRED WORK -->
+  <header class="pagehead" id="status">
+    <div>
+      <p class="kicker kicker--amber">Operator · The Observatory</p>
+      <h1>Today's radar desk</h1>
+      <p class="dek">What changed, what keeps recurring, and what needs you — with the full review, rescue, and budget workflows below.</p>
+      <p class="count-note" style="margin-top:10px;color:var(--green)">● Active · last scan 58m ago · next check in 2m · most recent kept lead 1h ago</p>
+    </div>
+    <div class="cost-group">
+      <div class="cost-group__row">
+        <button class="c-secondary" type="button">Test scan without publishing</button>
+        <span class="cost-chip">Spends credits</span>
+      </div>
+      <div class="cost-group__row">
+        <button class="c-primary" type="button">Run capped scan now</button>
+        <span class="cost-chip">Spends credits</span>
+      </div>
+      <p class="op-note" style="max-width:40ch">Both runs can spend real search credits and paid LLM calls against the monthly caps, and both leave an operational run record. A test run suppresses scanner-content and public-content changes, but can mark a stale run failed. Neither run is reversible.</p>
+    </div>
+  </header>
+
+  <div class="stat-band stat-band--five" aria-label="Since the last day">
+    <div>
+      <div class="stat-label">New leads · 24h</div>
+      <div class="stat-value" style="color:var(--blue)">5</div>
+      <div class="stat-caption">40 in the last 7 days</div>
+    </div>
+    <div>
+      <div class="stat-label">Re-observed · 24h</div>
+      <div class="stat-value" style="color:var(--blue)">8</div>
+      <div class="stat-caption">29 of 57 tracked leads recur</div>
+    </div>
+    <div>
+      <div class="stat-label">Needs attention</div>
+      <div class="stat-value stat-value--amber">1</div>
+      <div class="stat-caption">Run or provider health needs a look</div>
+    </div>
+    <div>
+      <div class="stat-label">Failed runs · 7d</div>
+      <div class="stat-value stat-value--crimson">1</div>
+      <div class="stat-caption">177 ok · 7 skipped</div>
+    </div>
+    <div>
+      <div class="stat-label">Source dates</div>
+      <div class="stat-value">2/57</div>
+      <div class="stat-caption">Leads with a real publication date</div>
+    </div>
+  </div>
+
+  <div class="inbox inbox--attention" aria-label="Operator action inbox">
+    <div>
+      <p class="kicker kicker--amber">Action inbox · The only required work on this page</p>
+      <h3>1 scanner health item needs a look</h3>
+      <p class="op-note">Yesterday's 3:00 AM scheduled run failed on a provider timeout. Everything else is optional teaching.</p>
+    </div>
+    <a class="c-quiet" href="#history">Open scan history →</a>
+  </div>
+
+  <!-- 2 · PRIMARY TASK is the inbox above; when it is empty this page has no required work. -->
+
+  <!-- 3 · OPTIONAL WORK -->
+  <!-- Optional work is collapsed by default; the deep-history mockup shows it opened. -->
+  <section class="skeleton-section ledger" id="teach" aria-label="Teach the scanner">
+    <details>
+      <summary>
+        <span class="mono-label">Teach · Optional</span>
+        <span class="ledger-copy">Auto-rejected pages are not assignments. They stay private and expire on their own; teach only when a bad pattern is worth remembering.</span>
+        <span class="ledger-count">30-row recent eligible window ›</span>
+      </summary>
+    </details>
+  </section>
+
+  <!-- 4 · RECORDS / HISTORY (collapsed at the top; the deep-history mockup opens them) -->
+  <section class="skeleton-section ledger" id="records" aria-label="Automatic scanner records">
+    <details>
+      <summary>
+        <span class="mono-label">Automatic records</span>
+        <span class="ledger-copy">What the scanner kept. Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.</span>
+        <span class="ledger-count">20-row recent source-record window ›</span>
+      </summary>
+    </details>
+    <details id="lanes">
+      <summary>
+        <span class="mono-label">Context lanes</span>
+        <span class="ledger-copy">Wire and Asks on the Brief. The desk shows the 40 most recent current-patch items; hidden rows in that window keep card-level Undo. Outside it, Active lessons retains rule revocation only while the rule stays active, unrevoked, and unexpired.</span>
+        <span class="ledger-count">12 shown on this patch · 2 hidden ›</span>
+      </summary>
+    </details>
+    <details id="lessons">
+      <summary>
+        <span class="mono-label">Active lessons</span>
+        <span class="ledger-copy">What the scanner will remember. BLOCK lessons can be revoked, but a removed unclustered lead stays hidden and superseded rules do not reactivate. KEEP lessons can only be forgotten, and their rescued leads stay.</span>
+        <span class="ledger-count">41 active ›</span>
+      </summary>
+    </details>
+    <details id="history">
+      <summary>
+        <span class="mono-label">Scan history &amp; diagnostics</span>
+        <span class="ledger-copy">The newest 10-run window with funnel, spend, skips, and errors.</span>
+        <span class="ledger-count ledger-count--amber">1 failed · 7d ›</span>
+      </summary>
+    </details>
+  </section>
+
+  <!-- 5 · ADVANCED -->
+  <section class="skeleton-section ledger" id="budget" aria-label="Cadence and budget">
+    <details>
+      <summary>
+        <span class="mono-label">Cadence &amp; budget</span>
+        <span class="ledger-copy">How often the scanner wakes, scheduled-run search depth, and the monthly scan caps. One form saves together; rescue spend uses a separate server budget.</span>
+        <span class="ledger-count">Hourly · 1,000 search credits/mo · LLM $2/mo ›</span>
+      </summary>
+    </details>
+  </section>
+
+  </div>
+</div>
+</main>
+</body>
+</html>
