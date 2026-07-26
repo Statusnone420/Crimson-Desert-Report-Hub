@@ -1116,16 +1116,28 @@ async function prepareSignals(
         // A recon miss (budget/cap/failure) falls straight through to today's
         // snippet-only borderline behavior — strict enhancement, never a regression.
         //
-        // Tavily bills an extract only when it delivers page text, so the credit is
-        // booked AFTER the call and only against real content. A fetch Tavily cannot
-        // complete answers 200 with the URL in `failed_results`, which tavilyExtract
-        // reports as null — nothing throws. Booking up front therefore spent a search
-        // credit on nothing and, because searchQueriesUsed gates real queries, took
-        // that query away from the run. reddit.com is the first trusted domain and
-        // Reddit refuses Tavily's fetcher, so every Reddit recon paid that toll.
-        // Same defect the webSearchEnabled guard above already fixed for a missing
-        // key; this closes the fetch-failure door. The attempt still counts against
-        // MAX_RECON_FETCHES_PER_RUN, so an unfetchable domain cannot retry unbounded.
+        // The credit is booked AFTER the call, and only an outcome Tavily states is
+        // unbilled goes free. Three cases:
+        //
+        //   1. Page text returned      -> billed. Charge.
+        //   2. Answered, no text       -> Tavily replies 200 with the URL in
+        //      (nothing thrown)           `failed_results` and bills nothing, which
+        //                                 tavilyExtract reports as null. Free.
+        //   3. Threw                   -> a timeout, 5xx, or unparseable body can
+        //                                 follow work Tavily already charged for. The
+        //                                 outcome is unknown, so charge worst case,
+        //                                 the same rule the OpenRouter circuit uses
+        //                                 for unverifiable cost. Understating here
+        //                                 would let a later run overrun the cap.
+        //
+        // Case 2 is why this mattered: booking up front spent a credit on nothing and,
+        // because searchQueriesUsed gates real queries, took that query away from the
+        // run. reddit.com is the first trusted domain and Reddit refuses Tavily's
+        // fetcher, so every Reddit recon paid that toll. Same defect the
+        // webSearchEnabled guard above already fixed for a missing key.
+        //
+        // Every attempt counts against MAX_RECON_FETCHES_PER_RUN, so an unreachable
+        // domain cannot retry unbounded.
         let reconText: string | null = null;
         if (
           webSearchEnabled &&
@@ -1135,19 +1147,23 @@ async function prepareSignals(
         ) {
           reconFetchesUsed += 1;
           result.skips.push("candidate_recon");
+          let reconThrew = false;
           try {
             reconText = await tavilyExtract(canonicalUrl, { now: new Date(signal.observedAt) });
           } catch (error) {
+            reconThrew = true;
             result.status = "partial";
             result.errors.push(toErrorMessage(error, "recon extract failed"));
             reconText = null;
           }
-          if (reconText === null) {
-            // Visible to the operator: the lane ran and the source returned nothing.
-            result.skips.push("candidate_recon_unavailable");
-          } else {
+          if (reconText !== null || reconThrew) {
             result.searchQueriesUsed += 1;
             result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
+          }
+          if (reconText === null) {
+            // Say which of the two empty outcomes happened: the operator console must
+            // not report an unbilled refusal and a charged error as the same thing.
+            result.skips.push(reconThrew ? "candidate_recon_failed" : "candidate_recon_unavailable");
           }
         }
 

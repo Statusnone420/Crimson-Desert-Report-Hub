@@ -3241,12 +3241,15 @@ describe("runAutomationMonitor", () => {
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
-    // A rate-limited or errored extract delivers no text either, so it is charged
-    // exactly like the refused fetch — the surfaced error is the only difference.
+    // A throw is NOT an unbilled outcome. A timeout, 5xx, or unparseable body can
+    // follow work Tavily already charged for, so the credit is booked worst-case —
+    // understating it would let a later run overrun the monthly cap.
     const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
-    expect(result.searchQueriesUsed).toBe(searchQueriesIssued);
-    expect(result.estimatedCostUsd).toBeCloseTo(searchQueriesIssued * 0.008 + result.llmCostUsd, 10);
-    expect(result.skips).toContain("candidate_recon_unavailable");
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + 1);
+    expect(result.estimatedCostUsd).toBeCloseTo((searchQueriesIssued + 1) * 0.008 + result.llmCostUsd, 10);
+    // Distinct from the refused fetch: charged, and labelled as charged.
+    expect(result.skips).toContain("candidate_recon_failed");
+    expect(result.skips).not.toContain("candidate_recon_unavailable");
     // toErrorMessage surfaces a thrown Error's own message; the label is only the
     // fallback for a non-Error throw.
     expect(result.errors.some((message) => message.includes("tavily extract failed: 429"))).toBe(true);

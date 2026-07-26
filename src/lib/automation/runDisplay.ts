@@ -45,8 +45,14 @@ const SKIP_META: Record<string, MessageMeta> = {
   candidate_recon_unavailable: {
     label: "Full page unavailable",
     detail:
-      "The scanner tried to read the full page and the source returned nothing, so it judged the short summary instead. No search credit was spent. Reddit refuses our reader, so its threads always land here.",
+      "The scanner tried to read the full page and the source refused, so it judged the short summary instead. No search credit was spent. Reddit refuses our reader, so its threads always land here.",
     summaryLabel: "full page unavailable",
+  },
+  candidate_recon_failed: {
+    label: "Full page read errored",
+    detail:
+      "Reading the full page errored before any text arrived, so the scanner judged the short summary instead. The search credit is charged because there is no way to tell whether the provider already billed it.",
+    summaryLabel: "full page read errored",
   },
   candidate_rescued: {
     label: "Candidate rescued",
