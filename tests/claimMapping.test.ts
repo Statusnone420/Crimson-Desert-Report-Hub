@@ -330,7 +330,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     expect(result).toMatchObject({
       matchKind: "keyword_proposal",
       llmCallsUsed: 1,
-      circuitReason: "openrouter_cost_unverified",
+      skipReason: "openrouter_cost_unverified",
     });
     // Unverifiable cost is charged at the request's worst-case ceiling.
     expect(result.llmCostUsd).toBeGreaterThan(0);
@@ -361,7 +361,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     // A configuration fact, not an unverifiable cost: nothing spent, and the
     // cost-safety circuit has no reason to count it.
     expect(result.llmCostUsd).toBe(0);
-    expect(result.circuitReason).toBeUndefined();
+    expect(result.skipReason).toBe("openrouter_no_route");
   });
 
   it("falls back to keyword proposal only when OpenRouter is unavailable", async () => {

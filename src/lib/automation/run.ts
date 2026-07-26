@@ -129,9 +129,16 @@ function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): 
     : Math.max(0, budget.maxLlmCalls - result.llmCallsUsed);
 }
 
-function recordOpenRouterCircuitReason(result: AutomationResult, reason: string | undefined): void {
+/**
+ * Record the OpenRouter outcomes that stop the run's LLM lane. Two of them also
+ * feed the cost-safety circuit through the same skip list; `openrouter_no_route`
+ * does not — circuit.ts counts only the money reasons.
+ */
+function recordOpenRouterRunSkip(result: AutomationResult, reason: string | undefined): void {
   if (
-    (reason === "openrouter_cost_unverified" || reason === "openrouter_budget_exceeded") &&
+    (reason === "openrouter_cost_unverified" ||
+      reason === "openrouter_budget_exceeded" ||
+      reason === "openrouter_no_route") &&
     !result.skips.includes(reason)
   ) {
     result.skips.push(reason);
@@ -1172,7 +1179,7 @@ async function prepareSignals(
         result.llmCostUsd += extraction.llmCostUsd ?? 0;
         result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
         if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
-        recordOpenRouterCircuitReason(result, extraction.fallbackReason);
+        recordOpenRouterRunSkip(result, extraction.fallbackReason);
 
         const relevance = shouldKeepExtractedSignal(extraction, `${signal.title} ${effectiveBody}`);
         if (relevance.keep) {
@@ -1235,7 +1242,7 @@ async function prepareSignals(
     result.llmCostUsd += extraction.llmCostUsd ?? 0;
     result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
-    recordOpenRouterCircuitReason(result, extraction.fallbackReason);
+    recordOpenRouterRunSkip(result, extraction.fallbackReason);
 
     const relevance = operatorAllowed
       ? { keep: true as const }
@@ -1428,7 +1435,7 @@ async function runLifecyclePass(
     result.llmCallsUsed += decision.llmCallsUsed;
     result.llmCostUsd += decision.llmCostUsd;
     result.estimatedCostUsd += decision.llmCostUsd;
-    recordOpenRouterCircuitReason(result, decision.circuitReason);
+    recordOpenRouterRunSkip(result, decision.skipReason);
     claimLlmCallsRemaining = Math.max(0, claimLlmCallsRemaining - decision.llmCallsUsed);
     if (!decision.clusterId) continue;
     const existing = claimDecisionByCluster.get(decision.clusterId);
@@ -2712,7 +2719,7 @@ export async function rescueCandidateSignal(
     if (extraction.fallbackReason && !result.skips.includes(extraction.fallbackReason)) {
       result.skips.push(extraction.fallbackReason);
     }
-    recordOpenRouterCircuitReason(result, extraction.fallbackReason);
+    recordOpenRouterRunSkip(result, extraction.fallbackReason);
 
     const externalHash = externalIdHash(source.source, source.id);
     const prepared: PreparedSignal = {

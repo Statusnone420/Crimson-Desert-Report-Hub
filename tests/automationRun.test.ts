@@ -1096,7 +1096,7 @@ describe("runAutomationMonitor", () => {
         llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
         llmCostUsd: 0,
         extractionModel: options.llmCallsRemaining > 0 ? "deepseek/deepseek-v4-flash" : null,
-        ...(mappingCall === 1 ? { circuitReason: "openrouter_cost_unverified" as const } : {}),
+        ...(mappingCall === 1 ? { skipReason: "openrouter_cost_unverified" as const } : {}),
       };
     });
     const { runAutomationMonitor } = await importRunner();
@@ -1109,6 +1109,56 @@ describe("runAutomationMonitor", () => {
     expect(openRouterAttempts).toBe(1);
     expect(result.llmCostUsd).toBe(0);
     expect(result.skips).toContain("openrouter_cost_unverified");
+  });
+
+  it("stops mapping later claims once one claim hits a routing refusal", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          is_public: true,
+          admin_override: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed frame-rate drops in towns.", category: "performance" },
+      { fixText: "Fixed combat frame-rate drops.", category: "performance" },
+    ]);
+    let mappingCall = 0;
+    mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => {
+      mappingCall += 1;
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        matchKind: "none",
+        clusterId: null,
+        clusterSlug: null,
+        reason: mappingCall === 1 ? "No OpenRouter provider matched the limits." : "No match.",
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: 0,
+        extractionModel: options.llmCallsRemaining > 0 ? "deepseek/deepseek-v4-flash" : null,
+        ...(mappingCall === 1 ? { skipReason: "openrouter_no_route" as const } : {}),
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The refusal has to reach result.skips, or the loop hands every remaining
+    // claim to the same route that just refused one.
+    expect(result.skips).toContain("openrouter_no_route");
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls[1][2].llmCallsRemaining).toBe(0);
+    expect(openRouterAttempts).toBe(1);
+    // Still not a circuit reason: nothing was spent and nothing is unverified.
+    expect(result.skips).not.toContain("openrouter_cost_unverified");
+    expect(result.llmCostUsd).toBe(0);
   });
 
   it("keeps the current-month LLM circuit open across later runs", async () => {
