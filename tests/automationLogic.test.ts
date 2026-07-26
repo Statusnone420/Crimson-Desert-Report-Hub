@@ -30,6 +30,26 @@ describe("automation dedupe", () => {
     );
   });
 
+  it("collapses one Steam thread reached through different languages and referrers", () => {
+    // The same discussion arrives from search under every interface language.
+    // Left alone, each spelling is a separate lead on the operator's desk.
+    const thread = "https://steamcommunity.com/app/3321460/discussions/0/805720165777101160";
+    expect(canonicalizeUrl(`${thread}?l=english`)).toBe(thread);
+    expect(canonicalizeUrl(`${thread}?l=brazilian&curator_clanid=41324398`)).toBe(thread);
+    expect(canonicalizeUrl(`${thread}?snr=1_2108_9__2107`)).toBe(thread);
+    expect(canonicalizeUrl(`${thread}?l=koreana`)).toBe(canonicalizeUrl(`${thread}?l=schinese`));
+  });
+
+  it("keeps parameters that decide which page you land on", () => {
+    // Only the parameters listed for a domain we have looked at are droppable.
+    // Steam's own thread pagination stays, and `l` on an unrelated site is left
+    // alone because there it might mean anything.
+    expect(
+      canonicalizeUrl("https://steamcommunity.com/app/3321460/discussions/0/8057?l=english&ctp=3"),
+    ).toBe("https://steamcommunity.com/app/3321460/discussions/0/8057?ctp=3");
+    expect(canonicalizeUrl("https://example.com/post?l=42")).toBe("https://example.com/post?l=42");
+  });
+
   it("builds stable semantic fingerprints", () => {
     expect(semanticFingerprint("FPS drops since 1.13!", "performance")).toBe(
       semanticFingerprint("fps   drops since 1.13", "performance"),

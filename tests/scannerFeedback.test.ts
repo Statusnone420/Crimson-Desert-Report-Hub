@@ -59,6 +59,26 @@ describe("scanner feedback rules", () => {
     });
   });
 
+  it("keeps a rule recorded before Steam parameters were droppable", () => {
+    // The stored value was canonical on the day it was written; the candidate
+    // is canonical today. Without re-canonicalizing the rule on read, every
+    // Steam lesson taught before this change would quietly stop working and the
+    // rejected thread would come back.
+    const storedBeforeTheChange = rule({
+      id: "steam-exact-block",
+      scopeValue: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
+    });
+    const candidate = {
+      url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana",
+      sourceDomain: "steamcommunity.com",
+    };
+
+    expect(matchScannerFeedbackRule(candidate, [storedBeforeTheChange])).toMatchObject({
+      action: "block",
+      rule: { id: "steam-exact-block" },
+    });
+  });
+
   it("lets a newer exact allow supersede an older exact block", () => {
     const candidate = {
       url: "https://www.reddit.com/r/protonmail/comments/abc/any_plans_for_mcp",

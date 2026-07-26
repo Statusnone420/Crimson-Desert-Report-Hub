@@ -95,6 +95,25 @@ const SCOPE_SPECIFICITY: Record<ScannerRuleScope, number> = {
 };
 
 /**
+ * Re-canonicalize a stored exact-URL rule before comparing it.
+ *
+ * A rule's scope value is a URL canonicalized by whatever the rules were on the
+ * day it was recorded. When those rules widen — a newly recognized display
+ * parameter, say — every rule written before the change would silently stop
+ * matching the page it was about, and the operator would only find out by
+ * seeing a source they already rejected come back. Normalizing on read keeps
+ * old lessons working without rewriting stored rows.
+ */
+function comparableScopeValue(rule: ScannerFeedbackRule): string | null {
+  if (rule.scopeType !== "exact_url") return rule.scopeValue;
+  try {
+    return canonicalizeUrl(rule.scopeValue);
+  } catch {
+    return rule.scopeValue;
+  }
+}
+
+/**
  * Match the most specific active rule. A newer rule wins within one scope, so
  * an explicit Relevant decision can supersede an older exact-URL rejection.
  */
@@ -111,7 +130,10 @@ export function matchScannerFeedbackRule(
   };
 
   const matches = rules.filter(
-    (rule) => activeAt(rule, nowMs) && values[rule.scopeType] !== null && values[rule.scopeType] === rule.scopeValue,
+    (rule) =>
+      activeAt(rule, nowMs) &&
+      values[rule.scopeType] !== null &&
+      values[rule.scopeType] === comparableScopeValue(rule),
   );
   matches.sort((left, right) => {
     const specificity = SCOPE_SPECIFICITY[right.scopeType] - SCOPE_SPECIFICITY[left.scopeType];
