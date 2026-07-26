@@ -25,6 +25,22 @@ describe("steam display-parameter backfill migration", () => {
     expect(sql.match(/<> pg_temp\.canonicalize_steam_url\(/g) ?? []).toHaveLength(2);
   });
 
+  it("orders surviving parameters the way URLSearchParams.sort does", () => {
+    // JavaScript sorts by parameter NAME and is stable, so `?foo=z&foo=a` keeps
+    // z before a. Ordering by the whole `name=value` pair would swap them and
+    // the migrated text would stop equalling a freshly canonicalized URL —
+    // which is the one thing this backfill exists to make true.
+    expect(sql).toMatch(/order by split_part\(pair, '=', 1\) collate "C", ord/);
+    expect(sql).toMatch(/with ordinality/);
+  });
+
+  it("leaves the unique identity hash to the application", () => {
+    // external_id_hash is `not null unique` and two rows differing only by `?l=`
+    // collapse to one value, so a bulk recompute would abort on a duplicate.
+    expect(sql).not.toMatch(/set external_id_hash/i);
+    expect(sql).toMatch(/external_id_hash/);
+  });
+
   it("says plainly that it has not been applied", () => {
     expect(sql).toMatch(/NOT APPLIED/);
   });

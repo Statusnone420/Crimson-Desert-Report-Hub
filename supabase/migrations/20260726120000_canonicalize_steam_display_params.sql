@@ -9,13 +9,23 @@
 -- each affected Steam thread arrives once more as a "new" lead before settling
 -- on the shorter form for good.
 --
--- Rewrites text only. No row is inserted, deleted, or merged, and there is no
--- unique index on either column, so nothing can collide. Rows already in the
--- canonical form are left alone by the final inequality.
+-- It deliberately does NOT touch source_signals.external_id_hash, even though a
+-- web-search signal's identity is derived from its canonical URL. That column
+-- is `not null unique`, and two stored rows that differ only by `?l=` collapse
+-- to one value — so recomputing the whole column at once would abort on a
+-- duplicate. upsertSignal instead falls back to a canonical_url lookup when the
+-- hash misses and rewrites the hash on the row it finds, so identities heal one
+-- at a time as pages are seen again.
+--
+-- Rewrites text only. No row is inserted, deleted, or merged, and neither
+-- column carries a unique index, so nothing here can collide. Rows already in
+-- the canonical form are left alone by the final inequality.
 
--- Drops the three display parameters and re-sorts the rest, mirroring
--- canonicalizeUrl: URLSearchParams.sort() orders by key, and `k=v` string order
--- agrees with that for distinct keys.
+-- Mirrors canonicalizeUrl: drop the three display parameters, then order what
+-- is left by parameter NAME while keeping repeated names in their original
+-- order — that is what JavaScript's stable URLSearchParams.sort() does. `collate
+-- "C"` keeps the comparison on byte order rather than a locale that would sort
+-- `Foo` after `bar`.
 create or replace function pg_temp.canonicalize_steam_url(url text)
 returns text
 language sql
@@ -25,12 +35,13 @@ as $$
     when url !~ '^https?://(www\.)?(steamcommunity\.com|store\.steampowered\.com)/' then url
     when position('?' in url) = 0 then url
     else
-      split_part(url, '?', 1)
+      left(url, position('?' in url) - 1)
       || coalesce(
            '?' || nullif(
              (
-               select string_agg(pair, '&' order by pair)
-               from unnest(string_to_array(split_part(url, '?', 2), '&')) as pair
+               select string_agg(pair, '&' order by split_part(pair, '=', 1) collate "C", ord)
+               from unnest(string_to_array(substr(url, position('?' in url) + 1), '&'))
+                 with ordinality as parts(pair, ord)
                where pair <> ''
                  and lower(split_part(pair, '=', 1)) not in ('l', 'curator_clanid', 'snr')
              ),
