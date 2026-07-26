@@ -2462,15 +2462,15 @@ describe("search planning", () => {
     expect(buildSearchQueries(0)).toHaveLength(0);
   });
 
-  it("leads with the two official sources, not a second community forum", () => {
+  it("leads with the official notes and the anchored open web, not a second community forum", () => {
     expect(buildSearchQueries(2)).toEqual([
       "site:crimsondesert.pearlabyss.com Crimson Desert patch 1.13.01 notes known issues",
-      "site:store.steampowered.com Crimson Desert patch 1.13.01 update",
+      "Crimson Desert game Pearl Abyss patch 1.13.01 players stutter crash bug report",
     ]);
   });
 
   it("caps query planning to the fixed query pack", () => {
-    expect(buildSearchQueries(999)).toHaveLength(8);
+    expect(buildSearchQueries(999)).toHaveLength(7);
   });
 
   it("can target a server-derived patch version", () => {

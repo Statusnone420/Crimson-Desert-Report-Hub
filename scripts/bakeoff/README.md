@@ -4,10 +4,24 @@
 npm run scan:bakeoff
 ```
 
-Runs the scanner's real query pack against the live Tavily API on the **development**
-key, judges every result with the real pre-screen, and prints where each one would
-land: kept as a signal, routed to a Brief observation lane, or dropped and why. A copy
-lands in `output/bakeoff/` (gitignored).
+Runs the scanner's real queries against the live Tavily API on the **development** key,
+judges every result with the real pre-screen **and the real observation gate**, and
+prints where each one would land: kept as a signal, reaching the Brief, routed but
+discarded, or dropped and why. A timestamped copy lands in `output/bakeoff/`
+(gitignored), so a "before" run survives to compare against.
+
+Three lanes are measured, because they ask different questions and build different
+query strings:
+
+| lane | built by | what it has to do |
+| --- | --- | --- |
+| `discovery` | `buildSearchQueries` | find player complaints about the current patch |
+| `wire` | `buildWireNewsQuery` | the only lane that returns publication dates |
+| `corroborate` | `buildMemorySearchQueries` | reach a SECOND registrable domain for a known cluster |
+
+The corroborate lane fires one probe per site rotation using a representative cluster
+title. What that probe measures is whether the site scope survives once a title is
+appended and whether the results stay on topic — not the title's own yield.
 
 ## Why it exists
 
@@ -30,6 +44,9 @@ The production key stays in the Vercel dashboard and never comes near this. `.en
 is gitignored, so it cannot be deployed. A later assignment overrides an earlier one, so
 a blank placeholder above the real value is fine.
 
+The run refuses to start unless the key begins with `tvly-dev-`. That is a hard stop,
+not a warning, and the key is never printed.
+
 Cost is one Tavily credit per query — roughly a dozen per run, against the development
 account's free monthly allowance.
 
@@ -49,7 +66,13 @@ the exact failure it exists to catch.
 bug reports, so the pre-screen routes them to the Brief's context lanes instead of the
 Issue Board. That routing is the design working.
 
-Two things to weigh:
+`OBSERVATION_REJECTED:<kind>` is different and is the line to watch. The pre-screen
+routed it to a lane, then `shouldCollectObservation` threw it away — almost always
+because the registrable domain is not in `TRUSTED_DOMAINS`. A query whose results are
+all `OBSERVATION_REJECTED` is spending a credit for nothing. This distinction was added
+after the harness reported a whole slot as working that production discarded in full.
+
+Two more things to weigh:
 
 - **Non-community domains.** Publication needs two independent registrable domains, and
   Reddit can never be the second one. A run that surfaces only reddit.com and
@@ -57,8 +80,15 @@ Two things to weigh:
 - **Dated results.** Only the news index returns real publication dates, and an
   observation without one is never displayed. The wire slot is the only source of them.
 
-The news index is volatile — the same query returned 3 of 5 and 0 of 5 on-topic minutes
-apart. Judge a query over several runs, never one.
+**Everything here is volatile.** Not just the news index. The
+`site:pcgamer.com OR site:eurogamer.net OR site:dsogaming.com` trio returned three real
+Crimson Desert articles in one run and five dictionary definitions of the word "OR" four
+minutes later; the official subdomain slot returned nothing in one run and the Known
+Issues notice in the next. A `site:` group holds only while some member has matching
+content, and when none does Tavily drops the filter rather than returning nothing.
+
+So: judge a query over several runs, never one, and treat a small delta between two runs
+as noise. Only a change that shows up repeatedly is a finding.
 
 ## Keeping it honest
 

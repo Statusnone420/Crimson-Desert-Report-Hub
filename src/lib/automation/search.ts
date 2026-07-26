@@ -82,7 +82,25 @@ export type BuildSearchQueryOptions = {
  *    subdomain returned 5 of 5 in scope. Every group therefore needs one member
  *    that reliably carries coverage.
  *
- * 3. Anchor the open-web query in the game, not the words. Unanchored
+ *    Collapse is also INTERMITTENT, which is the part worth remembering. The
+ *    versionless pcgamer/eurogamer/dsogaming trio returned three real Crimson
+ *    Desert articles in one run and five dictionary definitions of "OR" four
+ *    minutes later. Adding the patch version to the same trio returned three
+ *    on-domain results, two of them naming 1.15.00. A version is therefore not
+ *    only what lets a press article clear canPublish, it is also what keeps the
+ *    group anchored. No press slot ships without one.
+ *
+ * 3. A `site:` scope that is genuinely dedicated to the game can still be the
+ *    wrong QUESTION. `site:store.steampowered.com Crimson Desert patch <v>
+ *    update` was measured 5 of 5 in scope and looked like the best slot in the
+ *    pack — but in scope means store pages: a Thai Deluxe Pack listing, a German
+ *    storefront, an English Deluxe Pack listing. None are patch notes, and
+ *    `steampowered.com` is not in TRUSTED_DOMAINS, so the observation gate
+ *    discards them regardless of what the pre-screen decides. The slot was
+ *    dropped rather than trusted: trusting the domain would also reclassify
+ *    every Steam review the run stamps with it.
+ *
+ * 4. Anchor the open-web query in the game, not the words. Unanchored
  *    "Crimson Desert patch" matched a coffee brand, a dictionary, the Harvard
  *    Crimson store and the US Army Corps of Engineers.
  *
@@ -95,20 +113,20 @@ function queryPack(patchVersion: string): string[] {
   return [
     // The game's own site, not the publisher's. Measured 5 of 5 in scope alone.
     `site:crimsondesert.pearlabyss.com Crimson Desert patch ${patchVersion} notes known issues`,
-    // Measured 5 of 5 in scope across three separate runs, and every result routed
-    // to an observation lane. The version matters: without it the same filter
-    // collapsed and returned wikipedia and vocabulary.com.
-    `site:store.steampowered.com Crimson Desert patch ${patchVersion} update`,
-    // Anchored open web: measured 2 kept + 2 observations, and no coffee.
+    // Anchored open web: the highest-yield slot in the pack. Measured 2 kept + 2
+    // observations across five distinct domains, and no coffee.
     `Crimson Desert game Pearl Abyss patch ${patchVersion} players stutter crash bug report`,
     // One Reddit query, down from four. Still where players complain.
     `site:reddit.com r/CrimsonDesert Crimson Desert patch ${patchVersion} crash stutter performance bug`,
     `site:steamcommunity.com Crimson Desert patch ${patchVersion} stutter low FPS issue`,
-    // Console/PC performance press: measured 2 kept signals, the non-Reddit
-    // corroboration single-source clusters have been waiting for.
-    `site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch performance problems`,
-    `site:pcgamer.com OR site:eurogamer.net OR site:dsogaming.com Crimson Desert patch performance problems`,
-    `site:ign.com OR site:gamespot.com OR site:polygon.com Crimson Desert patch update problems`,
+    // Console/PC performance press: the non-Reddit corroboration single-source
+    // clusters have been waiting for. Every trio carries the version — see the
+    // note on group collapse above, and note that a press article that never
+    // names the current patch cannot clear canPublish, so a versionless press
+    // hit is stored context at best and can never be the second domain.
+    `site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch ${patchVersion} performance problems`,
+    `site:pcgamer.com OR site:eurogamer.net OR site:dsogaming.com Crimson Desert patch ${patchVersion} performance problems`,
+    `site:ign.com OR site:gamespot.com OR site:polygon.com Crimson Desert patch ${patchVersion} update problems`,
   ];
 }
 

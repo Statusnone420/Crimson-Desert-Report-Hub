@@ -20,12 +20,34 @@ const PRESS_DOMAINS = [
   "kotaku.com",
 ] as const;
 
+/**
+ * The exact scopes a `site:` filter may name, parsed out of the query rather than
+ * matched as a substring. `query.includes("pearlabyss.com")` cannot tell the game
+ * subdomain from the publisher root — the very distinction these tests exist to
+ * hold — and it is the pattern CodeQL flags as incomplete host checking.
+ */
+function siteScopesOf(query: string): string[] {
+  return [...query.matchAll(/site:(\S+)/g)].map((match) => match[1]);
+}
+
+const PEARL_ABYSS_SCOPES = ["crimsondesert.pearlabyss.com", "pearlabyss.com"];
+
 describe("automation search planning", () => {
-  it("spends its first two credits on the official sources", () => {
+  it("spends its first two credits on the official notes and the anchored open web", () => {
     expect(buildSearchQueries(2, "1.14.00")).toEqual([
       "site:crimsondesert.pearlabyss.com Crimson Desert patch 1.14.00 notes known issues",
-      "site:store.steampowered.com Crimson Desert patch 1.14.00 update",
+      "Crimson Desert game Pearl Abyss patch 1.14.00 players stutter crash bug report",
     ]);
+  });
+
+  it("does not spend a credit on the Steam storefront", () => {
+    // Measured live: the slot was 5 of 5 in scope and returned store pages — a Thai
+    // Deluxe Pack listing, a German storefront, an English Deluxe Pack listing. None
+    // are patch notes, and steampowered.com is not trusted, so shouldCollectObservation
+    // discards them whatever the pre-screen decides. In scope is not the same as useful.
+    for (const query of buildSearchQueries(999, "1.14.00")) {
+      expect(siteScopesOf(query)).not.toContain("store.steampowered.com");
+    }
   });
 
   it("scopes the official query to the game, not the publisher", () => {
@@ -34,29 +56,35 @@ describe("automation search planning", () => {
     // the pipeline. Measured live: the root-scoped pair collapsed so badly that Tavily
     // returned five dictionary definitions of the word "OR"; the subdomain pair
     // returned 5 of 5 in scope.
-    const official = buildSearchQueries(999, "1.14.00").filter((query) => query.includes("pearlabyss.com"));
+    const planned = buildSearchQueries(999, "1.14.00");
+    const official = planned.filter((query) =>
+      siteScopesOf(query).some((scope) => PEARL_ABYSS_SCOPES.includes(scope)),
+    );
 
     expect(official).toHaveLength(1);
-    expect(official[0]).toContain("site:crimsondesert.pearlabyss.com");
+    expect(siteScopesOf(official[0])).toEqual(["crimsondesert.pearlabyss.com"]);
     // The publisher root must never be the scope, alone or grouped.
-    for (const query of buildSearchQueries(999, "1.14.00")) {
-      expect(query).not.toMatch(/site:pearlabyss\.com/);
+    for (const query of planned) {
+      expect(siteScopesOf(query)).not.toContain("pearlabyss.com");
     }
   });
 
-  it("asks official, storefront, community and press instead of two community domains", () => {
+  it("asks official, open web, community and press instead of two community domains", () => {
     const queries = buildSearchQueries(999, "1.14.00");
-    const combined = queries.join(" ");
 
-    expect(queries).toHaveLength(8);
+    expect(queries).toHaveLength(7);
     expect(queries.some((q) => q.includes("site:crimsondesert.pearlabyss.com"))).toBe(true);
-    expect(queries.some((q) => q.includes("site:store.steampowered.com"))).toBe(true);
     expect(queries.some((q) => q.includes("site:reddit.com") && q.includes("r/CrimsonDesert"))).toBe(true);
     expect(queries.some((q) => q.includes("site:steamcommunity.com"))).toBe(true);
     // Press is the corroborating half of the pack: promotion needs two independent
     // registrable domains and Reddit can never be the second one.
     expect(queries.filter((q) => PRESS_DOMAINS.some((domain) => q.includes(domain)))).toHaveLength(3);
-    expect(combined).toContain("patch 1.14.00");
+    // Every query names the patch. For press that is load-bearing twice over: a press
+    // article that never names the current patch cannot clear canPublish, and the
+    // versionless trio was measured collapsing into dictionary definitions of "OR".
+    for (const query of queries) {
+      expect(query, `query must name the patch: ${query}`).toContain("1.14.00");
+    }
   });
 
   it("never asks a press outlet on its own", () => {
@@ -94,8 +122,12 @@ describe("automation search planning", () => {
       pack[6],
     ]);
     // Wrapping keeps every query reachable, so an empty press trio this turn is not a
-    // permanent loss.
-    expect(buildSearchQueries(2, "1.14.00", { rotationOffset: 7 })).toEqual([pack[7], pack[0]]);
+    // permanent loss. Keyed off pack.length so resizing the pack cannot leave this
+    // asserting against an index that no longer exists.
+    expect(buildSearchQueries(2, "1.14.00", { rotationOffset: pack.length - 1 })).toEqual([
+      pack[pack.length - 1],
+      pack[0],
+    ]);
   });
 });
 

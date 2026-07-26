@@ -3917,8 +3917,13 @@ describe("runAutomationMonitor", () => {
     // through community AND press sources so a reddit-heavy cluster can reach the
     // second independent domain promotion requires. Which source a given turn draws
     // is covered directly in the query-planning tests.
-    expect(mocks.tavilySearch.mock.calls[0][0]).toMatch(/^site:/);
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
+    // Pinned exactly. The lane rotation depends on run.ts passing BOTH laneCount and
+    // searchRotationOffset through to the query builder; a loose `/^site:/` still
+    // passed when either was dropped, which is how the rotation could silently
+    // collapse back onto one forum.
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
+      "site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch 1.13.00 crash stutter freeze FPS",
+    );
     expect(tables.automation_runs[1]).toMatchObject({
       intent: "corroborate_cluster",
     });
@@ -4104,9 +4109,12 @@ describe("runAutomationMonitor", () => {
     // through community AND press sources so a reddit-heavy cluster can reach the
     // second independent domain promotion requires. Which source a given turn draws
     // is covered directly in the query-planning tests.
-    expect(mocks.tavilySearch.mock.calls[0][0]).toMatch(/^site:/);
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Shader compilation stutter");
+    // Pinned exactly, including the cluster title the lane is corroborating. See the
+    // note on the sibling assertion: a loose site: match hid a dropped laneCount.
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
+      "site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch 1.13.00 " +
+        "Shader compilation stutter crash stutter freeze FPS",
+    );
     expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
   });
 
