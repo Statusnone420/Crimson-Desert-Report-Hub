@@ -182,12 +182,13 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   const key = (options.env ?? process.env).TAVILY_API_KEY?.trim();
   if (!key) return null;
 
+  const requestedUrl = extractionUrl(url);
   const fetcher = options.fetcher ?? (fetch as unknown as SearchFetch);
   const res = await fetcher("https://api.tavily.com/extract", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      urls: [extractionUrl(url)],
+      urls: [requestedUrl],
       query: EXTRACT_QUERY,
       chunks_per_source: 5,
       extract_depth: "basic",
@@ -203,8 +204,15 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   const rawContent = (data.results ?? [])[0]?.raw_content?.trim();
   if (rawContent) return rawContent.slice(0, 4_000);
 
-  // One URL is requested, so any entry here is a refusal of that URL.
-  if ((data.failed_results ?? []).length > 0) return null;
+  // A refusal only waives the charge when Tavily actually names the URL we asked
+  // for. A malformed entry — `[{}]`, a bare string, or a different URL — says
+  // nothing about whether the work was billed, so it takes the throwing path and
+  // is charged worst case. Anything less strict here would let corrupted provider
+  // data quietly understate the month.
+  const refusedRequestedUrl = (data.failed_results ?? []).some(
+    (entry) => typeof entry?.url === "string" && entry.url === requestedUrl,
+  );
+  if (refusedRequestedUrl) return null;
   throw new Error("tavily extract returned no content");
 }
 

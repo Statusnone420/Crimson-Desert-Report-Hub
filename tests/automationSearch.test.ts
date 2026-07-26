@@ -216,6 +216,51 @@ describe("Tavily extract request", () => {
     expect(raw).toBeNull();
   });
 
+  it.each([
+    ["an entry with no url", [{}]],
+    ["a bare string entry", ["https://old.reddit.com/r/CrimsonDesert/comments/thin/"]],
+    ["an entry for a different url", [{ url: "https://old.reddit.com/r/OtherSub/comments/other/", error: "x" }]],
+    ["a null entry", [null]],
+  ])("throws when the stated refusal is %s", async (_label, failedResults) => {
+    // A refusal only waives the charge when Tavily names the URL we asked for.
+    // Corrupted provider data says nothing about whether the work was billed, so
+    // it must take the throwing path and be charged worst case — length alone is
+    // not evidence of an unbilled outcome.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [], failed_results: failedResults }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it("matches the refusal against the rewritten URL, not the one passed in", async () => {
+    // Reddit URLs are rewritten to old.reddit.com before the request, so the
+    // comparison must use the URL actually sent or every Reddit refusal would look
+    // corrupted and be charged.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [{ url: "https://www.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" }],
+      }),
+    }));
+
+    await expect(
+      tavilyExtract("https://www.reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
   it("throws when an empty extract response never states a refusal", async () => {
     // 200 with nothing usable and no stated refusal: Tavily may already have billed
     // the work behind it. Returning null here would claim it was free.
