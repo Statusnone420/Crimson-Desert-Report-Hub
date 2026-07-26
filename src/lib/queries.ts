@@ -1,9 +1,14 @@
 import "server-only";
+import {
+  isBriefEligibleObservation,
+  OBSERVATION_FUTURE_SKEW_MS,
+  patchEraFloorMs,
+} from "@/lib/observationDisplay";
 
 import { unstable_cache } from "next/cache";
 import { countBy, rankClusters } from "@/lib/aggregates";
 import { needsFullIssueCard } from "@/lib/evidence";
-import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
+import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
 import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
 import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/automation/relevance";
@@ -611,6 +616,7 @@ type PatchObservationRow = {
   source_published_at?: string | null;
   observed_at: string;
   seen_count: number;
+  is_public: boolean;
 };
 
 const PUBLIC_OBSERVATIONS_PER_LANE = 8;
@@ -619,52 +625,6 @@ const COVERAGE_OBSERVATION_KINDS: PublicObservation["kind"][] = [
   "press_reception",
   "fix_announcement",
 ];
-
-export function isPublicObservationEligible(row: PatchObservationRow, patchVersion: string): boolean {
-  const context = {
-    title: row.title,
-    snippet: row.snippet ?? "",
-    url: row.url,
-    sourceDomain: row.source_domain,
-  };
-  if (!hasCrimsonDesertContext(context) || hasUnsupportedSourceContext(context)) return false;
-  return !mentionsOnlyOtherPatch(`${row.title} ${row.snippet ?? ""}`, patchVersion);
-}
-
-/**
- * Display gate: public context lanes show only items with a REAL source
- * publication date inside the current patch era. Discovery time is never a
- * substitute — an undated page keeps feeding aggregate radar counts but never
- * renders as news. When the patch has no recorded publish date, the era bound
- * cannot be computed and date presence alone gates.
- */
-/** Providers occasionally report nonsense future dates; allow clock skew only. */
-const OBSERVATION_FUTURE_SKEW_MS = 48 * 60 * 60 * 1000;
-
-/**
- * Era floor: the START of the patch's UTC publish day. Date-only provider
- * dates land at midnight UTC, so patch-day coverage must not lose to a patch
- * note that carries a later clock time on the same day.
- */
-function patchEraFloorMs(patchPublishedAt: string | null): number {
-  if (!patchPublishedAt) return Number.NaN;
-  const publishedAt = new Date(patchPublishedAt).getTime();
-  if (!Number.isFinite(publishedAt)) return Number.NaN;
-  return new Date(publishedAt).setUTCHours(0, 0, 0, 0);
-}
-
-export function isDisplayableDatedObservation(
-  row: Pick<PatchObservationRow, "source_published_at">,
-  patchPublishedAt: string | null,
-  nowMs: number = Date.now(),
-): row is typeof row & { source_published_at: string } {
-  const published = row.source_published_at ? new Date(row.source_published_at).getTime() : Number.NaN;
-  if (!Number.isFinite(published)) return false;
-  if (published > nowMs + OBSERVATION_FUTURE_SKEW_MS) return false;
-  const eraStart = patchEraFloorMs(patchPublishedAt);
-  if (Number.isFinite(eraStart) && published < eraStart) return false;
-  return true;
-}
 
 /**
  * Pure lane split for the Brief's context modules: Wire coverage and Community
@@ -676,9 +636,8 @@ export function splitPublicObservationLanes(
   patch: { version: string; publishedAt: string | null },
 ): PublicObservationLanes {
   const displayable = rows
-    .filter((row) => isPublicObservationEligible(row, patch.version))
     .filter((row): row is PatchObservationRow & { source_published_at: string } =>
-      isDisplayableDatedObservation(row, patch.publishedAt),
+      isBriefEligibleObservation(row, patch),
     )
     .sort(
       (left, right) =>
@@ -712,7 +671,11 @@ export async function getPublicObservations(
   patch: { version: string; publishedAt: string | null },
 ): Promise<PublicObservationLanes> {
   try {
-    const selectColumns = "id, kind, title, url, source_domain, snippet, source_published_at, observed_at, seen_count";
+    // `is_public` is read back, not assumed from the filter below: the lane
+    // split re-checks every gate itself so it stays the single answer to
+    // "would this render", wherever its rows came from.
+    const selectColumns =
+      "id, kind, title, url, source_domain, snippet, source_published_at, observed_at, seen_count, is_public";
     // Both date gates also run server-side, before the per-lane limit: a batch
     // of nonsense far-future provider dates would otherwise sort first, consume
     // the limit, then be dropped client-side — starving the lane of valid rows.
@@ -1333,6 +1296,11 @@ export async function getAutomationAdminData() {
     runs: (runs ?? []) as AutomationRunRow[],
     rejectedCandidates: rejectedCandidates as RejectedCandidateRow[],
     observations,
+    // The patch these rows were selected against, returned with them. The
+    // radar's copy is cached for five minutes, so on the first page load after
+    // a rollover it can still name the previous patch — judging fresh rows by
+    // a stale version would call the new patch's coverage off-topic.
+    observationPatch: currentPatch,
     observationModerationAvailable,
     feedbackLearningAvailable,
     feedbackRules,

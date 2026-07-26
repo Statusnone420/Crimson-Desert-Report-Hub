@@ -882,7 +882,18 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Action inbox", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Nothing requires intervention." })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Review the pattern, not a dropdown farm." })).toBeVisible();
+    // Records are a ledger, not work: the heading and its count stay visible,
+    // and every card inside is one click away.
     await expect(page.getByRole("heading", { name: "What the scanner kept" })).toBeVisible();
+    await expect(page.locator("#records .operator-section__count")).toContainText("newest");
+    // Five lane items this patch, but one is undated and one the operator
+    // already rejected. Both stay in the list with an Undo; neither can reach
+    // the Brief, so neither may be counted as publishable. The count is also
+    // labelled a window, because the read stops at 40.
+    await expect(page.locator("#lanes .operator-section__count")).toContainText(
+      "newest 5 this patch · 3 publishable",
+    );
+    await page.locator("#records details.operator-section > summary").click();
     await expect(page.getByRole("link", { name: "Open source" }).first()).toBeVisible();
     const teachingSearch = page.getByRole("searchbox", { name: "Search optional scanner review" });
     await expect(teachingSearch).toBeVisible();

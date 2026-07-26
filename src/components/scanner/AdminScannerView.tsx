@@ -19,6 +19,7 @@ import type {
   ScannerFeedbackRuleRow,
 } from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
+import { isBriefEligibleObservation } from "@/lib/observationDisplay";
 import { registerUnread, type ScannerReadRegister } from "@/lib/scannerRegisters";
 
 function cadenceLabel(minutes: number): string {
@@ -314,6 +315,7 @@ export function AdminScannerView({
   signals,
   rejectedCandidates,
   observations,
+  observationPatch,
   observationModerationAvailable,
   feedbackRules,
   feedbackLearningAvailable,
@@ -330,6 +332,8 @@ export function AdminScannerView({
   signals: AdminSignalRow[];
   rejectedCandidates: RejectedCandidateRow[];
   observations: AdminObservationRow[];
+  /** The patch the observation rows were read against, not the radar's cached copy. */
+  observationPatch: { version: string; publishedAt: string | null };
   observationModerationAvailable: boolean;
   feedbackRules: ScannerFeedbackRuleRow[];
   feedbackLearningAvailable: boolean;
@@ -371,7 +375,31 @@ export function AdminScannerView({
   // rather than this headline.
   const healthKnown = radar.connected && unknownCircuitIntegrations.length === 0;
   const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length;
+  // Name the parts. With no provider paused this total equals the failed-runs
+  // cell beside it, and an unexplained duplicate reads as a second problem.
+  const attentionParts = [
+    radar.health.runs7d.failed > 0
+      ? `${radar.health.runs7d.failed} failed run${radar.health.runs7d.failed === 1 ? "" : "s"} · 7d`
+      : null,
+    pausedIntegrations.length > 0
+      ? `${pausedIntegrations.length} provider${pausedIntegrations.length === 1 ? "" : "s"} paused`
+      : null,
+  ].filter(Boolean);
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
+  // What can reach the Brief decides how this section reads, so it says it once
+  // instead of every card repeating it. This is the same function the public
+  // lane calls, not a copy of its conditions: a usable date, still public, still
+  // relevant. Anything less would advertise items the Brief itself drops —
+  // including the one just rejected, which stays in this list unpublished.
+  // Judged against the patch these rows were read with, never the radar's
+  // five-minute-cached copy: right after a rollover they disagree, and the
+  // stale one would call the new patch's own coverage off-topic.
+  const publishableObservations = observations.filter((observation) =>
+    isBriefEligibleObservation(observation, observationPatch, nowMs),
+  ).length;
+  // A collapsed section must never hide the fact that something inside it can
+  // still be undone, or the operator has to go looking for their own recovery.
+  const reversibleObservations = observations.filter((observation) => observation.decision_id !== null).length;
 
   return (
     <>
@@ -390,6 +418,20 @@ export function AdminScannerView({
           <ScanControls activeRunId={activeRun?.id ?? null} />
         </div>
       </header>
+
+      {/* Every section reachable without scrolling the whole page. Counts come
+          from reads that succeeded; a section whose read failed says so in its
+          own body rather than showing a zero here. */}
+      <nav className="op-section-nav" aria-label="Sections on this page">
+        <a href="#teach">Teach<span className="op-section-nav__count">{rejectedCandidates.length}</span></a>
+        <a href="#records">Records<span className="op-section-nav__count">{signals.length}</span></a>
+        <a href="#lanes">Context lanes<span className="op-section-nav__count">{observations.length}</span></a>
+        <a href="#lessons">
+          Lessons
+          {feedbackLearningAvailable ? <span className="op-section-nav__count">{feedbackRules.length}</span> : null}
+        </a>
+        <a href="#history">Scan history<span className="op-section-nav__count">{runs.length}</span></a>
+      </nav>
 
       <div className="op-status-line">
         <span className={status.toneClass}>● {status.label}</span>
@@ -452,8 +494,8 @@ export function AdminScannerView({
             <div className="stat-band__caption">
               {!healthKnown
                 ? "A scanner health read failed, so this count is unavailable"
-                : attentionCount > 0
-                  ? "Run or provider health needs a look"
+                : attentionParts.length > 0
+                  ? attentionParts.join(" · ")
                   : "No scanner intervention required"}
             </div>
           </div>
@@ -637,7 +679,7 @@ export function AdminScannerView({
       </section>
 
       <div className="operator-workbench">
-        <section className="operator-workbench__main" aria-label="Teach the scanner">
+        <section className="operator-workbench__main" id="teach" aria-label="Teach the scanner">
           <div className="section-heading">
             <div>
               <p className="dispatch-kicker dispatch-kicker--amber">Teach the scanner · Optional</p>
@@ -645,7 +687,8 @@ export function AdminScannerView({
             </div>
             <p className="section-heading__note">
               Keep a missed lead, or record why a page is wrong. Exact-page rules are safest; broader rules require
-              an explicit confirmation and can always be undone.
+              an explicit confirmation and can always be undone. Showing the newest {rejectedCandidates.length}{" "}
+              unexpired {rejectedCandidates.length === 1 ? "candidate" : "candidates"} still eligible to teach from.
             </p>
           </div>
           <ScannerFeedbackDesk
@@ -674,10 +717,14 @@ export function AdminScannerView({
             ) : <p className="op-rail__sentence">No completed scan yet.</p>}
           </div>
 
-          <details className="operator-disclosure">
-            <summary>Scan history and diagnostics</summary>
+          <details className="operator-disclosure" id="history">
+            <summary>Scan history and diagnostics · newest {runs.length}</summary>
             <div className="operator-disclosure__body">
-              {runs.slice(0, 8).map((run) => (
+              {/* The read is the newest 10 runs and there is no total behind it,
+                  so this names its window rather than claiming a denominator.
+                  It renders every run it was given — slicing to 8 dropped two
+                  reads on the floor without saying so. */}
+              {runs.map((run) => (
                 <div key={run.id} className="op-history-row">
                   <span className="num-quiet">{formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}</span>
                   <span>{plainRunLine(run)}</span>
@@ -686,7 +733,7 @@ export function AdminScannerView({
               ))}
               <details className="raw-diagnostics">
                 <summary>Raw funnel, skip, and error codes</summary>
-                {runs.slice(0, 8).map((run) => (
+                {runs.map((run) => (
                   <p key={run.id}>
                     {formatEasternDateTime(run.started_at)}
                     {funnelSummary(run.funnel) ? ` · ${funnelSummary(run.funnel)}` : ""}
@@ -719,45 +766,78 @@ export function AdminScannerView({
         </aside>
       </div>
 
-      <section className="operator-records" aria-label="Automatic scanner records">
-        <div className="section-heading section-heading--compact">
-          <div><p className="dispatch-kicker">Automatic records</p><h2 className="section-heading__title">What the scanner kept</h2></div>
-          <p className="section-heading__note">Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.</p>
-        </div>
-        <div className="lead-record-grid">
-          {recentSignals.length > 0
-            ? recentSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))
-            : <p className="decision-empty">No kept source leads yet.</p>}
-        </div>
-        {olderSignals.length > 0 ? (
-          <details className="operator-disclosure operator-disclosure--records">
-            <summary>Browse {olderSignals.length} older {olderSignals.length === 1 ? "lead" : "leads"}</summary>
-            <div className="lead-record-grid operator-disclosure__body">
-              {olderSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))}
+      {/* A record of what the scanner did on its own — nothing here is waiting
+          on the operator, so it opens on request rather than by default. */}
+      <section className="operator-records" id="records" aria-label="Automatic scanner records">
+        <details className="operator-section">
+          <summary className="operator-section__summary">
+            <span className="dispatch-kicker">Automatic records</span>
+            <h2 className="operator-section__title">What the scanner kept</h2>
+            <span className="operator-section__count">
+              newest {signals.length} {signals.length === 1 ? "lead" : "leads"}
+            </span>
+          </summary>
+          <div className="operator-section__body">
+            <p className="section-heading__note">
+              Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.
+            </p>
+            <div className="lead-record-grid">
+              {recentSignals.length > 0
+                ? recentSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))
+                : <p className="decision-empty">No kept source leads yet.</p>}
             </div>
-          </details>
-        ) : null}
-      </section>
-
-      <section className="operator-records" aria-label="Public context lanes">
-        <div className="section-heading section-heading--compact">
-          <div>
-            <p className="dispatch-kicker">Context lanes</p>
-            <h2 className="section-heading__title">Wire and Asks on the Brief</h2>
+            {olderSignals.length > 0 ? (
+              <details className="operator-disclosure operator-disclosure--records">
+                <summary>Browse {olderSignals.length} older {olderSignals.length === 1 ? "lead" : "leads"}</summary>
+                <div className="lead-record-grid operator-disclosure__body">
+                  {olderSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))}
+                </div>
+              </details>
+            ) : null}
           </div>
-          <p className="section-heading__note">
-            Everything the current patch&apos;s public context lanes hold. Undated items never render publicly.
-            Rejecting an item hides it immediately and records an undoable lesson.
-          </p>
-        </div>
-        <div className="lead-record-grid">
-          {observations.length > 0
-            ? observations.map((observation) => observationRow(observation, observationModerationAvailable))
-            : <p className="decision-empty">No observations recorded for this patch yet.</p>}
-        </div>
+        </details>
       </section>
 
-      <section className="feedback-ledger" aria-label="Active scanner feedback rules">
+      <section className="operator-records" id="lanes" aria-label="Public context lanes">
+        <details className="operator-section">
+          <summary className="operator-section__summary">
+            <span className="dispatch-kicker">Context lanes</span>
+            <h2 className="operator-section__title">Wire and Asks on the Brief</h2>
+            <span
+              className={
+                publishableObservations === 0 ? "operator-section__count is-amber" : "operator-section__count"
+              }
+            >
+              {/* "newest": the read caps at 40, so on a busy patch this is a
+                  window, not the total — and all three figures count only what
+                  is inside it. Matches how the neighbouring record sections
+                  label their own capped reads. */}
+              <span>newest {observations.length} this patch</span>{" "}
+              <span>· {publishableObservations} publishable</span>
+              {reversibleObservations > 0 ? <> <span>· {reversibleObservations} undoable</span></> : null}
+            </span>
+          </summary>
+          <div className="operator-section__body">
+            {/* One statement of the rule for the whole section. Every card still
+                carries its own state chip; what it no longer carries is a repeat
+                of the same sentence ten times over. */}
+            <p className="section-heading__note">
+              {observations.length === 0
+                ? "Undated items never render publicly. Rejecting an item hides it immediately and records an undoable lesson."
+                : publishableObservations === 0
+                  ? `None of these ${observations.length} can appear on the Brief — most often for want of a source date. Rejecting an item hides it immediately and records an undoable lesson.`
+                  : `${publishableObservations} of these ${observations.length} can appear on the Brief; the rest are undated, rejected, or off this patch. Rejecting an item hides it immediately and records an undoable lesson.`}
+            </p>
+            <div className="lead-record-grid">
+              {observations.length > 0
+                ? observations.map((observation) => observationRow(observation, observationModerationAvailable))
+                : <p className="decision-empty">No observations recorded for this patch yet.</p>}
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section className="feedback-ledger" id="lessons" aria-label="Active scanner feedback rules">
         <div className="section-heading section-heading--compact">
           <div><p className="dispatch-kicker">Active lessons</p><h2 className="section-heading__title">What the scanner will remember</h2></div>
           <p className="section-heading__note">Visibility and learning stay separate. Hiding an issue never poisons discovery; only an explicit scanner decision creates a rule.</p>

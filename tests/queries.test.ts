@@ -8,8 +8,6 @@ import {
   getPublicObservations,
   getCandidateSignalCountsByCluster,
   getPublicSignalClusterIdsForCurrentPatch,
-  isDisplayableDatedObservation,
-  isPublicObservationEligible,
   splitPublicObservationLanes,
   filterExactPatchReports,
   filterPublicCurrentPatchSignals,
@@ -21,6 +19,7 @@ import {
   readExcerptsByClusterForCurrentPatch,
   reportPlatformCountsByCluster,
 } from "@/lib/queries";
+import { isDisplayableDatedObservation, isPublicObservationEligible } from "@/lib/observationDisplay";
 
 vi.mock("server-only", () => ({}));
 

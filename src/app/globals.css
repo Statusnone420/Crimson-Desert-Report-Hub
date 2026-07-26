@@ -2685,6 +2685,93 @@ a.wire-item__title:hover { color: var(--dispatch-ink); }
 .lead-feedback > summary::-webkit-details-marker { display: none; }
 .lead-feedback[open] > summary { margin-bottom: 10px; }
 .lead-feedback__form { width: 100%; margin-top: 0; }
+/* ---------- Operator section nav and collapsed sections ---------- */
+
+.op-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: baseline;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--rule-ghost);
+  margin-bottom: 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.op-section-nav a { color: var(--dispatch-muted); text-decoration: none; }
+.op-section-nav a:hover { color: var(--dispatch-ink); }
+.op-section-nav a:focus-visible { outline: 2px solid var(--dispatch-link); outline-offset: 3px; }
+.op-section-nav__count { margin-left: 6px; color: var(--dispatch-quiet); }
+
+.operator-section > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--rule-strong, var(--rule-ghost));
+}
+.operator-section > summary::-webkit-details-marker { display: none; }
+.operator-section > summary:focus-visible { outline: 2px solid var(--dispatch-link); outline-offset: 3px; }
+.operator-section__title { font-family: var(--font-serif); font-size: 24px; }
+.operator-section__count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dispatch-quiet);
+}
+/* Three figures in one line runs past a phone. Keep each figure whole so the
+   line breaks between them, never through "3 publishable". */
+.operator-section__count > span { white-space: nowrap; }
+.operator-section__count.is-amber { color: var(--amber); }
+.operator-section > summary::after {
+  content: "+";
+  font-family: var(--font-mono);
+  color: var(--dispatch-quiet);
+}
+.operator-section[open] > summary::after { content: "–"; }
+.operator-section__body { padding-top: 4px; }
+
+/* ---------- Active lessons, grouped ---------- */
+
+.feedback-ledger__summary {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dispatch-quiet);
+  margin-bottom: 8px;
+}
+.feedback-ledger__summary b { color: var(--dispatch-ink); font-weight: 400; }
+.feedback-group > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--rule-ghost);
+}
+.feedback-group > summary::-webkit-details-marker { display: none; }
+.feedback-group > summary:focus-visible { outline: 2px solid var(--dispatch-link); outline-offset: 3px; }
+.feedback-group__label { font-family: var(--font-mono); font-size: 14px; color: var(--dispatch-ink); }
+.feedback-group__scope {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dispatch-quiet);
+}
+.feedback-group__count { margin-left: auto; font-family: var(--font-serif); font-size: 20px; }
+.feedback-group[open] > summary { color: var(--dispatch-ink); }
+.feedback-group .feedback-rules { margin: 0 0 8px 18px; }
+
 .feedback-rules { display: grid; gap: 1px; background: var(--rule-ghost); border-top: 1px solid var(--rule-ghost); border-bottom: 1px solid var(--rule-ghost); }
 .feedback-rule { display: flex; justify-content: space-between; gap: 24px; align-items: start; padding: 16px 0; background: var(--dispatch-bg); }
 .feedback-rule__state { margin: 0 0 5px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; }

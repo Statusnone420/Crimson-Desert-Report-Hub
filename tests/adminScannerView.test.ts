@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { emptyPatchRadarData } from "@/lib/radar.server";
-import type { PublicScannerData } from "@/lib/queries";
+import type { AdminObservationRow, AutomationRunRow, PublicScannerData } from "@/lib/queries";
 import type { IntegrationStatus } from "@/lib/env";
 import type { ScannerReadRegister } from "@/lib/scannerRegisters";
 
@@ -63,6 +63,7 @@ describe("AdminScannerView", () => {
       signals: [],
       rejectedCandidates: [],
       observations: [],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
@@ -148,6 +149,7 @@ describe("AdminScannerView", () => {
       signals,
       rejectedCandidates: [],
       observations: [],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
@@ -198,6 +200,7 @@ describe("AdminScannerView", () => {
       }],
       rejectedCandidates: [],
       observations: [],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
@@ -255,6 +258,7 @@ describe("AdminScannerView", () => {
           decision_id: "decision-1",
         },
       ],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
@@ -322,6 +326,7 @@ describe("AdminScannerView", () => {
         feedback_rule_id: null,
       }],
       observations: [],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: false,
       feedbackRules: [],
       feedbackLearningAvailable: false,
@@ -373,6 +378,7 @@ describe("AdminScannerView", () => {
       readFailures?: ScannerReadRegister[];
       weekReviewed?: number;
       integrations?: IntegrationStatus[];
+      failedRuns7d?: number;
     }) {
       const radar = emptyPatchRadarData(patch);
       return renderToStaticMarkup(createElement(AdminScannerView, {
@@ -380,6 +386,7 @@ describe("AdminScannerView", () => {
         signals: [],
         rejectedCandidates: [],
         observations: [],
+        observationPatch: { version: "1.14.00", publishedAt: null },
         observationModerationAvailable: true,
         feedbackRules: [],
         feedbackLearningAvailable: true,
@@ -404,6 +411,10 @@ describe("AdminScannerView", () => {
           ...radar,
           connected: overrides.radarConnected,
           funnel7d: { ...radar.funnel7d, reviewed: overrides.weekReviewed ?? 0 },
+          health: {
+            ...radar.health,
+            runs7d: { ...radar.health.runs7d, failed: overrides.failedRuns7d ?? 0 },
+          },
         },
         integrations: overrides.integrations ?? [],
         nowIso: "2026-07-22T18:00:00.000Z",
@@ -473,6 +484,328 @@ describe("AdminScannerView", () => {
       expect(markup).toContain("Radar yield");
       expect(markup).toContain('<span class="mono-label">unavailable</span>');
       expect(markup).not.toContain('class="desk-funnel__num desk-funnel__num--blue"');
+    });
+
+    it("says what the attention count is made of instead of repeating its neighbour", () => {
+      // With no provider paused this total equals the Failed runs cell two
+      // columns over. An unexplained duplicate reads as a second problem.
+      const markup = render({ radarConnected: true, failedRuns7d: 1 });
+
+      expect(markup).toContain("1 failed run · 7d");
+      expect(markup).not.toContain("Run or provider health needs a look");
+      expect(markup).toContain("1 scanner health item need");
+    });
+
+    it("counts a paused provider alongside failed runs in the same caption", () => {
+      const markup = render({
+        radarConnected: true,
+        failedRuns7d: 2,
+        integrations: [
+          {
+            key: "ai_extraction",
+            label: "AI extraction",
+            connected: true,
+            missingEnv: [],
+            detail: "The cost-safety circuit is open.",
+            paused: true,
+          },
+        ],
+      });
+
+      expect(markup).toContain("2 failed runs · 7d · 1 provider paused");
+    });
+
+    it("still says nothing is required when both parts are zero", () => {
+      const markup = render({ radarConnected: true, failedRuns7d: 0 });
+
+      expect(markup).toContain("No scanner intervention required");
+    });
+  });
+
+  describe("honest read windows", () => {
+    function run(index: number): AutomationRunRow {
+      return {
+        id: `run-${index}`,
+        started_at: `2026-07-2${index % 10}T12:00:00.000Z`,
+        finished_at: `2026-07-2${index % 10}T12:01:00.000Z`,
+        status: "success",
+        mode: "scheduled",
+        estimated_cost_usd: 0,
+        search_queries_used: 1,
+        llm_calls_used: 0,
+        signals_inserted: 0,
+        signals_deduped: 0,
+        clusters_promoted: 0,
+        intent: "broad_sweep",
+        search_results_seen: 0,
+        reddit_posts_seen: 0,
+        signals_reobserved: 0,
+        stale_signals_hidden: 0,
+        candidates_rescued: 0,
+        skips: [],
+        errors: [],
+        funnel: null,
+      };
+    }
+
+    function renderWithRuns(runs: AutomationRunRow[]) {
+      return renderToStaticMarkup(createElement(AdminScannerView, {
+        runs,
+        signals: [],
+        rejectedCandidates: [],
+        observations: [],
+        observationPatch: { version: "1.14.00", publishedAt: null },
+        observationModerationAvailable: true,
+        feedbackRules: [],
+        feedbackLearningAvailable: true,
+        control: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 1000,
+          monthlyLlmUsdCap: 2,
+          modelPreset: "deepseek_v4_flash",
+          updatedAt: null,
+        },
+        activeRun: null,
+        latestRealRun: runs[0] ?? null,
+        latestFind: null,
+        scoreboard: healthyScoreboard,
+        radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
+        integrations: [],
+        nowIso: "2026-07-22T18:00:00.000Z",
+      }));
+    }
+
+    it("renders every run the read returned, not a shorter slice of it", () => {
+      // The query asks for the newest 10; rendering 8 dropped two reads on the
+      // floor and the page said nothing about it.
+      const runs = Array.from({ length: 10 }, (_, index) => run(index));
+      const markup = renderWithRuns(runs);
+
+      expect(markup.match(/class="op-history-row"/g)).toHaveLength(10);
+      // The raw-code disclosure was sliced to 8 too, so it lost the same two.
+      expect(markup.match(/Jul \d+, 2026, /g)).toHaveLength(10);
+      expect(markup).toContain("Scan history and diagnostics · newest 10");
+    });
+
+    it("names the window it actually holds when fewer runs exist", () => {
+      const markup = renderWithRuns([run(0), run(1), run(2)]);
+
+      expect(markup).toContain("Scan history and diagnostics · newest 3");
+      // No invented denominator: there is no total behind this read.
+      expect(markup).not.toMatch(/newest 3 of \d/);
+    });
+  });
+
+  describe("sections that are records, not work", () => {
+    function feedbackRule(index: number, scopeValue: string, action: "allow" | "block" = "block") {
+      return {
+        id: `rule-${index}`,
+        decision_id: `decision-${index}`,
+        action,
+        decision: action === "allow" ? ("relevant" as const) : ("off_topic" as const),
+        scope_type: "exact_url" as const,
+        scope_value: scopeValue,
+        reason: "Reviewed source: not a bug report.",
+        created_at: "2026-07-22T12:00:00.000Z",
+        expires_at: null,
+      };
+    }
+
+    function observation(index: number, sourcePublishedAt: string | null, isPublic = true): AdminObservationRow {
+      return {
+        id: `observation-${index}`,
+        kind: "community_ask" as const,
+        title: `Observation ${index}`,
+        url: `https://reddit.com/r/CrimsonDesert/comments/obs-${index}`,
+        source_domain: "reddit.com",
+        snippet: "Players asking for something.",
+        source_published_at: sourcePublishedAt,
+        observed_at: "2026-07-22T12:00:00.000Z",
+        seen_count: 1,
+        is_public: isPublic,
+        decision_id: null,
+      };
+    }
+
+    function render(overrides: {
+      feedbackRules?: ReturnType<typeof feedbackRule>[];
+      observations?: ReturnType<typeof observation>[];
+      patchPublishedAt?: string | null;
+      patchVersion?: string;
+      /** The radar's separately cached copy, which can lag the observation read. */
+      radarPatch?: { version: string; publishedAt: string | null };
+    }) {
+      const observationPatch = {
+        version: overrides.patchVersion ?? "1.14.00",
+        publishedAt: overrides.patchPublishedAt ?? null,
+      };
+      return renderToStaticMarkup(createElement(AdminScannerView, {
+        runs: [],
+        signals: [],
+        rejectedCandidates: [],
+        observations: overrides.observations ?? [],
+        observationPatch,
+        observationModerationAvailable: true,
+        feedbackRules: overrides.feedbackRules ?? [],
+        feedbackLearningAvailable: true,
+        control: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 1000,
+          monthlyLlmUsdCap: 2,
+          modelPreset: "deepseek_v4_flash",
+          updatedAt: null,
+        },
+        activeRun: null,
+        latestRealRun: null,
+        latestFind: null,
+        scoreboard: healthyScoreboard,
+        radar: emptyPatchRadarData(overrides.radarPatch ?? observationPatch),
+        integrations: [],
+        nowIso: "2026-07-22T18:00:00.000Z",
+      }));
+    }
+
+    it("gives every grouped rule its own Undo, so grouping never costs a recovery path", () => {
+      // Six rules, one domain, one group heading — but six decision ids, six
+      // Undo buttons. Grouping is a heading, never a merge.
+      const rules = Array.from({ length: 6 }, (_, index) =>
+        feedbackRule(index, `https://steamcommunity.com/app/3321460/discussions/0/8057?l=lang${index}`),
+      );
+
+      const markup = render({ feedbackRules: rules });
+
+      expect(markup.match(/name="decision_id"/g)).toHaveLength(6);
+      expect(markup.match(/>Undo</g)).toHaveLength(6);
+      for (const rule of rules) {
+        expect(markup).toContain(rule.scope_value);
+      }
+      // One group row stands in front of all six.
+      expect(markup.match(/class="feedback-group"/g)).toHaveLength(1);
+      expect(markup).toContain("steamcommunity.com");
+    });
+
+    it("states the ledger total rather than making the rows be the count", () => {
+      const markup = render({
+        feedbackRules: [
+          feedbackRule(1, "https://reddit.com/a"),
+          feedbackRule(2, "https://adobe.com/b"),
+          feedbackRule(3, "https://reddit.com/c", "allow"),
+        ],
+      });
+
+      expect(markup).toContain("active rules");
+      expect(markup).toContain("2 block");
+      expect(markup).toContain("1 keep");
+      expect(markup).toContain("2 domains");
+    });
+
+    it("says the dating rule once for the section instead of once per card", () => {
+      const markup = render({ observations: [observation(1, null), observation(2, null), observation(3, null)] });
+
+      expect(markup).toContain("None of these 3 can appear on the Brief");
+      expect(markup).toContain("newest 3 this patch");
+      expect(markup).toContain("· 0 publishable");
+    });
+
+    it("counts the publishable ones when some carry a date", () => {
+      const markup = render({
+        observations: [observation(1, "2026-07-20T00:00:00.000Z"), observation(2, null)],
+      });
+
+      expect(markup).toContain("1 of these 2 can appear on the Brief");
+      expect(markup).toContain("newest 2 this patch");
+      expect(markup).toContain("· 1 publishable");
+    });
+
+    it("never calls an item publishable that the public lane would reject", () => {
+      // A date is not automatically a usable date: the Brief drops anything from
+      // before the patch era or implausibly far in the future. The operator
+      // summary has to apply the same bounds or it advertises a lane item that
+      // can never render.
+      const markup = render({
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        observations: [
+          observation(1, "2026-07-01T00:00:00.000Z"), // before the patch era
+          observation(2, "2026-09-01T00:00:00.000Z"), // implausibly far ahead
+          observation(3, "2026-07-21T00:00:00.000Z"), // the only real one
+        ],
+      });
+
+      expect(markup).toContain("newest 3 this patch");
+      expect(markup).toContain("· 1 publishable");
+      expect(markup).toContain("1 of these 3 can appear on the Brief");
+    });
+
+    it("stops counting an item the operator just rejected", () => {
+      // Rejecting a lane item sets is_public false and leaves the card in this
+      // list. Counting the date alone would keep calling the thing just taken
+      // off the Brief publishable.
+      const markup = render({
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        observations: [
+          observation(1, "2026-07-21T00:00:00.000Z"),
+          observation(2, "2026-07-21T00:00:00.000Z", false),
+        ],
+      });
+
+      expect(markup).toContain("newest 2 this patch");
+      expect(markup).toContain("· 1 publishable");
+      expect(markup).toContain("1 of these 2 can appear on the Brief");
+    });
+
+    it("judges observations against the patch they were read with, not the cached radar copy", () => {
+      // The radar is cached for five minutes; the observation read is not. For
+      // that window after a rollover they disagree, and judging fresh 1.15.00
+      // coverage by the stale 1.14.00 version calls the new patch off-topic.
+      const covers1150 = {
+        ...observation(1, "2026-07-21T00:00:00.000Z"),
+        kind: "patch_release" as const,
+        title: "Crimson Desert 1.15.00 patch notes are live",
+        snippet: "Everything that changed in Crimson Desert 1.15.00.",
+      };
+
+      const markup = render({
+        patchVersion: "1.15.00",
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        radarPatch: { version: "1.14.00", publishedAt: "2026-06-01T00:00:00.000Z" },
+        observations: [covers1150],
+      });
+
+      expect(markup).toContain("newest 1 this patch");
+      expect(markup).toContain("· 1 publishable");
+    });
+
+    it("presents the capped observation read as a window, never as the patch total", () => {
+      // The read stops at 40. On a busy patch all three figures in this summary
+      // describe that slice, so the label has to say so — "40 this patch" would
+      // deny the existence of everything older.
+      const markup = render({
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        observations: Array.from({ length: 40 }, (_, index) =>
+          observation(index + 1, "2026-07-21T00:00:00.000Z"),
+        ),
+      });
+
+      expect(markup).toContain("newest 40 this patch");
+      expect(markup).toContain("· 40 publishable");
+      expect(markup).toContain("40 of these 40 can appear on the Brief");
+    });
+
+    it("collapses the record sections and keeps their contents reachable", () => {
+      const markup = render({ observations: [observation(1, null)] });
+
+      // Both record sections are disclosures now, not always-open walls.
+      expect(markup.match(/class="operator-section"/g)).toHaveLength(2);
+      // Nothing is removed: the card is still rendered inside the closed section.
+      expect(markup).toContain("Observation 1");
+      // And every section is reachable without scrolling the page.
+      expect(markup).toContain('href="#lessons"');
+      expect(markup).toContain('href="#lanes"');
+      expect(markup).toContain('href="#teach"');
     });
   });
 });
