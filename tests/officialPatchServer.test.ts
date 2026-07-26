@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveBurstState } from "@/lib/automation/schedule";
 
 const mocks = vi.hoisted(() => ({
   fetchLatestOfficialPatchNote: vi.fn(),
@@ -593,6 +594,38 @@ describe("getReportPatchContext", () => {
 
     expect(context.currentPatch.source).toBe("fallback");
     expect(context.patchVersions).toEqual(["1.13.01", "other"]);
+  });
+
+  it("reports a break-glass row as manual, never as synced", async () => {
+    // set_current_patch_override writes board_no "manual-<version>"; the badge
+    // and burst scheduler both depend on that provenance surviving the read.
+    tables.official_patch_notes.push(
+      officialRow({
+        board_no: "manual-1.14.00",
+        patch_version: "1.14.00",
+        published_at: null,
+        is_current: true,
+      }),
+    );
+
+    const { getCurrentPatchMetadata } = await import("@/lib/officialPatch.server");
+    const patch = await getCurrentPatchMetadata(fakeSupabase());
+
+    expect(patch.version).toBe("1.14.00");
+    expect(patch.source).toBe("manual");
+  });
+
+  it("never schedules patch-burst cadence from a manual override row", () => {
+    // End to end: the row this override writes, read back, must not look like
+    // a fresh official patch drop to the scan scheduler.
+    const observedAt = "2026-07-26T11:00:00.000Z";
+    const now = new Date("2026-07-26T12:00:00.000Z");
+    const manual = { source: "manual" as const, observedAt, publishedAt: null };
+    const official = { source: "official" as const, observedAt, publishedAt: null };
+
+    expect(resolveBurstState(manual, now)).toBe(false);
+    // Same freshness, official provenance: proves the source is what decides.
+    expect(resolveBurstState(official, now)).toBe(true);
   });
 });
 

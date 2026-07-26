@@ -284,6 +284,73 @@ describe("setClusterFixStatus", () => {
       },
     });
   });
+
+  it("refuses a claim-bearing lock while the current patch is only the hardcoded fallback", async () => {
+    // A claim clock stamped with a guessed version would publish an unearned
+    // fix claim; the non-claim Open lock stays available.
+    const { getCurrentPatchMetadata } = await import("@/lib/officialPatch.server");
+    vi.mocked(getCurrentPatchMetadata).mockResolvedValueOnce({ version: "1.13.01", source: "fallback" } as never);
+
+    const { setClusterFixStatus } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("fix_status", "fix_claimed");
+
+    await expect(setClusterFixStatus(formData)).rejects.toThrow("current patch provenance is unknown");
+    expect(mutations).not.toContainEqual(expect.objectContaining({ table: "issue_clusters" }));
+  });
+
+  it("still allows the non-claim Open lock, which never reads the current patch at all", async () => {
+    const { setClusterFixStatus } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("fix_status", "reported");
+
+    await setClusterFixStatus(formData);
+
+    expect(mutations).toContainEqual(
+      expect.objectContaining({
+        table: "issue_clusters",
+        row: expect.objectContaining({
+          patch: expect.objectContaining({ fix_status: "reported", fix_claimed_patch_version: null }),
+        }),
+      }),
+    );
+  });
+
+  it("accepts a claim-bearing lock on a manual patch row", async () => {
+    const { getCurrentPatchMetadata } = await import("@/lib/officialPatch.server");
+    vi.mocked(getCurrentPatchMetadata).mockResolvedValueOnce({ version: "1.14.00", source: "manual" } as never);
+
+    const { setClusterFixStatus } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("cluster_id", "cluster-one");
+    formData.set("fix_status", "persists");
+
+    await setClusterFixStatus(formData);
+
+    expect(mutations).toContainEqual(
+      expect.objectContaining({
+        row: expect.objectContaining({
+          patch: expect.objectContaining({ fix_claimed_patch_version: "1.14.00" }),
+        }),
+      }),
+    );
+  });
+});
+
+describe("compileDossier", () => {
+  it("refuses to compile against the hardcoded fallback patch", async () => {
+    // The dossier labels its whole snapshot with the current version; the
+    // guard runs before any read so nothing is gathered under a guessed patch.
+    const { getCurrentPatchMetadata } = await import("@/lib/officialPatch.server");
+    vi.mocked(getCurrentPatchMetadata).mockResolvedValueOnce({ version: "1.13.01", source: "fallback" } as never);
+
+    const { compileDossier } = await import("@/app/admin/actions");
+
+    await expect(compileDossier(new FormData())).rejects.toThrow("current patch provenance is unknown");
+    expect(mutations).toHaveLength(0);
+  });
 });
 
 describe("clearClusterFixStatusOverride", () => {

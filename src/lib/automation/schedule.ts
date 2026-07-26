@@ -10,7 +10,9 @@ const PATCH_BURST_WINDOW_MS = 72 * 60 * 60 * 1000;
 const PATCH_PUBLICATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type PatchBurstMetadata = {
-  source?: "official" | "fallback";
+  // resolveBurstState treats anything except "official" as no burst: a manual
+  // override or the hardcoded fallback must never trigger patch-burst cadence.
+  source?: "official" | "manual" | "fallback";
   observedAt?: string | null;
   publishedAt?: string | null;
 };
