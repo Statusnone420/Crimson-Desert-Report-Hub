@@ -177,14 +177,6 @@ describe("resolveBurstState", () => {
     ).toBe(false);
   });
 
-  it("never bursts on a manual override row, however freshly observed", () => {
-    // The break-glass row carries no official publication; treating it as a
-    // patch drop would spend scan budget on an operator's typed version.
-    expect(
-      resolveBurstState({ source: "manual", observedAt: "2026-07-05T11:00:00.000Z", publishedAt: null }, now),
-    ).toBe(false);
-  });
-
   it("allows a current patch with no publication timestamp", () => {
     expect(resolveBurstState({ source: "official", observedAt: "2026-07-05T11:00:00.000Z", publishedAt: null }, now)).toBe(
       true,

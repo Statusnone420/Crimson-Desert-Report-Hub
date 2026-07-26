@@ -177,9 +177,12 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
   const patch = claimBearing ? await getCurrentPatchMetadata(supabase) : null;
   if (patch?.source === "fallback") {
     // A claim-bearing lock stamps the current patch version onto the claim
-    // clock. The hardcoded fallback is a guess, not a known patch — refuse to
-    // mint a claim against it. The non-claim Open lock stays available.
-    throw new Error("current patch is unknown (fallback); sync or set it manually before a claim-bearing lock");
+    // clock. Fallback provenance means the patch read found no current row OR
+    // failed outright — the reader cannot tell those apart — so the version is
+    // a guess either way. The non-claim Open lock stays available.
+    throw new Error(
+      "current patch provenance is unknown: the patch read returned nothing or failed, so a claim-bearing lock cannot be stamped",
+    );
   }
   const { error } = await supabase
     .from("issue_clusters")
@@ -291,9 +294,11 @@ export async function compileDossier(formData: FormData): Promise<void> {
   const supabase = createServiceClient();
   const currentPatch = await getCurrentPatchMetadata(supabase);
   if (currentPatch.source === "fallback") {
-    // The dossier labels its whole snapshot with this version; a hardcoded
-    // guess would stamp unknown provenance onto an outward-facing document.
-    throw new Error("current patch is unknown (fallback); sync or set it manually before compiling");
+    // The dossier labels its whole snapshot with this version; fallback means
+    // the patch read returned nothing or failed, so the label would be a guess.
+    throw new Error(
+      "current patch provenance is unknown: the patch read returned nothing or failed, so this dossier cannot be labelled",
+    );
   }
 
   const { data: reports, error: reportsError } = await supabase

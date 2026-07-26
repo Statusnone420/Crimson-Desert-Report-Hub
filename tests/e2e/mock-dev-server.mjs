@@ -832,6 +832,9 @@ function filterRows(table, url) {
 
   const id = url.searchParams.get("id");
   if (id?.startsWith("eq.")) rows = rows.filter((row) => row.id === id.slice(3));
+  // Keyset paging (readAdminClusters) walks by `id=gt.<last seen id>`; without
+  // this the second page would repeat page one and the walk would never end.
+  if (id?.startsWith("gt.")) rows = rows.filter((row) => String(row.id) > id.slice(3));
 
   const clusterId = url.searchParams.get("cluster_id");
   if (clusterId?.startsWith("eq.")) rows = rows.filter((row) => row.cluster_id === clusterId.slice(3));

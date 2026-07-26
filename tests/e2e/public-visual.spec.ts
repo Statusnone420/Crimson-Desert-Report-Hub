@@ -941,6 +941,16 @@ test.describe("public surface visual regression", () => {
     // Session copy must state the absolute TTL, never "after inactivity".
     await expect(page.getByText(/after inactivity/)).toHaveCount(0);
     await expect(page.getByText(/12 hours after sign-in/)).toBeVisible();
+    // The skip link must become visible on focus. Any unlayered .sr-only rule
+    // in globals.css would beat Tailwind's layered focus:not-sr-only reset and
+    // silently keep it a 1x1 clipped box on every route.
+    const skipLink = page.getByRole("link", { name: "Skip to content" });
+    expect((await skipLink.boundingBox())?.height ?? 99).toBeLessThan(5);
+    await skipLink.focus();
+    await expect(skipLink).toBeFocused();
+    expect((await skipLink.boundingBox())?.height ?? 0).toBeGreaterThan(10);
+    await skipLink.blur();
+
     // Phase 4 skeleton: neutral status wording that does not invent decision
     // provenance, an itemized Needs you caption, and a scope line stating each
     // write before submit.

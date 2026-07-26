@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveBurstState } from "@/lib/automation/schedule";
 
 const mocks = vi.hoisted(() => ({
   fetchLatestOfficialPatchNote: vi.fn(),
@@ -612,6 +613,19 @@ describe("getReportPatchContext", () => {
 
     expect(patch.version).toBe("1.14.00");
     expect(patch.source).toBe("manual");
+  });
+
+  it("never schedules patch-burst cadence from a manual override row", () => {
+    // End to end: the row this override writes, read back, must not look like
+    // a fresh official patch drop to the scan scheduler.
+    const observedAt = "2026-07-26T11:00:00.000Z";
+    const now = new Date("2026-07-26T12:00:00.000Z");
+    const manual = { source: "manual" as const, observedAt, publishedAt: null };
+    const official = { source: "official" as const, observedAt, publishedAt: null };
+
+    expect(resolveBurstState(manual, now)).toBe(false);
+    // Same freshness, official provenance: proves the source is what decides.
+    expect(resolveBurstState(official, now)).toBe(true);
   });
 });
 

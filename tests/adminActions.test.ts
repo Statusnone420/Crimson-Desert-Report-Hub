@@ -296,7 +296,7 @@ describe("setClusterFixStatus", () => {
     formData.set("cluster_id", "cluster-one");
     formData.set("fix_status", "fix_claimed");
 
-    await expect(setClusterFixStatus(formData)).rejects.toThrow("current patch is unknown (fallback)");
+    await expect(setClusterFixStatus(formData)).rejects.toThrow("current patch provenance is unknown");
     expect(mutations).not.toContainEqual(expect.objectContaining({ table: "issue_clusters" }));
   });
 
@@ -348,7 +348,7 @@ describe("compileDossier", () => {
 
     const { compileDossier } = await import("@/app/admin/actions");
 
-    await expect(compileDossier(new FormData())).rejects.toThrow("current patch is unknown (fallback)");
+    await expect(compileDossier(new FormData())).rejects.toThrow("current patch provenance is unknown");
     expect(mutations).toHaveLength(0);
   });
 });

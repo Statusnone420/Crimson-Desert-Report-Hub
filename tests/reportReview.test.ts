@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readReportReviewQueue } from "@/lib/reportReview";
+import type { AdminClusterRow } from "@/lib/adminClusters";
+import { countNeedsYou, readReportReviewQueue, splitClusterExceptions } from "@/lib/reportReview";
 import type { createServiceClient } from "@/lib/supabase";
 
 type CountResult = { count: number | null; error: { message: string } | null };
@@ -75,5 +76,76 @@ describe("readReportReviewQueue", () => {
     await expect(
       readReportReviewQueue(stubClient({ approved: { count: null, error: null } })),
     ).rejects.toThrow("approved count read returned no count");
+  });
+});
+
+function cluster(id: string, overrides: Partial<AdminClusterRow> = {}): AdminClusterRow {
+  return {
+    id,
+    title: `Cluster ${id}`,
+    fix_status: "reported",
+    admin_override: false,
+    lifecycle_reason: null,
+    admin_visibility_override: null,
+    admin_visibility_reason: null,
+    admin_visibility_changed_at: null,
+    is_public: false,
+    ...overrides,
+  };
+}
+
+describe("splitClusterExceptions / countNeedsYou", () => {
+  it("counts an engine-owned unsure match as required work", () => {
+    const rows = [
+      cluster("a"),
+      cluster("b", { lifecycle_reason: "Needs review: official notes may claim this fix — unsure match." }),
+    ];
+
+    const split = splitClusterExceptions(rows);
+
+    expect(split.exceptionRows).toHaveLength(1);
+    expect(split.unsureClaimRows.map((row) => row.id)).toEqual(["b"]);
+    expect(countNeedsYou(0, split.unsureClaimRows)).toBe(1);
+  });
+
+  it("shows a maintainer lock in the ledger without counting it as required work", () => {
+    const split = splitClusterExceptions([cluster("c", { admin_override: true })]);
+
+    expect(split.exceptionRows).toHaveLength(1);
+    expect(split.unsureClaimRows).toHaveLength(0);
+    expect(countNeedsYou(0, split.unsureClaimRows)).toBe(0);
+  });
+
+  it("cannot render a green zero when an unsure match arrives on a later cluster page", () => {
+    // The paginated read returns page one's ordinary rows plus a later page's
+    // exception; a truncated read would have produced Needs you = 0.
+    const pageOne = [cluster("a"), cluster("b")];
+    const pageTwo = [
+      cluster("z", { lifecycle_reason: "Needs review: official notes may claim this fix — unsure match." }),
+      cluster("y", { admin_visibility_override: "force_hidden", admin_override: true }),
+    ];
+
+    const split = splitClusterExceptions([...pageOne, ...pageTwo]);
+
+    expect(countNeedsYou(0, split.unsureClaimRows)).toBe(1);
+    expect(split.forcedRows.map((row) => row.id)).toEqual(["y"]);
+  });
+
+  it("adds flagged reports to cluster exceptions", () => {
+    const split = splitClusterExceptions([
+      cluster("b", { lifecycle_reason: "Needs review: unsure match." }),
+    ]);
+
+    expect(countNeedsYou(3, split.unsureClaimRows)).toBe(4);
+  });
+
+  it("keeps engine-owned rows out of the forced list so the browser only offers automatic clusters", () => {
+    const split = splitClusterExceptions([
+      cluster("a"),
+      cluster("f", { admin_visibility_override: "force_public" }),
+    ]);
+
+    expect(split.forcedRows.map((row) => row.id)).toEqual(["f"]);
+    expect(split.autoRows.map((row) => row.id)).toEqual(["a"]);
   });
 });

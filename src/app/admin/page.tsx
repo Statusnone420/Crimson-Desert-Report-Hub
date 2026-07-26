@@ -14,7 +14,7 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
 import { PATCH_VERSION_SHAPE } from "@/lib/officialPatch";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { FLAGGED_WINDOW, readReportReviewQueue } from "@/lib/reportReview";
+import { countNeedsYou, FLAGGED_WINDOW, readReportReviewQueue, splitClusterExceptions } from "@/lib/reportReview";
 import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -43,13 +43,12 @@ export default async function AdminPage() {
   const { flaggedReports, approvedCount, pendingCount, spamCount } = queue;
   // Break-glass split: forced clusters are exceptions and stay visible; engine-owned
   // rows collapse behind a disclosure instead of rendering a dropdown farm.
-  const forcedRows = clusterRows.filter((cluster) => cluster.admin_visibility_override);
-  const autoRows = clusterRows.filter((cluster) => !cluster.admin_visibility_override);
-  const exceptionRows = clusterRows.filter(
-    (cluster) => String(cluster.lifecycle_reason ?? "").startsWith("Needs review:") || cluster.admin_override,
-  );
-  const unsureClaimRows = exceptionRows.filter((cluster) => !cluster.admin_override);
-  const needsYou = pendingCount + unsureClaimRows.length;
+  const { exceptionRows, unsureClaimRows, forcedRows, autoRows } = splitClusterExceptions(clusterRows);
+  const needsYou = countNeedsYou(pendingCount, unsureClaimRows);
+  // The window list and the counter are separate reads. Only claim the queue is
+  // empty when both agree, so a decision landing between them cannot render
+  // "All clear" beside a non-zero flagged count.
+  const queueIsEmpty = flaggedReports.length === 0 && pendingCount === 0;
   const patchProvenance = PATCH_PROVENANCE[currentPatch.source];
   const needsYouParts = [
     pendingCount > 0 ? `${pendingCount} flagged ${pendingCount === 1 ? "report" : "reports"}` : null,
@@ -113,14 +112,14 @@ export default async function AdminPage() {
           <div className="section-head">
             <span className="mono-label">Flagged for review</span>
             <p className="op-note">
-              {flaggedReports.length === 0
+              {queueIsEmpty
                 ? "Oldest first · showing all 0"
                 : `Oldest first · showing ${flaggedReports.length} of ${pendingCount}${
                     pendingCount > FLAGGED_WINDOW ? ` · ${FLAGGED_WINDOW}-row window` : ""
                   }`}
             </p>
           </div>
-          {flaggedReports.length === 0 ? (
+          {queueIsEmpty ? (
             <>
               <p className="review-clear">✓ All clear — no flagged reports need review</p>
               <p className="op-note" style={{ marginTop: 6 }}>
@@ -182,7 +181,13 @@ export default async function AdminPage() {
                     maxLength={500}
                     style={{ flex: 1, minWidth: 220, width: "auto" }}
                   />
-                  <SubmitButton className="dispatch-btn" pendingText="Approving..." name="decision" value="approved">
+                  <SubmitButton
+                    className="dispatch-btn"
+                    pendingText="Approving..."
+                    name="decision"
+                    value="approved"
+                    describedBy={`approve-scope-${report.id}`}
+                  >
                     Approve
                   </SubmitButton>
                   <SubmitButton
@@ -190,6 +195,7 @@ export default async function AdminPage() {
                     pendingText="Rejecting..."
                     name="decision"
                     value="rejected"
+                    describedBy={`decision-scope-${report.id}`}
                   >
                     Reject
                   </SubmitButton>
@@ -198,19 +204,20 @@ export default async function AdminPage() {
                     pendingText="Marking spam..."
                     name="decision"
                     value="spam"
+                    describedBy={`decision-scope-${report.id}`}
                   >
                     Spam
                   </SubmitButton>
                 </form>
                 <div className="decision-scopes">
-                  <p className="scope-line">
+                  <p className="scope-line" id={`approve-scope-${report.id}`}>
                     <b>Approve</b> marks the report approved. With a selected cluster, it counts as evidence and
                     normally makes that cluster public on the Issue Board immediately; an active Force hidden override
                     still wins. A non-empty anonymized excerpt is inserted separately afterward. If that insert fails,
                     approval and any resulting public visibility remain committed, the report leaves this queue, and
                     there is no rendered excerpt retry.
                   </p>
-                  <p className="scope-line">
+                  <p className="scope-line" id={`decision-scope-${report.id}`}>
                     All three decisions remove the report from the pending queue. The current console does not render a
                     re-open or excerpt-retry control. Reject and Spam also write the cluster selection above.
                   </p>
@@ -272,11 +279,15 @@ export default async function AdminPage() {
                           </option>
                         ))}
                       </select>
-                      <SubmitButton className="tap-btn tap-btn--sm" pendingText="Locking...">
+                      <SubmitButton
+                        className="tap-btn tap-btn--sm"
+                        pendingText="Locking..."
+                        describedBy={`lock-scope-${cluster.id}`}
+                      >
                         Lock
                       </SubmitButton>
                     </form>
-                    <p className="scope-line" style={{ flexBasis: "100%" }}>
+                    <p className="scope-line" id={`lock-scope-${cluster.id}`} style={{ flexBasis: "100%" }}>
                       <b>Lock</b> writes the selected lifecycle status, enables the maintainer override, and stores its
                       reason. Fix claimed, Marked fixed, and Still happening also stamp the current patch version and a
                       new claim clock; Open clears both. The lifecycle engine will not change that status until you
@@ -289,11 +300,16 @@ export default async function AdminPage() {
                           <SubmitButton
                             className="tap-btn tap-btn--sm tap-btn--recovery"
                             pendingText="Clearing lock..."
+                            describedBy={`clear-lock-scope-${cluster.id}`}
                           >
                             Clear lock
                           </SubmitButton>
                         </form>
-                        <p className="scope-line" style={{ flexBasis: "100%" }}>
+                        <p
+                          className="scope-line"
+                          id={`clear-lock-scope-${cluster.id}`}
+                          style={{ flexBasis: "100%" }}
+                        >
                           <b>Clear lock</b> releases engine ownership and clears the stored reason and claim clock. The
                           current lifecycle status remains until the next lifecycle scan.
                         </p>
@@ -339,13 +355,14 @@ export default async function AdminPage() {
                         <SubmitButton
                           className="tap-btn tap-btn--sm tap-btn--recovery"
                           pendingText="Resetting..."
+                          describedBy={`reset-scope-${cluster.id}`}
                         >
                           Reset to automatic
                         </SubmitButton>
                       </form>
                     </div>
                     <p>{cluster.admin_visibility_reason ?? "Existing override created before reason tracking."}</p>
-                    <p className="scope-line">
+                    <p className="scope-line" id={`reset-scope-${cluster.id}`}>
                       <b>Reset</b> clears the override reason and timestamp, immediately restores this cluster&apos;s
                       saved automatic public baseline, and recomputes every signal&apos;s visibility in the same
                       action, so the cluster and its signals may appear on or leave the Issue Board now. If the signal
@@ -378,6 +395,7 @@ export default async function AdminPage() {
               <span className="ledger-row__copy">
                 If the scanner stops finding Pearl Abyss patch notes, set the current patch by hand. This
                 version-only override has no manual Undo; the next successful official patch sync takes control back.
+                Changing it also swaps which observations the Scanner Monitor desk can moderate.
               </span>
               <span className={`ledger-row__value ${patchProvenance.tone}`}>
                 {patchProvenance.label} {currentPatch.version}
@@ -401,14 +419,20 @@ export default async function AdminPage() {
                 required
                 style={{ width: 130 }}
               />
-              <SubmitButton className="tap-btn tap-btn--sm tap-btn--breakglass" pendingText="Saving...">
+              <SubmitButton
+                className="tap-btn tap-btn--sm tap-btn--breakglass"
+                pendingText="Saving..."
+                describedBy="set-patch-scope"
+              >
                 Set current patch
               </SubmitButton>
-              <p className="scope-line" style={{ flexBasis: "100%" }}>
+              <p className="scope-line" id="set-patch-scope" style={{ flexBasis: "100%" }}>
                 <b>Set current patch</b> makes this manual version current across the site. There is no Clear or Undo,
                 and the manual row itself adds no official fix claims. Until the next successful official patch sync
                 replaces it, every current-patch surface labels it Manual rather than Synced, and patch-burst scan
-                cadence stays off.
+                cadence stays off. It also changes the Scanner Monitor window: older observations lose card-level
+                Undo, and Active lessons retains rule revocation only while a rule remains active, unrevoked, and
+                unexpired.
               </p>
             </form>
           </details>

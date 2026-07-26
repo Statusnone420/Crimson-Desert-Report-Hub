@@ -2,42 +2,50 @@ import { describe, expect, it } from "vitest";
 import { readAdminClusters } from "@/lib/adminClusters";
 
 type QueryResult = { data: Record<string, unknown>[] | null; error: { code?: string; message: string } | null };
-type RangeCall = { from: number; to: number; orders: string[] };
+type PageCall = { limit: number | null; after: string | null; ordered: string[] };
 
 /**
- * Each select() consumes the next queued result. Range bounds and the order
- * columns chained before them are recorded so the tests can pin stable
- * title, id paging.
+ * Each select() consumes the next queued result and records the keyset cursor
+ * it was asked for, so the tests can pin that paging walks by unique id rather
+ * than by a shifting offset window.
  */
 function client(results: QueryResult[]) {
   let call = 0;
-  const ranges: RangeCall[] = [];
+  const pages: PageCall[] = [];
   return {
     from: () => ({
       select: () => {
-        const orders: string[] = [];
+        const page: PageCall = { limit: null, after: null, ordered: [] };
         const builder = {
           order: (column: string) => {
-            orders.push(column);
+            page.ordered.push(column);
             return builder;
           },
-          range: async (from: number, to: number) => {
-            ranges.push({ from, to, orders });
-            return results[call++] ?? { data: [], error: null };
+          limit: (count: number) => {
+            page.limit = count;
+            return builder;
+          },
+          gt: (_column: string, value: string) => {
+            page.after = value;
+            return builder;
+          },
+          then: (resolve: (value: QueryResult) => unknown) => {
+            pages.push(page);
+            return Promise.resolve(resolve(results[call++] ?? { data: [], error: null }));
           },
         };
         return builder;
       },
     }),
     calls: () => call,
-    ranges: () => ranges,
+    pages: () => pages,
   };
 }
 
-function rows(start: number, count: number): Record<string, unknown>[] {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `cluster-${String(start + index).padStart(4, "0")}`,
-    title: `Cluster ${start + index}`,
+function row(index: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: `cluster-${String(index).padStart(4, "0")}`,
+    title: `Cluster ${String(index).padStart(4, "0")}`,
     fix_status: "reported",
     admin_override: false,
     lifecycle_reason: null,
@@ -45,43 +53,69 @@ function rows(start: number, count: number): Record<string, unknown>[] {
     admin_visibility_reason: null,
     admin_visibility_changed_at: null,
     is_public: false,
-  }));
+    ...overrides,
+  };
 }
 
 describe("admin cluster paging", () => {
-  it("assembles every page in stable title, id order past the hosted row cap", async () => {
-    const fake = client([{ data: rows(0, 3), error: null }, { data: rows(3, 1), error: null }]);
-
-    const result = await readAdminClusters(fake as never, 3);
-
-    expect(result).toHaveLength(4);
-    expect(result[3]).toMatchObject({ id: "cluster-0003" });
-    expect(fake.ranges().map(({ from, to }) => [from, to])).toEqual([
-      [0, 2],
-      [3, 5],
+  it("walks by unique id cursor until an empty page and returns title order", async () => {
+    const fake = client([
+      { data: [row(2), row(1)], error: null },
+      { data: [row(3)], error: null },
+      { data: [], error: null },
     ]);
-    for (const range of fake.ranges()) expect(range.orders).toEqual(["title", "id"]);
-  });
-
-  it("keeps a forced-visibility row reachable when it lands after the first page", async () => {
-    // A truncated read would strip this row's only Reset to automatic control
-    // and let Needs you render a false green zero.
-    const forced = { ...rows(9, 1)[0], admin_visibility_override: "force_hidden", admin_override: true };
-    const fake = client([{ data: rows(0, 2), error: null }, { data: [forced], error: null }]);
 
     const result = await readAdminClusters(fake as never, 2);
 
-    expect(result).toHaveLength(3);
+    expect(result.map((cluster) => cluster.id)).toEqual(["cluster-0001", "cluster-0002", "cluster-0003"]);
+    expect(fake.pages().map((page) => page.after)).toEqual([null, "cluster-0001", "cluster-0003"]);
+    for (const page of fake.pages()) {
+      expect(page.ordered).toEqual(["id"]);
+      expect(page.limit).toBe(2);
+    }
+  });
+
+  it("keeps walking when the service returns fewer rows than requested", async () => {
+    // The hosted row cap is configurable and may sit below pageSize; a short
+    // page is not proof of the end, so only an empty page stops the walk.
+    const fake = client([
+      { data: [row(1)], error: null },
+      { data: [row(2)], error: null },
+      { data: [], error: null },
+    ]);
+
+    const result = await readAdminClusters(fake as never, 500);
+
+    expect(result).toHaveLength(2);
+    expect(fake.calls()).toBe(3);
+  });
+
+  it("keeps a forced-visibility row and an engine-owned exception reachable after page one", async () => {
+    // The contract's multipage regression: a truncated read would strip the
+    // forced row's only Reset control and let Needs you show a false zero.
+    const forced = row(8, { admin_visibility_override: "force_hidden", admin_override: true });
+    const unsure = row(9, { lifecycle_reason: "Needs review: official notes may claim this fix — unsure match." });
+    const fake = client([
+      { data: [row(1), row(2)], error: null },
+      { data: [forced, unsure], error: null },
+      { data: [], error: null },
+    ]);
+
+    const result = await readAdminClusters(fake as never, 2);
+
     expect(result.filter((cluster) => cluster.admin_visibility_override)).toHaveLength(1);
+    expect(
+      result.filter((cluster) => String(cluster.lifecycle_reason ?? "").startsWith("Needs review:")),
+    ).toHaveLength(1);
   });
 
   it("surfaces a failure on a later page instead of returning a partial ledger", async () => {
     const fake = client([
-      { data: rows(0, 2), error: null },
+      { data: [row(1)], error: null },
       { data: null, error: { code: "42501", message: "permission denied" } },
     ]);
 
-    await expect(readAdminClusters(fake as never, 2)).rejects.toThrow(
+    await expect(readAdminClusters(fake as never, 1)).rejects.toThrow(
       "admin clusters read failed: permission denied",
     );
   });
@@ -109,11 +143,11 @@ describe("admin cluster rolling migration compatibility", () => {
         }],
         error: null,
       },
+      { data: [], error: null },
     ]);
 
     const result = await readAdminClusters(fake as never);
 
-    expect(fake.calls()).toBe(2);
     expect(result).toEqual([
       expect.objectContaining({
         id: "cluster-one",
@@ -141,14 +175,15 @@ describe("admin cluster rolling migration compatibility", () => {
           message: "Could not find the admin_visibility_reason column of issue_clusters in the schema cache",
         },
       },
-      { data: [legacyRow(0), legacyRow(1)], error: null },
-      { data: [legacyRow(2)], error: null },
+      { data: [legacyRow(1), legacyRow(2)], error: null },
+      { data: [legacyRow(3)], error: null },
+      { data: [], error: null },
     ]);
 
     const result = await readAdminClusters(fake as never, 2);
 
     expect(result).toHaveLength(3);
-    expect(result[2]).toMatchObject({ id: "legacy-2", admin_visibility_reason: null });
+    expect(result[2]).toMatchObject({ id: "legacy-3", admin_visibility_reason: null });
   });
 
   it("surfaces permission errors instead of rendering a false empty ledger", async () => {
