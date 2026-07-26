@@ -102,11 +102,22 @@ export function buildMemorySearchQueries(
     const titleIndex = titles.length > 0 ? ((turn % titles.length) + titles.length) % titles.length : 0;
     const target = titles.length > 0 ? titles[titleIndex]?.trim() : undefined;
     const targetText = target ? `${target} ` : "";
-    // One reliable single-site filter per query (Tavily's `site:A OR site:B` handling is
-    // unverified); alternate the forum per corroborate TURN so a reddit-heavy cluster still
-    // reaches a non-reddit source and clears the 2-independent-domain promotion bar.
+    // Rotate the source per corroborate TURN so a reddit-heavy cluster reaches a
+    // different registrable domain and can clear the 2-independent-domain promotion
+    // bar. `site:A OR site:B` was measured working against the live API, so the press
+    // option is a trio rather than one outlet: a bare single-site filter that finds
+    // nothing does not return nothing, it returns that outlet's unrelated recent
+    // articles, and this lane is the last place we want off-topic noise standing in
+    // for corroboration.
+    const CORROBORATE_SITES = [
+      "site:reddit.com",
+      "site:steamcommunity.com",
+      "site:pushsquare.com OR site:purexbox.com OR site:wccftech.com",
+      "site:pcgamer.com OR site:eurogamer.net OR site:dsogaming.com",
+    ];
     const siteTurn = Math.floor(turn / Math.max(1, titles.length));
-    const corroborateSite = siteTurn % 2 === 0 ? "site:reddit.com" : "site:steamcommunity.com";
+    const corroborateSite =
+      CORROBORATE_SITES[((siteTurn % CORROBORATE_SITES.length) + CORROBORATE_SITES.length) % CORROBORATE_SITES.length];
     return [`${corroborateSite} Crimson Desert patch ${patchVersion} ${targetText}crash stutter freeze FPS`.replace(/\s+/g, " ").trim()].slice(0, count);
   }
 

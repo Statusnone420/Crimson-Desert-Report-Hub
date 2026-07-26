@@ -1408,12 +1408,16 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
-    );
-    expect(mocks.tavilySearch.mock.calls[1][0]).toBe(
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash freeze stutter bug",
-    );
+    // The point of the rotation is that two adjacent one-credit scans do not spend
+    // their single credit on the same question. Asserting the property rather than a
+    // slot index: which slot an offset lands on is a function of pack length, and the
+    // pack is expected to change as the bake-off measures new queries.
+    const [firstQuery] = mocks.tavilySearch.mock.calls[0] as [string];
+    const [secondQuery] = mocks.tavilySearch.mock.calls[1] as [string];
+
+    expect(firstQuery).not.toBe(secondQuery);
+    expect(firstQuery).toContain("1.13.00");
+    expect(secondQuery).toContain("1.13.00");
   });
 
   it("budget 0 still runs Tavily and deterministic extraction without paid LLM calls", async () => {
@@ -3845,7 +3849,12 @@ describe("runAutomationMonitor", () => {
     const calls = mocks.tavilySearch.mock.calls as [string, { topic?: string }?][];
     const newsCalls = calls.filter(([, options]) => options?.topic === "news");
     expect(newsCalls).toHaveLength(1);
-    expect(newsCalls[0][0]).toContain("Crimson Desert patch 1.13.00");
+    // The wire query names the game and never the patch version. Measured: the
+    // versioned form returned dated articles about other games entirely, because the
+    // news index matched the generic words around a version string no headline
+    // carries. The patch gates downstream still decide what gets stored.
+    expect(newsCalls[0][0]).toContain("Crimson Desert");
+    expect(newsCalls[0][0]).not.toContain("1.13.00");
     // The wire REPLACES a general slot: total credit spend is unchanged.
     expect(result.searchQueriesUsed).toBe(calls.length);
   });
@@ -3904,7 +3913,11 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com");
+    // Site-scoped, but not pinned to one forum: the corroborate lane now rotates
+    // through community AND press sources so a reddit-heavy cluster can reach the
+    // second independent domain promotion requires. Which source a given turn draws
+    // is covered directly in the query-planning tests.
+    expect(mocks.tavilySearch.mock.calls[0][0]).toMatch(/^site:/);
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
     expect(tables.automation_runs[1]).toMatchObject({
       intent: "corroborate_cluster",
@@ -4087,7 +4100,11 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com");
+    // Site-scoped, but not pinned to one forum: the corroborate lane now rotates
+    // through community AND press sources so a reddit-heavy cluster can reach the
+    // second independent domain promotion requires. Which source a given turn draws
+    // is covered directly in the query-planning tests.
+    expect(mocks.tavilySearch.mock.calls[0][0]).toMatch(/^site:/);
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
     expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Shader compilation stutter");
     expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });

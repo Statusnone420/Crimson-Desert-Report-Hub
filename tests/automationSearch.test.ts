@@ -1,46 +1,85 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildSearchQueries, buildWireNewsQuery, tavilyExtract, tavilySearch } from "@/lib/automation/search";
 
+// The press outlets whose behaviour the bake-off measured. Kept here rather than
+// imported so a future edit to the pack cannot quietly redefine what "press" means
+// and pass this file by construction.
+const PRESS_DOMAINS = [
+  "pcgamer.com",
+  "eurogamer.net",
+  "dsogaming.com",
+  "ign.com",
+  "gamespot.com",
+  "polygon.com",
+  "pushsquare.com",
+  "purexbox.com",
+  "wccftech.com",
+  "rockpapershotgun.com",
+  "vg247.com",
+  "tomshardware.com",
+  "kotaku.com",
+] as const;
+
 describe("automation search planning", () => {
-  it("leads with Reddit-targeted queries at low query budgets", () => {
+  it("spends its first two credits on the official notes and the Steam store", () => {
     expect(buildSearchQueries(2, "1.14.00")).toEqual([
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.14.00 crash stutter performance bug",
-      "site:reddit.com Crimson Desert patch 1.14.00 crash freeze stutter issue",
+      "site:pearlabyss.com Crimson Desert patch 1.14.00 notes known issues",
+      "site:store.steampowered.com Crimson Desert patch 1.14.00 update",
     ]);
   });
 
-  it("leads with Reddit/subreddit targeting while keeping Steam and general-web diversity", () => {
+  it("asks official, storefront, community and press instead of two community domains", () => {
     const queries = buildSearchQueries(999, "1.14.00");
     const combined = queries.join(" ");
 
-    expect(queries).toHaveLength(6);
-    // Reddit-weighted: an r/CrimsonDesert-targeted query leads the pack.
+    expect(queries).toHaveLength(8);
+    expect(queries.some((q) => q.includes("site:pearlabyss.com"))).toBe(true);
+    expect(queries.some((q) => q.includes("site:store.steampowered.com"))).toBe(true);
     expect(queries.some((q) => q.includes("site:reddit.com") && q.includes("r/CrimsonDesert"))).toBe(true);
-    // Domain-diversity guardrail: keep the Steam query AND at least one general (non-`site:`)
-    // web query so clusters can still reach 2-independent-domain corroboration.
     expect(queries.some((q) => q.includes("site:steamcommunity.com"))).toBe(true);
-    expect(queries.some((q) => !q.includes("site:"))).toBe(true);
-    expect(combined).toMatch(/crash.*freeze|freeze.*crash/i);
-    expect(combined).toMatch(/FPS|performance/i);
-    expect(combined).toContain("PS5");
-    expect(combined).toContain("PC");
+    // Press is the corroborating half of the pack: promotion needs two independent
+    // registrable domains and Reddit can never be the second one.
+    expect(queries.filter((q) => PRESS_DOMAINS.some((domain) => q.includes(domain)))).toHaveLength(3);
     expect(combined).toContain("patch 1.14.00");
   });
 
-  it("stays domain-diverse (not Reddit-only) so clusters can still corroborate across domains", () => {
-    const queries = buildSearchQueries(999, "1.14.00");
-    // At least one query is not scoped to reddit.com, so signals can span >= 2 registrable
-    // domains and clear the promotion path's 2-independent-domain corroboration bar. This
-    // guards against a future edit silently making the pack Reddit-exclusive.
-    expect(queries.some((q) => !q.includes("site:reddit.com"))).toBe(true);
+  it("never asks a press outlet on its own", () => {
+    // Measured against the live API: a single-site press query that finds nothing does
+    // not return nothing. Tavily drops the filter and returns that outlet's other
+    // recent articles — `site:pcgamer.com Crimson Desert patch performance` came back
+    // as Borderlands 4, Helldivers 2 and Oblivion mods. Off-topic results on a TRUSTED
+    // domain are the expensive kind, because a trusted domain is what qualifies a
+    // candidate for a paid recon fetch. Multi-site `site:A OR site:B` holds the filter.
+    for (const query of buildSearchQueries(999, "1.14.00")) {
+      const mentionsPress = PRESS_DOMAINS.some((domain) => query.includes(domain));
+      if (!mentionsPress) continue;
+      expect(query, `press query must list several outlets: ${query}`).toContain(" OR site:");
+    }
+  });
+
+  it("anchors its open-web query in the game so it cannot match the word alone", () => {
+    // Unanchored "Crimson Desert patch" matched a coffee brand, two dictionaries, the
+    // Harvard Crimson store and the US Army Corps of Engineers in production.
+    const openWeb = buildSearchQueries(999, "1.14.00").filter((query) => !query.includes("site:"));
+
+    expect(openWeb.length).toBeGreaterThan(0);
+    for (const query of openWeb) {
+      expect(query).toContain("Pearl Abyss");
+      expect(query).toContain("Crimson Desert");
+    }
   });
 
   it("rotates focused query themes by offset and wraps around the pack", () => {
+    const pack = buildSearchQueries(999, "1.14.00");
+
     expect(buildSearchQueries(3, "1.14.00", { rotationOffset: 4 })).toEqual([
-      "Crimson Desert patch 1.14.00 crash freeze issue",
-      "Crimson Desert PS5 PC performance drops patch 1.14.00",
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.14.00 crash stutter performance bug",
+      pack[4],
+      pack[5],
+      pack[6],
     ]);
+    // Wrapping keeps every query reachable, so an empty press trio this turn is not a
+    // permanent loss.
+    expect(buildSearchQueries(2, "1.14.00", { rotationOffset: 7 })).toEqual([pack[7], pack[0]]);
   });
 });
 
@@ -98,7 +137,7 @@ describe("Tavily search request", () => {
       json: async () => ({ results: [] }),
     }));
 
-    await tavilySearch(buildWireNewsQuery("1.14.00"), {
+    await tavilySearch(buildWireNewsQuery(), {
       env: { TAVILY_API_KEY: "tavily-key" },
       fetcher,
       topic: "news",
@@ -107,7 +146,21 @@ describe("Tavily search request", () => {
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
     const body = JSON.parse(init.body);
     expect(body.topic).toBe("news");
-    expect(body.query).toContain("Crimson Desert patch 1.14.00");
+    expect(body.query).toContain("Crimson Desert");
+  });
+
+  it("keeps every patch version out of the wire's news query", () => {
+    // Measured against the live news index: the versioned form returned five dated
+    // articles about Path of Exile and 007 First Light, because a version string
+    // that appears in no headline leaves the index matching the generic words
+    // around it. Without it, the same slot returned DSOGaming's "Crimson Desert
+    // Patch 1.15.00 Released & Detailed", dated, which the pre-screen routes to
+    // patch_release. A version is what breaks this query, so pin its absence.
+    const query = buildWireNewsQuery();
+
+    expect(query).not.toMatch(/\d+\.\d+/);
+    expect(query).toContain("Crimson Desert");
+    expect(query).toContain("Pearl Abyss");
   });
 
   it("preserves published_date as sourcePublishedAt whenever Tavily does supply one", async () => {

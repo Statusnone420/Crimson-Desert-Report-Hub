@@ -1133,28 +1133,48 @@ describe("scanner memory planning", () => {
     expect(hunted.size).toBe(4);
   });
 
-  it("uses exactly one site: filter per corroborate query and alternates forums across turns", () => {
+  it("rotates the corroborate lane past the two community forums into press", () => {
+    // This lane exists to find a SECOND independent domain for a cluster, and it could
+    // previously only ever ask reddit.com and steamcommunity.com. A cluster whose
+    // evidence is all Reddit could never be corroborated by asking Reddit again.
+    //
+    // `site:A OR site:B` was measured working against the live API, so press travels in
+    // trios: a bare single-site press query that finds nothing does not return nothing,
+    // it returns that outlet's unrelated recent articles, and this is the last lane that
+    // should mistake off-topic noise for corroboration.
     const patchVersion = "1.13.00";
     const target = "Shader stutter";
-    const sitesSeen = new Set<string>();
-    // laneCount defaults to 1, so turn === rotationOffset: offsets 0 and 1 are two
-    // consecutive corroborate turns.
-    for (const rotationOffset of [0, 1]) {
+    const scopesSeen: string[] = [];
+
+    // laneCount defaults to 1, so turn === rotationOffset: four consecutive turns.
+    for (const rotationOffset of [0, 1, 2, 3]) {
       const [query] = buildMemorySearchQueries(1, patchVersion, "corroborate_cluster", {
         rotationOffset,
         targetClusterTitles: [target],
       });
-      // Exactly one reliable site: filter — no unverified `site:A OR site:B` in one query.
-      const siteFilters = query.match(/site:\S+/g) ?? [];
-      expect(siteFilters).toHaveLength(1);
-      expect(query).not.toContain(" OR ");
-      // Patch version and the rotated target title stay present in every corroborate query.
+      // Always site-scoped, and the cluster it is hunting is always named.
+      expect(query).toMatch(/^site:/);
       expect(query).toContain(patchVersion);
       expect(query).toContain(target);
-      for (const site of siteFilters) sitesSeen.add(site);
+      scopesSeen.push((query.match(/^(site:\S+(?: OR site:\S+)*)/)?.[1] ?? "").trim());
     }
-    // Consecutive turns alternate across the two forums, preserving cross-domain diversity.
-    expect(sitesSeen).toEqual(new Set(["site:reddit.com", "site:steamcommunity.com"]));
+
+    expect(scopesSeen[0]).toBe("site:reddit.com");
+    expect(scopesSeen[1]).toBe("site:steamcommunity.com");
+    // The turns that matter: a non-community domain, reached in a multi-site query.
+    expect(scopesSeen[2]).toContain(" OR site:");
+    expect(scopesSeen[3]).toContain(" OR site:");
+    expect(scopesSeen[2]).not.toBe(scopesSeen[3]);
+    for (const pressScope of [scopesSeen[2], scopesSeen[3]]) {
+      expect(pressScope).not.toContain("reddit.com");
+      expect(pressScope).not.toContain("steamcommunity.com");
+    }
+    // A fifth turn wraps back to the start, so no source is stranded.
+    const [wrapped] = buildMemorySearchQueries(1, patchVersion, "corroborate_cluster", {
+      rotationOffset: 4,
+      targetClusterTitles: [target],
+    });
+    expect(wrapped).toMatch(/^site:reddit\.com/);
   });
 
   it("tries each corroboration target on both forums across turns", () => {
@@ -2442,20 +2462,20 @@ describe("search planning", () => {
     expect(buildSearchQueries(0)).toHaveLength(0);
   });
 
-  it("leads with Reddit-targeted issue queries instead of broad reviews or patch-note pages", () => {
+  it("leads with the official notes and the storefront, not a second community forum", () => {
     expect(buildSearchQueries(2)).toEqual([
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.01 crash stutter performance bug",
-      "site:reddit.com Crimson Desert patch 1.13.01 crash freeze stutter issue",
+      "site:pearlabyss.com Crimson Desert patch 1.13.01 notes known issues",
+      "site:store.steampowered.com Crimson Desert patch 1.13.01 update",
     ]);
   });
 
   it("caps query planning to the fixed query pack", () => {
-    expect(buildSearchQueries(999)).toHaveLength(6);
+    expect(buildSearchQueries(999)).toHaveLength(8);
   });
 
   it("can target a server-derived patch version", () => {
     expect(buildSearchQueries(1, "1.14.00")).toEqual([
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.14.00 crash stutter performance bug",
+      "site:pearlabyss.com Crimson Desert patch 1.14.00 notes known issues",
     ]);
   });
 

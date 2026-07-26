@@ -969,7 +969,7 @@ async function collectInputs(
       try {
         result.searchQueriesUsed += 1;
         result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
-        const found = await tavilySearch(buildWireNewsQuery(currentPatch.version), { now, startDate, topic: "news" });
+        const found = await tavilySearch(buildWireNewsQuery(), { now, startDate, topic: "news" });
         result.searchResultsSeen += found.length;
         inputs.push(...found.slice(0, 5).map(searchResultToInput));
       } catch (error) {

@@ -50,19 +50,46 @@ export type BuildSearchQueryOptions = {
   rotationOffset?: number;
 };
 
-// Reddit (esp. r/CrimsonDesert) surfaced via Tavily is where the genuinely useful
-// current-patch signals live, so the pack LEADS with subreddit-targeted queries. But
-// it must stay domain-diverse: promotion needs >= 2 independent domains, so a Reddit-only
-// pack could never corroborate. Keep the Steam query plus general (non-`site:`) web
-// queries so clusters can still reach 2-independent-domain corroboration.
+/**
+ * Every query here earned its place in a measured bake-off against the live API
+ * (`npm run scan:bakeoff`), judged by the real pre-screen. Two rules came out of
+ * that run and both are load-bearing:
+ *
+ * 1. NEVER a bare single-site query. When one domain has no matching content,
+ *    Tavily does not return nothing — it drops the filter and returns that
+ *    domain's other recent articles. `site:pcgamer.com Crimson Desert patch
+ *    performance` came back as Borderlands 4, Helldivers 2 and Oblivion mods.
+ *    Junk on a TRUSTED domain is worse than junk anywhere else, because a
+ *    trusted domain is what qualifies a candidate for a paid recon fetch.
+ *    Multi-site `site:A OR site:B OR site:C` holds the filter and was verified
+ *    working, so press always travels in a trio.
+ *
+ * 2. Anchor the open-web query in the game, not the words. Unanchored
+ *    "Crimson Desert patch" matched a coffee brand, a dictionary, the Harvard
+ *    Crimson store and the US Army Corps of Engineers.
+ *
+ * Domain diversity is the point, not a nicety: promotion needs >= 2 independent
+ * registrable domains, and Reddit alone can never corroborate itself no matter
+ * how many threads it contributes. The press trios rotate by turn, so a trio
+ * that is empty this turn is not a permanent loss.
+ */
 function queryPack(patchVersion: string): string[] {
   return [
+    // Official notes and the known-issues notice: highest authority, routes to
+    // patch_release. Measured 2 of 5 straight to observations.
+    `site:pearlabyss.com Crimson Desert patch ${patchVersion} notes known issues`,
+    // The only source measured at 5/5 routed to observations, zero dropped.
+    `site:store.steampowered.com Crimson Desert patch ${patchVersion} update`,
+    // Anchored open web: measured 2 kept + 2 observations, and no coffee.
+    `Crimson Desert game Pearl Abyss patch ${patchVersion} players stutter crash bug report`,
+    // One Reddit query, down from four. Still where players complain.
     `site:reddit.com r/CrimsonDesert Crimson Desert patch ${patchVersion} crash stutter performance bug`,
-    `site:reddit.com Crimson Desert patch ${patchVersion} crash freeze stutter issue`,
-    `Crimson Desert patch ${patchVersion} FPS drops stutter issue`,
     `site:steamcommunity.com Crimson Desert patch ${patchVersion} stutter low FPS issue`,
-    `Crimson Desert patch ${patchVersion} crash freeze issue`,
-    `Crimson Desert PS5 PC performance drops patch ${patchVersion}`,
+    // Console/PC performance press: measured 2 kept signals, the non-Reddit
+    // corroboration single-source clusters have been waiting for.
+    `site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch performance problems`,
+    `site:pcgamer.com OR site:eurogamer.net OR site:dsogaming.com Crimson Desert patch performance problems`,
+    `site:ign.com OR site:gamespot.com OR site:polygon.com Crimson Desert patch update problems`,
   ];
 }
 
@@ -76,8 +103,27 @@ function queryPack(patchVersion: string): string[] {
  */
 export const WIRE_NEWS_TURN_INTERVAL = 3;
 
-export function buildWireNewsQuery(patchVersion: string): string {
-  return `Crimson Desert patch ${patchVersion} update Pearl Abyss`;
+/**
+ * Deliberately carries NO patch version, and deliberately does NOT quote the
+ * game name. Both were measured against the live news index:
+ *
+ *   - versioned            -> 0 of 5 on topic (Path of Exile, 007 First Light)
+ *   - "Crimson Desert"     -> 0 of 5 on topic
+ *   - this query           -> 3 of 5 on topic, both dated 1.15.00 articles
+ *
+ * Quoting helps on general search and hurts here, which is why the two surfaces
+ * get different query shapes rather than one house style. A version string that
+ * appears in no headline leaves the index matching the generic words around it;
+ * the patch gates downstream still decide what is stored, so naming the version
+ * bought nothing and cost the whole result set.
+ *
+ * The news index is volatile: consecutive runs of this exact query returned 3 of
+ * 5 and 0 of 5 on topic minutes apart. Off-topic results are correctly dropped as
+ * `off_topic`, so a bad draw costs one credit and never reaches the Brief. Judge
+ * this slot over several runs of `npm run scan:bakeoff`, never a single one.
+ */
+export function buildWireNewsQuery(): string {
+  return "Crimson Desert Pearl Abyss patch update performance";
 }
 
 export function buildSearchQueries(
