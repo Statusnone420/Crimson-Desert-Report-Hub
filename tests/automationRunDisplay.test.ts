@@ -124,8 +124,10 @@ describe("source monitor run display", () => {
       [],
     );
 
+    // The first marker records the ATTEMPT and is emitted before the outcome is
+    // known, so it must not read as a successful read beside "unavailable".
     expect(summary.operatorSummary).toBe(
-      "1 read the full page; 1 full page unavailable; 1 full page read errored",
+      "1 tried the full page; 1 full page unavailable; 1 full page read errored",
     );
     expect(summary.skipGroups.map((group) => group.detail)).not.toContain(
       "Unrecognized scanner code. Check the raw code before acting on it.",

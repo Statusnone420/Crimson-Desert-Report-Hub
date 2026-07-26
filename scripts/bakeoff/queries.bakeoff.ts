@@ -143,6 +143,8 @@ it("measures the live query pack against the real pre-screen", async () => {
   emit(`patch ${PATCH_VERSION} published ${startDate}`);
   emit(`${packQueries.length + 1} queries, one Tavily credit each, development key`);
 
+  const failures: string[] = [];
+
   for (const query of [...packQueries, buildWireNewsQuery()]) {
     const isWire = query === buildWireNewsQuery();
     let results: SearchResult[] = [];
@@ -153,7 +155,14 @@ it("measures the live query pack against the real pre-screen", async () => {
         ...(isWire ? { topic: "news" as const } : {}),
       });
     } catch (error) {
-      emit(`\n! ${query}\n  request failed: ${(error as Error).message}`);
+      // Recorded, not swallowed. The run continues so the report still shows which
+      // queries DID work, and then it throws below — a bad key, an outage, or a rate
+      // limit would otherwise print a zero-result report and exit 0, presenting "no
+      // query behaviour was measured" as "the pack returns nothing". That is the exact
+      // silent-success failure this harness exists to catch.
+      const message = `${query} -> ${(error as Error).message}`;
+      failures.push(message);
+      emit(`\n! ${message}`);
       continue;
     }
     const rows = judge(query, results);
@@ -174,16 +183,23 @@ it("measures the live query pack against the real pre-screen", async () => {
   const domains = new Set(judged.map((row) => registrableDomain(row.domain) ?? row.domain));
   const community = new Set(["reddit.com", "steamcommunity.com"]);
   const independent = [...domains].filter((domain) => !community.has(domain));
+  // Distinct trusted DOMAINS, not trusted rows. Diversity is what publication needs
+  // — five results from one outlet is one domain, and counting rows here would have
+  // read as five, overstating the metric this whole exercise turns on.
+  const trustedDomains = new Set(
+    judged.filter((row) => row.trusted).map((row) => registrableDomain(row.domain) ?? row.domain),
+  );
 
   emit("\n=== TOTALS ===");
-  emit(`results            ${judged.length}`);
-  emit(`kept as signals    ${kept}`);
-  emit(`routed to Brief    ${observations}`);
-  emit(`dropped            ${dropped}`);
-  emit(`dated              ${judged.filter((row) => row.dated).length}`);
-  emit(`trusted domains    ${judged.filter((row) => row.trusted).length}`);
-  emit(`distinct domains   ${domains.size}`);
-  emit(`non-community      ${independent.length} (${independent.join(", ") || "NONE"})`);
+  emit(`results             ${judged.length}`);
+  emit(`kept as signals     ${kept}`);
+  emit(`routed to Brief     ${observations}`);
+  emit(`dropped             ${dropped}`);
+  emit(`dated               ${judged.filter((row) => row.dated).length}`);
+  emit(`trusted results     ${judged.filter((row) => row.trusted).length}`);
+  emit(`trusted domains     ${trustedDomains.size} (${[...trustedDomains].join(", ") || "NONE"})`);
+  emit(`distinct domains    ${domains.size}`);
+  emit(`non-community       ${independent.length} (${independent.join(", ") || "NONE"})`);
 
   const drops = new Map<string, number>();
   for (const row of judged) {
@@ -193,8 +209,22 @@ it("measures the live query pack against the real pre-screen", async () => {
   emit("\ndrop reasons");
   for (const [reason, count] of [...drops].sort((a, b) => b[1] - a[1])) emit(`  ${reason.padEnd(34)} ${count}`);
 
+  if (failures.length > 0) {
+    emit(`\n${failures.length} of ${packQueries.length + 1} queries failed:`);
+    for (const failure of failures) emit(`  ${failure}`);
+  }
+
   mkdirSync(OUT_DIR, { recursive: true });
   const reportPath = path.join(OUT_DIR, `bakeoff-${PATCH_VERSION}.txt`);
   writeFileSync(reportPath, lines.join("\n"));
   console.log(`\nreport written to ${reportPath}`);
+
+  // Diagnostics first, then fail. A run that could not reach Tavily measured nothing,
+  // and its numbers must never be quotable as a before/after in a PR.
+  if (failures.length > 0) {
+    throw new Error(
+      `scan:bakeoff could not complete ${failures.length} of ${packQueries.length + 1} queries. ` +
+        `These results measure nothing and must not be reported as a before/after. See ${reportPath}.`,
+    );
+  }
 });

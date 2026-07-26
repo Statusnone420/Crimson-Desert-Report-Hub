@@ -2462,9 +2462,9 @@ describe("search planning", () => {
     expect(buildSearchQueries(0)).toHaveLength(0);
   });
 
-  it("leads with the official notes and the storefront, not a second community forum", () => {
+  it("leads with the two official sources, not a second community forum", () => {
     expect(buildSearchQueries(2)).toEqual([
-      "site:pearlabyss.com Crimson Desert patch 1.13.01 notes known issues",
+      "site:crimsondesert.pearlabyss.com Crimson Desert patch 1.13.01 notes known issues",
       "site:store.steampowered.com Crimson Desert patch 1.13.01 update",
     ]);
   });
@@ -2475,7 +2475,7 @@ describe("search planning", () => {
 
   it("can target a server-derived patch version", () => {
     expect(buildSearchQueries(1, "1.14.00")).toEqual([
-      "site:pearlabyss.com Crimson Desert patch 1.14.00 notes known issues",
+      "site:crimsondesert.pearlabyss.com Crimson Desert patch 1.14.00 notes known issues",
     ]);
   });
 

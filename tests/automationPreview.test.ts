@@ -74,7 +74,7 @@ describe("previewAutomationSearch", () => {
       estimatedCostUsd: 0.008,
       previews: [
         {
-          query: "site:pearlabyss.com Crimson Desert patch 1.13.00 notes known issues",
+          query: "site:crimsondesert.pearlabyss.com Crimson Desert patch 1.13.00 notes known issues",
           title: "Crimson Desert patch 1.13 FPS regression",
           url: "https://example.com/fps",
           sourceDomain: "example.com",

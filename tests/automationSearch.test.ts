@@ -21,11 +21,27 @@ const PRESS_DOMAINS = [
 ] as const;
 
 describe("automation search planning", () => {
-  it("spends its first two credits on the official notes and the Steam store", () => {
+  it("spends its first two credits on the official sources", () => {
     expect(buildSearchQueries(2, "1.14.00")).toEqual([
-      "site:pearlabyss.com Crimson Desert patch 1.14.00 notes known issues",
+      "site:crimsondesert.pearlabyss.com Crimson Desert patch 1.14.00 notes known issues",
       "site:store.steampowered.com Crimson Desert patch 1.14.00 update",
     ]);
+  });
+
+  it("scopes the official query to the game, not the publisher", () => {
+    // pearlabyss.com also hosts Black Desert, and hasCrimsonDesertContext accepts the
+    // publisher's name, so a root-scoped result could carry another game's pages into
+    // the pipeline. Measured live: the root-scoped pair collapsed so badly that Tavily
+    // returned five dictionary definitions of the word "OR"; the subdomain pair
+    // returned 5 of 5 in scope.
+    const official = buildSearchQueries(999, "1.14.00").filter((query) => query.includes("pearlabyss.com"));
+
+    expect(official).toHaveLength(1);
+    expect(official[0]).toContain("site:crimsondesert.pearlabyss.com");
+    // The publisher root must never be the scope, alone or grouped.
+    for (const query of buildSearchQueries(999, "1.14.00")) {
+      expect(query).not.toMatch(/site:pearlabyss\.com/);
+    }
   });
 
   it("asks official, storefront, community and press instead of two community domains", () => {
@@ -33,7 +49,7 @@ describe("automation search planning", () => {
     const combined = queries.join(" ");
 
     expect(queries).toHaveLength(8);
-    expect(queries.some((q) => q.includes("site:pearlabyss.com"))).toBe(true);
+    expect(queries.some((q) => q.includes("site:crimsondesert.pearlabyss.com"))).toBe(true);
     expect(queries.some((q) => q.includes("site:store.steampowered.com"))).toBe(true);
     expect(queries.some((q) => q.includes("site:reddit.com") && q.includes("r/CrimsonDesert"))).toBe(true);
     expect(queries.some((q) => q.includes("site:steamcommunity.com"))).toBe(true);
@@ -267,6 +283,106 @@ describe("Tavily extract request", () => {
     });
 
     expect(raw).toBeNull();
+  });
+
+  it.each([
+    ["an entry with no url", [{}]],
+    ["a bare string entry", ["https://old.reddit.com/r/CrimsonDesert/comments/thin/"]],
+    ["an entry for a different url", [{ url: "https://old.reddit.com/r/OtherSub/comments/other/", error: "x" }]],
+    ["a null entry", [null]],
+  ])("throws when the stated refusal is %s", async (_label, failedResults) => {
+    // A refusal only waives the charge when Tavily names the URL we asked for.
+    // Corrupted provider data says nothing about whether the work was billed, so
+    // it must take the throwing path and be charged worst case — length alone is
+    // not evidence of an unbilled outcome.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [], failed_results: failedResults }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it.each([
+    ["a charged failure", 1],
+    ["a fractional charge", 0.5],
+    ["a corrupted negative count", -1],
+    ["a non-numeric count", "one"],
+    ["a null count", null],
+    ["no count at all", undefined],
+  ])("charges a refusal reporting %s", async (_label, credits) => {
+    // `include_usage` is requested, so it is honoured — as a veto. Exactly 0 is the
+    // only value consistent with a free refusal. A positive count is a charged
+    // failure; anything else is corrupted data that says nothing either way. Waiving
+    // on any of them would understate the month and let a later run past the cap.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+        usage: { credits },
+      }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it("waives the credit when a matching refusal reports zero usage", async () => {
+    // The live shape, captured from the API: Reddit refusals answer 200 with the URL
+    // in failed_results and `usage: {credits: 0}`.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+        usage: { credits: 0 },
+      }),
+    }));
+
+    const raw = await tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+      env: { TAVILY_API_KEY: "tavily-key" },
+      fetcher,
+    });
+
+    expect(raw).toBeNull();
+  });
+
+  it("matches the refusal against the rewritten URL, not the one passed in", async () => {
+    // Reddit URLs are rewritten to old.reddit.com before the request, so the
+    // comparison must use the URL actually sent or every Reddit refusal would look
+    // corrupted and be charged.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [{ url: "https://www.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" }],
+      }),
+    }));
+
+    await expect(
+      tavilyExtract("https://www.reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
   });
 
   it("throws when an empty extract response never states a refusal", async () => {

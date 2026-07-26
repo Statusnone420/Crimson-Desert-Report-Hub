@@ -55,16 +55,34 @@ export type BuildSearchQueryOptions = {
  * (`npm run scan:bakeoff`), judged by the real pre-screen. Two rules came out of
  * that run and both are load-bearing:
  *
- * 1. NEVER a bare single-site query. When one domain has no matching content,
- *    Tavily does not return nothing — it drops the filter and returns that
- *    domain's other recent articles. `site:pcgamer.com Crimson Desert patch
- *    performance` came back as Borderlands 4, Helldivers 2 and Oblivion mods.
- *    Junk on a TRUSTED domain is worse than junk anywhere else, because a
- *    trusted domain is what qualifies a candidate for a paid recon fetch.
- *    Multi-site `site:A OR site:B OR site:C` holds the filter and was verified
- *    working, so press always travels in a trio.
+ * 1. A `site:` filter is not a guarantee. When the scope has no matching content
+ *    Tavily does not return nothing — it drops the filter and searches openly.
+ *    `site:pcgamer.com Crimson Desert patch performance` came back as Borderlands
+ *    4, Helldivers 2 and Oblivion mods, and junk on a TRUSTED domain is worse
+ *    than junk anywhere else, because a trusted domain is what qualifies a
+ *    candidate for a paid recon fetch.
  *
- * 2. Anchor the open-web query in the game, not the words. Unanchored
+ *    What decides it is whether the SCOPE is dedicated to this game. Measured
+ *    5 of 5 in scope alone: `crimsondesert.pearlabyss.com`, the Steam app's
+ *    news, `r/CrimsonDesert`. Those places are about Crimson Desert or they are
+ *    empty. A general outlet publishes about everything, so in a week with no
+ *    Crimson Desert coverage the fallback is whatever it did publish — which is
+ *    why no PRESS outlet is ever asked alone.
+ *
+ *    Note `pearlabyss.com` is NOT such a scope: the publisher also ships Black
+ *    Desert, and `hasCrimsonDesertContext` accepts the publisher's name, so a
+ *    root-scoped result could carry another game's pages into the pipeline. The
+ *    official query is pinned to the game's own subdomain for that reason.
+ *
+ * 2. Grouping is not a guarantee either. `site:A OR site:B` holds only while at
+ *    least one member carries matching content. Measured: pairing the Pearl Abyss
+ *    ROOT domain (which indexes almost nothing) with the Steam store collapsed so
+ *    completely that Tavily matched the bare word "OR" and returned five
+ *    dictionary definitions of it. The same pair pointed at the game's own
+ *    subdomain returned 5 of 5 in scope. Every group therefore needs one member
+ *    that reliably carries coverage.
+ *
+ * 3. Anchor the open-web query in the game, not the words. Unanchored
  *    "Crimson Desert patch" matched a coffee brand, a dictionary, the Harvard
  *    Crimson store and the US Army Corps of Engineers.
  *
@@ -75,10 +93,11 @@ export type BuildSearchQueryOptions = {
  */
 function queryPack(patchVersion: string): string[] {
   return [
-    // Official notes and the known-issues notice: highest authority, routes to
-    // patch_release. Measured 2 of 5 straight to observations.
-    `site:pearlabyss.com Crimson Desert patch ${patchVersion} notes known issues`,
-    // The only source measured at 5/5 routed to observations, zero dropped.
+    // The game's own site, not the publisher's. Measured 5 of 5 in scope alone.
+    `site:crimsondesert.pearlabyss.com Crimson Desert patch ${patchVersion} notes known issues`,
+    // Measured 5 of 5 in scope across three separate runs, and every result routed
+    // to an observation lane. The version matters: without it the same filter
+    // collapsed and returned wikipedia and vocabulary.com.
     `site:store.steampowered.com Crimson Desert patch ${patchVersion} update`,
     // Anchored open web: measured 2 kept + 2 observations, and no coffee.
     `Crimson Desert game Pearl Abyss patch ${patchVersion} players stutter crash bug report`,
@@ -228,12 +247,13 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   const key = (options.env ?? process.env).TAVILY_API_KEY?.trim();
   if (!key) return null;
 
+  const requestedUrl = extractionUrl(url);
   const fetcher = options.fetcher ?? (fetch as unknown as SearchFetch);
   const res = await fetcher("https://api.tavily.com/extract", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      urls: [extractionUrl(url)],
+      urls: [requestedUrl],
       query: EXTRACT_QUERY,
       chunks_per_source: 5,
       extract_depth: "basic",
@@ -245,12 +265,33 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   const data = (await res.json()) as {
     results?: TavilyExtractResult[];
     failed_results?: { url?: string; error?: string }[];
+    usage?: { credits?: number };
   };
   const rawContent = (data.results ?? [])[0]?.raw_content?.trim();
   if (rawContent) return rawContent.slice(0, 4_000);
 
-  // One URL is requested, so any entry here is a refusal of that URL.
-  if ((data.failed_results ?? []).length > 0) return null;
+  // A refusal only waives the charge when Tavily actually names the URL we asked
+  // for. A malformed entry — `[{}]`, a bare string, or a different URL — says
+  // nothing about whether the work was billed, so it takes the throwing path and
+  // is charged worst case. Anything less strict here would let corrupted provider
+  // data quietly understate the month.
+  const refusedRequestedUrl = (data.failed_results ?? []).some(
+    (entry) => typeof entry?.url === "string" && entry.url === requestedUrl,
+  );
+
+  // `include_usage` is requested, so honour it — but only as a VETO. Observed live:
+  // a refused fetch and a successful extract BOTH report `usage: {credits: 0}`, so
+  // a zero here cannot prove nothing was billed. It can only contradict a waiver.
+  //
+  // Exactly 0 is the ONLY value consistent with a free refusal. Everything else
+  // contradicts it: a positive count is a charged failure, and a negative, absent,
+  // or non-numeric count is corrupted data that says nothing either way. All of them
+  // take the throwing path where the caller books the credit worst case. A response
+  // carrying no `usage` field at all makes no claim, so it falls back to the URL
+  // match rather than being treated as a contradiction.
+  const usageContradictsWaiver = data.usage !== undefined && data.usage.credits !== 0;
+
+  if (refusedRequestedUrl && !usageContradictsWaiver) return null;
   throw new Error("tavily extract returned no content");
 }
 
