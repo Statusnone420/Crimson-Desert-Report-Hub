@@ -18,6 +18,7 @@ import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult 
 import {
   canonicalizeRuleScopes,
   matchScannerFeedbackRule,
+  storedRecordUrl,
   type ScannerFeedbackRule,
 } from "@/lib/automation/feedback";
 import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
@@ -1726,22 +1727,6 @@ async function loadClusterSignals(
     .eq("cluster_id", clusterId);
   if (error) throw new Error(`cluster signals read failed: ${error.message}`);
   return (data ?? []) as SourceSignalRow[];
-}
-
-/**
- * The URL a stored signal is identified by when re-checking it against exact
- * reviewed records. `canonical_url` was canonical when the row was written, so
- * it is compared as recorded. Rows predating that column keep only the raw
- * source URL, which has to be canonicalized to be comparable at all.
- */
-function storedRecordUrl(signal: { canonical_url?: string | null; source_url?: string | null }): string {
-  if (signal.canonical_url) return signal.canonical_url;
-  const sourceUrl = signal.source_url ?? "";
-  try {
-    return canonicalizeUrl(sourceUrl);
-  } catch {
-    return sourceUrl;
-  }
 }
 
 async function refreshClusterStats(

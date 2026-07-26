@@ -9,6 +9,7 @@ import {
   isScannerDecision,
   isScannerRuleScope,
   scannerRuleScopeValue,
+  storedRecordUrl,
 } from "@/lib/automation/feedback";
 import { refreshClusterVisibility, rescueCandidateSignal } from "@/lib/automation/run";
 import {
@@ -528,10 +529,13 @@ export async function recordScannerDecision(formData: FormData): Promise<void> {
     if (signal.source === "steam_review" || signal.source_type === "steam_review") {
       throw new Error("Steam review signals cannot create URL feedback rules");
     }
-    const targetUrl = scannerRuleScopeValue("exact_url", {
-      url: signal.canonical_url ?? signal.source_url,
-      sourceDomain: signal.source_domain,
-    });
+    // Record the rule under the identity this signal is stored with, not a
+    // freshly canonicalized one. The refresh that runs straight after compares
+    // the rule against the signal as recorded, so canonicalizing here would
+    // mean the block you just created does not take effect on a signal stored
+    // before canonicalization widened. Intake re-canonicalizes rule scopes on
+    // read, so the rule still catches the page under any alias.
+    const targetUrl = storedRecordUrl(signal);
     if (!targetUrl) throw new Error("bad input");
     const { data: decisionRows, error: decisionError } = await supabase.rpc("record_scanner_decision", {
       p_candidate_id: null,

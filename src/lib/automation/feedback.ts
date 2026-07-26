@@ -81,6 +81,25 @@ export function scannerRuleScopeValue(
   return registrableDomain(candidate.sourceDomain);
 }
 
+/**
+ * The identity a STORED signal is known by for exact-URL rules.
+ *
+ * `canonical_url` was canonical when the row was written, so it is used
+ * verbatim — both when recording a rule about that record and when re-checking
+ * the record against one. Rules and records therefore agree by construction,
+ * whatever canonicalization did in between. Rows predating `canonical_url` keep
+ * only a raw source URL, which has to be canonicalized to be usable at all.
+ */
+export function storedRecordUrl(signal: { canonical_url?: string | null; source_url?: string | null }): string {
+  if (signal.canonical_url) return signal.canonical_url;
+  const sourceUrl = signal.source_url ?? "";
+  try {
+    return canonicalizeUrl(sourceUrl);
+  } catch {
+    return sourceUrl;
+  }
+}
+
 function activeAt(rule: ScannerFeedbackRule, nowMs: number): boolean {
   if (rule.revokedAt) return false;
   if (!rule.expiresAt) return true;

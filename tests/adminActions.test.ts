@@ -826,6 +826,43 @@ describe("recordScannerDecision", () => {
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-current");
   });
 
+  it("records a lesson under the identity the signal is stored with", async () => {
+    // This row was stored before `l` became a droppable parameter. Recording
+    // the rule in today's shorter form would leave the refresh that runs
+    // straight after unable to match the block to the signal, and the lead the
+    // operator just removed would come back as public evidence.
+    const stored = "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english";
+    seedRows = {
+      source_signals: [
+        {
+          id: "signal-steam-legacy",
+          cluster_id: "cluster-other",
+          source_url: stored,
+          canonical_url: stored,
+          source_domain: "steamcommunity.com",
+        },
+      ],
+    };
+    mocks.rpc.mockResolvedValueOnce({
+      data: [{ decision_id: "decision-steam", rule_id: "rule-steam", affected_cluster_id: "cluster-current" }],
+      error: null,
+    });
+    const { recordScannerDecision } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "signal-steam-legacy");
+    formData.set("target_kind", "signal");
+    formData.set("decision", "off_topic");
+    formData.set("reason", "A Steam thread that is not a bug report.");
+    formData.set("scope", "exact_url");
+
+    await recordScannerDecision(formData);
+
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_scanner_decision",
+      expect.objectContaining({ p_signal_id: "signal-steam-legacy", p_scope_value: stored, p_target_url: stored }),
+    );
+  });
+
   it("refuses a shared-URL feedback lesson for a Steam review signal", async () => {
     seedRows = {
       source_signals: [
