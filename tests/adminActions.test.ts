@@ -286,7 +286,7 @@ describe("setClusterFixStatus", () => {
   });
 
   it("refuses a claim-bearing lock while the current patch is only the hardcoded fallback", async () => {
-    // A claim clock stamped with a guessed version would publish an unearned
+    // A claim date stamped with a guessed version would publish an unearned
     // fix claim; the non-claim Open lock stays available.
     const { getCurrentPatchMetadata } = await import("@/lib/officialPatch.server");
     vi.mocked(getCurrentPatchMetadata).mockResolvedValueOnce({ version: "1.13.01", source: "fallback" } as never);
@@ -354,7 +354,7 @@ describe("compileDossier", () => {
 });
 
 describe("clearClusterFixStatusOverride", () => {
-  it("clears the override and its synthetic claim clock so automation can re-derive status", async () => {
+  it("clears the override and its synthetic claim date so automation can re-derive status", async () => {
     const { clearClusterFixStatusOverride } = await import("@/app/admin/actions");
     const formData = new FormData();
     formData.set("cluster_id", "cluster-one");

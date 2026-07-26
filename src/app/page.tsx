@@ -126,9 +126,9 @@ export default async function DispatchHomePage() {
   const claimRows = d.claimedFixes.map((claim) => {
     const attributed = claim.category === null ? null : attributedByCategory.get(claim.category) ?? null;
     const poll = attributed?.readout.poll ?? null;
-    const clockSince =
+    const claimedOn =
       shortDate(attributed?.fix_claimed_at ?? null) ?? shortDate(patch.publishedAt) ?? "PATCH PUBLISH";
-    return { claim, attributed, poll, clockSince };
+    return { claim, attributed, poll, claimedOn };
   });
   const contestedClusters = verifying.filter((cluster) => {
     if (attributedByCategory.get(cluster.category)?.id !== cluster.id) return false;
@@ -230,20 +230,20 @@ export default async function DispatchHomePage() {
 
   /**
    * One shared status line covers every claim without a player verdict; a row
-   * keeps its own clock only when the quiet claims carry different clock dates,
+   * names its own claim date only when the quiet claims carry different dates,
    * so distinct states are never flattened into one sentence.
    */
   const votedClaimRows = claimRows.filter(
     (row) => row.poll !== null && row.poll.fixedCount + row.poll.stillCount > 0,
   );
   const quietClaimRows = claimRows.filter((row) => !votedClaimRows.includes(row));
-  const quietClockDates = [...new Set(quietClaimRows.map((row) => row.clockSince))];
-  const sharedQuietClock = quietClockDates.length === 1 ? quietClockDates[0] : null;
+  const quietClaimDates = [...new Set(quietClaimRows.map((row) => row.claimedOn))];
+  const sharedQuietDate = quietClaimDates.length === 1 ? quietClaimDates[0] : null;
   // Here the outage/pointer guards are defensive: under either flag no row
-  // carries a poll or attribution, so every clockSince already collapses to
-  // one date and sharedQuietClock cannot be null.
-  const rowLevelClaimClocks =
-    sharedQuietClock === null && !d.evidenceUnavailable && !verdictsElsewhere;
+  // carries a poll or attribution, so every claimedOn already collapses to
+  // one date and sharedQuietDate cannot be null.
+  const rowLevelClaimDates =
+    sharedQuietDate === null && !d.evidenceUnavailable && !verdictsElsewhere;
   // Below 900px only one claim row renders, so a quiet row must carry its own
   // short marker there — the section line alone can't say which row it covers.
   // Here too the outage/pointer guards are defensive: under either flag no row
@@ -251,7 +251,7 @@ export default async function DispatchHomePage() {
   // "No verdicts yet" cannot render. An all-quiet section says it once in the
   // shared line instead.
   const quietRowMarker =
-    sharedQuietClock !== null &&
+    sharedQuietDate !== null &&
     votedClaimRows.length > 0 &&
     !d.evidenceUnavailable &&
     !verdictsElsewhere;
@@ -399,8 +399,8 @@ export default async function DispatchHomePage() {
     );
   }
 
-  // The shared claims-intro line carries the claim-clock rule once; each voted
-  // row keeps only its own reading.
+  // The shared claims-intro line carries the counting rule once; each voted row
+  // keeps only its own reading.
   function verdictNote(poll: { fixedCount: number; stillCount: number }): string {
     if (poll.stillCount > poll.fixedCount) return "Contested.";
     if (poll.fixedCount > poll.stillCount) return "Leaning fixed.";
@@ -1024,46 +1024,46 @@ export default async function DispatchHomePage() {
                 </>
               ) : quietClaimRows.length === 0 ? (
                 <>
-                  Players have answered {claimRows.length === 1 ? "the claim" : "every claim"} below —
-                  verdicts count taps made after the{" "}
-                  <Link href="/about#claim-clock" className="dispatch-link">
-                    claim clock
-                  </Link>
-                  , this patch only.
+                  Players have answered {claimRows.length === 1 ? "the claim" : "every claim"} below.{" "}
+                  <Link href="/about#player-verdicts" className="dispatch-link">
+                    Verdicts
+                  </Link>{" "}
+                  count only taps made after the fix was claimed, this patch only.
                 </>
-              ) : sharedQuietClock === null ? (
+              ) : sharedQuietDate === null ? (
                 <>
                   {quietClaimRows.length === claimRows.length
                     ? `No player verdicts on any of these ${claimRows.length} claims yet`
                     : `No player verdicts yet on ${quietClaimRows.length} of these ${claimRows.length} claims`}{" "}
-                  — their{" "}
-                  <Link href="/about#claim-clock" className="dispatch-link">
-                    claim clocks
-                  </Link>{" "}
-                  don&rsquo;t all start on the same date, so each row carries its own.
-                  {votedClaimRows.length > 0 ? " Verdicts count taps made after the clock, this patch only." : ""}
+                  — these fixes were claimed on different dates, so each row names its own.
+                  {votedClaimRows.length > 0 ? (
+                    <>
+                      {" "}
+                      <Link href="/about#player-verdicts" className="dispatch-link">
+                        Verdicts
+                      </Link>{" "}
+                      count only taps made after the claim, this patch only.
+                    </>
+                  ) : null}
                 </>
               ) : votedClaimRows.length > 0 ? (
                 <>
                   Players have answered {votedClaimRows.length} of these {claimRows.length} claims; the
                   other {quietClaimRows.length === 1 ? "one has" : `${quietClaimRows.length} have`} no
-                  verdicts yet —{" "}
-                  <Link href="/about#claim-clock" className="dispatch-link">
-                    claim clock
-                  </Link>{" "}
-                  running since {sharedQuietClock}. Verdicts count taps made after the clock, this patch
-                  only.
+                  verdicts yet. Only taps made after {sharedQuietDate}{" "}
+                  <Link href="/about#player-verdicts" className="dispatch-link">
+                    count toward a claim
+                  </Link>
+                  , this patch only.
                 </>
               ) : (
+                // Nothing has been counted, so nothing is being excluded: the
+                // counting rule has no work to do here and only adds noise.
+                // Method carries the definition, one click away in the nav.
                 <>
                   {claimRows.length === 1
-                    ? "No player verdicts on this claim yet"
-                    : `No player verdicts on any of these ${claimRows.length} claims yet`}{" "}
-                  —{" "}
-                  <Link href="/about#claim-clock" className="dispatch-link">
-                    claim clock
-                  </Link>{" "}
-                  running since {sharedQuietClock}.
+                    ? "No player verdicts on this claim yet."
+                    : `No player verdicts on any of these ${claimRows.length} claims yet.`}
                 </>
               )}
               {claimCapTotal !== null ? (
@@ -1098,15 +1098,15 @@ export default async function DispatchHomePage() {
                       <div className="claim-row__verdict">
                         {row.poll && row.poll.fixedCount + row.poll.stillCount > 0 ? (
                           verdictSplit(row.poll, verdictNote(row.poll))
-                        ) : rowLevelClaimClocks ? (
-                          <div className="verdict-clock">
-                            No player verdicts yet · claim clock running since {row.clockSince}
+                        ) : rowLevelClaimDates ? (
+                          <div className="verdict-quiet">
+                            No player verdicts yet · only taps after {row.claimedOn} count
                           </div>
                         ) : quietRowMarker ? (
                           // Desktop shows every row, so a bare quote reads as
                           // quiet next to the section line; the one-row mobile
                           // cut needs this marker to say the claim's state.
-                          <div className="verdict-clock dispatch-mobile-only">No verdicts yet</div>
+                          <div className="verdict-quiet dispatch-mobile-only">No verdicts yet</div>
                         ) : null}
                       </div>
                     </div>

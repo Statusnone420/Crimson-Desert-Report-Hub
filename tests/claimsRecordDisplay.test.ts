@@ -105,9 +105,9 @@ function count(markup: string, needle: string): number {
 
 /**
  * The Claims Record renders one shared status line instead of repeating the
- * same clock sentence on every row — but only when the rows genuinely share a
- * state. Divergent clock dates keep their honest row-level clocks, and each
- * failure register keeps its own single statement.
+ * same sentence on every row — but only when the rows genuinely share a state.
+ * Divergent claim dates keep their honest row-level dates, and each failure
+ * register keeps its own single statement.
  */
 describe("claims record consolidated status line", () => {
   beforeEach(() => {
@@ -131,7 +131,7 @@ describe("claims record consolidated status line", () => {
     });
   });
 
-  it("collapses uniformly quiet claims into one dated statement with a Method link", async () => {
+  it("collapses uniformly quiet claims into one plain statement", async () => {
     mocks.getDashboardData.mockResolvedValue(
       dashboardData({
         claimedFixes: [
@@ -144,15 +144,34 @@ describe("claims record consolidated status line", () => {
 
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
-    expect(markup).toContain("No player verdicts on any of these 3 claims yet");
-    expect(markup).toContain("running since JUL 8");
-    expect(markup).toContain('href="/about#claim-clock"');
+    expect(markup).toContain("No player verdicts on any of these 3 claims yet.");
     expect(count(markup, "claims-intro")).toBe(1);
-    // The repeated per-row clock is gone when every quiet claim shares a date,
+    // Nothing has been counted, so nothing is excluded: with no tally on the
+    // page the counting rule and its date would explain an exclusion that has
+    // never happened.
+    expect(markup).not.toContain("JUL 8");
+    expect(markup).not.toMatch(/only taps|count toward a claim/i);
+    // The repeated per-row line is gone when every quiet claim shares a date,
     // and with no bars on the page the shared line already covers every row —
     // no per-row marker repeats it.
-    expect(markup).not.toContain("No player verdicts yet · claim clock running since");
+    expect(markup).not.toContain("No player verdicts yet ·");
     expect(markup).not.toContain("No verdicts yet");
+  });
+
+  it("never says clock anywhere in the claims record", async () => {
+    mocks.getDashboardData.mockResolvedValue(
+      dashboardData({
+        claimedFixes: [
+          { fixText: "Fixed a claimed issue one.", category: null },
+          { fixText: "Fixed a claimed issue two.", category: null },
+        ],
+      }),
+    );
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    // Nothing counts down here, so no surface may imply one.
+    expect(markup).not.toMatch(/clock|countdown|deadline|running since|time (?:is )?(?:left|remaining)/i);
   });
 
   it("summarizes an all-answered record without inventing quiet rows", async () => {
@@ -182,9 +201,10 @@ describe("claims record consolidated status line", () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
     expect(markup).toContain("Players have answered the claim below");
+    expect(markup).toContain("count only taps made after the fix was claimed, this patch only.");
     expect(markup).toContain("verdict-bar");
     expect(markup).toContain("Leaning fixed.");
-    // No quiet row exists: no clock, no marker, nothing invented.
+    // No quiet row exists: no date line, no marker, nothing invented.
     expect(markup).not.toContain("No player verdicts");
     expect(markup).not.toContain("No verdicts yet");
   });
@@ -218,22 +238,22 @@ describe("claims record consolidated status line", () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
     expect(markup).toContain("Players have answered 1 of these 2 claims; the other one has no verdicts yet");
-    expect(markup).toContain("claim clock");
-    expect(markup).toContain("running since JUL 8");
-    // The poll-scoping rule renders once, in the shared line, whenever a bar is on the page.
-    expect(count(markup, "Verdicts count taps made after the clock, this patch only.")).toBe(1);
+    // A tally exists, so the cutoff genuinely excludes taps and has to be said —
+    // as a date the counting starts from, never as something running.
+    expect(markup).toContain("Only taps made after JUL 8");
+    expect(count(markup, "count toward a claim")).toBe(1);
+    expect(markup).not.toMatch(/clock|running since/i);
     // The voted row keeps its verdict bar and a short reading — the shared
-    // clock-rule tail no longer repeats under every bar.
+    // counting rule no longer repeats under every bar.
     expect(markup).toContain("verdict-bar");
     expect(markup).toContain("Contested.");
-    expect(markup).not.toContain("Verdicts count taps made after the claim clock, this patch only.");
-    expect(markup).not.toContain("No player verdicts yet · claim clock running since");
+    expect(markup).not.toContain("No player verdicts yet ·");
     // The quiet row keeps a mobile-only marker for the one-row <900px cut.
-    expect(markup).toContain('class="verdict-clock dispatch-mobile-only"');
+    expect(markup).toContain('class="verdict-quiet dispatch-mobile-only"');
     expect(markup).toContain("No verdicts yet");
   });
 
-  it("retains row-level clocks when quiet claims carry different clock dates", async () => {
+  it("retains row-level claim dates when quiet claims carry different dates", async () => {
     mocks.getDashboardData.mockResolvedValue(
       dashboardData({
         topClusters: [
@@ -276,18 +296,19 @@ describe("claims record consolidated status line", () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
     // Different states are never flattened into one sentence: each row keeps
-    // its own clock, and the shared line explains why without pointing at
+    // its own claim date, and the shared line explains why without pointing at
     // rows a narrow viewport may hide.
     expect(markup).toContain("No player verdicts on any of these 2 claims yet");
-    expect(markup).toContain("all start on the same date, so each row carries its own.");
-    expect(markup).toContain("claim clock running since JUL 10");
-    expect(markup).toContain("claim clock running since JUL 12");
-    expect(count(markup, "No player verdicts yet · claim clock running since")).toBe(2);
-    // No bar on the page, so the poll-scoping tail stays out of the line.
-    expect(markup).not.toContain("Verdicts count taps made after the clock");
+    expect(markup).toContain("claimed on different dates, so each row names its own.");
+    expect(markup).toContain("only taps after JUL 10 count");
+    expect(markup).toContain("only taps after JUL 12 count");
+    expect(markup).not.toMatch(/clock|running since/i);
+    expect(count(markup, "No player verdicts yet · only taps after")).toBe(2);
+    // No bar on the page, so the counting rule stays out of the line.
+    expect(markup).not.toContain("count toward a claim");
   });
 
-  it("keeps the poll-scoping rule in the shared line when divergent clocks meet a voted row", async () => {
+  it("keeps the counting rule in the shared line when divergent claim dates meet a voted row", async () => {
     mocks.getDashboardData.mockResolvedValue(
       dashboardData({
         topClusters: [
@@ -345,10 +366,11 @@ describe("claims record consolidated status line", () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
     expect(markup).toContain("No player verdicts yet on 2 of these 3 claims");
-    expect(markup).toContain("all start on the same date, so each row carries its own.");
-    expect(count(markup, "Verdicts count taps made after the clock, this patch only.")).toBe(1);
+    expect(markup).toContain("claimed on different dates, so each row names its own.");
+    expect(count(markup, "count only taps made after the claim, this patch only.")).toBe(1);
     expect(markup).toContain("verdict-bar");
-    expect(count(markup, "No player verdicts yet · claim clock running since")).toBe(2);
+    expect(count(markup, "No player verdicts yet · only taps after")).toBe(2);
+    expect(markup).not.toMatch(/clock|running since/i);
   });
 
   it("reads singular for a lone quiet claim", async () => {
@@ -360,8 +382,7 @@ describe("claims record consolidated status line", () => {
 
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
-    expect(markup).toContain("No player verdicts on this claim yet");
-    expect(markup).toContain("running since JUL 8");
+    expect(markup).toContain("No player verdicts on this claim yet.");
     expect(markup).not.toContain("any of these");
   });
 
@@ -386,9 +407,9 @@ describe("claims record consolidated status line", () => {
     expect(markup).toContain("Fixed a claimed issue one.");
     expect(markup).toContain("Fixed a claimed issue three.");
     expect(count(markup, "not counted as zero")).toBe(1);
-    // A failed read never renders a running clock or a quiet marker — either
-    // would imply a countable quiet the register cannot back.
-    expect(markup).not.toContain("claim clock running since");
+    // A failed read never renders a claim date or a quiet marker — either would
+    // imply a countable quiet the register cannot back.
+    expect(markup).not.toContain("No player verdicts yet ·");
     expect(markup).not.toContain("No verdicts yet");
   });
 
@@ -423,7 +444,7 @@ describe("claims record consolidated status line", () => {
     expect(count(markup, "tracked per issue on the")).toBe(1);
     expect(markup).toContain("these exact lines");
     // Untied verdicts must never render a countable quiet on any row.
-    expect(markup).not.toContain("claim clock running since");
+    expect(markup).not.toContain("No player verdicts yet ·");
     expect(markup).not.toContain("No verdicts yet");
   });
 

@@ -217,7 +217,7 @@ export default async function IssuesPage() {
     return (
       <div className="issue-rail issue-rail--center">
         <div className="issue-rail__label" style={{ paddingBottom: 0 }}>
-          Claim verdict · taps after the claim clock
+          Claim verdict · taps after the fix claim
         </div>
         {total > 0 ? (
           <>
@@ -231,7 +231,7 @@ export default async function IssuesPage() {
             </div>
           </>
         ) : (
-          <div className="verdict-clock">No player verdicts yet · claim clock running</div>
+          <div className="verdict-quiet">No player verdicts yet</div>
         )}
         {confirmStrip({ cluster })}
       </div>

@@ -376,24 +376,25 @@ test.describe("public surface visual regression", () => {
     ).toBeVisible();
     await expect(page.getByText("1 fixed for me")).toBeVisible();
     await expect(page.getByText("2 still happening")).toBeVisible();
-    // One shared status line replaces the per-row clocks when quiet claims share
-    // a clock date; "claim clock" deep-links to its Method definition.
+    // One shared status line replaces the per-row dates when quiet claims share
+    // a claim date; the counting rule deep-links to its Method definition.
     const claimsIntro = page.locator("#claims .claims-intro");
     await expect(claimsIntro).toContainText(
       /Players have answered 1 of these 2 claims; the other one has no verdicts yet/,
     );
-    await expect(claimsIntro).toContainText("Verdicts count taps made after the clock, this patch only.");
-    await expect(claimsIntro.getByRole("link", { name: "claim clock" })).toHaveAttribute(
+    await expect(claimsIntro).toContainText("Only taps made after");
+    await expect(claimsIntro).not.toContainText(/clock|running since/i);
+    await expect(claimsIntro.getByRole("link", { name: "count toward a claim" })).toHaveAttribute(
       "href",
-      "/about#claim-clock",
+      "/about#player-verdicts",
     );
-    // Desktop shows every row, so quiet rows carry no repeated clock; their
+    // Desktop shows every row, so quiet rows carry no repeated date; their
     // mobile-only marker stays hidden at this width — asserted on computed
     // display so a dropped media rule fails here, not in production.
-    await expect(page.locator("#claims .verdict-clock").filter({ visible: true })).toHaveCount(0);
+    await expect(page.locator("#claims .verdict-quiet").filter({ visible: true })).toHaveCount(0);
     expect(
       await page
-        .locator("#claims .verdict-clock")
+        .locator("#claims .verdict-quiet")
         .first()
         .evaluate((element) => getComputedStyle(element).display),
     ).toBe("none");
@@ -490,15 +491,15 @@ test.describe("public surface visual regression", () => {
       const main = document.querySelector("#radar .radar-main")?.getBoundingClientRect();
       const caption = document.querySelector("#radar .radar-screen-caption");
       const claimsIntro = document.querySelector("#claims .claims-intro");
-      const rowClock = document.querySelector("#claims .verdict-clock");
-      if (!section || !screen || !main || !caption || !claimsIntro || !rowClock) return null;
+      const rowQuiet = document.querySelector("#claims .verdict-quiet");
+      if (!section || !screen || !main || !caption || !claimsIntro || !rowQuiet) return null;
       return {
         captionFontSize: Number.parseFloat(getComputedStyle(caption).fontSize),
         captionTransform: getComputedStyle(caption).textTransform,
         claimsIntroTransform: getComputedStyle(claimsIntro).textTransform,
-        // The #claims .verdict-clock override must keep row clocks and the
+        // The #claims .verdict-quiet override must keep the row line and the
         // quiet marker out of uppercase mono shouting.
-        rowClockTransform: getComputedStyle(rowClock).textTransform,
+        rowQuietTransform: getComputedStyle(rowQuiet).textTransform,
         mainLeft: main.left,
         mainTop: main.top,
         screenRight: screen.right,
@@ -513,7 +514,7 @@ test.describe("public surface visual regression", () => {
     expect(desktopLayout?.captionFontSize ?? 0).toBeGreaterThanOrEqual(11);
     expect(desktopLayout?.captionTransform).toBe("none");
     expect(desktopLayout?.claimsIntroTransform).toBe("none");
-    expect(desktopLayout?.rowClockTransform).toBe("none");
+    expect(desktopLayout?.rowQuietTransform).toBe("none");
     await expectHealthyPage(page, problems);
 
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -542,13 +543,13 @@ test.describe("public surface visual regression", () => {
       // section line it is on — a verdict bar or its own quiet marker.
       const visibleClaimRow = page.locator("#claims .claim-row:not(.claim-row--overflow)");
       await expect(visibleClaimRow).toHaveCount(1);
-      await expect(visibleClaimRow.locator(".verdict-bar, .verdict-clock").first()).toBeVisible();
+      await expect(visibleClaimRow.locator(".verdict-bar, .verdict-quiet").first()).toBeVisible();
       // The quiet-row marker's own display is unsuppressed below 900px even
       // inside a hidden overflow row — the fixture's visible row carries a
       // bar, so this is the only way to exercise the marker's media rule.
       expect(
         await page
-          .locator("#claims .verdict-clock")
+          .locator("#claims .verdict-quiet")
           .first()
           .evaluate((element) => getComputedStyle(element).display),
       ).toBe("block");
@@ -777,7 +778,7 @@ test.describe("public surface visual regression", () => {
     // lands on a collapsed row still reads without being opened.
     const rows = page.locator(".method-row");
     await expect(rows).toHaveCount(7);
-    for (const anchor of ["claim-clock", "radar", "freshness", "privacy", "quiet", "source", "official-support"]) {
+    for (const anchor of ["player-verdicts", "radar", "freshness", "privacy", "quiet", "source", "official-support"]) {
       const row = page.locator(`#${anchor}`);
       await expect(row).not.toHaveAttribute("open", /.*/);
       await expect(row.locator(".method-row__say")).toBeVisible();
@@ -786,9 +787,9 @@ test.describe("public surface visual regression", () => {
     await expect(page.locator("#privacy")).toBeVisible();
 
     // Opening a row reveals its detail, including the cross-links that live there.
-    await page.locator("#claim-clock .method-row__q").click();
-    await expect(page.locator("#claim-clock .method-row__more")).toBeVisible();
-    await page.locator("#claim-clock .method-row__q").click();
+    await page.locator("#player-verdicts .method-row__q").click();
+    await expect(page.locator("#player-verdicts .method-row__more")).toBeVisible();
+    await page.locator("#player-verdicts .method-row__q").click();
 
     await page.locator("#radar .method-row__q").click();
     await expect(page.locator("#radar").getByRole("link", { name: "Observatory" })).toHaveAttribute(

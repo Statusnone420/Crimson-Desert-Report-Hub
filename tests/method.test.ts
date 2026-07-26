@@ -26,7 +26,7 @@ function proseLength(source: string): number {
 describe("method reference", () => {
   const anchors = [
     "registers",
-    "claim-clock",
+    "player-verdicts",
     "radar",
     "freshness",
     "privacy",
@@ -65,14 +65,17 @@ describe("method reference", () => {
     expect(aboutSource).toMatch(/docs\/wiki\//);
   });
 
-  it("starts the claim clock when this tracker records the official claim", () => {
-    const claimClock = aboutSource.slice(
-      aboutSource.indexOf('id="claim-clock"'),
+  it("dates the official claim rather than starting anything that runs", () => {
+    const verdicts = aboutSource.slice(
+      aboutSource.indexOf('id="player-verdicts"'),
       aboutSource.indexOf('id="radar"'),
     );
 
-    expect(claimClock).toContain("When this tracker records an official fix claim, the clock starts.");
-    expect(claimClock).not.toContain("the clock marks that moment");
+    expect(verdicts).toContain("When this tracker records an official fix claim, it notes the date.");
+    // The property that matters survives the rename: silence is never a fix.
+    expect(verdicts).toContain("No amount of silence turns a claimed fix into a confirmed one");
+    // Nothing elapses, so no wording may suggest it does.
+    expect(verdicts).not.toMatch(/clock|countdown|deadline/i);
   });
 
   it("does not overpromise moderation or certainty the code cannot back", () => {
