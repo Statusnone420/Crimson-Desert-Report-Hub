@@ -66,11 +66,24 @@ the exact failure it exists to catch.
 bug reports, so the pre-screen routes them to the Brief's context lanes instead of the
 Issue Board. That routing is the design working.
 
-`OBSERVATION_REJECTED:<kind>` is different and is the line to watch. The pre-screen
-routed it to a lane, then `shouldCollectObservation` threw it away — almost always
-because the registrable domain is not in `TRUSTED_DOMAINS`. A query whose results are
-all `OBSERVATION_REJECTED` is spending a credit for nothing. This distinction was added
-after the harness reported a whole slot as working that production discarded in full.
+There are three observation outcomes, and only the first one reaches a reader:
+
+| outcome | meaning |
+| --- | --- |
+| `OBSERVATION:<kind>` | collected **and** displayable — this renders |
+| `OBSERVATION_STORED:<kind>` | collected, but the Brief needs a publication date and this has none |
+| `OBSERVATION_REJECTED:<kind>` | thrown away at `shouldCollectObservation`, almost always an untrusted registrable domain |
+
+Both of the lower two were added after the harness reported outcomes production
+discards. A query whose results are all `OBSERVATION_REJECTED` is spending a credit for
+nothing. A query whose results are all `OBSERVATION_STORED` is filling a table nobody
+sees.
+
+Expect `render in the Brief` to be **0** on a general-search run, and do not read that
+as a bug in the pack. `isBriefEligibleObservation` requires a real
+`source_published_at`, and only Tavily's news index returns one. That single gate is
+what keeps the Brief's observation sections dark in production while the table has rows
+in it.
 
 Two more things to weigh:
 

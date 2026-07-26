@@ -29,6 +29,7 @@ import { domainTier, registrableDomain } from "@/lib/automation/domains";
 import { buildMemorySearchQueries } from "@/lib/automation/memory";
 import { shouldCollectObservation } from "@/lib/automation/observations";
 import { preScreenCandidate } from "@/lib/automation/relevance";
+import { isBriefEligibleObservation } from "@/lib/observationDisplay";
 import { buildSearchQueries, buildWireNewsQuery, tavilySearch, type SearchResult } from "@/lib/automation/search";
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -128,6 +129,27 @@ function judge(lane: string, query: string, results: SearchResult[]): Judged[] {
         0,
       );
 
+    // Collected is still not displayed. The Brief additionally requires a real
+    // source_published_at, and general search almost never returns one — which is
+    // why the Brief's observation sections are dark in production while the table
+    // has rows in it. Counting a stored-but-undated row as reaching the Brief is
+    // the same overstatement as counting a discarded one, one gate further down.
+    const displayed =
+      collected &&
+      observationKind !== undefined &&
+      isBriefEligibleObservation(
+        {
+          kind: observationKind,
+          title: result.title,
+          url: result.url,
+          source_domain: domain,
+          snippet: result.snippet,
+          source_published_at: result.sourcePublishedAt ?? null,
+          is_public: true,
+        },
+        { version: PATCH_VERSION, publishedAt: PATCH_PUBLISHED_AT },
+      );
+
     return {
       lane,
       query,
@@ -137,8 +159,8 @@ function judge(lane: string, query: string, results: SearchResult[]): Judged[] {
       title: result.title,
       outcome: decision.keep
         ? "KEPT"
-        : decision.observationKind
-          ? `${collected ? "OBSERVATION" : "OBSERVATION_REJECTED"}:${decision.observationKind}`
+        : observationKind
+          ? `${displayed ? "OBSERVATION" : collected ? "OBSERVATION_STORED" : "OBSERVATION_REJECTED"}:${observationKind}`
           : `DROPPED:${decision.reason}`,
     };
   });
@@ -244,6 +266,7 @@ it("measures the live query pack against the real pre-screen", async () => {
 
   const kept = judged.filter((row) => row.outcome === "KEPT").length;
   const observations = judged.filter((row) => row.outcome.startsWith("OBSERVATION:")).length;
+  const observationsStored = judged.filter((row) => row.outcome.startsWith("OBSERVATION_STORED:")).length;
   const observationsRejected = judged.filter((row) => row.outcome.startsWith("OBSERVATION_REJECTED:")).length;
   const dropped = judged.filter((row) => row.outcome.startsWith("DROPPED")).length;
   const domains = new Set(judged.map((row) => registrableDomain(row.domain) ?? row.domain));
@@ -259,7 +282,8 @@ it("measures the live query pack against the real pre-screen", async () => {
   emit("\n=== TOTALS ===");
   emit(`results               ${judged.length}`);
   emit(`kept as signals       ${kept}`);
-  emit(`reach the Brief       ${observations}`);
+  emit(`render in the Brief   ${observations}   (collected AND displayable)`);
+  emit(`stored, never shown   ${observationsStored}   (collected, but the Brief needs a publication date)`);
   emit(`routed but discarded  ${observationsRejected}   (pre-screen said observation, observation gate said no)`);
   emit(`dropped               ${dropped}`);
   emit(`dated                 ${judged.filter((row) => row.dated).length}`);
