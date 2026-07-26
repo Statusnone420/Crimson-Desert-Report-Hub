@@ -116,6 +116,17 @@ describe("source monitor run display", () => {
     ]);
   });
 
+  it("names both recon outcomes instead of calling either an unrecognized code", () => {
+    // These two land on the same operator line, so neither may fall through to the
+    // "Unrecognized scanner code" branch.
+    const summary = summarizeRunMessages(["candidate_recon", "candidate_recon_unavailable"], []);
+
+    expect(summary.operatorSummary).toBe("1 read the full page; 1 full page unavailable");
+    expect(summary.skipGroups.map((group) => group.detail)).not.toContain(
+      "Unrecognized scanner code. Check the raw code before acting on it.",
+    );
+  });
+
   it("leaves unrecognized error strings untouched alongside mapped codes", () => {
     expect(summarizeRunMessages([], ["stale_running_run", "reddit failed: timeout"]).errorSummary).toBe(
       "Crashed run cleaned up; reddit failed: timeout",

@@ -37,6 +37,17 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "All candidates failed the cheap relevance screen before OpenRouter, so no LLM call was made.",
     summaryLabel: "no LLM candidates",
   },
+  candidate_recon: {
+    label: "Read the full page",
+    detail: "A promising trusted source had too little text to judge, so the scanner read the page itself before deciding.",
+    summaryLabel: "read the full page",
+  },
+  candidate_recon_unavailable: {
+    label: "Full page unavailable",
+    detail:
+      "The scanner tried to read the full page and the source returned nothing, so it judged the short summary instead. No search credit was spent. Reddit refuses our reader, so its threads always land here.",
+    summaryLabel: "full page unavailable",
+  },
   candidate_rescued: {
     label: "Candidate rescued",
     detail: "A thin current-patch source was kept private for corroboration instead of being discarded or published.",

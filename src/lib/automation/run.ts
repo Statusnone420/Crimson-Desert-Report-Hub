@@ -1115,6 +1115,17 @@ async function prepareSignals(
         // search allocation, while burst budgets remain capped at three total.
         // A recon miss (budget/cap/failure) falls straight through to today's
         // snippet-only borderline behavior — strict enhancement, never a regression.
+        //
+        // Tavily bills an extract only when it delivers page text, so the credit is
+        // booked AFTER the call and only against real content. A fetch Tavily cannot
+        // complete answers 200 with the URL in `failed_results`, which tavilyExtract
+        // reports as null — nothing throws. Booking up front therefore spent a search
+        // credit on nothing and, because searchQueriesUsed gates real queries, took
+        // that query away from the run. reddit.com is the first trusted domain and
+        // Reddit refuses Tavily's fetcher, so every Reddit recon paid that toll.
+        // Same defect the webSearchEnabled guard above already fixed for a missing
+        // key; this closes the fetch-failure door. The attempt still counts against
+        // MAX_RECON_FETCHES_PER_RUN, so an unfetchable domain cannot retry unbounded.
         let reconText: string | null = null;
         if (
           webSearchEnabled &&
@@ -1123,8 +1134,6 @@ async function prepareSignals(
           result.searchQueriesUsed < budget.maxTavilyCreditsPerRun
         ) {
           reconFetchesUsed += 1;
-          result.searchQueriesUsed += 1;
-          result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
           result.skips.push("candidate_recon");
           try {
             reconText = await tavilyExtract(canonicalUrl, { now: new Date(signal.observedAt) });
@@ -1132,6 +1141,13 @@ async function prepareSignals(
             result.status = "partial";
             result.errors.push(toErrorMessage(error, "recon extract failed"));
             reconText = null;
+          }
+          if (reconText === null) {
+            // Visible to the operator: the lane ran and the source returned nothing.
+            result.skips.push("candidate_recon_unavailable");
+          } else {
+            result.searchQueriesUsed += 1;
+            result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
           }
         }
 
