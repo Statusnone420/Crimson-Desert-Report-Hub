@@ -95,22 +95,31 @@ const SCOPE_SPECIFICITY: Record<ScannerRuleScope, number> = {
 };
 
 /**
- * Re-canonicalize a stored exact-URL rule before comparing it.
+ * Re-canonicalize stored exact-URL scope values. For INTAKE only.
  *
  * A rule's scope value is a URL canonicalized by whatever the rules were on the
  * day it was recorded. When those rules widen — a newly recognized display
- * parameter, say — every rule written before the change would silently stop
- * matching the page it was about, and the operator would only find out by
- * seeing a source they already rejected come back. Normalizing on read keeps
- * old lessons working without rewriting stored rows.
+ * parameter, say — every rule written before the change stops matching the page
+ * it was about, and the operator finds out by seeing a source they already
+ * rejected come back. Re-canonicalizing on read keeps old lessons working
+ * without rewriting stored rows.
+ *
+ * It is an opt-in transform rather than something the matcher does on its own
+ * because it widens what a rule matches, and learning rules must not alter
+ * stored evidence counts. Discovery asks "have I been taught about this page";
+ * re-evaluating stored evidence asks the narrower "was this exact record
+ * reviewed", and must keep comparing scope values exactly as recorded.
  */
-function comparableScopeValue(rule: ScannerFeedbackRule): string | null {
-  if (rule.scopeType !== "exact_url") return rule.scopeValue;
-  try {
-    return canonicalizeUrl(rule.scopeValue);
-  } catch {
-    return rule.scopeValue;
-  }
+export function canonicalizeRuleScopes(rules: ScannerFeedbackRule[]): ScannerFeedbackRule[] {
+  return rules.map((rule) => {
+    if (rule.scopeType !== "exact_url") return rule;
+    try {
+      const scopeValue = canonicalizeUrl(rule.scopeValue);
+      return scopeValue === rule.scopeValue ? rule : { ...rule, scopeValue };
+    } catch {
+      return rule;
+    }
+  });
 }
 
 /**
@@ -130,10 +139,7 @@ export function matchScannerFeedbackRule(
   };
 
   const matches = rules.filter(
-    (rule) =>
-      activeAt(rule, nowMs) &&
-      values[rule.scopeType] !== null &&
-      values[rule.scopeType] === comparableScopeValue(rule),
+    (rule) => activeAt(rule, nowMs) && values[rule.scopeType] !== null && values[rule.scopeType] === rule.scopeValue,
   );
   matches.sort((left, right) => {
     const specificity = SCOPE_SPECIFICITY[right.scopeType] - SCOPE_SPECIFICITY[left.scopeType];

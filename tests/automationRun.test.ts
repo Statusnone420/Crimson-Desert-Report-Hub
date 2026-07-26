@@ -2601,6 +2601,47 @@ describe("runAutomationMonitor", () => {
     expect(tables.automation_runs[0]).toMatchObject({ operator_rules_matched: 1 });
   });
 
+  it("still enforces a Steam rule recorded under a different interface language", async () => {
+    // The rule was canonical when it was written; `l` only became droppable
+    // later. Intake re-canonicalizes stored scopes so the lesson keeps naming
+    // the page it was about — otherwise a rejected thread returns to the desk
+    // under any other language.
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-steam-thread",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes after the update",
+        url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana",
+        snippet: "Crimson Desert crashes every time I open the map.",
+        sourceDomain: "steamcommunity.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(0);
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({ reason: "off_topic", feedback_rule_id: "rule-steam-thread" }),
+    ]);
+  });
+
   it("keeps enforcing an older rule that sits past the hosted row cap", async () => {
     // Three newer rules share one timestamp, so the tie lands on the page
     // boundary; the rule that actually matches this candidate is older and can

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canonicalizeRuleScopes,
   matchScannerFeedbackRule,
   scannerRuleScopeValue,
   sourcePathScopeValue,
@@ -59,11 +60,11 @@ describe("scanner feedback rules", () => {
     });
   });
 
-  it("keeps a rule recorded before Steam parameters were droppable", () => {
+  it("keeps a rule recorded before Steam parameters were droppable working at intake", () => {
     // The stored value was canonical on the day it was written; the candidate
-    // is canonical today. Without re-canonicalizing the rule on read, every
-    // Steam lesson taught before this change would quietly stop working and the
-    // rejected thread would come back.
+    // is canonical today. Without re-canonicalizing the rule, every Steam lesson
+    // taught before this change would quietly stop working and the rejected
+    // thread would come back.
     const storedBeforeTheChange = rule({
       id: "steam-exact-block",
       scopeValue: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
@@ -73,10 +74,39 @@ describe("scanner feedback rules", () => {
       sourceDomain: "steamcommunity.com",
     };
 
-    expect(matchScannerFeedbackRule(candidate, [storedBeforeTheChange])).toMatchObject({
-      action: "block",
-      rule: { id: "steam-exact-block" },
+    expect(
+      matchScannerFeedbackRule(candidate, canonicalizeRuleScopes([storedBeforeTheChange])),
+    ).toMatchObject({ action: "block", rule: { id: "steam-exact-block" } });
+  });
+
+  it("does not widen a rule for callers that compare scope values as recorded", () => {
+    // Learning rules gate discovery; they must never move an evidence count.
+    // refreshClusterStats re-checks STORED signals against exact-URL rules, so
+    // the matcher itself has to keep answering the narrow question — was this
+    // exact record reviewed — and leave aliasing to the intake path that opts in.
+    const storedBeforeTheChange = rule({
+      id: "steam-exact-block",
+      scopeValue: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
     });
+    const storedSignal = {
+      url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana",
+      sourceDomain: "steamcommunity.com",
+    };
+
+    expect(matchScannerFeedbackRule(storedSignal, [storedBeforeTheChange])).toBeNull();
+  });
+
+  it("rewrites only exact-URL scopes, and only when canonicalization changes them", () => {
+    const exact = rule({ scopeValue: "https://steamcommunity.com/app/1/discussions/0/9?l=english" });
+    const path = rule({ id: "path", scopeType: "source_path", scopeValue: "reddit.com/r/crimsondesert" });
+    const unchanged = rule({ id: "unchanged", scopeValue: "https://example.com/post" });
+
+    const [rewritten, keptPath, keptExact] = canonicalizeRuleScopes([exact, path, unchanged]);
+
+    expect(rewritten.scopeValue).toBe("https://steamcommunity.com/app/1/discussions/0/9");
+    // Untouched rules keep their identity, so nothing downstream sees a change.
+    expect(keptPath).toBe(path);
+    expect(keptExact).toBe(unchanged);
   });
 
   it("lets a newer exact allow supersede an older exact block", () => {
