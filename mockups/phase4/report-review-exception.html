@@ -131,7 +131,10 @@
             <label><span class="count-note" style="display:block;margin-bottom:4px">Lifecycle status</span>
               <select name="fix_status"><option value="reported">Open</option><option value="fix_claimed" selected>Fix claimed — unverified</option><option value="verified_fixed">Marked fixed by maintainer</option><option value="persists">Still happening</option></select>
             </label>
-            <button class="c-secondary" type="submit">Lock</button>
+            <!-- One explicit SubmitButton pending state: the native disabled
+                 attribute blocks pointer and keyboard activation; aria-busy
+                 and visible pendingText expose the in-flight mutation. -->
+            <button class="c-secondary is-pending" type="submit" disabled aria-busy="true" aria-live="polite">Locking...</button>
           </form>
           <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear — the lifecycle engine will not touch its status while locked.</p>
         </div>

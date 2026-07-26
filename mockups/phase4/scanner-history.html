@@ -99,7 +99,7 @@
                   <input type="checkbox" name="confirm_broad" value="true" disabled>
                   I understand this broader rule can affect future scanner results.
                 </label>
-                <p class="scope-line"><b>Record decision</b> keeps this candidate private and records the selected blocking rule. Undo revokes the rule and returns an unrescued candidate to this desk only while it has not expired.</p>
+                <p class="scope-line"><b>Record decision</b> keeps this candidate private and records the selected blocking rule. Revoke rule later stops future matching and returns this unrescued candidate to the desk only while it has not expired.</p>
                 <button class="c-destructive" type="submit">Record decision</button>
               </form>
             </details>
@@ -131,7 +131,7 @@
     <details open>
       <summary>
         <span class="mono-label">Context lanes</span>
-        <span class="ledger-copy">The 40 most recent current-patch Wire and Asks items. A hidden card keeps its observation-level recovery beside the item; Active lessons keeps the rule-level recovery.</span>
+        <span class="ledger-copy">The 40 most recent current-patch Wire and Asks items. A hidden card keeps its observation-level Undo beside the item; Active lessons keeps the separate rule-revocation path.</span>
         <span class="ledger-count">1 hidden · 40-row window ›</span>
       </summary>
       <div class="ledger-body">
@@ -146,7 +146,7 @@
             <button class="c-undo" type="submit">Undo — restore item and revoke rule</button>
           </form>
         </article>
-        <p class="count-note">Items outside this current-patch 40-row card window are not browseable here. Any still-active decision remains recoverable from Active lessons below.</p>
+        <p class="count-note">Items outside this current-patch 40-row card window are not browseable here. After the required paginated rule read lands, any still-active decision remains revocable from Active lessons below; signal-removal limits are stated there.</p>
       </div>
     </details>
   </section>
@@ -156,6 +156,9 @@
       <summary>
         <span class="mono-label">Active lessons</span>
         <span class="ledger-copy">What the scanner will remember. Visibility and learning stay separate: hiding an issue never poisons discovery — only an explicit decision creates a rule.</span>
+        <!-- "41" is an exact total only after both active-rule consumers gain
+             the stable pagination required by PHASE-4-TARGET.md. The current
+             no-literal-limit query cannot support this claim. -->
         <span class="ledger-count">Showing 4 of 41 ›</span>
       </summary>
       <div class="ledger-body">
@@ -188,7 +191,7 @@
             <div class="line-item__url">thecrimson.com</div>
             <div class="line-item__sub">Reviewed source: not about Crimson Desert.</div>
           </div>
-          <form><input type="hidden" name="decision_id" value="mock-decision-off-topic"><button class="c-undo" type="submit">Undo</button></form>
+          <form><input type="hidden" name="decision_id" value="mock-decision-off-topic"><button class="c-undo c-undo--partial" type="submit">Revoke rule</button></form>
         </div>
         <div class="line-item">
           <div class="line-item__main">
@@ -196,7 +199,7 @@
             <div class="line-item__url">reddit.com/r/CrimsonDesert/comments/1s18051/blinding_flash_is_no_longer_showing_me_points_of</div>
             <div class="line-item__sub">4 months ago.</div>
           </div>
-          <form><input type="hidden" name="decision_id" value="mock-decision-wrong-patch"><button class="c-undo" type="submit">Undo</button></form>
+          <form><input type="hidden" name="decision_id" value="mock-decision-wrong-patch"><button class="c-undo c-undo--partial" type="submit">Revoke rule</button></form>
         </div>
         <div class="line-item">
           <div class="line-item__main">
@@ -204,12 +207,12 @@
             <div class="line-item__url">steamcommunity.com/app/3321460?curator_clanid=4777282&amp;l=german</div>
             <div class="line-item__sub">Reviewed source: not a bug report.</div>
           </div>
-          <form><input type="hidden" name="decision_id" value="mock-decision-duplicate"><button class="c-undo" type="submit">Undo</button></form>
+          <form><input type="hidden" name="decision_id" value="mock-decision-duplicate"><button class="c-undo c-undo--partial" type="submit">Revoke rule</button></form>
         </div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:14px">
           <button class="c-quiet" type="button">Show 37 more lessons →</button>
-          <span class="count-note">Forgetting a KEEP lesson never restores the candidate, deletes the rescued lead, or refunds spend — BLOCK undos are full reversals</span>
+          <span class="count-note">Forget KEEP: candidate not restored, lead stays, no refund. Revoke BLOCK: future matching stops; candidates/observations restore when eligible, clustered signals recompute, unclustered signals stay hidden, and superseded rules do not reactivate.</span>
         </div>
       </div>
     </details>

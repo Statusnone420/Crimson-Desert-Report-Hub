@@ -10,7 +10,9 @@ floor.
 
 The console answers five questions immediately, on every page:
 
-1. **Does anything need me?** — one number at the top of each page, green when zero.
+1. **Does anything need me?** — one number at the top of each page, green only
+   when every source read succeeded and the known count is zero. Unknown/error
+   is never rendered as green zero or "All clear."
 2. **What is the safest next action?** — one visually primary control per region.
 3. **What will this control change?** — a scope line states the write before submit.
 4. **Can I undo it?** — an available recovery sits adjacent; partial or absent
@@ -39,13 +41,20 @@ destinations only. Export CSV and Sign out move to a visually distinct utility
 cluster on the right — both capabilities preserved on every OperatorShell page.
 
 **No endless lists.** Every list states its window against the true total when
-the live read supplies one (flagged: `oldest first · showing N of M`; active
-lessons: `showing N of M` + filter + show-more). The automatic-records read is
-an uncounted 20-row window, the teaching desk is an uncounted 30-row eligible
-window, and scan history is the newest 10 runs. Those surfaces name their hard
-windows without inventing a total or a browse-beyond-window control. The
-radar's separately computed tracked-lead total is not the denominator for the
-automatic-records query.
+the live read supplies one (flagged: `oldest first · showing N of M`). The
+automatic-records read is an uncounted 20-row window, the teaching desk is an
+uncounted 30-row eligible window, and scan history is the newest 10 runs. Those
+surfaces name their hard windows without inventing a total or a
+browse-beyond-window control. The radar's separately computed tracked-lead
+total is not the denominator for the automatic-records query.
+
+Active lessons is a recovery-critical exception. Before the Scanner Monitor
+slice can ship, both active-rule reads — the operator ledger and scanner
+enforcement — must use stable pagination beyond the hosted PostgREST row cap,
+and the operator read must supply an exact total. Only then may the UI say
+`showing N of M`, filter the loaded result, and offer show-more. The current
+uncounted `.select()` calls and the test that merely proves there is no literal
+`limit(50)` are not evidence that every active rule was returned.
 
 **Dossier truthfulness.** The current compiler issues tracker-wide, unfiltered
 reads for approved reports, public scanner signals, and issue clusters, plus a
@@ -66,33 +75,45 @@ Seven classes; same intent uses the same class and wording on every page.
 | Secondary | ink outline | Keep as relevant, Lock, Save settings, Test scan |
 | Quiet | text-only | Show more, Browse, Details, Inspect source |
 | Destructive | crimson outline **+ scope line stating the write** | Reject, Spam, Reject and teach, Remove bad lead |
-| Recovery/Undo | `↩` glyph + mono label, adjacent to what it reverses | Undo, Clear lock, Reset to automatic |
+| Recovery/Undo | `↩` glyph + mono label for full reversal; partial controls name the narrower effect, adjacent to what changes | Undo, Revoke rule, Forget lesson, Clear lock, Reset to automatic |
 | Break-glass | amber-edged raised panel, mono warrant, existing deliberate friction preserved | visibility override create, current patch override |
 | Cost-incurring | mono `SPENDS CREDITS` chip beside the button + disclosure that dry-run also spends | both scan buttons, Keep as relevant (LLM call) |
 
-Required on every mutation in the redesigned surface: a disabled/pending state
-using the existing `pendingText` pattern, a scope disclosure that names the
-write, and risk never carried by color alone (every color is paired with a text
-badge or glyph). These mockups do not claim inline recovery, retained form
-input, or success confirmations from actions that currently throw. The global
-admin error surface remains a named deferral below.
+Required on every mutation in the redesigned surface: a disabled button with
+`aria-busy="true"` and visible pending text using the existing `pendingText`
+pattern, a scope disclosure that names the write, and risk never carried by
+color alone (every color is paired with a text badge or glyph). CSS
+`pointer-events` is not a disabled state. These mockups do not claim inline
+recovery, retained form input, or success confirmations from actions that
+currently throw. The global admin error surface remains a named deferral below.
 
 **Reversal language (locked 2026-07-25).** The `↩` glyph and the word
-"Undo" are reserved for full reversal. A partial reversal names what it actually
-does — a KEEP lesson's control reads **Forget lesson** with **rescued lead
-stays** adjacent (accessible text, not a tooltip) — and its consequence copy
+"Undo" are reserved for full reversal. Partial recovery names what it actually
+does. A KEEP lesson's control reads **Forget lesson** with **rescued lead
+stays** adjacent (accessible text, not a tooltip), and its consequence copy
 states all three limits: forgetting never restores the candidate, never deletes
-the rescued lead, never refunds spend. Cost language is likewise fixed: both
-scan runs "can spend real search credits and paid LLM calls; that spend counts
-against the monthly caps and is recorded in the run ledger, progress, and
-intent. A test run suppresses scanner-content persistence and public-content
-changes, but still records its own run and can mark a stale running scan failed.
-Neither run is reversible"; Keep as relevant "spends an LLM call, creates a
-rescued lead, and records a scanner lesson." The signal is inserted private,
-then normal evidence and override rules recompute its final visibility. Always
-say "creates"; never imply that the lesson itself publishes the lead. The same
-consequence, pending, success, failure, disabled, and reversal wording applies
-to equivalent controls on every page.
+the rescued lead, and never refunds spend.
+
+The Active lessons control for a BLOCK rule reads **Revoke rule**, not Undo.
+Revocation always stops that rule's future matching. It returns an unrescued,
+unexpired candidate to the teaching desk and restores an observation, but a
+removed source lead is different: a clustered lead is recomputed under normal
+visibility rules, while an unclustered lead stays hidden. Revoking a newer rule
+also does not reactivate an older same-scope rule that it superseded. Full
+source-lead restoration and superseded-rule reinstatement require a separate
+RPC/data contract; Phase 4 preserves the current write and states these limits
+instead of promising a reversal that does not exist.
+
+Cost language is likewise fixed: both scan runs "can spend real search credits
+and paid LLM calls; that spend counts against the monthly caps and is recorded
+in the run ledger, progress, and intent. A test run suppresses scanner-content
+persistence and public-content changes, but still records its own run and can
+mark a stale running scan failed. Neither run is reversible"; Keep as relevant
+"spends an LLM call, creates a rescued lead, and records a scanner lesson." The
+signal is inserted private, then normal evidence and override rules recompute
+its final visibility. Always say "creates"; never imply that the lesson itself
+publishes the lead. The same consequence, pending, success, failure, disabled,
+and reversal wording applies to equivalent controls on every page.
 
 Degraded state, pre-migration: when scanner learning is unavailable
 (`feedbackLearningAvailable` false because the feedback-rules relation read
@@ -116,16 +137,29 @@ official patch sync taking control back; the synthetic manual row adds no
 official fix claims. The visibility-override creator separately keeps its
 required reason and acknowledgement and its one-click Reset to automatic.
 
-**Export CSV (locked).** The utility control reads `Export CSV…` and opens
-a confirm step that names the payload — the complete private report table,
-including everything that never becomes public — before downloading.
+**Export CSV (locked).** The utility control reads `Export CSV…` and opens an
+inline confirmation group before downloading every report's fixed 22-field
+review export. It names the private free text, PERS IDs, evidence URLs, and all
+moderation states that leave the system. It also names the deliberate
+exclusions: `submitter_ip_hash` and `duplicate_fingerprint` never enter the CSV.
+The trigger exposes `aria-expanded`/`aria-controls`; Download, Cancel, and
+Escape close the group and return focus to the trigger.
+
+Formula-safe serialization is a Stage 2 prerequisite, not behavior to preserve.
+Before this control is complete, player-controlled string cells whose first
+non-whitespace character is `=`, `+`, `-`, or `@` (or whose first character is
+a tab or carriage return) must be neutralized before ordinary CSV quoting.
+Focused serializer tests and an authenticated export-route column-set test must
+pin both the formula defense and the two hash exclusions.
 
 ## Parity dispositions
 
-**Default disposition: Preserve.** Every inventory entry not named below keeps its
-write payload, hidden fields, guard order, validation text, revalidation set,
-conditional/degraded states, and deliberate friction, verbatim. Presentation may
-change; behavior may not. Specifically preserved presentation-sensitive items:
+**Default disposition: Preserve.** Every inventory entry not named below keeps
+its write payload, hidden fields, guard order, validation text, revalidation
+set, conditional/degraded states, and deliberate friction, verbatim. The
+read-truth, active-rule pagination, and CSV-safety prerequisites named below are
+explicit exceptions. Presentation may change; behavior may not. Specifically
+preserved presentation-sensitive items:
 the moderation cluster select stays inside the same form as all three decision
 buttons with a scope line stating that Reject/Spam also write it (risk #8); the
 scanner policy stays ONE form, visually sectioned (risks #4/#5); the lifecycle
@@ -163,6 +197,23 @@ query-bearing, and other non-exact values are not return destinations.
 through the page guard. Server-action guards and the public footer sign-in do
 not carry a return destination.
 
+**In scope — required truth and safety prerequisites:**
+
+- Report Review may render green zero or "All clear" only after the flagged,
+  approved-count, pending-count, and spam-count reads all succeed. Each real
+  Supabase error must throw into the existing admin error boundary rather than
+  become `[]`/`0`; focused tests must pin all four failures. The oldest-first
+  50-row pending window and its separate exact total remain unchanged.
+- Before the Scanner Monitor slice calls Active lessons complete, both
+  active-feedback-rule consumers (`getAutomationAdminData` and scanner
+  enforcement) must page deterministically past the hosted row cap, and the
+  admin read must return an exact count. A regression with more than one API
+  page must prove that no enforced rule loses its ledger recovery and no older
+  rule silently stops being enforced.
+- Before the Export CSV slice is complete, implement the formula defense and
+  route allowlist tests specified in the locked export contract above. Do not
+  widen the 22-field allowlist to satisfy the old "complete table" wording.
+
 **Defer with named reason:** self-expiring rules via `expires_at` (risk #25 — a
 real feature, not a redesign); admin error-boundary chrome (gap #1 — failure
 surface must not change silently in a UI pass); rescue-vs-scan budget split
@@ -174,8 +225,11 @@ scope for dossier runs); dossier history totals and browsing beyond the newest
 20, teaching-candidate totals/browsing beyond the newest 30 eligible rows, and
 scan-history totals/browsing beyond the newest 10 runs (server read contracts);
 context-lane browsing beyond the 40 most recent current-patch observations
-(server read contract; Active lessons preserves an Undo for every still-active
-decision).
+(server read contract; the paginated Active lessons prerequisite preserves a
+rule-revocation path for still-active decisions outside that card window);
+full restoration of an unclustered source lead after **Revoke rule**, and
+reactivation of an older same-scope rule after its replacement is revoked
+(RPC/data-contract changes; the redesigned ledger discloses both limits).
 
 The admin error-boundary deferral includes the partial `moderateReport` failure:
 approval and its visibility trigger can commit before an excerpt insert throws,
@@ -195,9 +249,12 @@ history never dominates daily work; every scanner section reachable from the nav
 without full-page scrolling; equivalent controls identical across pages;
 different-risk controls visibly distinct without relying on color; explicit
 keyboard order, visible focus, labels, disclosure state, and live status
-feedback; desktop primary, every control operable at 390px; every active
-scanner decision has its honest Undo or Forget path, every reversible state has
-a reachable Undo/Reset, irreversible controls disclose the lack of reversal,
-and all currently rendered recovery surfaces are preserved; public and operator
-scanner data boundaries never merged; all parity dispositions honored against
-the inventory IDs.
+feedback; desktop primary, every control operable at 390px; every active scanner
+rule returned by the required paginated read has an honest Undo, Revoke rule, or
+Forget lesson path; every reversible state has a reachable Undo/Reset;
+irreversible and partial controls disclose what cannot be restored; and all
+currently rendered recovery surfaces are preserved. Green zero is impossible
+after a failed source read, export formulas are neutralized without widening
+the private column allowlist, public and operator scanner data boundaries are
+never merged, and all parity dispositions are honored against the inventory
+IDs.

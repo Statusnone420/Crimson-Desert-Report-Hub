@@ -167,8 +167,8 @@ input, select, textarea {
 
 /* 5 · Recovery: distinct by glyph and mono label, never color alone.
       Sits adjacent to what it reverses. The ↩ glyph and the word "Undo" are
-      reserved for FULL reversal; a partial reversal names what it actually
-      does ("Forget lesson") and states what stays, right next to it. */
+      reserved for FULL reversal; partial recovery names what it actually does
+      ("Forget lesson" / "Revoke rule") and states what stays beside it. */
 .c-undo {
   background: none; border: 1px solid var(--rule); border-radius: var(--r-btn);
   color: var(--dispatch-ink-2); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em;
@@ -201,9 +201,9 @@ input, select, textarea {
 .cost-group { display: inline-flex; flex-direction: column; gap: 5px; }
 .cost-group__row { display: inline-flex; align-items: center; gap: 8px; }
 
-/* Pending state (every mutation gets one — shown here on one control) */
-.is-pending { opacity: 0.55; pointer-events: none; }
-.is-pending::after { content: "…"; }
+/* Pending state (every mutation gets one — shown on a natively disabled,
+   aria-busy button in report-review-exception.html). */
+.is-pending { opacity: 0.55; cursor: progress; }
 
 /* ── Lists, ledgers, cards ──────────────────────────────────────────── */
 .ledger details { border-bottom: 1px solid var(--rule-soft); }

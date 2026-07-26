@@ -24,15 +24,17 @@
   </div>
   <div class="shell-utilities">
     <span class="shell-utilities__label">Utilities</span>
-    <button class="util-btn" type="button">↓ Export CSV…<span class="sr-only"> — downloads the full private report table</span></button>
+    <button id="export-trigger" class="util-btn" type="button" aria-expanded="true" aria-controls="export-confirm">↓ Export CSV…<span class="sr-only"> — confirms the private 22-field report export</span></button>
     <button class="util-btn" type="button">Sign out</button>
   </div>
 </nav>
 
-<!-- The confirm step Export CSV… opens. Shown inline in this state. -->
-<div class="confirm-strip" role="alertdialog" aria-label="Confirm export">
-  <span><b>Export the complete private report table?</b> Descriptions, repro steps, hardware specs, and IDs — everything reports contain, including what never becomes public.</span>
-  <button class="c-secondary" type="button">Download CSV</button>
+<!-- The confirm step Export CSV… opens as an inline disclosure group, not a
+     modal. Download, Cancel, and Escape close it and return focus to
+     #export-trigger. -->
+<div id="export-confirm" class="confirm-strip" role="group" aria-labelledby="export-confirm-title" aria-describedby="export-confirm-detail">
+  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field review export: private descriptions, repro steps, hardware specs, PERS IDs, evidence URLs, and every moderation state. Submission and deduplication hashes are excluded.</span></span>
+  <a class="c-secondary" href="#">Download CSV</a>
   <button class="c-quiet" type="button">Cancel</button>
 </div>
 
@@ -81,6 +83,7 @@
     </div>
     <p class="all-clear">✓ All clear — no flagged reports need review</p>
     <p class="op-note" style="margin-top:6px">New flags appear here with the full private text, the auto-sort reason, and approve / reject / spam controls with cluster selection.</p>
+    <p class="op-note" style="margin-top:6px">This known-zero state renders only after the flagged, approved, pending, and spam reads all succeed. A read failure uses the existing admin error surface; it never becomes green 0 or “All clear.”</p>
   </section>
 
   <!-- 3 · OPTIONAL WORK — none on this page; the queue is the work. -->
