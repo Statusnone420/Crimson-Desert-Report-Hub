@@ -1763,68 +1763,6 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: newCluster!.id });
   });
 
-  it("re-observes a Steam lead whose stored identity predates the canonical shortening", async () => {
-    // A web-search signal's identity hash is derived from its canonical URL, so
-    // widening canonicalization changes the identity of a page already known.
-    // The backfill can shorten canonical_url but not the hash beside it — that
-    // column is unique, and two rows differing only by `?l=` collapse to one
-    // value. Persistence has to recognize the row anyway, or the very migration
-    // meant to stop duplicates produces one.
-    const canonical = "https://steamcommunity.com/app/3321460/discussions/0/8057";
-    resetDb({
-      source_signals: [
-        {
-          id: "signal-steam-legacy",
-          source: "web_search",
-          source_type: "web_search",
-          source_url: `${canonical}?l=english`,
-          canonical_url: canonical,
-          external_id_hash: externalIdHash("web_search", `${canonical}?l=english`),
-          title: "Steam discussion about frame rate",
-          summary: "Players report a current-patch performance problem.",
-          source_domain: "steamcommunity.com",
-          source_published_at: "2026-07-04T12:00:00.000Z",
-          semantic_fingerprint: "steam-legacy-semantic",
-          cluster_id: null,
-          category: "performance",
-          confidence: "medium",
-          observed_at: "2026-07-05T11:00:00.000Z",
-          public_status: "private",
-          seen_count: 1,
-          first_seen_at: "2026-07-05T11:00:00.000Z",
-        },
-      ],
-    });
-    configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
-    mocks.tavilySearch.mockImplementationOnce(async () => [
-      {
-        title: "FPS drops since 1.13",
-        url: `${canonical}?l=koreana`,
-        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
-        sourceDomain: "steamcommunity.com",
-        observedAt: "2026-07-05T12:00:00.000Z",
-        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
-      },
-    ]);
-    mocks.tavilySearch.mockResolvedValue([]);
-    const { runAutomationMonitor } = await importRunner();
-
-    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
-
-    expect(result.status).toBe("success");
-    expect(result.signalsInserted).toBe(0);
-    expect(result.signalsReobserved).toBe(1);
-    expect(sourceSignalRows()).toHaveLength(1);
-    // Healed on the way past: the row now carries the identity today's
-    // canonicalization produces, so the next sighting matches on the first try.
-    expect(sourceSignalRows()[0]).toMatchObject({
-      external_id_hash: externalIdHash("web_search", canonical),
-      canonical_url: canonical,
-      seen_count: 2,
-    });
-  });
-
   it("reports only successfully persisted signals after a partial batch failure", async () => {
     sourceSignalInsertFailure = { title: "FPS drops second", message: "source signal write failed" };
     configureProviders();

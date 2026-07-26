@@ -1671,23 +1671,7 @@ async function upsertSignal(
     .limit(1);
   if (existingError) throw new Error(`source signal memory read failed: ${existingError.message}`);
 
-  let existing = ((existingRows ?? []) as SourceSignalRow[])[0];
-  // A web-search signal's identity hash is derived from its canonical URL, so
-  // widening canonicalization changes the hash of a page we already know. Fall
-  // back to the URL itself before concluding this is a new lead — the update
-  // below rewrites external_id_hash, so a row heals the first time it is seen
-  // again rather than needing every hash recomputed at once under a unique
-  // index. Steam reviews derive their identity from the review id, not the URL.
-  if (!existing?.id && signal.source === "web_search") {
-    const { data: byUrlRows, error: byUrlError } = await supabase
-      .from("source_signals")
-      .select("id, seen_count, first_seen_at, cluster_id")
-      .eq("source", "web_search")
-      .eq("canonical_url", signal.canonicalUrl)
-      .limit(1);
-    if (byUrlError) throw new Error(`source signal memory read failed: ${byUrlError.message}`);
-    existing = ((byUrlRows ?? []) as SourceSignalRow[])[0];
-  }
+  const existing = ((existingRows ?? []) as SourceSignalRow[])[0];
   if (existing?.id) {
     const { error } = await supabase
       .from("source_signals")
