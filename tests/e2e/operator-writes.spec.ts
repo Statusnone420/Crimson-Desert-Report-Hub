@@ -64,6 +64,9 @@ test.describe("operator write paths", () => {
 
     await page.goto("/scanner");
     const contextLanes = page.locator('section[aria-label="Public context lanes"]');
+    // Context lanes is a record, so it opens on request. Everything inside —
+    // including the Undo this test proves — stays one click away.
+    await contextLanes.locator("details.operator-section > summary").click();
     const askCard = contextLanes.locator("article.lead-item").filter({ hasText: "Day 20 of asking" });
     const askStatus = askCard.locator(".lead-item__status");
     await expect(askStatus).toContainText("PUBLIC");
@@ -75,6 +78,8 @@ test.describe("operator write paths", () => {
     await expect(askCard.getByRole("button", { name: "Undo — restore item and revoke rule" })).toBeVisible();
     await expect(askStatus).toContainText("HIDDEN");
     const lessons = page.locator('section[aria-label="Active scanner feedback rules"]');
+    // The rejection created a rule; its row opens from the domain group.
+    await lessons.locator("details.feedback-group > summary").first().click();
     await expect(lessons.getByText("BLOCK OFF-TOPIC")).toBeVisible();
     await expect(lessons.getByText("Feature request, not patch context.")).toBeVisible();
 
@@ -84,6 +89,10 @@ test.describe("operator write paths", () => {
     });
 
     await page.goto("/scanner");
+    // A fresh load closes the record sections again; the undoable item is still
+    // announced in the section summary, so it is found rather than hunted for.
+    await expect(contextLanes.locator(".operator-section__count")).toContainText("2 undoable");
+    await contextLanes.locator("details.operator-section > summary").click();
     await submitAction(page, () =>
       askCard.getByRole("button", { name: "Undo — restore item and revoke rule" }).click(),
     );
@@ -111,6 +120,10 @@ test.describe("operator write paths", () => {
     // undecided-only query stops returning it.
     await expect(candidate).toHaveCount(0);
     const lessons = page.locator('section[aria-label="Active scanner feedback rules"]');
+    // The ledger header and its group rows are always visible; a rule's own row
+    // and its Undo live one disclosure inside the group.
+    await expect(lessons.locator(".feedback-ledger__summary")).toContainText("active rule");
+    await lessons.locator("details.feedback-group > summary").first().click();
     await expect(lessons.getByText("Mirror of the official notes, not a lead.")).toBeVisible();
 
     await submitAction(page, () => lessons.getByRole("button", { name: "Undo" }).first().click());
@@ -138,6 +151,9 @@ test.describe("operator write paths", () => {
     // nothing to return, and the Relevant decision surfaces as an allow rule.
     await expect(candidate).toHaveCount(0);
     const lessons = page.locator('section[aria-label="Active scanner feedback rules"]');
+    // A keep is its own group; the rule row and its Undo open from it.
+    await expect(lessons.locator(".feedback-ledger__summary")).toContainText("1 keep");
+    await lessons.locator("details.feedback-group > summary").first().click();
     await expect(lessons.getByText("KEEP", { exact: true })).toBeVisible();
     await expect(
       lessons.getByText("Operator inspected this page and confirmed it is a relevant Crimson Desert issue lead."),

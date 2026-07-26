@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scanner Monitor — declutter mockup</title>
+<link rel="stylesheet" href="phase4.css" />
+<style>
+  /* Mockup-only chrome. Nothing here ships. */
+  .mock-note { max-width: 78ch; color: var(--quiet, #9a938c); font-size: 14px; line-height: 1.6; }
+  .ruler { display: flex; gap: 56px; align-items: flex-end; margin: 32px 0 8px; flex-wrap: wrap; }
+  .ruler__col { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .ruler__bar { width: 116px; display: flex; flex-direction: column; border: 1px solid #2a2724; }
+  .ruler__seg { display: flex; align-items: center; justify-content: center; font: 10px/1 var(--mono, ui-monospace, monospace);
+                letter-spacing: .06em; color: #0d0c0b; overflow: hidden; }
+  .ruler__cap { font: 11px/1.4 var(--mono, ui-monospace, monospace); letter-spacing: .08em; text-transform: uppercase; color: #9a938c; text-align: center; }
+  .ruler__num { font: 28px/1 var(--serif, Georgia, serif); color: #efe9e2; }
+  .ruler__legend { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px 14px; align-items: center;
+                   font: 12px/1.5 var(--mono, ui-monospace, monospace); color: #9a938c; max-width: 640px; margin-top: 20px; }
+  .ruler__swatch { width: 12px; height: 12px; display: inline-block; }
+  .ruler__win { color: #6fb26f; }
+  .group-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;
+               padding: 12px 0; border-top: 1px solid #221f1d; }
+  .group-row:first-child { border-top: 0; }
+  .group-row__main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+  .group-row__domain { font: 14px/1 var(--mono, ui-monospace, monospace); color: #efe9e2; }
+  .group-row__meta { font: 11px/1 var(--mono, ui-monospace, monospace); letter-spacing: .06em; color: #7e7873; text-transform: uppercase; }
+  .group-row__count { font: 20px/1 var(--serif, Georgia, serif); color: #efe9e2; min-width: 2ch; text-align: right; }
+  .group-open { border-top: 1px solid #221f1d; padding: 14px 0 4px 18px; }
+  .before-after { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 18px; }
+  @media (max-width: 900px) { .before-after { grid-template-columns: 1fr; } }
+  .ba-panel { border: 1px solid #2a2724; padding: 16px; }
+  .ba-panel h4 { margin: 0 0 10px; font: 11px/1 var(--mono, ui-monospace, monospace); letter-spacing: .1em;
+                 text-transform: uppercase; color: #9a938c; }
+  .ba-panel--now { border-color: #4a2b2b; }
+  .ba-panel--after { border-color: #2b4a33; }
+  .fake-row { border-top: 1px solid #221f1d; padding: 9px 0; font: 11px/1.4 var(--mono, ui-monospace, monospace);
+              color: #7e7873; word-break: break-all; }
+  .fake-row:first-of-type { border-top: 0; }
+  .fake-row b { color: #c9c2ba; font-weight: 400; }
+</style>
+</head>
+<body class="page">
+
+<header class="pagehead">
+  <p class="kicker kicker--amber">Phase 4 · Scanner Monitor</p>
+  <h1>Cutting the wall down</h1>
+  <p class="mock-note">
+    Mockup only — no production code has changed. Numbers are your real production figures from 26 Jul 2026:
+    1,614 candidates reviewed this week, 30 optional teaching candidates, 20 kept leads, 10 context-lane items,
+    <strong>70 active lessons</strong>. Nothing below is deleted: every card, form, URL and Undo still exists,
+    one disclosure away.
+  </p>
+</header>
+
+<!-- ─────────────────────────  THE MEASUREMENT  ───────────────────────── -->
+<section class="skeleton-section" aria-label="Page height comparison">
+  <div class="section-head">
+    <span class="mono-label">The measurement</span>
+    <span class="ledger-copy">Same page, same data, same capabilities. Height at 1440px desktop.</span>
+  </div>
+
+  <div class="ruler">
+    <div class="ruler__col">
+      <div class="ruler__num">12,500<span style="font-size:14px">px</span></div>
+      <div class="ruler__bar" style="height:340px">
+        <div class="ruler__seg" style="height:5.0%;background:#6f7fb2">head</div>
+        <div class="ruler__seg" style="height:6.8%;background:#8a7fb2">teach ← your only real work</div>
+        <div class="ruler__seg" style="height:8.8%;background:#b28f6f">records</div>
+        <div class="ruler__seg" style="height:13.6%;background:#b26f6f">lanes</div>
+        <div class="ruler__seg" style="height:64.8%;background:#7a2b2b;color:#efe9e2">lessons · 70 rows</div>
+      </div>
+      <div class="ruler__cap">Today</div>
+    </div>
+
+    <div class="ruler__col">
+      <div class="ruler__num">~2,760<span style="font-size:14px">px</span></div>
+      <div class="ruler__bar" style="height:73px">
+        <div class="ruler__seg" style="height:32.4%;background:#6f7fb2"></div>
+        <div class="ruler__seg" style="height:7.1%;background:#8a7fb2"></div>
+        <div class="ruler__seg" style="height:5.7%;background:#b28f6f"></div>
+        <div class="ruler__seg" style="height:5.7%;background:#b26f6f"></div>
+        <div class="ruler__seg" style="height:42.9%;background:#2b4a33"></div>
+      </div>
+      <div class="ruler__cap">After this PR</div>
+    </div>
+
+    <div class="ruler__col" style="align-items:flex-start">
+      <div class="ruler__num ruler__win">−79%</div>
+      <div class="ruler__cap" style="text-align:left">
+        6 screens of scrolling<br />become just under 2
+      </div>
+    </div>
+  </div>
+
+  <div class="ruler__legend">
+    <span class="ruler__swatch" style="background:#6f7fb2"></span><span>Status · band · funnel · inbox</span><span>630px</span><span>→ 673px</span>
+    <span class="ruler__swatch" style="background:#8a7fb2"></span><span>Teach the scanner</span><span>850px</span><span>→ 150px</span>
+    <span class="ruler__swatch" style="background:#b28f6f"></span><span>Automatic records</span><span>1,100px</span><span>→ 69px</span>
+    <span class="ruler__swatch" style="background:#b26f6f"></span><span>Context lanes</span><span>1,700px</span><span>→ 69px</span>
+    <span class="ruler__swatch" style="background:#7a2b2b"></span><span>Active lessons</span><span>8,100px</span><span>→ 500px</span>
+  </div>
+  <p class="count-note" style="margin-top:16px">
+    The header <em>grows</em> by 43px — it gains the section nav. That is the only thing added.
+  </p>
+</section>
+
+<!-- ─────────────────────────  THE WALL  ───────────────────────── -->
+<section class="skeleton-section" aria-label="Active lessons before and after">
+  <div class="section-head">
+    <span class="mono-label">The wall · 70 rows</span>
+    <span class="ledger-copy">
+      Two thirds of the page is a list of decisions you already made. They are receipts, not work.
+    </span>
+  </div>
+
+  <div class="before-after">
+    <div class="ba-panel ba-panel--now">
+      <h4>Now — one row per rule, forever</h4>
+      <div class="fake-row"><b>BLOCK OFF-TOPIC</b><br />https://www.reddit.com/r/CrimsonDesert/comments/1v3kohs/bought_the_game<br />Reviewed source: not a bug report. · EXACT URL · 2d</div>
+      <div class="fake-row"><b>BLOCK OFF-TOPIC</b><br />https://www.reddit.com/r/CrimsonDesert/comments/1v11zwc/was_loving_this_game_for_a_while<br />Reviewed source: not a bug report. · EXACT URL · 2d</div>
+      <div class="fake-row"><b>BLOCK DUPLICATE</b><br />https://steamcommunity.com/app/3321460/discussions/0/805720165777101166?l=hungarian<br />Reviewed source: not a bug report. · EXACT URL · 2d</div>
+      <div class="fake-row"><b>BLOCK OFF-TOPIC</b><br />https://steamcommunity.com/app/3321460/discussions/0/805720165777101166?l=thai<br />Reviewed source: not a bug report. · EXACT URL · 2d</div>
+      <div class="fake-row"><b>BLOCK OFF-TOPIC</b><br />https://steamcommunity.com/app/3321460/discussions/0/805720165777101166?l=finnish<br />I cant read this language lol or the date · EXACT URL · 2d</div>
+      <p class="count-note" style="margin-top:12px">…65 more, all rendered, always open. ~8,100px.</p>
+    </div>
+
+    <div class="ba-panel ba-panel--after">
+      <h4>After — grouped, with the rows one click inside</h4>
+      <div class="group-row">
+        <div class="group-row__main">
+          <span class="group-row__domain">reddit.com</span>
+          <span class="group-row__meta">block · exact url</span>
+        </div>
+        <span class="group-row__count">31</span>
+      </div>
+      <div class="group-row">
+        <div class="group-row__main">
+          <span class="group-row__domain">steamcommunity.com</span>
+          <span class="group-row__meta">block · exact url</span>
+        </div>
+        <span class="group-row__count">24</span>
+      </div>
+      <div class="group-open">
+        <p class="count-note" style="margin:0 0 10px">Expanded — every rule keeps its own row, reason and Undo, unchanged:</p>
+        <div class="decision-row">
+          <span class="rule-tag rule-tag--block">BLOCK DUPLICATE</span>
+          <span class="line-item__title">…/discussions/0/805720165777101166<span class="count-note"> ?l=hungarian</span></span>
+          <button class="c-undo" type="button">Undo</button>
+        </div>
+        <div class="decision-row">
+          <span class="rule-tag rule-tag--block">BLOCK OFF-TOPIC</span>
+          <span class="line-item__title">…/discussions/0/805720165777101166<span class="count-note"> ?l=thai</span></span>
+          <button class="c-undo" type="button">Undo</button>
+        </div>
+      </div>
+      <div class="group-row">
+        <div class="group-row__main">
+          <span class="group-row__domain">9 off-topic domains</span>
+          <span class="group-row__meta">block · source domain</span>
+        </div>
+        <span class="group-row__count">9</span>
+      </div>
+      <div class="group-row">
+        <div class="group-row__main">
+          <span class="group-row__domain">4 unrelated subreddits</span>
+          <span class="group-row__meta">block · source path</span>
+        </div>
+        <span class="group-row__count">4</span>
+      </div>
+      <div class="group-row">
+        <div class="group-row__main">
+          <span class="group-row__domain">Kept as relevant</span>
+          <span class="group-row__meta">keep · exact url</span>
+        </div>
+        <span class="group-row__count">6</span>
+      </div>
+      <p class="count-note" style="margin-top:12px">
+        Header reads: <b>70 active rules · 64 block · 6 keep · 11 domains</b>. ~500px.
+      </p>
+    </div>
+  </div>
+
+  <p class="count-note" style="margin-top:18px">
+    Those six <code>?l=</code> rows are the same Steam thread in six languages. Grouping hides the noise today;
+    the canonicalisation fix (a later PR, and it needs a rule migration) stops it being created tomorrow.
+  </p>
+</section>
+
+<!-- ─────────────────────────  THE REST  ───────────────────────── -->
+<section class="skeleton-section ledger" aria-label="Collapsed sections">
+  <div class="section-head">
+    <span class="mono-label">Everything else</span>
+    <span class="ledger-copy">
+      Collapsed with an honest count. Open one and it is exactly the section you have today, card for card.
+    </span>
+  </div>
+
+  <nav class="section-nav" aria-label="Sections on this page" style="margin-bottom:20px">
+    <a href="#" aria-current="true">Status</a>
+    <a href="#">Teach<span class="section-nav__count">30</span></a>
+    <a href="#">Records<span class="section-nav__count">20</span></a>
+    <a href="#">Lanes<span class="section-nav__count">10</span></a>
+    <a href="#">Lessons<span class="section-nav__count">70</span></a>
+    <a href="#">History<span class="section-nav__count">10</span></a>
+    <a href="#">Budget</a>
+  </nav>
+
+  <div class="ledger-body">
+    <div class="decision-row" style="display:block; border-left:2px solid #6fb26f; padding-left:12px">
+      <b>Teach the scanner</b> — 30 candidates · <span style="color:#6fb26f">stays open</span>
+      <p class="count-note" style="margin-top:8px">
+        The only section that asks you for anything, so it is the only section that stays expanded. It does not get
+        collapsed and it does not get smaller in this PR — it gets smaller in the next two, when the scanner stops
+        handing you the same thread in six languages and stops queueing pages it already judged.
+      </p>
+    </div>
+    <details class="decision-row" style="display:block">
+      <summary><b>Automatic records</b> — newest 20 kept leads</summary>
+      <p class="count-note" style="margin-top:8px">Same cards, same “Remove bad lead”. Unchanged.</p>
+    </details>
+    <details class="decision-row" style="display:block">
+      <summary><b>Context lanes</b> — 10 items this patch · <span style="color:#c9a227">0 carry a source date, so none are public</span></summary>
+      <p class="count-note" style="margin-top:8px">
+        One line replaces ten identical “NO SOURCE DATE — NEVER SHOWN PUBLICLY” banners. Each card keeps its own
+        state chip and its own Undo inside.
+      </p>
+    </details>
+  </div>
+  <p class="count-note" style="margin-top:14px">
+    When a section has nothing that needs you, it stays shut and says so. When nothing at all needs you,
+    the page is one screen.
+  </p>
+</section>
+
+</body>
+</html>

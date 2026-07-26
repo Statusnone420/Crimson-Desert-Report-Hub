@@ -5,6 +5,7 @@ import { recordScannerDecision, undoScannerDecision } from "@/app/admin/actions"
 import { SubmitButton } from "@/components/SubmitButton";
 import { scannerRuleScopeValue, type ScannerRuleScope } from "@/lib/automation/feedback";
 import { plainSkipPhrase } from "@/lib/automation/runDisplay";
+import { groupScannerLessons, summarizeScannerLessons } from "@/lib/scannerLessonGroups";
 import type { RejectedCandidateRow, ScannerFeedbackRuleRow } from "@/lib/queries";
 
 const DEFAULT_VISIBLE_CANDIDATES = 2;
@@ -224,28 +225,57 @@ function ruleLabel(rule: ScannerFeedbackRuleRow): string {
   return "BLOCK DUPLICATE";
 }
 
+function feedbackRuleRow(rule: ScannerFeedbackRuleRow, nowMs: number) {
+  return (
+    <article key={rule.id} className="feedback-rule">
+      <div>
+        <p className={`feedback-rule__state feedback-rule__state--${rule.action}`}>{ruleLabel(rule)}</p>
+        <p className="feedback-rule__target">{rule.scope_value}</p>
+        <p className="feedback-rule__reason">{rule.reason}</p>
+      </div>
+      <div className="feedback-rule__meta">
+        <span>{rule.scope_type.replace(/_/g, " ")} · {relativeTime(rule.created_at, nowMs)}</span>
+        <form action={undoScannerDecision}>
+          <input type="hidden" name="decision_id" value={rule.decision_id} />
+          <SubmitButton className="tap-btn tap-btn--sm" pendingText="Undoing...">Undo</SubmitButton>
+        </form>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * These are decisions already made — a record, not a queue. One row per rule
+ * turned them into most of the page's height, so they group by what they are
+ * about. Every rule keeps its own row, reason and Undo one disclosure inside;
+ * nothing is merged and nothing can be revoked in bulk.
+ */
 export function FeedbackRulesPanel({ rules, nowIso }: { rules: ScannerFeedbackRuleRow[]; nowIso: string }) {
   const nowMs = new Date(nowIso).getTime();
+  const groups = useMemo(() => groupScannerLessons(rules), [rules]);
+  const summary = useMemo(() => summarizeScannerLessons(rules), [rules]);
+
   if (rules.length === 0) {
     return <p className="decision-empty">No scanner lessons yet. Decisions you record above will appear here with an Undo control.</p>;
   }
+
   return (
-    <div className="feedback-rules">
-      {rules.map((rule) => (
-        <article key={rule.id} className="feedback-rule">
-          <div>
-            <p className={`feedback-rule__state feedback-rule__state--${rule.action}`}>{ruleLabel(rule)}</p>
-            <p className="feedback-rule__target">{rule.scope_value}</p>
-            <p className="feedback-rule__reason">{rule.reason}</p>
-          </div>
-          <div className="feedback-rule__meta">
-            <span>{rule.scope_type.replace(/_/g, " ")} · {relativeTime(rule.created_at, nowMs)}</span>
-            <form action={undoScannerDecision}>
-              <input type="hidden" name="decision_id" value={rule.decision_id} />
-              <SubmitButton className="tap-btn tap-btn--sm" pendingText="Undoing...">Undo</SubmitButton>
-            </form>
-          </div>
-        </article>
+    <div className="feedback-ledger__groups">
+      <p className="feedback-ledger__summary">
+        <b>{summary.total}</b> active {summary.total === 1 ? "rule" : "rules"} · {summary.blocks} block ·{" "}
+        {summary.keeps} keep · {summary.domains} {summary.domains === 1 ? "domain" : "domains"}
+      </p>
+      {groups.map((group) => (
+        <details key={group.key} className="feedback-group">
+          <summary className="feedback-group__summary">
+            <span className="feedback-group__label">{group.label}</span>
+            <span className="feedback-group__scope">
+              {group.action === "allow" ? "keep" : "block"} · {group.scopeType.replace(/_/g, " ")}
+            </span>
+            <span className="feedback-group__count">{group.rules.length}</span>
+          </summary>
+          <div className="feedback-rules">{group.rules.map((rule) => feedbackRuleRow(rule, nowMs))}</div>
+        </details>
       ))}
     </div>
   );

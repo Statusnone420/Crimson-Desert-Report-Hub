@@ -590,4 +590,130 @@ describe("AdminScannerView", () => {
       expect(markup).not.toMatch(/newest 3 of \d/);
     });
   });
+
+  describe("sections that are records, not work", () => {
+    function feedbackRule(index: number, scopeValue: string, action: "allow" | "block" = "block") {
+      return {
+        id: `rule-${index}`,
+        decision_id: `decision-${index}`,
+        action,
+        decision: action === "allow" ? ("relevant" as const) : ("off_topic" as const),
+        scope_type: "exact_url" as const,
+        scope_value: scopeValue,
+        reason: "Reviewed source: not a bug report.",
+        created_at: "2026-07-22T12:00:00.000Z",
+        expires_at: null,
+      };
+    }
+
+    function observation(index: number, sourcePublishedAt: string | null) {
+      return {
+        id: `observation-${index}`,
+        kind: "community_ask" as const,
+        title: `Observation ${index}`,
+        url: `https://reddit.com/r/CrimsonDesert/comments/obs-${index}`,
+        source_domain: "reddit.com",
+        snippet: "Players asking for something.",
+        source_published_at: sourcePublishedAt,
+        observed_at: "2026-07-22T12:00:00.000Z",
+        seen_count: 1,
+        is_public: true,
+        decision_id: null,
+      };
+    }
+
+    function render(overrides: {
+      feedbackRules?: ReturnType<typeof feedbackRule>[];
+      observations?: ReturnType<typeof observation>[];
+    }) {
+      return renderToStaticMarkup(createElement(AdminScannerView, {
+        runs: [],
+        signals: [],
+        rejectedCandidates: [],
+        observations: overrides.observations ?? [],
+        observationModerationAvailable: true,
+        feedbackRules: overrides.feedbackRules ?? [],
+        feedbackLearningAvailable: true,
+        control: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 1000,
+          monthlyLlmUsdCap: 2,
+          modelPreset: "deepseek_v4_flash",
+          updatedAt: null,
+        },
+        activeRun: null,
+        latestRealRun: null,
+        latestFind: null,
+        scoreboard: healthyScoreboard,
+        radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
+        integrations: [],
+        nowIso: "2026-07-22T18:00:00.000Z",
+      }));
+    }
+
+    it("gives every grouped rule its own Undo, so grouping never costs a recovery path", () => {
+      // Six rules, one domain, one group heading — but six decision ids, six
+      // Undo buttons. Grouping is a heading, never a merge.
+      const rules = Array.from({ length: 6 }, (_, index) =>
+        feedbackRule(index, `https://steamcommunity.com/app/3321460/discussions/0/8057?l=lang${index}`),
+      );
+
+      const markup = render({ feedbackRules: rules });
+
+      expect(markup.match(/name="decision_id"/g)).toHaveLength(6);
+      expect(markup.match(/>Undo</g)).toHaveLength(6);
+      for (const rule of rules) {
+        expect(markup).toContain(rule.scope_value);
+      }
+      // One group row stands in front of all six.
+      expect(markup.match(/class="feedback-group"/g)).toHaveLength(1);
+      expect(markup).toContain("steamcommunity.com");
+    });
+
+    it("states the ledger total rather than making the rows be the count", () => {
+      const markup = render({
+        feedbackRules: [
+          feedbackRule(1, "https://reddit.com/a"),
+          feedbackRule(2, "https://adobe.com/b"),
+          feedbackRule(3, "https://reddit.com/c", "allow"),
+        ],
+      });
+
+      expect(markup).toContain("active rules");
+      expect(markup).toContain("2 block");
+      expect(markup).toContain("1 keep");
+      expect(markup).toContain("2 domains");
+    });
+
+    it("says the dating rule once for the section instead of once per card", () => {
+      const markup = render({ observations: [observation(1, null), observation(2, null), observation(3, null)] });
+
+      expect(markup).toContain("None of these 3 carry a source date");
+      expect(markup).toContain("3 this patch · 0 publishable");
+    });
+
+    it("counts the publishable ones when some carry a date", () => {
+      const markup = render({
+        observations: [observation(1, "2026-07-20T00:00:00.000Z"), observation(2, null)],
+      });
+
+      expect(markup).toContain("1 of 2 carry a source date");
+      expect(markup).toContain("2 this patch · 1 publishable");
+    });
+
+    it("collapses the record sections and keeps their contents reachable", () => {
+      const markup = render({ observations: [observation(1, null)] });
+
+      // Both record sections are disclosures now, not always-open walls.
+      expect(markup.match(/class="operator-section"/g)).toHaveLength(2);
+      // Nothing is removed: the card is still rendered inside the closed section.
+      expect(markup).toContain("Observation 1");
+      // And every section is reachable without scrolling the page.
+      expect(markup).toContain('href="#lessons"');
+      expect(markup).toContain('href="#lanes"');
+      expect(markup).toContain('href="#teach"');
+    });
+  });
 });
