@@ -325,4 +325,75 @@ describe("AdminScannerView", () => {
     expect(markup).not.toContain("Remove bad lead");
     expect(markup).not.toContain("Remove lead and teach scanner");
   });
+
+  describe("scanner health honesty", () => {
+    const patch = { version: "1.14.00", publishedAt: null };
+    const connectedScoreboard = {
+      reviewedThisWeek: 0,
+      filteredThisWeek: 0,
+      keptThisWeek: 0,
+      awaiting: 0,
+      published: 0,
+      lastCheckedAt: null,
+      scannerActive: true,
+      scannerConnected: true,
+      llmPaused: false,
+      steamPulse: [],
+      platformContext: null,
+      pulseReadFailures: [],
+    };
+
+    function render(overrides: { radarConnected: boolean; scannerConnected: boolean }) {
+      return renderToStaticMarkup(createElement(AdminScannerView, {
+        runs: [],
+        signals: [],
+        rejectedCandidates: [],
+        observations: [],
+        observationModerationAvailable: true,
+        feedbackRules: [],
+        feedbackLearningAvailable: true,
+        control: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 1000,
+          monthlyLlmUsdCap: 2,
+          modelPreset: "deepseek_v4_flash",
+          updatedAt: null,
+        },
+        activeRun: null,
+        latestRealRun: null,
+        latestFind: null,
+        scoreboard: { ...connectedScoreboard, scannerConnected: overrides.scannerConnected },
+        radar: { ...emptyPatchRadarData(patch), connected: overrides.radarConnected },
+        integrations: [],
+        nowIso: "2026-07-22T18:00:00.000Z",
+      }));
+    }
+
+    it("says nothing requires intervention only when both health reads succeeded", () => {
+      const markup = render({ radarConnected: true, scannerConnected: true });
+
+      expect(markup).toContain("Nothing requires intervention.");
+    });
+
+    it("cannot claim the operator is clear when the radar run read failed", () => {
+      const markup = render({ radarConnected: false, scannerConnected: true });
+
+      expect(markup).not.toContain("Nothing requires intervention.");
+      expect(markup).toContain("Scanner health is unavailable");
+      // The band is replaced, not dropped: a missing band reads as a quiet radar.
+      expect(markup).toContain("Source radar unavailable");
+      expect(markup).toContain("Failed runs unavailable");
+      expect(markup).not.toContain("No scanner intervention required");
+    });
+
+    it("cannot claim the operator is clear when the scoreboard read failed", () => {
+      const markup = render({ radarConnected: true, scannerConnected: false });
+
+      expect(markup).not.toContain("Nothing requires intervention.");
+      expect(markup).toContain("Scanner health is unavailable");
+      expect(markup).toContain("Source radar funnel unavailable");
+    });
+  });
 });

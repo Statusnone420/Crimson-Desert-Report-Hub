@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
 import { externalIdHash } from "@/lib/crypto";
+import { matchesOrExpression } from "./fixtures/postgrestOr";
 
 const mocks = vi.hoisted(() => ({
   extractSignalWithOpenRouter: vi.fn(),
@@ -101,7 +102,8 @@ type Filter =
   | { type: "gt"; column: string; value: unknown }
   | { type: "lt"; column: string; value: unknown }
   | { type: "in"; column: string; value: unknown[] }
-  | { type: "not"; column: string; operator: string; value: unknown };
+  | { type: "not"; column: string; operator: string; value: unknown }
+  | { type: "or"; expression: string };
 
 const tables: Record<TableName, Row[]> = {
   automation_runs: [],
@@ -133,6 +135,12 @@ let issueClusterInsertRace: { slug: string; row: Row } | null = null;
 let sourceSignalInsertFailure: { title?: string; externalHash?: string; message: string } | null = null;
 let observationEventInsertFailure: string | null = null;
 let honorSourceSignalProjection = false;
+/**
+ * Stands in for the hosted PostgREST row cap: the API can return fewer rows
+ * than the requested limit, so a reader that stops on a short page silently
+ * drops everything past the cap.
+ */
+let hostedRowCap: { table: TableName; rows: number } | null = null;
 
 const officialPatchFixture = {
   version: "1.13.00",
@@ -162,6 +170,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   sourceSignalInsertFailure = null;
   observationEventInsertFailure = null;
   honorSourceSignalProjection = false;
+  hostedRowCap = null;
 }
 
 function nextId(table: TableName) {
@@ -174,6 +183,7 @@ function likeToRegExp(pattern: string): RegExp {
 }
 
 function passesFilter(row: Row, filter: Filter): boolean {
+  if (filter.type === "or") return matchesOrExpression(row, filter.expression);
   const value = row[filter.column];
   if (filter.type === "eq") return value === filter.value;
   if (filter.type === "neq") return value !== filter.value;
@@ -193,7 +203,10 @@ class FakeQuery {
   private insertRows: Row[] | null = null;
   private isDelete = false;
   private limitCount: number | null = null;
-  private orderBy: { column: string; ascending: boolean } | null = null;
+  // A list, not a single key: the feedback-rule walk orders by created_at then
+  // id, and collapsing that to the last .order() call would let a tied
+  // timestamp produce a cursor that reads the same rows twice.
+  private orderBy: { column: string; ascending: boolean }[] = [];
   private patch: Row | null = null;
   private rangeBounds: { from: number; to: number } | null = null;
   private selectedColumns: string | undefined;
@@ -271,8 +284,13 @@ class FakeQuery {
     return this;
   }
 
+  or(expression: string) {
+    this.filters.push({ type: "or", expression });
+    return this;
+  }
+
   order(column: string, options?: { ascending?: boolean }) {
-    this.orderBy = { column, ascending: options?.ascending ?? true };
+    this.orderBy.push({ column, ascending: options?.ascending ?? true });
     return this;
   }
 
@@ -424,16 +442,20 @@ class FakeQuery {
       const selected = this.selectedColumns.split(",").map((column) => column.trim());
       rows = rows.map((row) => Object.fromEntries(selected.map((column) => [column, row[column]])));
     }
-    if (this.orderBy) {
-      const { column, ascending } = this.orderBy;
+    if (this.orderBy.length > 0) {
       rows = rows.sort((a, b) => {
-        const left = String(a[column] ?? "");
-        const right = String(b[column] ?? "");
-        return ascending ? left.localeCompare(right) : right.localeCompare(left);
+        for (const { column, ascending } of this.orderBy) {
+          const left = String(a[column] ?? "");
+          const right = String(b[column] ?? "");
+          const comparison = ascending ? left.localeCompare(right) : right.localeCompare(left);
+          if (comparison !== 0) return comparison;
+        }
+        return 0;
       });
     }
     if (this.limitCount !== null) rows = rows.slice(0, this.limitCount);
     if (this.rangeBounds !== null) rows = rows.slice(this.rangeBounds.from, this.rangeBounds.to + 1);
+    if (hostedRowCap?.table === this.table) rows = rows.slice(0, hostedRowCap.rows);
     if (this.selectOptions?.head) return { data: null, count: rows.length, error: null };
     return { data: this.singleResult ? (rows[0] ?? null) : rows, count: this.selectOptions?.count ? rows.length : null, error: null };
   }
@@ -2385,6 +2407,51 @@ describe("runAutomationMonitor", () => {
       }),
     ]);
     expect(tables.automation_runs[0]).toMatchObject({ operator_rules_matched: 1 });
+  });
+
+  it("keeps enforcing an older rule that sits past the hosted row cap", async () => {
+    // Three newer rules share one timestamp, so the tie lands on the page
+    // boundary; the rule that actually matches this candidate is older and can
+    // only be reached by walking past a short page.
+    const tied = "2026-07-22T11:30:00.000Z";
+    resetDb({
+      scanner_feedback_rules: [
+        { id: "rule-tied-c", action: "block", decision: "off_topic", scope_type: "source_domain", scope_value: "example.com", created_at: tied, expires_at: null, revoked_at: null },
+        { id: "rule-tied-b", action: "block", decision: "off_topic", scope_type: "source_domain", scope_value: "example.net", created_at: tied, expires_at: null, revoked_at: null },
+        { id: "rule-tied-a", action: "block", decision: "off_topic", scope_type: "source_domain", scope_value: "example.org", created_at: tied, expires_at: null, revoked_at: null },
+        {
+          id: "rule-protonmail",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    hostedRowCap = { table: "scanner_feedback_rules", rows: 2 };
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes after the update",
+        url: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp?utm_source=search",
+        snippet: "Crimson Desert crashes every time I open the map.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(0);
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({ reason: "off_topic", feedback_rule_id: "rule-protonmail" }),
+    ]);
   });
 
   it("evaluates feedback-rule expiry against the scan clock instead of the source timestamp", async () => {

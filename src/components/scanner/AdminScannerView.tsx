@@ -354,6 +354,11 @@ export function AdminScannerView({
   const recentSignals = signals.slice(0, 6);
   const olderSignals = signals.slice(6);
   const pausedIntegrations = integrations.filter((integration) => integration.paused);
+  // A disconnected radar or scoreboard means the reads behind these numbers
+  // failed, so their zeros are placeholders rather than counts. Nothing on this
+  // page may then say the operator is clear — it would be reading "no work" off
+  // a broken connection.
+  const healthKnown = radar.connected && scoreboard.scannerConnected;
   const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length;
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
 
@@ -420,13 +425,17 @@ export function AdminScannerView({
             <div className="stat-band__label">Needs attention</div>
             <div
               className={
-                attentionCount > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value"
+                !healthKnown || attentionCount > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value"
               }
             >
-              {attentionCount}
+              {healthKnown ? attentionCount : "Unknown"}
             </div>
             <div className="stat-band__caption">
-              {attentionCount > 0 ? "Run or provider health needs a look" : "No scanner intervention required"}
+              {!healthKnown
+                ? "A scanner health read failed, so this count is unavailable"
+                : attentionCount > 0
+                  ? "Run or provider health needs a look"
+                  : "No scanner intervention required"}
             </div>
           </div>
           <div className="stat-band__cell">
@@ -452,7 +461,20 @@ export function AdminScannerView({
             </div>
           </div>
         </div>
-      ) : null}
+      ) : (
+        /* The radar's own run reads failed. Hiding the band would read as "no
+           radar activity"; this says the numbers are missing, not zero. */
+        <div className="stat-band stat-band--radar" aria-label="Source radar unavailable" style={{ marginBottom: 26 }}>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Source radar</div>
+            <div className="stat-band__value stat-band__value--amber">Unavailable</div>
+            <div className="stat-band__caption">
+              The automation run read failed, so lead counts, run health, and source-date coverage are unknown for
+              this page load. Scanning itself is unaffected — reload to try the read again.
+            </div>
+          </div>
+        </div>
+      )}
 
       {radar.connected && radar.funnel7d.reviewed > 0 ? (
         /* Funnel as a proportional bar instead of a second stat band — the two
@@ -487,6 +509,20 @@ export function AdminScannerView({
             </div>
           </div>
         </div>
+      ) : !scoreboard.scannerConnected ? (
+        /* Every number in this band comes from the scoreboard read. When that
+           read failed the object is zero-filled, so printing it would invent a
+           quiet week out of a broken query. */
+        <div className="stat-band" aria-label="Source radar funnel unavailable">
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Weekly funnel</div>
+            <div className="stat-band__value stat-band__value--amber">Unavailable</div>
+            <div className="stat-band__caption">
+              The scanner scoreboard read failed, so reviewed, filtered, awaiting, published, and radar yield are
+              unknown for this page load — not zero.
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="stat-band" aria-label="Source radar funnel">
           <div className="stat-band__cell">
@@ -518,7 +554,13 @@ export function AdminScannerView({
       <section className="operator-inbox" aria-label="Operator action inbox">
         <div>
           <p className="operator-inbox__eyebrow">Action inbox</p>
-          <h2>{attentionCount === 0 ? "Nothing requires intervention." : `${attentionCount} scanner health item${attentionCount === 1 ? "" : "s"} need a look.`}</h2>
+          <h2>
+            {!healthKnown
+              ? "Scanner health is unavailable, so this page cannot tell you whether anything needs you."
+              : attentionCount === 0
+                ? "Nothing requires intervention."
+                : `${attentionCount} scanner health item${attentionCount === 1 ? "" : "s"} need a look.`}
+          </h2>
           <p>
             {feedbackLearningAvailable
               ? "Auto-rejected pages are not assignments. They stay private, expire automatically, and appear below only so you can teach the scanner when a bad pattern is worth remembering."
@@ -526,7 +568,9 @@ export function AdminScannerView({
           </p>
         </div>
         <div className="operator-inbox__facts">
-          <span><b>{radar.health.runs7d.failed}</b> failed runs · 7d</span>
+          <span>
+            {radar.connected ? <><b>{radar.health.runs7d.failed}</b> failed runs · 7d</> : "Failed runs unavailable"}
+          </span>
           <span><b>{optionalCandidates.length}</b> optional teaching candidates</span>
           <span>
             {feedbackLearningAvailable ? <><b>{feedbackRules.length}</b> active scanner lessons</> : "Learning schema pending"}

@@ -5,6 +5,7 @@ import { countBy, rankClusters } from "@/lib/aggregates";
 import { needsFullIssueCard } from "@/lib/evidence";
 import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
+import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
 import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
@@ -1143,21 +1144,28 @@ export async function getAutomationAdminData() {
   const supabase = createServiceClient();
   const nowIso = new Date().toISOString();
 
-  const { data: signals } = await supabase
+  // Every read below surfaces its own failure. A swallowed error here would
+  // render as an empty Records band, a green ACTIVE badge, or a clear action
+  // inbox — the operator would read "nothing to do" off a broken connection.
+  const signalsResult = await supabase
     .from("source_signals")
     .select(
       "id, cluster_id, source, source_type, source_url, title, source_domain, source_published_at, first_seen_at, last_seen_at, seen_count, summary, category, confidence, observed_at, public_status",
     )
     .order("observed_at", { ascending: false })
     .limit(20);
+  if (signalsResult.error) throw new Error(`source signals read failed: ${signalsResult.error.message}`);
+  const signals = signalsResult.data;
 
-  const { data: runs } = await supabase
+  const runsResult = await supabase
     .from("automation_runs")
     .select(
       RUN_COLUMNS,
     )
     .order("started_at", { ascending: false })
     .limit(10);
+  if (runsResult.error) throw new Error(`run history read failed: ${runsResult.error.message}`);
+  const runs = runsResult.data;
 
   const enhancedRejectedResult = await supabase
     .from("automation_rejected_candidates")
@@ -1198,39 +1206,50 @@ export async function getAutomationAdminData() {
     feedback_rule_id: row.feedback_rule_id ?? null,
   }));
 
-  const feedbackRulesResult = await supabase
-    .from("scanner_feedback_rules")
-    .select("id, decision_id, action, decision, scope_type, scope_value, reason, created_at, expires_at")
-    .is("revoked_at", null)
-    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-    .order("created_at", { ascending: false });
-  if (feedbackRulesResult.error && !isMissingSupabaseRelation(feedbackRulesResult.error, "scanner_feedback_rules")) {
+  // Paged to completion: this ledger is the only recovery surface for an
+  // enforced rule, so a truncated read would strand rules the scanner is still
+  // applying. Its length is therefore an exact total of the active rules, read
+  // in the same round trip as the rows it counts.
+  const feedbackRulesResult = await readActiveFeedbackRulePages<ScannerFeedbackRuleRow>(
+    supabase,
+    "id, decision_id, action, decision, scope_type, scope_value, reason, created_at, expires_at",
+  );
+  if ("error" in feedbackRulesResult && !isMissingSupabaseRelation(feedbackRulesResult.error, "scanner_feedback_rules")) {
     throw new Error(`scanner feedback rules read failed: ${feedbackRulesResult.error.message}`);
   }
-  const feedbackRules = feedbackRulesResult.error ? [] : (feedbackRulesResult.data ?? []);
+  const feedbackLearningAvailable = !("error" in feedbackRulesResult);
+  // Expiry is filtered here rather than in the query so that this ledger and
+  // scanner enforcement judge "active" against the same clock.
+  const feedbackRules = feedbackLearningAvailable
+    ? feedbackRulesResult.rows.filter((rule) => !rule.expires_at || new Date(rule.expires_at).getTime() > Date.now())
+    : [];
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
 
-  const { data: activeRunRows } = await supabase
+  const activeRunResult = await supabase
     .from("automation_runs")
     .select("id, status, mode, started_at")
     .eq("status", "running")
     .order("started_at", { ascending: false })
     .limit(1);
+  if (activeRunResult.error) throw new Error(`active run read failed: ${activeRunResult.error.message}`);
+  const activeRunRows = activeRunResult.data;
 
   // Fetched unbounded (not from the 10-row `runs` slice): during a paused/capped
   // stretch, hourly skip rows can fill that slice and hide the real last scan.
-  const { data: latestRealRows } = await supabase
+  const latestRealResult = await supabase
     .from("automation_runs")
     .select(RUN_COLUMNS)
     .neq("mode", "dry_run")
     .in("status", ["success", "partial", "failed"])
     .order("started_at", { ascending: false })
     .limit(1);
+  if (latestRealResult.error) throw new Error(`latest run read failed: ${latestRealResult.error.message}`);
+  const latestRealRows = latestRealResult.data;
   // success/partial only: signalsInserted is bumped during screening (before
   // persistSignals writes to the DB), so a failed run can report inserts that never
   // landed — it must not pose as the most recent find.
-  const { data: latestFindRows } = await supabase
+  const latestFindResult = await supabase
     .from("automation_runs")
     .select(RUN_COLUMNS)
     .neq("mode", "dry_run")
@@ -1238,6 +1257,8 @@ export async function getAutomationAdminData() {
     .or("signals_inserted.gt.0,signals_reobserved.gt.0,clusters_promoted.gt.0")
     .order("started_at", { ascending: false })
     .limit(1);
+  if (latestFindResult.error) throw new Error(`latest find read failed: ${latestFindResult.error.message}`);
+  const latestFindRows = latestFindResult.data;
 
   // Observation desk: current-patch Wire/Asks items in every visibility state.
   // The decision join doubles as the schema probe — a missing observation_id
@@ -1301,10 +1322,8 @@ export async function getAutomationAdminData() {
     rejectedCandidates: rejectedCandidates as RejectedCandidateRow[],
     observations,
     observationModerationAvailable,
-    feedbackLearningAvailable: !feedbackRulesResult.error,
-    feedbackRules: ((feedbackRules ?? []) as ScannerFeedbackRuleRow[]).filter(
-      (rule) => !rule.expires_at || new Date(rule.expires_at).getTime() > Date.now(),
-    ),
+    feedbackLearningAvailable,
+    feedbackRules,
     control,
     activeRun: ((activeRunRows ?? []) as { id: string; status: string; mode: string; started_at: string }[])[0] ?? null,
     latestRealRun: ((latestRealRows ?? []) as AutomationRunRow[])[0] ?? null,
@@ -1479,7 +1498,10 @@ function isIntakeRun(run: { mode: string; intent: string | null; search_queries_
  * title, URL, summary, rejection reason, or candidate row leaves this function.
  */
 async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
-  const empty: PublicScannerData = {
+  // Zeros here are not counts — `scannerConnected: false` marks every number in
+  // this object as unavailable, and each consumer has to say so rather than
+  // print an ordinary zero.
+  const disconnected = (circuitOpen: boolean): PublicScannerData => ({
     reviewedThisWeek: 0,
     filteredThisWeek: 0,
     keptThisWeek: 0,
@@ -1488,18 +1510,24 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     lastCheckedAt: null,
     scannerActive: false,
     scannerConnected: false,
-    llmPaused: false,
+    llmPaused: circuitOpen,
     steamPulse: [],
     platformContext: null,
     pulseReadFailures: [],
-  };
-  if (!hasSupabaseServiceConfig()) return empty;
+  });
+  // No Supabase in this environment is a known state rather than a failed read:
+  // no automation runs here, so there is no cost circuit to report open.
+  if (!hasSupabaseServiceConfig()) return disconnected(false);
 
+  // A failed read leaves the circuit unknown, so it fails closed exactly the way
+  // the engine's own circuit read does. An unrelated query failure must never
+  // erase a circuit that is actually open.
+  let llmPaused = true;
   try {
     const supabase = createServiceClient();
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const { data: runData } = await supabase
+    const { data: runData, error: runError } = await supabase
       .from("automation_runs")
       .select(
         "search_results_seen, reddit_posts_seen, signals_inserted, signals_reobserved, status, mode, intent, search_queries_used, finished_at, started_at, funnel",
@@ -1508,6 +1536,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       .in("status", ["success", "partial", "failed"])
       .gte("started_at", weekAgo)
       .order("started_at", { ascending: false });
+    if (runError) return disconnected(llmPaused);
     const runs = (
       (runData ?? []) as {
         search_results_seen: number;
@@ -1544,13 +1573,14 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
 
     // Heartbeat is independent of the weekly counters: a quiet or paused week must not
     // erase the real "last checked" time when older runs exist. Unbounded latest lookup.
-    const { data: latestRows } = await supabase
+    const { data: latestRows, error: latestError } = await supabase
       .from("automation_runs")
       .select("finished_at, started_at")
       .neq("mode", "dry_run")
       .in("status", ["success", "partial", "failed"])
       .order("started_at", { ascending: false })
       .limit(1);
+    if (latestError) return disconnected(llmPaused);
     const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
     const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
 
@@ -1562,16 +1592,17 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       .from("automation_runs")
       .select("skips, started_at")
       .gte("started_at", circuitReadStartIso(now));
-    const llmPaused = llmPausedFromCircuitRead(circuitData as CircuitRunRow[] | null, circuitError, now);
+    llmPaused = llmPausedFromCircuitRead(circuitData as CircuitRunRow[] | null, circuitError, now);
 
     const currentPatch = await getCurrentPatchMetadata(supabase);
     const publicSignalClusters = await getPublicSignalClusterIdsForCurrentPatch(supabase, currentPatch);
     const privateSignalClusters = new Set(Object.keys(await getCandidateSignalCountsByCluster(supabase, currentPatch)));
 
-    const { data: reportData } = await supabase
+    const { data: reportData, error: reportError } = await supabase
       .from("bug_reports")
       .select("cluster_id, patch_version")
       .eq("moderation_status", "approved");
+    if (reportError) return disconnected(llmPaused);
     const approvedReportClusters = new Set<string>();
     for (const report of filterPatchFamilyReports(
       (reportData ?? []) as { cluster_id: string | null; patch_version: string | null }[],
@@ -1609,7 +1640,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       ...pulseContext,
     };
   } catch {
-    return empty;
+    return disconnected(llmPaused);
   }
 }
 
