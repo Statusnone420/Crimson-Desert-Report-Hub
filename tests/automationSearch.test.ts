@@ -240,10 +240,18 @@ describe("Tavily extract request", () => {
     ).rejects.toThrow("tavily extract returned no content");
   });
 
-  it("charges a refusal that reports credits consumed", async () => {
-    // `include_usage` is requested, so it is honoured — as a veto. A matching refusal
-    // alongside nonzero usage is a charged failure, and waiving it would understate
-    // the month and let a later run past the cap.
+  it.each([
+    ["a charged failure", 1],
+    ["a fractional charge", 0.5],
+    ["a corrupted negative count", -1],
+    ["a non-numeric count", "one"],
+    ["a null count", null],
+    ["no count at all", undefined],
+  ])("charges a refusal reporting %s", async (_label, credits) => {
+    // `include_usage` is requested, so it is honoured — as a veto. Exactly 0 is the
+    // only value consistent with a free refusal. A positive count is a charged
+    // failure; anything else is corrupted data that says nothing either way. Waiving
+    // on any of them would understate the month and let a later run past the cap.
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -252,28 +260,7 @@ describe("Tavily extract request", () => {
         failed_results: [
           { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
         ],
-        usage: { credits: 1 },
-      }),
-    }));
-
-    await expect(
-      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
-        env: { TAVILY_API_KEY: "tavily-key" },
-        fetcher,
-      }),
-    ).rejects.toThrow("tavily extract returned no content");
-  });
-
-  it("charges a refusal whose usage field cannot be read", async () => {
-    const fetcher = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        results: [],
-        failed_results: [
-          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
-        ],
-        usage: { credits: "one" },
+        usage: { credits },
       }),
     }));
 

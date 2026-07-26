@@ -217,11 +217,14 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   // `include_usage` is requested, so honour it — but only as a VETO. Observed live:
   // a refused fetch and a successful extract BOTH report `usage: {credits: 0}`, so
   // a zero here cannot prove nothing was billed. It can only contradict a waiver.
-  // Any reported consumption, or a usage field we cannot read, sends the call down
-  // the throwing path where the caller books the credit worst case.
-  const reportedCredits = data.usage?.credits;
-  const usageContradictsWaiver =
-    data.usage !== undefined && (typeof reportedCredits !== "number" || reportedCredits > 0);
+  //
+  // Exactly 0 is the ONLY value consistent with a free refusal. Everything else
+  // contradicts it: a positive count is a charged failure, and a negative, absent,
+  // or non-numeric count is corrupted data that says nothing either way. All of them
+  // take the throwing path where the caller books the credit worst case. A response
+  // carrying no `usage` field at all makes no claim, so it falls back to the URL
+  // match rather than being treated as a contradiction.
+  const usageContradictsWaiver = data.usage !== undefined && data.usage.credits !== 0;
 
   if (refusedRequestedUrl && !usageContradictsWaiver) return null;
   throw new Error("tavily extract returned no content");
