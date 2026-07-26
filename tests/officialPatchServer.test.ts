@@ -594,6 +594,25 @@ describe("getReportPatchContext", () => {
     expect(context.currentPatch.source).toBe("fallback");
     expect(context.patchVersions).toEqual(["1.13.01", "other"]);
   });
+
+  it("reports a break-glass row as manual, never as synced", async () => {
+    // set_current_patch_override writes board_no "manual-<version>"; the badge
+    // and burst scheduler both depend on that provenance surviving the read.
+    tables.official_patch_notes.push(
+      officialRow({
+        board_no: "manual-1.14.00",
+        patch_version: "1.14.00",
+        published_at: null,
+        is_current: true,
+      }),
+    );
+
+    const { getCurrentPatchMetadata } = await import("@/lib/officialPatch.server");
+    const patch = await getCurrentPatchMetadata(fakeSupabase());
+
+    expect(patch.version).toBe("1.14.00");
+    expect(patch.source).toBe("manual");
+  });
 });
 
 describe("isValidPatchVersion", () => {

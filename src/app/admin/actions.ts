@@ -175,6 +175,12 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
   const label = LIFECYCLE_LABELS[fixStatus as keyof typeof LIFECYCLE_LABELS] ?? fixStatus.replace(/_/g, " ");
   const claimBearing = fixStatus === "fix_claimed" || fixStatus === "verified_fixed" || fixStatus === "persists";
   const patch = claimBearing ? await getCurrentPatchMetadata(supabase) : null;
+  if (patch?.source === "fallback") {
+    // A claim-bearing lock stamps the current patch version onto the claim
+    // clock. The hardcoded fallback is a guess, not a known patch — refuse to
+    // mint a claim against it. The non-claim Open lock stays available.
+    throw new Error("current patch is unknown (fallback); sync or set it manually before a claim-bearing lock");
+  }
   const { error } = await supabase
     .from("issue_clusters")
     .update({
@@ -284,6 +290,11 @@ export async function compileDossier(formData: FormData): Promise<void> {
   const useAi = formData.get("use_ai") === "on";
   const supabase = createServiceClient();
   const currentPatch = await getCurrentPatchMetadata(supabase);
+  if (currentPatch.source === "fallback") {
+    // The dossier labels its whole snapshot with this version; a hardcoded
+    // guess would stamp unknown provenance onto an outward-facing document.
+    throw new Error("current patch is unknown (fallback); sync or set it manually before compiling");
+  }
 
   const { data: reports, error: reportsError } = await supabase
     .from("bug_reports")

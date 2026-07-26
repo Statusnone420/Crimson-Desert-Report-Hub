@@ -22,7 +22,9 @@ export type CurrentPatchMetadata = {
   publishedAt: string | null;
   observedAt: string | null;
   summary: string | null;
-  source: "official" | "fallback";
+  // official: scraped Pearl Abyss notes; manual: the break-glass override row
+  // (board_no "manual-…"); fallback: hardcoded constant when no row is readable.
+  source: "official" | "manual" | "fallback";
 };
 
 type OfficialPatchRow = {
@@ -60,7 +62,7 @@ function rowToCurrent(row: OfficialPatchRow): CurrentPatchMetadata {
     publishedAt: row.published_at,
     observedAt: row.observed_at,
     summary: row.summary,
-    source: "official",
+    source: row.board_no.startsWith("manual-") ? "manual" : "official",
   };
 }
 

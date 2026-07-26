@@ -941,6 +941,18 @@ test.describe("public surface visual regression", () => {
     // Session copy must state the absolute TTL, never "after inactivity".
     await expect(page.getByText(/after inactivity/)).toHaveCount(0);
     await expect(page.getByText(/12 hours after sign-in/)).toBeVisible();
+    // Phase 4 skeleton: neutral status wording that does not invent decision
+    // provenance, an itemized Needs you caption, and a scope line stating each
+    // write before submit.
+    await expect(page.getByText("Approved reports", { exact: true })).toBeVisible();
+    await expect(page.getByText("Currently approved", { exact: true })).toBeVisible();
+    await expect(page.getByText("Currently marked spam", { exact: true })).toBeVisible();
+    await expect(page.getByText("Auto-sorted")).toHaveCount(0);
+    await expect(page.getByText(/auto-sort reason/)).toHaveCount(0);
+    await expect(page.getByText(/Approve.*marks the report approved/)).toBeVisible();
+    await expect(page.getByText(/there is no rendered excerpt retry/)).toBeVisible();
+    await expect(page.getByText(/recomputes every signal's visibility in the same action/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("admin-review.png", { fullPage: true });
 
