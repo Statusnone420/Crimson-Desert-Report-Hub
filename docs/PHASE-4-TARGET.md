@@ -10,9 +10,11 @@ floor.
 
 The console answers five questions immediately, on every page:
 
-1. **Does anything need me?** — one number at the top of each page, green only
-   when every source read succeeded and the known count is zero. Unknown/error
-   is never rendered as green zero or "All clear."
+1. **Does anything need me?** — one status at the top of each page. Countable
+   required work uses one number, green only when every source read succeeded
+   and the known count is zero. Dossiers has no queued-work count and therefore
+   uses neutral **On demand**, never a manufactured green zero. Unknown/error is
+   never rendered as green zero or "All clear."
 2. **What is the safest next action?** — one visually primary control per region.
 3. **What will this control change?** — a scope line states the write before submit.
 4. **Can I undo it?** — an available recovery sits adjacent; partial or absent
@@ -76,14 +78,22 @@ Dossier history remains the newest 10 runs. A saved `?run=<id>` URL still opens
 directly, but older runs are not discoverable from the page.
 
 **Dossier AI privacy (locked).** `Draft with AI` is an explicit opt-in that
-sends the complete generated dossier to OpenRouter, including private
-approved-report reproduction steps and evidence URLs plus public source URLs.
-Adjacent accessible copy names those fields before submit and states that the
-request requires deny-collection and zero-data-retention routing. AI rewrites
-prose only; a provider failure falls back to the deterministic dossier.
-Before the Dossiers slice is complete, focused tests must pin the exact user
-message and provider routing, prove unchecked or disabled AI makes no provider
-request, and preserve deterministic fallback without weakening the disclosure.
+sends the complete generated dossier to OpenRouter. That payload includes
+private approved-report issue titles, reproduction steps, and evidence URLs;
+unpublished issue-cluster titles, fix status, and confidence; and public source
+URLs. Adjacent accessible copy names those fields before submit and states that
+the request uses `data_collection: "deny"` and `zdr: true`. AI is allowed to
+rewrite prose only. The current helper merely asks for that behavior and accepts
+any response longer than 200 characters; it does not enforce the claim and has
+no request timeout. Before the Dossiers slice is complete, the returned Markdown
+must be structurally validated so every deterministic fact, number, heading,
+table cell, list item, URL, issue title, status, confidence value, and caveat
+survives unchanged. A changed or missing invariant, timeout expiry, or any
+provider failure must fall back to the exact deterministic dossier.
+Focused tests must pin a representative exact user message containing each
+named private/unpublished field and the provider routing, prove unchecked or
+disabled AI makes no provider request, reject tampered output, and prove a hung
+request reaches deterministic fallback without weakening the disclosure.
 
 ## Control grammar
 
@@ -97,7 +107,7 @@ Seven classes; same intent uses the same class and wording on every page.
 | Destructive | crimson outline **+ scope line stating the write** | Reject, Spam, Reject and teach, Remove bad lead |
 | Recovery/Undo | `↩` glyph + mono label for full reversal; partial controls name the narrower effect, adjacent to what changes | Undo, Revoke rule, Forget lesson, Clear lock, Reset to automatic |
 | Break-glass | amber-edged raised panel, mono warrant, existing deliberate friction preserved | visibility override create, current patch override |
-| Cost-incurring | mono `SPENDS CREDITS` chip beside the button + disclosure that dry-run also spends | both scan buttons, Keep as relevant (LLM call) |
+| Cost-incurring | mono spend chip beside the button + exact disclosure of the possible spend | both scan buttons (`SPENDS CREDITS`), Keep as relevant (`UP TO 1 LLM CALL`) |
 
 Required on every mutation in the redesigned surface: a disabled button with
 `aria-busy="true"` and visible pending text using the existing `pendingText`
@@ -114,6 +124,11 @@ stays** adjacent (accessible text, not a tooltip), and its consequence copy
 states all three limits: forgetting never restores the candidate, never deletes
 the rescued lead, and never refunds spend.
 
+**Clear lock** is also partial, so it has no `↩` glyph. It releases
+`admin_override` and clears the stored lifecycle reason and synthesized claim
+clock, but deliberately leaves the current `fix_status` in place until the next
+automation lifecycle pass. That narrower effect appears beside the control.
+
 The Active lessons control for a BLOCK rule reads **Revoke rule**, not Undo.
 Revocation always stops that rule's future matching. It returns an unrescued,
 unexpired candidate to the teaching desk and restores an observation, but a
@@ -129,21 +144,41 @@ and paid LLM calls; that spend counts against the monthly caps and is recorded
 in the run ledger, progress, and intent. A test run suppresses scanner-content
 persistence and public-content changes, but still records its own run and can
 mark a stale running scan failed. Neither run is reversible"; Keep as relevant
-"spends an LLM call, creates a rescued lead, and records a scanner lesson." The
-signal is inserted private, then normal evidence and override rules recompute
-its final visibility. Always say "creates"; never imply that the lesson itself
-publishes the lead. The same consequence, pending, success, failure, disabled,
-and reversal wording applies to equivalent controls on every page.
+"on success, creates a manual rescue run and persists or re-observes a private
+source signal, uses zero Tavily/search credits, and can make at most one
+OpenRouter generation call. OpenRouter may then receive ID-only cost-audit
+requests that carry no candidate or cluster content. Missing configuration,
+allowance, or budget uses deterministic extraction with zero provider calls. In
+the normal schema state it also records a scanner lesson and marks the candidate
+rescued." The
+persistence step sets the signal private before normal evidence and override
+rules recompute its final visibility. Always say "creates or re-observes"; never
+imply that the lesson itself publishes the lead. The same consequence, pending,
+success, failure, disabled, and reversal wording applies to equivalent controls
+on every page.
+
+That optional Keep generation receives the rejected candidate's private title,
+snippet, and canonicalized source URL plus unpublished issue-cluster slugs and
+titles. Cost verification can add up to three OpenRouter generation-audit GETs
+whose query carries only the returned generation ID. The current automation
+route sets `data_collection: "deny"` but does not request ZDR. Before the Scanner
+Monitor slice is complete, it must also send `zdr: true`; exact-body tests must
+pin the named generation payload, deny-collection/ZDR routing, deterministic
+zero-call paths, the one-generation maximum, and the ID-only audit boundary.
+The saved scanner-policy LLM cap still does not govern rescue: rescue uses the
+separate server-side automation budget, which the UI states without calling
+the form an all-spend ceiling.
 
 Degraded state, pre-migration: when scanner learning is unavailable
 (`feedbackLearningAvailable` false because the feedback-rules relation read
 hits the existing narrowly identified missing-relation fallback), Keep stays
 available — that asymmetry is deliberate — but the rescue records no lesson.
-Its scope line must then read: "Keep spends an LLM call and creates a rescued
-lead; normal evidence rules determine its visibility. Scanner learning is
-unavailable until the schema update, so this rescue records no lesson to
-forget." Never promise a lesson, or a Forget path, that the degraded state
-cannot produce. A missing decision RPC while the relation is readable is
+Its scope line must then read: "On success, Keep can use up to one OpenRouter
+generation call and persists or re-observes a rescued lead; normal evidence
+rules determine its visibility. Scanner learning is unavailable until the
+schema update, so this rescue records no lesson to forget." Never promise a
+lesson, or a Forget path, that the degraded state cannot produce. A missing
+decision RPC while the relation is readable is
 discovered only on submit, not by `feedbackLearningAvailable`. Reject and teach
 throws the server-action error and leaves the candidate unchanged; Keep
 completes the rescue and marks it rescued but records no lesson. Stage 1 must
@@ -154,8 +189,17 @@ The current-patch override is the explicit break-glass payload exception.
 Preserve its existing `patch_version`-only input and validation; do not invent a
 reason, acknowledgement, or manual Undo. Its recovery is the next successful
 official patch sync taking control back; the synthetic manual row adds no
-official fix claims. The visibility-override creator separately keeps its
-required reason and acknowledgement and its one-click Reset to automatic.
+official fix claims. Before this control is complete, current-patch metadata
+must preserve **official**, **manual**, and hardcoded **fallback** provenance
+instead of normalizing every database row to official. The admin badge must
+describe a manual override as Manual, never Synced. A manual row must not
+activate official-patch burst scheduling. Claim-bearing lifecycle Lock values
+(`fix_claimed`, `verified_fixed`, and `persists`) and Dossier compile must refuse
+hardcoded fallback provenance; the non-claim `reported` Lock and the manual Set
+current patch escape hatch remain available. Focused tests must cover each
+provenance state, the rejection boundaries, and the manual-row scheduling
+exclusion. The visibility-override creator separately keeps its required reason
+and acknowledgement and its one-click Reset to automatic.
 
 **Export CSV (locked).** The utility control reads `Export CSV…` and opens an
 inline confirmation group before downloading every report's fixed 22-field
@@ -231,6 +275,13 @@ not carry a return destination.
   Supabase error must throw into the existing admin error boundary rather than
   become `[]`/`0`; focused tests must pin all four failures. The oldest-first
   50-row pending window and its separate exact total remain unchanged.
+- Report Review status labels must describe stored state, not invent decision
+  provenance the schema does not retain. The approved counter reads every
+  approved row, including manual approvals, and the spam counter includes
+  manual Spam decisions; use neutral **Approved reports / Currently approved**
+  and **Spam / Currently marked spam** wording. A flagged card has no stored
+  "auto-sort reason", so neither its card nor the empty-state promise may invent
+  one.
 - Scanner Monitor may render a green zero or "Nothing requires intervention."
   only while the radar is connected and both automation-run reads that feed
   radar health succeeded. The existing failed-read fallback
@@ -238,6 +289,35 @@ not carry a return destination.
   unknown scanner-health item instead of disappearing the radar band and
   clearing the Action inbox. Focused tests must force each run-read failure and
   prove that neither path can produce the clear headline.
+- The shared public scanner scoreboard must stop turning its run/report query
+  failures and broad catch into a connected-looking all-zero object with
+  `llmPaused=false`. The operator branch must consume `scannerConnected` and
+  render the affected scoreboard band and circuit state as unavailable/unknown,
+  never ordinary zero. Focused tests must force each scoreboard source failure
+  and the aggregate catch path, including proof that a paused LLM circuit is not
+  erased.
+- Scanner Monitor's main admin read must also stop discarding errors from its
+  source-signal window, newest-10 run history, active-run lookup, latest-real-run
+  lookup, and latest-find lookup. Each real failure must throw into the existing
+  error boundary or render an explicit unavailable/unknown state; it must never
+  normalize to `[]`/`null`, green `ACTIVE`, an empty Records band, or a clear
+  Action inbox. Focused tests must force each of those five read failures.
+- Dossiers uses a neutral **On demand** workflow status, not a green zero. Its
+  newest-10 history read must surface a real read failure instead of rendering
+  "No runs yet." A requested `?run=<id>` must distinguish a missing or malformed
+  id from a successful no-selection state, and any other read failure must
+  surface rather than silently omit the output. Focused tests must force both
+  read paths.
+- Before Dossiers can promise "AI rewrites prose only," implement and test the
+  structural validation, bounded timeout, tamper rejection, and exact
+  deterministic fallback specified by the locked AI privacy contract above.
+- Before Scanner Monitor can ship Keep as relevant, add and pin ZDR on its
+  automation-provider route, the complete private/unpublished prompt payload,
+  deterministic zero-call paths, the one-generation/zero-search-credit bounds,
+  and the ID-only cost-audit requests.
+- Before the current-patch surfaces can ship, preserve manual provenance,
+  exclude manual rows from official-patch burst scheduling, and reject fallback
+  provenance for claim-bearing Locks and Dossier compile as specified above.
 - Before Report Review is complete, both the current-column and rolling-deploy
   legacy projections in `readAdminClusters` must page beyond the hosted row cap
   in stable `title`, `id` order. A multipage regression must place both a
@@ -300,9 +380,14 @@ Forget lesson path; every reversible state represented on the redesigned
 surface has a reachable Undo/Reset, while the named superseded/expired
 decision-history recovery deferral remains outside this gate; irreversible and
 partial controls disclose what cannot be restored; and all currently rendered
-recovery surfaces are preserved. Green zero is impossible
-after a failed source read, export formulas are neutralized without widening
-the private column allowlist, the AI dossier opt-in discloses and pins every
-private field sent to OpenRouter plus its deny-collection/ZDR routing, public
-and operator scanner data boundaries are never merged, and all parity
-dispositions are honored against the inventory IDs.
+recovery surfaces are preserved. Green zero is impossible after a failed radar,
+admin-data, scoreboard, Report Review, or Dossier source read; no manual patch
+is presented or scheduled as official; claim-bearing actions reject fallback
+patch provenance; export formulas are neutralized without widening the private
+column allowlist; the AI dossier opt-in discloses and pins every private field
+sent to OpenRouter plus its deny-collection/ZDR routing and structurally rejects
+altered deterministic evidence; Keep discloses and pins its private/unpublished
+prompt, zero-search/up-to-one-generation boundary, ID-only cost audits, and
+deny-collection/ZDR routing; public and operator scanner data boundaries are
+never merged; and all
+parity dispositions are honored against the inventory IDs.

@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="phase4.css">
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 
 <header class="shell-top">
   <div class="shell-status">Operator console · Signed in</div>
@@ -38,14 +39,14 @@
   <button class="c-quiet" type="button">Cancel</button>
 </div>
 
-<main class="page">
+<main id="main-content" class="page">
 
   <!-- 1 · STATUS AND REQUIRED WORK -->
   <header class="pagehead">
     <div>
       <p class="kicker kicker--amber">Operator · Admin controls</p>
       <h1>Report review</h1>
-      <p class="dek">Auto-sorted reports, flagged submissions, and the short list of exceptions that actually need you.</p>
+      <p class="dek">Report statuses, flagged submissions, and the short list of exceptions that actually need you.</p>
     </div>
     <div class="pagehead__meta">Live queue · Refreshes on load</div>
   </header>
@@ -57,9 +58,9 @@
       <div class="stat-caption">No exceptions</div>
     </div>
     <div>
-      <div class="stat-label">Auto-sorted</div>
+      <div class="stat-label">Approved reports</div>
       <div class="stat-value">1</div>
-      <div class="stat-caption">Approved automatically</div>
+      <div class="stat-caption">Currently approved</div>
     </div>
     <div>
       <div class="stat-label">Flagged reports</div>
@@ -67,9 +68,9 @@
       <div class="stat-caption">Waiting for your call</div>
     </div>
     <div>
-      <div class="stat-label">Filtered as spam</div>
+      <div class="stat-label">Spam</div>
       <div class="stat-value">0</div>
-      <div class="stat-caption">Blocked automatically</div>
+      <div class="stat-caption">Currently marked spam</div>
     </div>
   </div>
 
@@ -82,8 +83,8 @@
       <p class="note">Oldest first · showing all 0</p>
     </div>
     <p class="all-clear">✓ All clear — no flagged reports need review</p>
-    <p class="op-note" style="margin-top:6px">New flags appear here with the full private text, the auto-sort reason, and approve / reject / spam controls with cluster selection.</p>
-    <p class="op-note" style="margin-top:6px">This known-zero state renders only after the flagged, approved, pending, and spam reads succeed and the required paginated cluster read completes. A read failure uses the existing admin error surface; a service-truncated cluster window is not accepted as complete.</p>
+    <p class="op-note" style="margin-top:6px">New flags appear here with the full private text and approve / reject / spam controls with cluster selection. The stored report state does not retain whether automation or an operator made an earlier decision.</p>
+    <p class="op-note" style="margin-top:6px">Before this slice ships, this known-zero state may render only after the flagged, approved, pending, and spam reads succeed and the required paginated cluster read completes. A read failure uses the existing admin error surface; a service-truncated cluster window is not accepted as complete.</p>
   </section>
 
   <!-- 3 · OPTIONAL WORK — none on this page; the queue is the work. -->
@@ -120,14 +121,14 @@
     <details>
       <summary>
         <span class="mono-label">Current patch override</span>
-        <span class="ledger-copy">If the scanner stops finding Pearl Abyss patch notes, set the current patch by hand. This keeps the existing version-only payload and has no manual Undo; the next successful official patch sync takes control back. Changing it also swaps which observations the Scanner Monitor desk can moderate.</span>
+        <span class="ledger-copy">If the scanner stops finding Pearl Abyss patch notes, set the current patch by hand. This version-only override has no manual Undo; the next successful official patch sync takes control back. Changing it also swaps which observations the Scanner Monitor desk can moderate.</span>
         <span class="ledger-count ledger-count--green">Synced 1.15.00 ›</span>
       </summary>
       <div class="ledger-body">
         <form>
           <label for="patch_version_override">New current patch</label>
           <input id="patch_version_override" name="patch_version" placeholder="1.15.00" pattern="^\d+\.\d{1,2}(?:\.\d{1,2})?$" title="Version like 1.13.02" required>
-          <p class="scope-line">Set current patch makes this manual version current across the site. There is no Clear or Undo, and it adds no official fix claims. The next successful official patch sync replaces it. It also changes the Scanner Monitor window: older observations lose card-level Undo; Active lessons retains rule revocation only while the rule remains active, unrevoked, and unexpired.</p>
+          <p class="scope-line">Set current patch makes this manual version current across the site. There is no Clear or Undo, and the manual row itself adds no official fix claims. Until the next successful official patch sync replaces it, every current-patch surface must label it Manual rather than Synced. It also changes the Scanner Monitor window: older observations lose card-level Undo; Active lessons retains rule revocation only while the rule remains active, unrevoked, and unexpired.</p>
           <button class="c-breakglass" type="submit">Set current patch</button>
         </form>
       </div>

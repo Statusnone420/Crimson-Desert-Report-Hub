@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="phase4.css">
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 
 <header class="shell-top">
   <div class="shell-status">Operator console · Signed in</div>
@@ -38,14 +39,14 @@
   <button class="c-quiet" type="button">Cancel</button>
 </div>
 
-<main class="page">
+<main id="main-content" class="page">
 
   <!-- 1 · STATUS AND REQUIRED WORK -->
   <header class="pagehead">
     <div>
       <p class="kicker kicker--amber">Operator · Admin controls</p>
       <h1>Report review</h1>
-      <p class="dek">Auto-sorted reports, flagged submissions, and the short list of exceptions that actually need you.</p>
+      <p class="dek">Report statuses, flagged submissions, and the short list of exceptions that actually need you.</p>
     </div>
     <div class="pagehead__meta">Live queue · Refreshes on load</div>
   </header>
@@ -57,9 +58,9 @@
       <div class="stat-caption">1 flagged report · 1 unsure claim match</div>
     </div>
     <div>
-      <div class="stat-label">Auto-sorted</div>
+      <div class="stat-label">Approved reports</div>
       <div class="stat-value">1</div>
-      <div class="stat-caption">Approved automatically</div>
+      <div class="stat-caption">Currently approved</div>
     </div>
     <div>
       <div class="stat-label">Flagged reports</div>
@@ -67,9 +68,9 @@
       <div class="stat-caption">Waiting for your call</div>
     </div>
     <div>
-      <div class="stat-label">Filtered as spam</div>
+      <div class="stat-label">Spam</div>
       <div class="stat-value">0</div>
-      <div class="stat-caption">Blocked automatically</div>
+      <div class="stat-caption">Currently marked spam</div>
     </div>
   </div>
 
@@ -81,7 +82,7 @@
     </div>
 
     <article class="review-card">
-      <div class="review-card__meta">PS5 Pro · Performance · Major · Every session · patch 1.15.00 · 7/25/2026, 9:12 AM · flagged: possible duplicate wording</div>
+      <div class="review-card__meta">PS5 Pro · Performance · Major · Every session · patch 1.15.00 · 7/25/2026, 9:12 AM</div>
       <h3>Cross-save sync stalls at 99% after the 1.15.00 hotfix</h3>
       <p class="body">Since the hotfix, uploading a save from the pause menu hangs at 99% for about two minutes, then reports success. Loading the same save on PC shows a three-day-old state. Wired connection, PS Plus active, no VPN.</p>
       <p class="detail">Repro: pause menu → Cross-Save → upload → wait at 99% → check PC client.</p>
@@ -100,7 +101,7 @@
         <button class="c-destructive" type="submit" name="decision" value="spam">Spam</button>
       </form>
       <div class="decision-scopes">
-        <p class="scope-line"><b>Approve</b> marks the report approved. With a selected cluster, it counts as evidence and normally makes that cluster public on the Issue Board immediately; an active Force hidden override still wins. A non-empty anonymized excerpt is inserted separately afterward.</p>
+        <p class="scope-line"><b>Approve</b> marks the report approved. With a selected cluster, it counts as evidence and normally makes that cluster public on the Issue Board immediately; an active Force hidden override still wins. A non-empty anonymized excerpt is inserted separately afterward. If that insert fails, approval and any resulting public visibility remain committed, the report leaves this queue, and there is no rendered excerpt retry.</p>
         <p class="scope-line">All three decisions remove the report from the pending queue. The current console does not render a re-open or excerpt-retry control. Reject and Spam also write the cluster selection above.</p>
       </div>
       <!-- An excerpt-insert failure is deliberately not rendered here. Today
@@ -145,7 +146,7 @@
                  and visible pendingText expose the in-flight mutation. -->
             <button class="c-secondary is-pending" type="submit" disabled aria-busy="true" aria-live="polite">Locking...</button>
           </form>
-          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear — the lifecycle engine will not touch its status while locked.</p>
+          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear lock — the lifecycle engine will not touch its status while locked.</p>
         </div>
         <div class="line-item" style="flex-wrap:wrap">
           <div class="line-item__main">
@@ -163,10 +164,11 @@
             </form>
             <form>
               <input type="hidden" name="cluster_id" value="mock-crashes-cluster">
-              <button class="c-undo" type="submit">Clear lock</button>
+              <button class="c-undo c-undo--partial" type="submit" aria-label="Clear lifecycle lock" aria-describedby="clear-crashes-lock-effect">Clear lock</button>
             </form>
           </div>
-          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear — the lifecycle engine will not touch its status while locked.</p>
+          <p class="scope-line" style="flex-basis:100%"><b>Lock</b> takes this issue out of engine control until you press Clear lock — the lifecycle engine will not touch its status while locked.</p>
+          <p class="scope-line" id="clear-crashes-lock-effect" style="flex-basis:100%"><b>Clear lock</b> releases engine ownership and clears the stored reason and claim clock. The current lifecycle status remains until the next lifecycle scan.</p>
         </div>
       </div>
     </details>
@@ -234,6 +236,29 @@
             </form>
           </details>
         </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- 5 · ADVANCED / BREAK-GLASS — always present, including exception state. -->
+  <section class="skeleton-section ledger" aria-label="Break-glass configuration">
+    <div class="section-head">
+      <div><p class="kicker">Break-glass</p></div>
+      <p class="note">Deliberate friction lives here on purpose. Nothing in this band is part of a normal day.</p>
+    </div>
+    <details>
+      <summary>
+        <span class="mono-label">Current patch override</span>
+        <span class="ledger-copy">If the scanner stops finding Pearl Abyss patch notes, set the current patch by hand. This version-only override has no manual Undo; the next successful official patch sync takes control back. Changing it also swaps which observations the Scanner Monitor desk can moderate.</span>
+        <span class="ledger-count ledger-count--green">Synced 1.15.00 ›</span>
+      </summary>
+      <div class="ledger-body">
+        <form>
+          <label for="patch_version_override">New current patch</label>
+          <input id="patch_version_override" name="patch_version" placeholder="1.15.00" pattern="^\d+\.\d{1,2}(?:\.\d{1,2})?$" title="Version like 1.13.02" required>
+          <p class="scope-line">Set current patch makes this manual version current across the site. There is no Clear or Undo, and the manual row itself adds no official fix claims. Until the next successful official patch sync replaces it, every current-patch surface must label it Manual rather than Synced. It also changes the Scanner Monitor window: older observations lose card-level Undo; Active lessons retains rule revocation only while the rule remains active, unrevoked, and unexpired.</p>
+          <button class="c-breakglass" type="submit">Set current patch</button>
+        </form>
       </div>
     </details>
   </section>

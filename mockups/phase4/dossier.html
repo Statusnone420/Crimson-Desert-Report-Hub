@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="phase4.css">
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 
 <header class="shell-top">
   <div class="shell-status">Operator console · Signed in</div>
@@ -38,7 +39,7 @@
   <button class="c-quiet" type="button">Cancel</button>
 </div>
 
-<main class="page">
+<main id="main-content" class="page">
 
   <!-- 1 · STATUS -->
   <header class="pagehead">
@@ -52,9 +53,9 @@
 
   <div class="stat-band" aria-label="Dossier status">
     <div>
-      <div class="stat-label">Needs you</div>
-      <div class="stat-value stat-value--green">0</div>
-      <div class="stat-caption">Dossiers are on-demand — nothing waits here</div>
+      <div class="stat-label">Workflow</div>
+      <div class="stat-value">On demand</div>
+      <div class="stat-caption">Nothing is queued; compile when you need a fresh snapshot</div>
     </div>
     <div>
       <div class="stat-label">Approved evidence</div>
@@ -80,7 +81,7 @@
         <input type="checkbox" name="use_ai" aria-describedby="dossier-ai-scope" style="width:auto"> Draft with AI (free OpenRouter prose model)
       </label>
       <button class="c-primary" type="submit">Compile now</button>
-      <span id="dossier-ai-scope" class="op-note">Opt-in sends the complete generated dossier to OpenRouter, including private approved-report reproduction steps and evidence URLs plus public source URLs. OpenRouter is required to deny data collection and use zero-data-retention routing. AI only rewrites prose; provider failure falls back to the deterministic draft.</span>
+      <span id="dossier-ai-scope" class="op-note">Opt-in sends the complete generated dossier to OpenRouter, including private approved-report issue titles, reproduction steps, and evidence URLs; unpublished cluster titles, fix status, and confidence; and public source URLs. The request uses data_collection: deny and zdr: true. Before this slice ships, Phase 4 will accept an AI draft only when every deterministic heading, fact, number, table cell, list item, URL, title, status, confidence value, and caveat survives unchanged; tampering, timeout, or provider failure must fall back to the deterministic draft.</span>
       <!-- Without an AI key, production disables the checkbox and changes its
            label to "Draft with AI: disabled, no AI key configured". -->
     </form>
@@ -103,8 +104,46 @@ This tracker-wide returned-row snapshot separates 0 automated community signals,
 
 ## Top issues
 
-| Rank | Issue | Community signals | Direct reports | Verified | Fix status |
-| 1 | FPS / performance regression since 1.13.00 | 0 | 1 | 1 | reported |</textarea>
+| Rank | Issue | Community signals | Direct reports | Verified reports | Fix status | Confidence | Most-affected platform |
+| ---- | ----- | ----------------- | -------------- | ---------------- | ---------- | ---------- | ---------------------- |
+| 1 | FPS / performance regression since 1.13.00 | 0 | 1 | 1 | reported | medium | PC (Steam) |
+
+## Community signal summary
+
+- Total public automated community signals: 0
+- No public automated community signals yet.
+
+## Direct reports
+
+- Total approved direct reports: 1
+- Awaiting moderation: 0
+- Performance: 1 direct report
+
+## Platform and hardware breakdown
+
+- PC (Steam): 1 direct report
+
+## Reproduction patterns
+
+- **Cross-save upload stalls**: Upload from the pause menu and verify the save on PC.
+
+## Evidence links
+
+Direct report evidence links only. Automated source URLs are listed under Community signal summary.
+- https://youtu.be/mock-cross-save-stall
+
+## Verified reports
+
+- Total verified reports: 1
+- **FPS / performance regression since 1.13.00** (PC (Steam)): Frame pacing drops after loading a save.
+
+## Known confidence gaps
+
+- No low-confidence or unverified clusters. Signal-only clusters remain labeled separately from direct or verified evidence.
+
+## Recommended wording for Pearl Abyss
+
+> Community telemetry contains 0 automated public signals, 1 approved direct report, and 1 verified report.</textarea>
     <div style="display:flex;gap:14px;align-items:center;margin-top:12px">
       <button class="c-secondary" type="button">Copy to clipboard</button>
       <span class="op-note">Focus the box to select all — the fallback when the clipboard is unavailable.</span>

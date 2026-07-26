@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="phase4.css">
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 
 <header class="shell-top">
   <div class="shell-status">Operator console · Signed in</div>
@@ -38,7 +39,7 @@
   <button class="c-quiet" type="button">Cancel</button>
 </div>
 
-<main class="page">
+<main id="main-content" class="page">
 <div class="scanner-grid">
 
   <!-- This file and scanner-top.html mock ONE page in two scroll states, so
@@ -65,7 +66,7 @@
       <summary>
         <span class="mono-label">Teach · Optional</span>
         <span class="ledger-copy">Auto-rejected pages are not assignments. They stay private and expire on their own; teach only when a bad pattern is worth remembering.</span>
-        <span class="ledger-count">Showing 2 of the 30-row window ›</span>
+        <span class="ledger-count">Showing 1 of the 30-row window ›</span>
       </summary>
       <div class="ledger-body">
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
@@ -88,7 +89,7 @@
                 <input type="hidden" name="reason" value="Operator inspected this page and confirmed it is a relevant Crimson Desert issue lead.">
                 <button class="c-secondary" type="submit">Keep as relevant</button>
               </form>
-              <span class="cost-chip">Spends credits</span>
+              <span class="cost-chip">Up to 1 LLM call</span>
             </div>
             <details>
               <summary class="c-destructive" style="list-style:none">Reject and teach…</summary>
@@ -117,21 +118,22 @@
           <div class="decision-scopes">
             <!-- This is the normal state. Pre-migration (scanner learning
                  unavailable) Keep stays available but records no lesson, and
-                  this line reads instead: "Keep spends an LLM call and creates
-                  a rescued lead; normal evidence rules determine its
-                  visibility. Scanner learning is unavailable until the schema
-                  update, so this rescue records no lesson to forget."
+                  this line reads instead: "On success, Keep can use up to one
+                  OpenRouter generation call and persists or re-observes a
+                  rescued lead; normal evidence rules determine its visibility.
+                  Scanner learning is unavailable until the schema update, so
+                  this rescue records no lesson to forget."
                   A readable relation with a missing decision RPC is not
                   detected before submit: Reject and teach errors without
                   changing the candidate; Keep completes and marks it rescued
                   but records no lesson. Do not render an invented disabled
                   state or promise a Forget path in that case.
                   See docs/PHASE-4-TARGET.md, Reversal language. -->
-            <p class="scope-line"><b>Keep</b> spends an LLM call, creates a rescued lead, and records a scanner lesson. Normal evidence rules determine the lead's visibility. Forgetting the lesson later does not restore this candidate, delete the lead, or refund the spend.</p>
+            <p class="scope-line"><b>Keep</b> starts a manual rescue. On success it persists or re-observes a private source signal, marks the candidate rescued, and normally records a scanner lesson. It uses no search credits and can make at most one OpenRouter generation call; missing configuration or allowance uses deterministic extraction with no provider call. Cost verification may add ID-only OpenRouter audit requests. Before this slice ships, that generation must send the private candidate title, snippet, canonicalized source URL, and unpublished cluster slugs/titles only with <code>data_collection: deny</code> and <code>zdr: true</code>. Normal evidence rules determine visibility. Forgetting the lesson later does not restore this candidate, delete the lead, or refund any spend.</p>
           </div>
         </article>
 
-        <button class="c-quiet" type="button">Show 28 more optional candidates →</button>
+        <button class="c-quiet" type="button">Show 29 more optional candidates →</button>
       </div>
     </details>
   </section>
@@ -141,7 +143,7 @@
       <summary>
         <span class="mono-label">Context lanes</span>
         <span class="ledger-copy">The 40 most recent current-patch Wire and Asks items. A hidden card keeps its observation-level Undo beside the item; Active lessons keeps the separate rule-revocation path.</span>
-        <span class="ledger-count">1 hidden · 40-row window ›</span>
+        <span class="ledger-count">12 shown in the 40-row window · 2 hidden ›</span>
       </summary>
       <div class="ledger-body">
         <article class="review-card">
@@ -150,12 +152,12 @@
           <p class="body">Unrelated college football coverage matched the game title and was removed from the public lane.</p>
           <p class="detail">thecrimson.com · <a href="#" class="line-item__url">Open source ↗</a></p>
           <form>
-            <input type="hidden" name="decision_id" value="mock-decision-off-topic">
+            <input type="hidden" name="decision_id" value="mock-observation-decision-press">
             <p class="scope-line">Hidden by a recorded decision. Undo restores the item and revokes its rule.</p>
             <button class="c-undo" type="submit">Undo — restore item and revoke rule</button>
           </form>
         </article>
-        <p class="count-note">Items outside this current-patch 40-row card window are not browseable here. After the required paginated rule read lands, only decisions with active, unrevoked, unexpired rules remain revocable from Active lessons below. A superseded or expired decision outside this card window has no current recovery surface.</p>
+        <p class="count-note">One representative hidden item is expanded here; the live fixture has 12 returned items, 2 hidden. Items outside this current-patch 40-row card window are not browseable here. After the required paginated rule read lands, only decisions with active, unrevoked, unexpired rules remain revocable from Active lessons below. A superseded or expired decision outside this card window has no current recovery surface.</p>
       </div>
     </details>
   </section>
@@ -189,9 +191,9 @@
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right">
             <form>
               <input type="hidden" name="decision_id" value="mock-decision-keep">
-              <button class="c-undo c-undo--partial" type="submit">Forget lesson</button>
+              <button class="c-undo c-undo--partial" type="submit" aria-label="Forget Keep lesson" aria-describedby="forget-keep-effect">Forget lesson</button>
             </form>
-            <span class="stays-note">Candidate not restored · lead stays · spend not refunded</span>
+            <span class="stays-note" id="forget-keep-effect">Candidate not restored · lead stays · spend not refunded</span>
           </div>
         </div>
         <div class="line-item">
@@ -199,24 +201,27 @@
             <span class="rule-tag rule-tag--block">BLOCK OFF-TOPIC</span> <span class="count-note">source domain · 1d ago</span>
             <div class="line-item__url">thecrimson.com</div>
             <div class="line-item__sub">Reviewed source: not about Crimson Desert.</div>
+            <div class="line-item__sub" id="revoke-off-topic-effect">Stops future matches. When that was the decision target, an eligible unrescued candidate returns or an observation is restored; clustered signals recompute, unclustered signals stay hidden, and superseded rules stay revoked.</div>
           </div>
-          <form><input type="hidden" name="decision_id" value="mock-decision-off-topic"><button class="c-undo c-undo--partial" type="submit">Revoke rule</button></form>
+          <form><input type="hidden" name="decision_id" value="mock-decision-off-topic"><button class="c-undo c-undo--partial" type="submit" aria-label="Revoke off-topic domain rule" aria-describedby="revoke-off-topic-effect">Revoke rule</button></form>
         </div>
         <div class="line-item">
           <div class="line-item__main">
             <span class="rule-tag rule-tag--block">BLOCK WRONG PATCH</span> <span class="count-note">exact url · 20h ago</span>
             <div class="line-item__url">reddit.com/r/CrimsonDesert/comments/1s18051/blinding_flash_is_no_longer_showing_me_points_of</div>
             <div class="line-item__sub">4 months ago.</div>
+            <div class="line-item__sub" id="revoke-wrong-patch-effect">Stops future matches. When that was the decision target, an eligible unrescued candidate returns or an observation is restored; clustered signals recompute, unclustered signals stay hidden, and superseded rules stay revoked.</div>
           </div>
-          <form><input type="hidden" name="decision_id" value="mock-decision-wrong-patch"><button class="c-undo c-undo--partial" type="submit">Revoke rule</button></form>
+          <form><input type="hidden" name="decision_id" value="mock-decision-wrong-patch"><button class="c-undo c-undo--partial" type="submit" aria-label="Revoke wrong-patch URL rule" aria-describedby="revoke-wrong-patch-effect">Revoke rule</button></form>
         </div>
         <div class="line-item">
           <div class="line-item__main">
             <span class="rule-tag rule-tag--block">BLOCK DUPLICATE</span> <span class="count-note">exact url · 2h ago</span>
             <div class="line-item__url">steamcommunity.com/app/3321460?curator_clanid=4777282&amp;l=german</div>
             <div class="line-item__sub">Reviewed source: not a bug report.</div>
+            <div class="line-item__sub" id="revoke-duplicate-effect">Stops future matches. When that was the decision target, an eligible unrescued candidate returns or an observation is restored; clustered signals recompute, unclustered signals stay hidden, and superseded rules stay revoked.</div>
           </div>
-          <form><input type="hidden" name="decision_id" value="mock-decision-duplicate"><button class="c-undo c-undo--partial" type="submit">Revoke rule</button></form>
+          <form><input type="hidden" name="decision_id" value="mock-decision-duplicate"><button class="c-undo c-undo--partial" type="submit" aria-label="Revoke duplicate URL rule" aria-describedby="revoke-duplicate-effect">Revoke rule</button></form>
         </div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:14px">
@@ -266,7 +271,7 @@
       <summary>
         <span class="mono-label">Cadence &amp; budget · Advanced</span>
         <span class="ledger-copy">One form on purpose: these settings describe one policy and save together.</span>
-        <span class="ledger-count">Hourly · scan $2 ›</span>
+        <span class="ledger-count">Hourly · 1,000 search credits/mo · LLM $2/mo ›</span>
       </summary>
       <div class="ledger-body">
         <!-- Option sets and input constraints mirror the live parser exactly:
@@ -282,7 +287,7 @@
             <label>How often
               <select name="cadence" style="width:100%"><option value="60" selected>Hourly</option><option value="120">Every 2 hours</option><option value="360">Every 6 hours</option><option value="1440">Daily</option><option value="paused">Paused</option></select>
             </label>
-            <label>Search depth per run
+            <label>Scheduled search depth
               <select name="scheduledSearchCreditsPerRun" style="width:100%"><option value="1">1 search credit</option><option value="2">2 search credits</option><option value="3" selected>3 search credits</option></select>
             </label>
             <label>Monthly search cap (credits)
