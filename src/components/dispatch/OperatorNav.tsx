@@ -64,7 +64,7 @@ export function OperatorNav({ active }: { active?: OperatorNavKey }) {
             onClick={() => (confirmingExport ? closeExportConfirm() : setConfirmingExport(true))}
             onKeyDown={closeOnEscape}
           >
-            ↓ Export CSV…<span className="sr-only"> — downloads the full private report table</span>
+            ↓ Export CSV…<span className="sr-only"> — confirms the private 22-field report export</span>
           </button>
           <form action={signOutAdmin} style={{ display: "contents" }}>
             <button type="submit" className="operator-utils__btn operator-utils__btn--signout">
@@ -78,12 +78,16 @@ export function OperatorNav({ active }: { active?: OperatorNavKey }) {
           id="export-confirm"
           className="export-confirm"
           role="group"
-          aria-label="Confirm export"
+          aria-labelledby="export-confirm-title"
+          aria-describedby="export-confirm-detail"
           onKeyDown={closeOnEscape}
         >
           <p>
-            <b>Export the complete private report table?</b> Descriptions, repro steps, hardware specs, and IDs
-            — everything reports contain, including what never becomes public.
+            <b id="export-confirm-title">Export all report-review rows?</b>{" "}
+            <span id="export-confirm-detail">
+              Includes the fixed 22-field review export: private descriptions, repro steps, hardware specs, PERS
+              IDs, evidence URLs, and every moderation state. Submission and deduplication hashes are excluded.
+            </span>
           </p>
           <a href="/api/admin/export" className="tap-btn" onClick={closeExportConfirm}>
             Download CSV

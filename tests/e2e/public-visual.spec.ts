@@ -949,23 +949,27 @@ test.describe("public surface visual regression", () => {
     // (download, cancel, Escape) put the strip away. Runs after the screenshot
     // so the baseline stays the collapsed state.
     await page.getByRole("button", { name: "Export CSV" }).click();
-    await expect(page.getByText("Export the complete private report table?")).toBeVisible();
+    await expect(page.getByText("Export all report-review rows?")).toBeVisible();
+    // The disclosure names the sensitive fields leaving the system and the
+    // two hash columns that deliberately never enter the CSV.
+    await expect(page.getByText(/PERS IDs, evidence URLs, and every moderation state/)).toBeVisible();
+    await expect(page.getByText("Submission and deduplication hashes are excluded.")).toBeVisible();
     const download = page.waitForEvent("download");
     await page.getByRole("link", { name: "Download CSV" }).click();
     expect((await download).suggestedFilename()).toMatch(/^cd-reports-\d{4}-\d{2}-\d{2}\.csv$/);
-    await expect(page.getByText("Export the complete private report table?")).toHaveCount(0);
+    await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
     await page.getByRole("button", { name: "Export CSV" }).click();
     await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByText("Export the complete private report table?")).toHaveCount(0);
+    await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
     // Escape must close the strip immediately after a keyboard open, while
     // focus is still on the trigger in the nav — the strip is a sibling, so
     // its own handler never sees that keypress.
     const exportTrigger = page.getByRole("button", { name: "Export CSV" });
     await exportTrigger.focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByText("Export the complete private report table?")).toBeVisible();
+    await expect(page.getByText("Export all report-review rows?")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByText("Export the complete private report table?")).toHaveCount(0);
+    await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
     await expect(exportTrigger).toBeFocused();
 
     await page.goto("/admin/compile");

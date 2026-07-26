@@ -340,6 +340,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   padding-right: 10px;
 }
 .operator-utils__btn {
+  position: relative;
   background: none;
   border: 1px solid var(--rule);
   border-radius: var(--r-btn);
@@ -367,6 +368,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 }
 .export-confirm p { margin: 0; flex: 1; min-width: 260px; }
 .export-confirm__cancel {
+  position: relative;
   background: none;
   border: 0;
   color: var(--blue);
@@ -375,6 +377,12 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   cursor: pointer;
 }
 .export-confirm__cancel:hover { text-decoration: underline; }
+
+/* Both render around 25px tall; expand to a 44px+ touch target like .tap-btn. */
+@media (pointer: coarse) {
+  .operator-utils__btn::after,
+  .export-confirm__cancel::after { content: ""; position: absolute; inset: -10px; }
+}
 
 .dispatch-nav__short { display: none; }
 
