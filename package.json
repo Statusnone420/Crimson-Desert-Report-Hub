@@ -13,10 +13,10 @@
     "test:e2e:n0": "playwright test --config=playwright.n0.config.ts",
     "preview:seed": "node scripts/generate-preview-seed.mjs",
     "dev:preview": "node scripts/preview-dev.mjs",
-  "db:start": "supabase start",
-  "db:stop": "supabase stop",
-  "db:reset": "supabase db reset",
-  "db:status": "supabase status"
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:status": "supabase status"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
@@ -34,6 +34,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
+    "supabase": "2.109.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.9"
