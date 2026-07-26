@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { signOutAdmin } from "@/app/admin/actions";
 import type { OperatorNavKey } from "@/components/dispatch/Chrome";
 
@@ -27,6 +27,13 @@ export function OperatorNav({ active }: { active?: OperatorNavKey }) {
   function closeExportConfirm() {
     setConfirmingExport(false);
     exportTriggerRef.current?.focus();
+  }
+
+  // The strip is a sibling of the nav, so an Escape pressed while focus is
+  // still on the trigger never reaches the strip's own handler. Both elements
+  // share this handler so Escape closes from either side of that boundary.
+  function closeOnEscape(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape" && confirmingExport) closeExportConfirm();
   }
 
   return (
@@ -55,6 +62,7 @@ export function OperatorNav({ active }: { active?: OperatorNavKey }) {
             aria-expanded={confirmingExport}
             aria-controls="export-confirm"
             onClick={() => (confirmingExport ? closeExportConfirm() : setConfirmingExport(true))}
+            onKeyDown={closeOnEscape}
           >
             ↓ Export CSV…<span className="sr-only"> — downloads the full private report table</span>
           </button>
@@ -71,9 +79,7 @@ export function OperatorNav({ active }: { active?: OperatorNavKey }) {
           className="export-confirm"
           role="group"
           aria-label="Confirm export"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") closeExportConfirm();
-          }}
+          onKeyDown={closeOnEscape}
         >
           <p>
             <b>Export the complete private report table?</b> Descriptions, repro steps, hardware specs, and IDs

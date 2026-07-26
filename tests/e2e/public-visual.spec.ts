@@ -945,9 +945,9 @@ test.describe("public surface visual regression", () => {
     await expect(page).toHaveScreenshot("admin-review.png", { fullPage: true });
 
     // The export confirm gate: the utility names its payload before anything
-    // downloads, Download still hits the real route, and both close paths
-    // (download and cancel) put the strip away. Runs after the screenshot so
-    // the baseline stays the collapsed state.
+    // downloads, Download still hits the real route, and all three close paths
+    // (download, cancel, Escape) put the strip away. Runs after the screenshot
+    // so the baseline stays the collapsed state.
     await page.getByRole("button", { name: "Export CSV" }).click();
     await expect(page.getByText("Export the complete private report table?")).toBeVisible();
     const download = page.waitForEvent("download");
@@ -957,6 +957,16 @@ test.describe("public surface visual regression", () => {
     await page.getByRole("button", { name: "Export CSV" }).click();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText("Export the complete private report table?")).toHaveCount(0);
+    // Escape must close the strip immediately after a keyboard open, while
+    // focus is still on the trigger in the nav — the strip is a sibling, so
+    // its own handler never sees that keypress.
+    const exportTrigger = page.getByRole("button", { name: "Export CSV" });
+    await exportTrigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("Export the complete private report table?")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("Export the complete private report table?")).toHaveCount(0);
+    await expect(exportTrigger).toBeFocused();
 
     await page.goto("/admin/compile");
     await expect(page.getByRole("heading", { name: "Compile Pearl Abyss dossier" })).toBeVisible();
