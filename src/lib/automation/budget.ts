@@ -51,6 +51,7 @@ export const OPENROUTER_FREE_PROVIDER_ROUTING = {
 export const OPENROUTER_AUTOMATION_PROVIDER_ROUTING = {
   require_parameters: true,
   data_collection: "deny",
+  zdr: true,
   sort: "price",
   max_price: { prompt: 0.1, completion: 0.2, request: 0, image: 0 },
 } as const;

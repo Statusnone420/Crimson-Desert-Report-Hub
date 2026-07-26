@@ -47,21 +47,37 @@ export type IntegrationStatus = {
   detail: string;
   /** Configured but temporarily off — e.g. the OpenRouter cost-safety circuit is open. */
   paused?: boolean;
+  /** Configured, but the circuit read failed: neither known running nor known paused. */
+  circuitUnknown?: boolean;
 };
 
 /**
  * Env vars only say what is configured; the safety circuit says what is running.
  * When the circuit is open, the AI extraction card must not claim to be extracting.
+ *
+ * `null` means the circuit read failed. The engine fails closed on that — a spend
+ * decision — but a status card must not turn "we could not read it" into the
+ * specific claim that the circuit is open, so it reports unknown instead.
  */
-export function applyLlmCircuitToStatuses(statuses: IntegrationStatus[], llmPaused: boolean): IntegrationStatus[] {
-  if (!llmPaused) return statuses;
+export function applyLlmCircuitToStatuses(
+  statuses: IntegrationStatus[],
+  llmPaused: boolean | null,
+): IntegrationStatus[] {
+  if (llmPaused === false) return statuses;
   return statuses.map((status) =>
     status.key === "ai_extraction" && status.connected
-      ? {
-          ...status,
-          paused: true,
-          detail: "The cost-safety circuit is open, so scans run without LLM extraction until it clears.",
-        }
+      ? llmPaused === null
+        ? {
+            ...status,
+            circuitUnknown: true,
+            detail:
+              "The cost-safety circuit read failed, so this page cannot say whether scans are using LLM extraction right now.",
+          }
+        : {
+            ...status,
+            paused: true,
+            detail: "The cost-safety circuit is open, so scans run without LLM extraction until it clears.",
+          }
       : status,
   );
 }

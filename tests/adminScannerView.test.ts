@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { emptyPatchRadarData } from "@/lib/radar.server";
+import type { PublicScannerData } from "@/lib/queries";
+import type { IntegrationStatus } from "@/lib/env";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/app/admin/actions", () => ({
@@ -32,6 +34,26 @@ function findInput(node: ReactNode, name: string): ReactElement<InputProps> | nu
   return null;
 }
 
+/**
+ * A scoreboard whose reads all succeeded. Tests that are not about degraded
+ * health need this: a placeholder object reads as `scannerConnected: undefined`,
+ * which silently renders the unavailable branches instead of the ones under test.
+ */
+const healthyScoreboard = {
+  reviewedThisWeek: 0,
+  filteredThisWeek: 0,
+  keptThisWeek: 0,
+  awaiting: 0,
+  published: 0,
+  lastCheckedAt: null,
+  scannerActive: true,
+  scannerConnected: true,
+  llmPaused: false,
+  steamPulse: [],
+  platformContext: null,
+  pulseReadFailures: [],
+} satisfies PublicScannerData;
+
 describe("AdminScannerView", () => {
   it("keeps the owner-approved two-dollar LLM cap inside native form validation", () => {
     const view = AdminScannerView({
@@ -54,7 +76,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -139,7 +161,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -189,7 +211,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -246,7 +268,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -313,7 +335,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -324,5 +346,122 @@ describe("AdminScannerView", () => {
     expect(markup).not.toContain("Reject and teach");
     expect(markup).not.toContain("Remove bad lead");
     expect(markup).not.toContain("Remove lead and teach scanner");
+  });
+
+  describe("scanner health honesty", () => {
+    const patch = { version: "1.14.00", publishedAt: null };
+    const connectedScoreboard = {
+      reviewedThisWeek: 0,
+      filteredThisWeek: 0,
+      keptThisWeek: 0,
+      awaiting: 0,
+      published: 0,
+      lastCheckedAt: null,
+      scannerActive: true,
+      scannerConnected: true,
+      llmPaused: false,
+      steamPulse: [],
+      platformContext: null,
+      pulseReadFailures: [],
+    };
+
+    function render(overrides: {
+      radarConnected: boolean;
+      scannerConnected: boolean;
+      weekReviewed?: number;
+      integrations?: IntegrationStatus[];
+    }) {
+      const radar = emptyPatchRadarData(patch);
+      return renderToStaticMarkup(createElement(AdminScannerView, {
+        runs: [],
+        signals: [],
+        rejectedCandidates: [],
+        observations: [],
+        observationModerationAvailable: true,
+        feedbackRules: [],
+        feedbackLearningAvailable: true,
+        control: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 1000,
+          monthlyLlmUsdCap: 2,
+          modelPreset: "deepseek_v4_flash",
+          updatedAt: null,
+        },
+        activeRun: null,
+        latestRealRun: null,
+        latestFind: null,
+        scoreboard: { ...connectedScoreboard, scannerConnected: overrides.scannerConnected },
+        radar: {
+          ...radar,
+          connected: overrides.radarConnected,
+          funnel7d: { ...radar.funnel7d, reviewed: overrides.weekReviewed ?? 0 },
+        },
+        integrations: overrides.integrations ?? [],
+        nowIso: "2026-07-22T18:00:00.000Z",
+      }));
+    }
+
+    it("says nothing requires intervention only when both health reads succeeded", () => {
+      const markup = render({ radarConnected: true, scannerConnected: true });
+
+      expect(markup).toContain("Nothing requires intervention.");
+    });
+
+    it("cannot claim the operator is clear when the radar run read failed", () => {
+      const markup = render({ radarConnected: false, scannerConnected: true });
+
+      expect(markup).not.toContain("Nothing requires intervention.");
+      expect(markup).toContain("Scanner health is unavailable");
+      // The band is replaced, not dropped: a missing band reads as a quiet radar.
+      expect(markup).toContain("Source radar unavailable");
+      expect(markup).toContain("Failed runs unavailable");
+      expect(markup).not.toContain("No scanner intervention required");
+    });
+
+    it("cannot claim the operator is clear when the scoreboard read failed", () => {
+      const markup = render({ radarConnected: true, scannerConnected: false });
+
+      expect(markup).not.toContain("Nothing requires intervention.");
+      expect(markup).toContain("Scanner health is unavailable");
+      expect(markup).toContain("Source radar funnel unavailable");
+    });
+
+    it("cannot claim the operator is clear while the cost circuit is unreadable", () => {
+      // Only the circuit query failed, so the scoreboard is legitimately
+      // connected — but the engine fails closed on that same failure and stops
+      // using LLM extraction. Saying "nothing requires intervention" here would
+      // contradict both the status line and what the scanner is doing.
+      const markup = render({
+        radarConnected: true,
+        scannerConnected: true,
+        integrations: [
+          {
+            key: "ai_extraction",
+            label: "AI extraction",
+            connected: true,
+            missingEnv: [],
+            detail: "The cost-safety circuit read failed.",
+            circuitUnknown: true,
+          },
+        ],
+      });
+
+      expect(markup).not.toContain("Nothing requires intervention.");
+      expect(markup).toContain("AI EXTRACTION STATE UNKNOWN");
+      expect(markup).toContain("Scanner health is unavailable");
+    });
+
+    it("does not print scoreboard KPIs beside a live funnel when the scoreboard read failed", () => {
+      // A connected radar can report a busy week while the scoreboard read
+      // failed — the branch that renders the funnel bar also renders three
+      // KPI numbers that come entirely from the scoreboard.
+      const markup = render({ radarConnected: true, scannerConnected: false, weekReviewed: 12 });
+
+      expect(markup).toContain("Source radar funnel unavailable");
+      expect(markup).not.toContain("candidates reviewed");
+      expect(markup).not.toContain("Radar yield");
+    });
   });
 });

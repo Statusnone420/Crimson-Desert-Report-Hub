@@ -19,6 +19,7 @@ import {
   matchScannerFeedbackRule,
   type ScannerFeedbackRule,
 } from "@/lib/automation/feedback";
+import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
 import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
 import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import {
@@ -447,18 +448,17 @@ type ScannerFeedbackRuleRow = {
 async function loadActiveScannerFeedbackRules(
   supabase: ReturnType<typeof createServiceClient>,
 ): Promise<ScannerFeedbackRule[]> {
-  const { data, error } = await supabase
-    .from("scanner_feedback_rules")
-    .select("id, action, decision, scope_type, scope_value, created_at, expires_at, revoked_at")
-    .is("revoked_at", null)
-    .order("created_at", { ascending: false });
-  if (error) {
+  const result = await readActiveFeedbackRulePages<ScannerFeedbackRuleRow>(
+    supabase,
+    "id, action, decision, scope_type, scope_value, created_at, expires_at, revoked_at",
+  );
+  if ("error" in result) {
     // Safe rolling-deploy behavior: code may reach a preview before its local-
     // tested migration is applied. No rules is the old behavior.
-    if (isMissingSupabaseRelation(error, "scanner_feedback_rules")) return [];
-    throw new Error(`scanner feedback rules read failed: ${error.message}`);
+    if (isMissingSupabaseRelation(result.error, "scanner_feedback_rules")) return [];
+    throw new Error(`scanner feedback rules read failed: ${result.error.message}`);
   }
-  return ((data ?? []) as ScannerFeedbackRuleRow[]).map((row) => ({
+  return result.rows.map((row) => ({
     id: row.id,
     action: row.action,
     decision: row.decision,

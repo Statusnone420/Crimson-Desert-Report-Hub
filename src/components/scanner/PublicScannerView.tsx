@@ -54,8 +54,12 @@ export function PublicScannerView({
   const flow = radar.connected ? radar.funnel7d : null;
   // The awaiting count is an admin number. The public caption still changes with
   // the state, but states it in words instead of printing the queue depth.
-  const problemAreasCaption =
-    radar.activeLeadClusters === 0
+  const problemAreasCaption = !data.scannerConnected
+    ? // `awaiting` is zero-filled when the scoreboard read failed, and "every area
+      // carries a public link" is the strongest claim on this page — it must not
+      // be derived from a number nobody read.
+      "Distinct issue areas holding at least one tracked lead. Whether each one carries a public link is unavailable right now."
+    : radar.activeLeadClusters === 0
       ? "Distinct issue areas holding at least one tracked lead — a lead goes public only on corroboration or an approved report"
       : data.awaiting === 0
         ? "Every area carries a public link or an approved report"
@@ -81,9 +85,14 @@ export function PublicScannerView({
     {
       key: "published",
       label: "Published issues",
-      value: data.published,
-      caption: "Full cards on the issue board",
-      valueClass: data.published > 0 ? "stat-band__value stat-band__value--crimson" : "stat-band__value",
+      value: data.scannerConnected ? data.published : "Unavailable",
+      caption: data.scannerConnected
+        ? "Full cards on the issue board"
+        : "The scanner read failed, so this count is unavailable — not zero",
+      valueClass:
+        data.scannerConnected && data.published > 0
+          ? "stat-band__value stat-band__value--crimson"
+          : "stat-band__value",
     },
   ];
 
@@ -232,14 +241,22 @@ export function PublicScannerView({
               <span className="obs-health__name">{integration.label}</span>
               <span
                 className={
-                  integration.paused
+                  integration.paused || integration.circuitUnknown
                     ? "obs-health__state obs-health__state--amber"
                     : integration.connected
                       ? "obs-health__state obs-health__state--green"
                       : "obs-health__state"
                 }
               >
-                {integration.paused ? "Paused" : integration.connected ? "Connected" : "Off"}
+                {/* "Unknown" and "Paused" are different claims: the circuit read
+                    failing is not evidence that the circuit is open. */}
+                {integration.circuitUnknown
+                  ? "Unknown"
+                  : integration.paused
+                    ? "Paused"
+                    : integration.connected
+                      ? "Connected"
+                      : "Off"}
               </span>
             </div>
             <p className="obs-health__caption">{integration.detail}</p>

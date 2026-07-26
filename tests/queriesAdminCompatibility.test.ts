@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { matchesOrExpression } from "./fixtures/postgrestOr";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
@@ -70,8 +71,10 @@ class FakeQuery {
     return this;
   }
 
-  order(column: string) {
-    this.trace.operations.push(`order:${column}`);
+  order(column: string, options?: { ascending?: boolean }) {
+    // Direction is recorded: a keyset cursor paired with the wrong sort order
+    // pages forever, and a trace that dropped the direction could not see it.
+    this.trace.operations.push(`order:${column}:${options?.ascending === false ? "desc" : "asc"}`);
     return this;
   }
 
@@ -159,6 +162,49 @@ describe("getAutomationAdminData rolling migration compatibility", () => {
     expect(traces.filter((trace) => trace.table === "automation_rejected_candidates")).toHaveLength(1);
   });
 
+  // Each of these five reads used to destructure `data` only. A swallowed error
+  // reaches the operator as an empty Records band, a green ACTIVE badge, or an
+  // action inbox with nothing in it — "no scanner work" read off a broken
+  // connection. They belong in the error boundary instead.
+  const swallowedReads: { name: string; matches: (trace: QueryTrace) => boolean; message: string }[] = [
+    {
+      name: "source-signal window",
+      matches: (trace) => trace.table === "source_signals",
+      message: "source signals read failed",
+    },
+    {
+      name: "newest-10 run history",
+      matches: (trace) => trace.table === "automation_runs" && trace.operations.includes("limit:10"),
+      message: "run history read failed",
+    },
+    {
+      name: "active-run lookup",
+      matches: (trace) => trace.columns === "id, status, mode, started_at",
+      message: "active run read failed",
+    },
+    {
+      name: "latest-real-run lookup",
+      matches: (trace) =>
+        trace.table === "automation_runs" && trace.operations.includes("in:status:success|partial|failed"),
+      message: "latest run read failed",
+    },
+    {
+      name: "latest-find lookup",
+      matches: (trace) => trace.table === "automation_runs" && trace.operations.includes("in:status:success|partial"),
+      message: "latest find read failed",
+    },
+  ];
+
+  for (const read of swallowedReads) {
+    it(`surfaces a failed ${read.name} read instead of an empty result`, async () => {
+      resolveQuery = (trace) =>
+        read.matches(trace) ? { data: null, error: { code: "42501", message: "permission denied" } } : { data: [], error: null };
+      const { getAutomationAdminData } = await import("@/lib/queries");
+
+      await expect(getAutomationAdminData()).rejects.toThrow(`${read.message}: permission denied`);
+    });
+  }
+
   it("treats only a missing feedback-rules relation as the legacy empty state", async () => {
     resolveQuery = (trace) =>
       trace.table === "scanner_feedback_rules"
@@ -186,18 +232,50 @@ describe("getAutomationAdminData rolling migration compatibility", () => {
     expect(data.feedbackLearningAvailable).toBe(true);
   });
 
-  it("loads every active feedback rule so each enforced lesson keeps an Undo path", async () => {
+  it("walks every active feedback rule past a short page without skipping a tied timestamp", async () => {
+    // Three rules share one timestamp, so the tie straddles the page boundary —
+    // the case a created_at-only cursor gets wrong in both directions.
+    const tied = "2026-07-20T00:00:00.000Z";
+    const older = "2026-07-19T00:00:00.000Z";
+    const rules = [
+      { id: "rule-c", created_at: tied, expires_at: null },
+      { id: "rule-b", created_at: tied, expires_at: null },
+      { id: "rule-a", created_at: tied, expires_at: null },
+      { id: "rule-0", created_at: older, expires_at: null },
+    ];
+    // Stands in for the hosted PostgREST row cap: the API returns fewer rows
+    // than the requested limit, so a short page must not end the walk.
+    const hostedRowCap = 2;
+    resolveQuery = (trace) => {
+      if (trace.table !== "scanner_feedback_rules") return { data: [], error: null };
+      const cursor = trace.operations.find((operation) => operation.startsWith("or:"));
+      const remaining = cursor ? rules.filter((rule) => matchesOrExpression(rule, cursor.slice(3))) : rules;
+      return { data: remaining.slice(0, hostedRowCap), error: null };
+    };
     const { getAutomationAdminData } = await import("@/lib/queries");
 
-    await getAutomationAdminData();
+    const data = await getAutomationAdminData();
 
-    const ruleTrace = traces.find((trace) => trace.table === "scanner_feedback_rules");
-    expect(ruleTrace).toBeDefined();
-    expect(ruleTrace!.operations).toEqual(expect.arrayContaining([
-      "is:revoked_at:null",
-      expect.stringMatching(/^or:expires_at\.is\.null,expires_at\.gt\./),
-    ]));
-    expect(ruleTrace!.operations).not.toContain("limit:50");
+    expect(data.feedbackRules.map((rule) => rule.id)).toEqual(["rule-c", "rule-b", "rule-a", "rule-0"]);
+    expect(data.feedbackLearningAvailable).toBe(true);
+    const ruleTraces = traces.filter((trace) => trace.table === "scanner_feedback_rules");
+    expect(ruleTraces).toHaveLength(3);
+    expect(ruleTraces[0].operations).toEqual(
+      expect.arrayContaining(["is:revoked_at:null", "order:created_at:desc", "order:id:desc", "limit:1000"]),
+    );
+    expect(ruleTraces[1].operations).toContain(
+      `or:created_at.lt.${tied},and(created_at.eq.${tied},id.lt.rule-b)`,
+    );
+  });
+
+  it("surfaces a feedback-rule read failure that is not a missing relation", async () => {
+    resolveQuery = (trace) =>
+      trace.table === "scanner_feedback_rules"
+        ? { data: null, error: { code: "42501", message: "permission denied" } }
+        : { data: [], error: null };
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    await expect(getAutomationAdminData()).rejects.toThrow("scanner feedback rules read failed: permission denied");
   });
 
   it("filters decided and rescued candidates before the thirty-row window", async () => {

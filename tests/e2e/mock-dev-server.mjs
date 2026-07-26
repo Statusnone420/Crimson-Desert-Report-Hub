@@ -836,6 +836,23 @@ function filterRows(table, url) {
   // this the second page would repeat page one and the walk would never end.
   if (id?.startsWith("gt.")) rows = rows.filter((row) => String(row.id) > id.slice(3));
 
+  // Feedback-rule paging walks by a compound (created_at, id) cursor sent as
+  // `or=(created_at.lt.T,and(created_at.eq.T,id.lt.I))`. Other or-expressions
+  // stay ignored here, as they always have been; this one cannot be, or the
+  // walk would read page one forever. Deliberately shape-matched so an
+  // unrecognized cursor fails loudly instead of quietly matching everything.
+  const or = url.searchParams.get("or");
+  if (or?.startsWith("(created_at.lt.")) {
+    const cursor = /^\(created_at\.lt\.([^,]+),and\(created_at\.eq\.[^,]+,id\.lt\.([^)]+)\)\)$/.exec(or);
+    if (!cursor) throw new Error(`unsupported keyset cursor ${or}`);
+    const [, createdAt, lastId] = cursor;
+    rows = rows.filter(
+      (row) =>
+        String(row.created_at) < createdAt ||
+        (String(row.created_at) === createdAt && String(row.id) < lastId),
+    );
+  }
+
   const clusterId = url.searchParams.get("cluster_id");
   if (clusterId?.startsWith("eq.")) rows = rows.filter((row) => row.cluster_id === clusterId.slice(3));
 
@@ -949,7 +966,14 @@ function filterRows(table, url) {
 
   const order = url.searchParams.get("order");
   if (order?.startsWith("created_at.desc")) {
-    rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    // `id.desc` is the tiebreak the feedback-rule cursor depends on: with tied
+    // timestamps left unordered, the next page's cursor could re-read a row.
+    const breakTiesById = order.includes("id.desc");
+    rows.sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime() ||
+        (breakTiesById ? String(b.id).localeCompare(String(a.id)) : 0),
+    );
   }
   if (order?.startsWith("started_at.desc")) {
     rows.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());

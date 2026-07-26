@@ -323,6 +323,9 @@ describe("automation extraction", () => {
       provider: {
         require_parameters: true,
         data_collection: "deny",
+        // Zero data retention, pinned: the rescue prompt carries private
+        // candidate text and unpublished cluster titles.
+        zdr: true,
         sort: "price",
         max_price: { prompt: 0.1, completion: 0.2, request: 0, image: 0 },
       },
