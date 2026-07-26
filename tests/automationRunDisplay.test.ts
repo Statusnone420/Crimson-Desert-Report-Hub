@@ -116,6 +116,34 @@ describe("source monitor run display", () => {
     ]);
   });
 
+  it("names every recon outcome instead of calling any of them an unrecognized code", () => {
+    // These land on the same operator line, so none may fall through to the
+    // "Unrecognized scanner code" branch.
+    const summary = summarizeRunMessages(
+      ["candidate_recon", "candidate_recon_unavailable", "candidate_recon_failed"],
+      [],
+    );
+
+    // The first marker records the ATTEMPT and is emitted before the outcome is
+    // known, so it must not read as a successful read beside "unavailable".
+    expect(summary.operatorSummary).toBe(
+      "1 tried the full page; 1 full page unavailable; 1 full page read errored",
+    );
+    expect(summary.skipGroups.map((group) => group.detail)).not.toContain(
+      "Unrecognized scanner code. Check the raw code before acting on it.",
+    );
+  });
+
+  it("distinguishes the unbilled refusal from the charged error in the operator detail", () => {
+    // The console must never report an unbilled refusal and a charged error as the
+    // same thing — the ledger treats them differently, so the wording has to as well.
+    const groups = summarizeRunMessages(["candidate_recon_unavailable", "candidate_recon_failed"], []).skipGroups;
+    const detailFor = (code: string) => groups.find((group) => group.code === code)?.detail ?? "";
+
+    expect(detailFor("candidate_recon_unavailable")).toContain("No search credit was spent");
+    expect(detailFor("candidate_recon_failed")).toContain("credit is charged");
+  });
+
   it("leaves unrecognized error strings untouched alongside mapped codes", () => {
     expect(summarizeRunMessages([], ["stale_running_run", "reddit failed: timeout"]).errorSummary).toBe(
       "Crashed run cleaned up; reddit failed: timeout",

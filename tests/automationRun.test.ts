@@ -3183,6 +3183,109 @@ describe("runAutomationMonitor", () => {
     }
   });
 
+  it("books no recon credit when the source refuses the fetch", async () => {
+    // Reddit refuses Tavily's fetcher: the extract endpoint answers 200 with the URL
+    // in failed_results, so tavilyExtract returns null and NOTHING throws. Booking the
+    // credit before the call therefore charged the ledger and spent a search query on
+    // page text that never arrived. reddit.com is the first trusted domain, so this
+    // was the ordinary path, not an edge case.
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://reddit.com/r/CrimsonDesert/comments/recon-refused/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(null);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The lane ran and is reported as having run...
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(1);
+    expect(result.skips).toContain("candidate_recon");
+    // ...and says plainly that the source gave nothing back.
+    expect(result.skips).toContain("candidate_recon_unavailable");
+    // Ledger counts search queries ONLY. The recon fetch delivered no text, so it
+    // books no credit and, critically, takes no query away from the run.
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued);
+    expect(result.estimatedCostUsd).toBeCloseTo(searchQueriesIssued * 0.008 + result.llmCostUsd, 10);
+    expect(result.status).not.toBe("failed");
+  });
+
+  it("books no recon credit when the extract call itself fails", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://reddit.com/r/CrimsonDesert/comments/recon-throws/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockRejectedValue(new Error("tavily extract failed: 429"));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // A throw is NOT an unbilled outcome. A timeout, 5xx, or unparseable body can
+    // follow work Tavily already charged for, so the credit is booked worst-case —
+    // understating it would let a later run overrun the monthly cap.
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + 1);
+    expect(result.estimatedCostUsd).toBeCloseTo((searchQueriesIssued + 1) * 0.008 + result.llmCostUsd, 10);
+    // Distinct from the refused fetch: charged, and labelled as charged.
+    expect(result.skips).toContain("candidate_recon_failed");
+    expect(result.skips).not.toContain("candidate_recon_unavailable");
+    // toErrorMessage surfaces a thrown Error's own message; the label is only the
+    // fallback for a non-Error throw.
+    expect(result.errors.some((message) => message.includes("tavily extract failed: 429"))).toBe(true);
+    expect(result.status).toBe("partial");
+  });
+
+  it("still caps unfetchable recon attempts so an unreachable domain cannot retry unbounded", async () => {
+    // Not booking a credit must not turn the per-run cap into a free-for-all: a
+    // domain that always refuses is attempted MAX_RECON_FETCHES_PER_RUN times and
+    // no more, however many borderline candidates it produces.
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    mocks.tavilySearch.mockImplementationOnce(async () =>
+      Array.from({ length: 4 }, (_, index) => ({
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: `https://reddit.com/r/CrimsonDesert/comments/recon-refused-${index}/current_patch/`,
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      })),
+    );
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(null);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(2);
+    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(2);
+    expect(result.skips.filter((skip) => skip === "candidate_recon_unavailable")).toHaveLength(2);
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued);
+  });
+
   it("hides existing public stale source links during a later scan even when no new mentions are kept", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;

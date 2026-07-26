@@ -194,11 +194,18 @@ describe("Tavily extract request", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("returns null when the extract response has no usable results", async () => {
+  it("returns null when Tavily states it refused the URL", async () => {
+    // The real shape Reddit produces: 200, no results, the URL named in
+    // failed_results. Tavily does not bill this, so null means confirmed unbilled.
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ results: [] }),
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+      }),
     }));
 
     const raw = await tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
@@ -207,6 +214,139 @@ describe("Tavily extract request", () => {
     });
 
     expect(raw).toBeNull();
+  });
+
+  it.each([
+    ["an entry with no url", [{}]],
+    ["a bare string entry", ["https://old.reddit.com/r/CrimsonDesert/comments/thin/"]],
+    ["an entry for a different url", [{ url: "https://old.reddit.com/r/OtherSub/comments/other/", error: "x" }]],
+    ["a null entry", [null]],
+  ])("throws when the stated refusal is %s", async (_label, failedResults) => {
+    // A refusal only waives the charge when Tavily names the URL we asked for.
+    // Corrupted provider data says nothing about whether the work was billed, so
+    // it must take the throwing path and be charged worst case — length alone is
+    // not evidence of an unbilled outcome.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [], failed_results: failedResults }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it.each([
+    ["a charged failure", 1],
+    ["a fractional charge", 0.5],
+    ["a corrupted negative count", -1],
+    ["a non-numeric count", "one"],
+    ["a null count", null],
+    ["no count at all", undefined],
+  ])("charges a refusal reporting %s", async (_label, credits) => {
+    // `include_usage` is requested, so it is honoured — as a veto. Exactly 0 is the
+    // only value consistent with a free refusal. A positive count is a charged
+    // failure; anything else is corrupted data that says nothing either way. Waiving
+    // on any of them would understate the month and let a later run past the cap.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+        usage: { credits },
+      }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it("waives the credit when a matching refusal reports zero usage", async () => {
+    // The live shape, captured from the API: Reddit refusals answer 200 with the URL
+    // in failed_results and `usage: {credits: 0}`.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+        usage: { credits: 0 },
+      }),
+    }));
+
+    const raw = await tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+      env: { TAVILY_API_KEY: "tavily-key" },
+      fetcher,
+    });
+
+    expect(raw).toBeNull();
+  });
+
+  it("matches the refusal against the rewritten URL, not the one passed in", async () => {
+    // Reddit URLs are rewritten to old.reddit.com before the request, so the
+    // comparison must use the URL actually sent or every Reddit refusal would look
+    // corrupted and be charged.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [{ url: "https://www.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" }],
+      }),
+    }));
+
+    await expect(
+      tavilyExtract("https://www.reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it("throws when an empty extract response never states a refusal", async () => {
+    // 200 with nothing usable and no stated refusal: Tavily may already have billed
+    // the work behind it. Returning null here would claim it was free.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [] }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it("throws when the extract response carries a result with blank text", async () => {
+    // Reported usage with empty raw_content is the same ambiguity: charged worst case.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [{ url: "https://old.reddit.com/x", raw_content: "   " }] }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
   });
 
   it("throws when the extract request fails", async () => {

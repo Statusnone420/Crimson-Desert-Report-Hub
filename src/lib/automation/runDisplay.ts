@@ -37,6 +37,28 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "All candidates failed the cheap relevance screen before OpenRouter, so no LLM call was made.",
     summaryLabel: "no LLM candidates",
   },
+  candidate_recon: {
+    // Marks the ATTEMPT, and is emitted before the outcome is known. Success wording
+    // here made a refusal read as "1 read the full page; 1 full page unavailable" on
+    // one line — and since Reddit refuses our reader every time, that was the ordinary
+    // case, not an edge one. Whether text arrived is the next marker's job.
+    label: "Tried the full page",
+    detail:
+      "A promising trusted source had too little text to judge, so the scanner tried to read the page itself. Whether the text arrived is reported separately.",
+    summaryLabel: "tried the full page",
+  },
+  candidate_recon_unavailable: {
+    label: "Full page unavailable",
+    detail:
+      "The scanner tried to read the full page and the source refused, so it judged the short summary instead. No search credit was spent. Reddit refuses our reader, so its threads always land here.",
+    summaryLabel: "full page unavailable",
+  },
+  candidate_recon_failed: {
+    label: "Full page read errored",
+    detail:
+      "Reading the full page errored before any text arrived, so the scanner judged the short summary instead. The search credit is charged because there is no way to tell whether the provider already billed it.",
+    summaryLabel: "full page read errored",
+  },
   candidate_rescued: {
     label: "Candidate rescued",
     detail: "A thin current-patch source was kept private for corroboration instead of being discarded or published.",

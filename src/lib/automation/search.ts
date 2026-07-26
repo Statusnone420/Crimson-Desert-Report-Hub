@@ -161,21 +161,34 @@ function extractionUrl(value: string): string {
 }
 
 /**
- * Fetch the full page text for one URL via Tavily's extract endpoint. Returns the
- * first result's trimmed raw_content, or null when no key is configured or no
- * usable content comes back. Mirrors `tavilySearch`'s injectable fetcher so tests
- * never touch the real network.
+ * Fetch the full page text for one URL via Tavily's extract endpoint. Mirrors
+ * `tavilySearch`'s injectable fetcher so tests never touch the real network.
+ *
+ * The return value is a billing claim the caller charges against the monthly
+ * ledger, so each outcome has to mean exactly one thing:
+ *
+ *   - a string: Tavily delivered page text and billed for it;
+ *   - null: CONFIRMED UNBILLED. Either no key was configured, so no request was
+ *     made, or Tavily answered 200 and named the URL in `failed_results`, which
+ *     it does not charge for. Reddit refuses Tavily's fetcher, so its threads
+ *     always land here;
+ *   - throws: everything else. A non-ok status, or a 200 whose payload is empty,
+ *     malformed, or carries blank text without stating a refusal. Tavily may
+ *     already have billed the work behind such a response, and nothing here can
+ *     tell. The caller charges worst case rather than assuming it was free —
+ *     understating spend would let a later run overrun the monthly cap.
  */
 export async function tavilyExtract(url: string, options: TavilyExtractOptions = {}): Promise<string | null> {
   const key = (options.env ?? process.env).TAVILY_API_KEY?.trim();
   if (!key) return null;
 
+  const requestedUrl = extractionUrl(url);
   const fetcher = options.fetcher ?? (fetch as unknown as SearchFetch);
   const res = await fetcher("https://api.tavily.com/extract", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      urls: [extractionUrl(url)],
+      urls: [requestedUrl],
       query: EXTRACT_QUERY,
       chunks_per_source: 5,
       extract_depth: "basic",
@@ -184,9 +197,37 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   });
   if (!res.ok) throw new Error(`tavily extract failed: ${res.status}`);
 
-  const data = (await res.json()) as { results?: TavilyExtractResult[] };
+  const data = (await res.json()) as {
+    results?: TavilyExtractResult[];
+    failed_results?: { url?: string; error?: string }[];
+    usage?: { credits?: number };
+  };
   const rawContent = (data.results ?? [])[0]?.raw_content?.trim();
-  return rawContent ? rawContent.slice(0, 4_000) : null;
+  if (rawContent) return rawContent.slice(0, 4_000);
+
+  // A refusal only waives the charge when Tavily actually names the URL we asked
+  // for. A malformed entry — `[{}]`, a bare string, or a different URL — says
+  // nothing about whether the work was billed, so it takes the throwing path and
+  // is charged worst case. Anything less strict here would let corrupted provider
+  // data quietly understate the month.
+  const refusedRequestedUrl = (data.failed_results ?? []).some(
+    (entry) => typeof entry?.url === "string" && entry.url === requestedUrl,
+  );
+
+  // `include_usage` is requested, so honour it — but only as a VETO. Observed live:
+  // a refused fetch and a successful extract BOTH report `usage: {credits: 0}`, so
+  // a zero here cannot prove nothing was billed. It can only contradict a waiver.
+  //
+  // Exactly 0 is the ONLY value consistent with a free refusal. Everything else
+  // contradicts it: a positive count is a charged failure, and a negative, absent,
+  // or non-numeric count is corrupted data that says nothing either way. All of them
+  // take the throwing path where the caller books the credit worst case. A response
+  // carrying no `usage` field at all makes no claim, so it falls back to the URL
+  // match rather than being treated as a contradiction.
+  const usageContradictsWaiver = data.usage !== undefined && data.usage.credits !== 0;
+
+  if (refusedRequestedUrl && !usageContradictsWaiver) return null;
+  throw new Error("tavily extract returned no content");
 }
 
 export async function tavilySearch(query: string, options: TavilySearchOptions = {}): Promise<SearchResult[]> {
