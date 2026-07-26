@@ -972,6 +972,17 @@ test.describe("public surface visual regression", () => {
     await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
     await expect(exportTrigger).toBeFocused();
 
+    // 320px is the narrowest supported screen. All three destinations stay on
+    // screen and the page never scrolls sideways: the label row must wrap on
+    // its own, since the outer bar can only wrap the two groups as whole items.
+    const restoreViewport = page.viewportSize();
+    await page.setViewportSize({ width: 320, height: 900 });
+    for (const label of ["REPORT REVIEW", "SCANNER MONITOR", "DOSSIERS"]) {
+      await expect(page.getByRole("link", { name: label })).toBeInViewport();
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    if (restoreViewport) await page.setViewportSize(restoreViewport);
+
     await page.goto("/admin/compile");
     await expect(page.getByRole("heading", { name: "Compile Pearl Abyss dossier" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Compile now" })).toBeVisible();
