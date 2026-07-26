@@ -77,10 +77,10 @@
   <section class="skeleton-section" aria-label="Compile" style="border-top:0;padding-top:0">
     <form style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
       <label style="display:flex;gap:8px;align-items:center;margin:0;font-size:14px;color:var(--dispatch-dim)">
-        <input type="checkbox" name="use_ai" style="width:auto"> Draft with AI (free OpenRouter prose model)
+        <input type="checkbox" name="use_ai" aria-describedby="dossier-ai-scope" style="width:auto"> Draft with AI (free OpenRouter prose model)
       </label>
       <button class="c-primary" type="submit">Compile now</button>
-      <span class="op-note">Aggregates are deterministic. AI only rewrites prose and falls back cleanly.</span>
+      <span id="dossier-ai-scope" class="op-note">Opt-in sends the complete generated dossier to OpenRouter, including private approved-report reproduction steps and evidence URLs plus public source URLs. OpenRouter is required to deny data collection and use zero-data-retention routing. AI only rewrites prose; provider failure falls back to the deterministic draft.</span>
       <!-- Without an AI key, production disables the checkbox and changes its
            label to "Draft with AI: disabled, no AI key configured". -->
     </form>

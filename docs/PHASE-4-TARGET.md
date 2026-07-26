@@ -50,8 +50,10 @@ total is not the denominator for the automatic-records query.
 
 Active lessons is a recovery-critical exception. Before the Scanner Monitor
 slice can ship, both active-rule reads — the operator ledger and scanner
-enforcement — must use stable pagination beyond the hosted PostgREST row cap,
-and the operator read must supply an exact total. Only then may the UI say
+enforcement — must use stable `created_at DESC, id DESC` pagination (or an
+equivalent unique cursor) beyond the hosted PostgREST row cap, and the operator
+read must supply an exact total. A tied-`created_at` page-boundary regression
+must prove that no rule is skipped or duplicated. Only then may the UI say
 `showing N of M`, filter the loaded result, and offer show-more. The current
 uncounted `.select()` calls and the test that merely proves there is no literal
 `limit(50)` are not evidence that every active rule was returned.
@@ -72,6 +74,16 @@ them. Phase 4 must call this a tracker-wide snapshot with current-patch context,
 never patch-scoped evidence or an independently counted all-storage total.
 Dossier history remains the newest 10 runs. A saved `?run=<id>` URL still opens
 directly, but older runs are not discoverable from the page.
+
+**Dossier AI privacy (locked).** `Draft with AI` is an explicit opt-in that
+sends the complete generated dossier to OpenRouter, including private
+approved-report reproduction steps and evidence URLs plus public source URLs.
+Adjacent accessible copy names those fields before submit and states that the
+request requires deny-collection and zero-data-retention routing. AI rewrites
+prose only; a provider failure falls back to the deterministic dossier.
+Before the Dossiers slice is complete, focused tests must pin the exact user
+message and provider routing, prove unchecked or disabled AI makes no provider
+request, and preserve deterministic fallback without weakening the disclosure.
 
 ## Control grammar
 
@@ -169,8 +181,9 @@ fixed column set, and two hash exclusions.
 **Default disposition: Preserve.** Every inventory entry not named below keeps
 its write payload, hidden fields, guard order, validation text, revalidation
 set, conditional/degraded states, and deliberate friction, verbatim. The
-read-truth, active-rule pagination, admin-cluster pagination, and CSV
-safety/completeness prerequisites named below are explicit exceptions.
+read-truth, dossier-AI privacy disclosure, active-rule pagination,
+admin-cluster pagination, and CSV safety/completeness prerequisites named below
+are explicit exceptions.
 Presentation may change; behavior may not. Specifically preserved
 presentation-sensitive items:
 the moderation cluster select stays inside the same form as all three decision
@@ -218,6 +231,13 @@ not carry a return destination.
   Supabase error must throw into the existing admin error boundary rather than
   become `[]`/`0`; focused tests must pin all four failures. The oldest-first
   50-row pending window and its separate exact total remain unchanged.
+- Scanner Monitor may render a green zero or "Nothing requires intervention."
+  only while the radar is connected and both automation-run reads that feed
+  radar health succeeded. The existing failed-read fallback
+  (`connected=false`, `runs7d.failed=0`) must become an explicit unavailable or
+  unknown scanner-health item instead of disappearing the radar band and
+  clearing the Action inbox. Focused tests must force each run-read failure and
+  prove that neither path can produce the clear headline.
 - Before Report Review is complete, both the current-column and rolling-deploy
   legacy projections in `readAdminClusters` must page beyond the hosted row cap
   in stable `title`, `id` order. A multipage regression must place both a
@@ -226,10 +246,11 @@ not carry a return destination.
   render a false green zero.
 - Before the Scanner Monitor slice calls Active lessons complete, both
   active-feedback-rule consumers (`getAutomationAdminData` and scanner
-  enforcement) must page deterministically past the hosted row cap, and the
-  admin read must return an exact count. A regression with more than one API
-  page must prove that no enforced rule loses its ledger recovery and no older
-  rule silently stops being enforced.
+  enforcement) must page by `created_at DESC, id DESC` (or an equivalent unique
+  cursor) past the hosted row cap, and the admin read must return an exact
+  count. A regression with tied `created_at` values across the page boundary
+  must prove that no enforced rule loses its ledger recovery, no rule is
+  duplicated, and no older rule silently stops being enforced.
 - Before the Export CSV slice is complete, implement the formula defense,
   deterministic multi-page read, and route allowlist tests specified in the
   locked export contract above. Do not widen the 22-field allowlist to satisfy
@@ -281,6 +302,7 @@ decision-history recovery deferral remains outside this gate; irreversible and
 partial controls disclose what cannot be restored; and all currently rendered
 recovery surfaces are preserved. Green zero is impossible
 after a failed source read, export formulas are neutralized without widening
-the private column allowlist, public and operator scanner data boundaries are
-never merged, and all parity dispositions are honored against the inventory
-IDs.
+the private column allowlist, the AI dossier opt-in discloses and pins every
+private field sent to OpenRouter plus its deny-collection/ZDR routing, public
+and operator scanner data boundaries are never merged, and all parity
+dispositions are honored against the inventory IDs.
