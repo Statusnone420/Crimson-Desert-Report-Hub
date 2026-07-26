@@ -1438,7 +1438,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
 
 .verdict-note { font-size: 13px; color: var(--dispatch-faint); }
 
-.verdict-clock {
+.verdict-quiet {
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.08em;
@@ -1446,7 +1446,7 @@ label { font-size: 12.5px; color: var(--dispatch-muted); display: block; margin-
   text-transform: uppercase;
 }
 
-#claims .verdict-clock {
+#claims .verdict-quiet {
   letter-spacing: 0.02em;
   color: var(--dispatch-muted);
   text-transform: none;

@@ -289,9 +289,9 @@ export default async function AdminPage() {
                     </form>
                     <p className="scope-line" id={`lock-scope-${cluster.id}`} style={{ flexBasis: "100%" }}>
                       <b>Lock</b> writes the selected lifecycle status, enables the maintainer override, and stores its
-                      reason. Fix claimed, Marked fixed, and Still happening also stamp the current patch version and a
-                      new claim clock; Open clears both. The lifecycle engine will not change that status until you
-                      press Clear lock.
+                      reason. Fix claimed, Marked fixed, and Still happening also stamp the current patch version and
+                      today&rsquo;s date as the claim date; Open clears both. The lifecycle engine will not change that
+                      status until you press Clear lock.
                     </p>
                     {cluster.admin_override ? (
                       <>
@@ -310,7 +310,7 @@ export default async function AdminPage() {
                           id={`clear-lock-scope-${cluster.id}`}
                           style={{ flexBasis: "100%" }}
                         >
-                          <b>Clear lock</b> releases engine ownership and clears the stored reason and claim clock. The
+                          <b>Clear lock</b> releases engine ownership and clears the stored reason and claim date. The
                           current lifecycle status remains until the next lifecycle scan.
                         </p>
                       </>

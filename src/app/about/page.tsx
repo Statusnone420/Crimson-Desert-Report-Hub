@@ -68,19 +68,19 @@ export default function AboutPage() {
         </dl>
 
         <div className="method-rows">
-          <details className="method-row" id="claim-clock">
+          <details className="method-row" id="player-verdicts">
             <summary className="method-row__q">
-              <span className="method-row__ask">What is a claim clock?</span>
+              <span className="method-row__ask">What counts as a player verdict?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                When this tracker records an official fix claim, the clock starts. Only what players say after
-                that counts toward whether the fix held.
+                When this tracker records an official fix claim, it notes the date. Only what players say
+                after that date counts toward whether the fix held.
               </span>
             </summary>
             <div className="method-row__more">
               <p>
-                It marks a moment, it doesn&rsquo;t run out. No amount of silence turns a claimed fix into a
-                confirmed one — only players saying so does that.
+                Nothing counts down. No amount of silence turns a claimed fix into a confirmed one — only
+                players saying so does that.
               </p>
               <p>
                 It resets on the next patch. A fix claimed in one patch isn&rsquo;t a claim about the one after

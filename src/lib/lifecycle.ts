@@ -67,14 +67,14 @@ function computeUnlockedLifecycle(input: ClusterLifecycleInput): ClusterLifecycl
   const decision = input.claimDecision ?? { matchKind: "none" as const };
   const hasSureClaim = decision.matchKind === "llm_sure";
   const currentPatchClaim = hasCurrentClaimContext(input);
-  const nextClaimClock = currentPatchClaim ? input.fixClaimedAt : hasSureClaim ? input.now.toISOString() : null;
+  const nextClaimDate = currentPatchClaim ? input.fixClaimedAt : hasSureClaim ? input.now.toISOString() : null;
 
-  // A sure current-patch claim starts a clock; an existing exact current-patch
-  // clock is preserved. Legacy, null-version, and older-patch clocks do not carry.
-  // There is no time-based way out — only player answers move the displayed state.
+  // A sure current-patch claim stamps a claim date; an existing exact
+  // current-patch date is preserved. Legacy, null-version, and older-patch dates
+  // do not carry. Nothing elapses — only player answers move the displayed state.
   if (hasSureClaim || currentPatchClaim) {
     return result("fix_claimed", "Pearl Abyss claims a fix; players verify from here.", {
-      fixClaimedAt: nextClaimClock,
+      fixClaimedAt: nextClaimDate,
       fixClaimedPatchVersion: input.currentPatchVersion,
     });
   }

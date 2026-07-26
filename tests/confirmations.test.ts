@@ -27,7 +27,7 @@ describe("computeClusterConfirmations", () => {
     expect(tallies.affectedCount).toBe(3);
     expect(tallies.affectedNetworks).toBe(2);
     expect(tallies.pollFixedCount).toBe(0);
-    expect(tallies.pollStillCount).toBe(0); // no claim clock → no poll
+    expect(tallies.pollStillCount).toBe(0); // no claim date → no poll
   });
 
   it("fixed_for_me does not count as affected", () => {

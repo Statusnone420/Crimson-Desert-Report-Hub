@@ -25,7 +25,7 @@ describe("computeClusterLifecycle", () => {
     });
   });
 
-  it("starts the claim clock when an LLM-sure PA claim matches", () => {
+  it("stamps the claim date when an LLM-sure PA claim matches", () => {
     const result = computeClusterLifecycle(lifecycleInput({
       claimDecision: { matchKind: "llm_sure", claimText: "Improved FPS drops." },
     }));
@@ -79,7 +79,7 @@ describe("computeClusterLifecycle", () => {
     });
   });
 
-  it("normalizes same-family legacy verdict rows back to the claim clock", () => {
+  it("normalizes same-family legacy verdict rows back to the claim date", () => {
     const fixed = computeClusterLifecycle(lifecycleInput({
       currentStatus: "verified_fixed",
       fixClaimedAt: "2026-07-01T12:00:00.000Z",

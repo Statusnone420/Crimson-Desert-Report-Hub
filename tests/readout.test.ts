@@ -99,7 +99,7 @@ describe("composeIssueReadout", () => {
     expect(readout.ask?.kinds).toEqual(["fixed_for_me", "still_happening"]);
   });
 
-  it("does not open a dead poll for a legacy claim status without a claim clock", () => {
+  it("does not open a dead poll for a legacy claim status without a claim date", () => {
     const readout = composeIssueReadout(base({ storedFixStatus: "verified_fixed" }));
     expect(readout.state).toBe("watching");
     expect(readout.poll).toBeNull();

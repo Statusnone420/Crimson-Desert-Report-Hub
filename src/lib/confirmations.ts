@@ -45,7 +45,7 @@ function timeOf(iso: string): number | null {
 /**
  * Aggregate one cluster's confirmation rows into display tallies.
  * Affected = voters whose current stance is have_it or still_happening.
- * Poll = fixed_for_me / still_happening votes cast at or after the claim clock.
+ * Poll = fixed_for_me / still_happening votes cast at or after the claim date.
  * Platform totals include every stance. Hashes are consumed here for distinct-network
  * counts and never leave the output.
  */
