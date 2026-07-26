@@ -38,7 +38,7 @@
   <nav class="section-nav" aria-label="Sections on this page">
     <a href="scanner-top.html#status">Status</a>
     <a href="#teach">Teach<span class="section-nav__count">30</span></a>
-    <a href="scanner-top.html#records">Records<span class="section-nav__count">57</span></a>
+    <a href="scanner-top.html#records">Records<span class="section-nav__count">20</span></a>
     <a href="#lanes">Context lanes<span class="section-nav__count">12</span></a>
     <a href="#lessons" aria-current="true">Lessons<span class="section-nav__count">41</span></a>
     <a href="#history">Scan history</a>
@@ -56,14 +56,14 @@
       <summary>
         <span class="mono-label">Teach · Optional</span>
         <span class="ledger-copy">Auto-rejected pages are not assignments. They stay private and expire on their own; teach only when a bad pattern is worth remembering.</span>
-        <span class="ledger-count">Showing 2 of 30 recent ›</span>
+        <span class="ledger-count">Showing 2 of the 30-row window ›</span>
       </summary>
       <div class="ledger-body">
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
           <label style="flex:1;min-width:180px;max-width:420px"><span class="sr-only">Search optional scanner review</span>
             <input type="search" placeholder="Search title, source, or rejection reason" style="width:100%">
           </label>
-          <span class="count-note">30 recent candidates · older ones expired</span>
+          <span class="count-note">30 most recent eligible candidates loaded</span>
         </div>
 
         <article class="review-card">
@@ -112,6 +112,11 @@
                   a rescued lead; normal evidence rules determine its
                   visibility. Scanner learning is unavailable until the schema
                   update, so this rescue records no lesson to forget."
+                  A readable relation with a missing decision RPC is not
+                  detected before submit: Reject and teach errors without
+                  changing the candidate; Keep completes and marks it rescued
+                  but records no lesson. Do not render an invented disabled
+                  state or promise a Forget path in that case.
                   See docs/PHASE-4-TARGET.md, Reversal language. -->
             <p class="scope-line"><b>Keep</b> spends an LLM call, creates a rescued lead, and records a scanner lesson. Normal evidence rules determine the lead's visibility. Forgetting the lesson later does not restore this candidate, delete the lead, or refund the spend.</p>
           </div>
@@ -214,8 +219,8 @@
     <details open>
       <summary>
         <span class="mono-label">Scan history &amp; diagnostics</span>
-        <span class="ledger-copy">Every run with its funnel, spend, skips, and errors. The one failure that needs you is first.</span>
-        <span class="ledger-count ledger-count--amber">Showing 3 of 184 · 7d ›</span>
+        <span class="ledger-copy">The newest 10 runs with their funnel, spend, skips, and errors. The failure that needs you is first.</span>
+        <span class="ledger-count ledger-count--amber">Showing 3 of the 10-run window ›</span>
       </summary>
       <div class="ledger-body">
         <div class="line-item">
@@ -239,7 +244,7 @@
           </div>
           <a class="c-quiet" href="#">Details</a>
         </div>
-        <button class="c-quiet" type="button">Browse all 184 runs →</button>
+        <button class="c-quiet" type="button">Show 7 more recent runs →</button>
       </div>
     </details>
   </section>

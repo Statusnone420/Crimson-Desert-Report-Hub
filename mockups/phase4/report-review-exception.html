@@ -92,13 +92,16 @@
       </form>
       <div class="decision-scopes">
         <p class="scope-line"><b>Approve</b> marks the report approved. With a selected cluster, it counts as evidence and normally makes that cluster public on the Issue Board immediately; an active Force hidden override still wins. A non-empty anonymized excerpt is inserted separately afterward.</p>
-        <p class="scope-line">All three decisions are final: the report leaves this queue and cannot be re-decided. Reject and Spam also write the cluster selection above.</p>
+        <p class="scope-line">All three decisions remove the report from the pending queue. The current console does not render a re-open or excerpt-retry control. Reject and Spam also write the cluster selection above.</p>
       </div>
-      <!-- The write order is preserved from production: the approval commits
-           before the excerpt insert, so an excerpt failure leaves the report
-           approved and gone from this queue. The error tells that truth
-           instead of promising a retry that does not exist. -->
-      <p class="inline-error"><b>Excerpt not saved:</b> the report was approved and has left this queue. Its selected-cluster evidence update stands, and that cluster is public unless an active Force hidden override wins, but the public excerpt failed to persist. Approval decisions can't be re-opened; copy your text now if you want to keep it.</p>
+      <!-- An excerpt-insert failure is deliberately not rendered here. Today
+           the approval commits first, the action then throws to the global
+           route error boundary, and the typed excerpt is lost. The pending
+           queue cannot render the now-approved report again. Although the
+           exported action has no pending-status guard, re-posting it is not a
+           safe recovery contract: it reruns moderation/visibility and can
+           append another public excerpt. Phase 4 does not invent a retry state
+           while the admin error-boundary gap remains deferred. -->
     </article>
   </section>
 

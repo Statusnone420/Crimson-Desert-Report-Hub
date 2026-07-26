@@ -13,7 +13,8 @@ The console answers five questions immediately, on every page:
 1. **Does anything need me?** — one number at the top of each page, green when zero.
 2. **What is the safest next action?** — one visually primary control per region.
 3. **What will this control change?** — a scope line states the write before submit.
-4. **Can I undo it?** — the undo control sits adjacent; partial undo says so.
+4. **Can I undo it?** — an available recovery sits adjacent; partial or absent
+   reversal is stated plainly.
 5. **Where is history?** — a Records band on every page, collapsed, counted honestly.
 
 ## Information architecture
@@ -38,18 +39,22 @@ destinations only. Export CSV and Sign out move to a visually distinct utility
 cluster on the right — both capabilities preserved on every OperatorShell page.
 
 **No endless lists.** Every list states its window against the true total when
-the live read supplies one (flagged: `oldest first · showing N of M`; leads:
-`20 most recent of 57 tracked`; lessons/history: `showing N of M` + filter +
-browse-more). When production exposes only a hard window, the console names
-that window without inventing a total or a browse control.
+the live read supplies one (flagged: `oldest first · showing N of M`; active
+lessons: `showing N of M` + filter + show-more). The automatic-records read is
+an uncounted 20-row window, the teaching desk is an uncounted 30-row eligible
+window, and scan history is the newest 10 runs. Those surfaces name their hard
+windows without inventing a total or a browse-beyond-window control. The
+radar's separately computed tracked-lead total is not the denominator for the
+automatic-records query.
 
-**Dossier truthfulness.** The current compiler aggregates approved reports,
-public scanner signals, issue clusters, and up to 1,000 approved excerpts across
-storage; `currentPatch.version` labels the output but does not filter those
-rows. Phase 4 must call this a tracker-wide snapshot with current-patch context,
-never patch-scoped evidence. Dossier history remains the newest 10 runs.
-A saved `?run=<id>` URL still opens directly, but older runs are not
-discoverable from the page.
+**Dossier truthfulness.** The current compiler issues tracker-wide, unfiltered
+reads for approved reports, public scanner signals, and issue clusters, plus a
+newest-1,000 read for approved excerpts. The generated counts describe the rows
+those reads return; `currentPatch.version` labels the output but does not filter
+them. Phase 4 must call this a tracker-wide snapshot with current-patch context,
+never patch-scoped evidence or an independently counted all-storage total.
+Dossier history remains the newest 10 runs. A saved `?run=<id>` URL still opens
+directly, but older runs are not discoverable from the page.
 
 ## Control grammar
 
@@ -62,13 +67,15 @@ Seven classes; same intent uses the same class and wording on every page.
 | Quiet | text-only | Show more, Browse, Details, Inspect source |
 | Destructive | crimson outline **+ scope line stating the write** | Reject, Spam, Reject and teach, Remove bad lead |
 | Recovery/Undo | `↩` glyph + mono label, adjacent to what it reverses | Undo, Clear lock, Reset to automatic |
-| Break-glass | amber-edged raised panel, mono warrant, reason + acknowledgement kept | visibility override create, current patch override |
+| Break-glass | amber-edged raised panel, mono warrant, existing deliberate friction preserved | visibility override create, current patch override |
 | Cost-incurring | mono `SPENDS CREDITS` chip beside the button + disclosure that dry-run also spends | both scan buttons, Keep as relevant (LLM call) |
 
-Required on every mutation: disabled/pending state (existing pendingText pattern),
-inline errors that name the problem and recovery and preserve entered data,
-explicit success confirmation, and risk never carried by color alone (every color
-is paired with a text badge or glyph).
+Required on every mutation in the redesigned surface: a disabled/pending state
+using the existing `pendingText` pattern, a scope disclosure that names the
+write, and risk never carried by color alone (every color is paired with a text
+badge or glyph). These mockups do not claim inline recovery, retained form
+input, or success confirmations from actions that currently throw. The global
+admin error surface remains a named deferral below.
 
 **Reversal language (locked 2026-07-25).** The `↩` glyph and the word
 "Undo" are reserved for full reversal. A partial reversal names what it actually
@@ -76,22 +83,38 @@ does — a KEEP lesson's control reads **Forget lesson** with **rescued lead
 stays** adjacent (accessible text, not a tooltip) — and its consequence copy
 states all three limits: forgetting never restores the candidate, never deletes
 the rescued lead, never refunds spend. Cost language is likewise fixed: both
-scan runs "spend real search credits and LLM calls — a test run only suppresses
-public changes. Neither run is reversible"; Keep as relevant "spends an LLM
-call, creates a rescued lead, and records a scanner lesson." The signal is
-inserted private, then normal evidence and override rules recompute its final
-visibility. Always say "creates"; never imply that the lesson itself publishes
-the lead. The same consequence, pending, success, failure, disabled, and
-reversal wording applies to equivalent controls on every page.
+scan runs "can spend real search credits and paid LLM calls; that spend counts
+against the monthly caps and is recorded in the run ledger, progress, and
+intent. A test run suppresses scanner-content persistence and public-content
+changes, but still records its own run and can mark a stale running scan failed.
+Neither run is reversible"; Keep as relevant "spends an LLM call, creates a
+rescued lead, and records a scanner lesson." The signal is inserted private,
+then normal evidence and override rules recompute its final visibility. Always
+say "creates"; never imply that the lesson itself publishes the lead. The same
+consequence, pending, success, failure, disabled, and reversal wording applies
+to equivalent controls on every page.
 
 Degraded state, pre-migration: when scanner learning is unavailable
-(`feedbackLearningAvailable` false, or the decision RPC is missing on a rolling
-deploy), Keep stays available — that asymmetry is deliberate — but the rescue
-records no lesson. Its scope line must then read: "Keep spends an LLM call and
-creates a rescued lead; normal evidence rules determine its visibility. Scanner
-learning is unavailable until the schema update, so this rescue records no
-lesson to forget." Never promise a lesson, or a Forget path, that the degraded
-state cannot produce.
+(`feedbackLearningAvailable` false because the feedback-rules relation read
+hits the existing narrowly identified missing-relation fallback), Keep stays
+available — that asymmetry is deliberate — but the rescue records no lesson.
+Its scope line must then read: "Keep spends an LLM call and creates a rescued
+lead; normal evidence rules determine its visibility. Scanner learning is
+unavailable until the schema update, so this rescue records no lesson to
+forget." Never promise a lesson, or a Forget path, that the degraded state
+cannot produce. A missing decision RPC while the relation is readable is
+discovered only on submit, not by `feedbackLearningAvailable`. Reject and teach
+throws the server-action error and leaves the candidate unchanged; Keep
+completes the rescue and marks it rescued but records no lesson. Stage 1 must
+not present this as a pre-submit disabled state or promise a lesson or Forget
+path.
+
+The current-patch override is the explicit break-glass payload exception.
+Preserve its existing `patch_version`-only input and validation; do not invent a
+reason, acknowledgement, or manual Undo. Its recovery is the next successful
+official patch sync taking control back; the synthetic manual row adds no
+official fix claims. The visibility-override creator separately keeps its
+required reason and acknowledgement and its one-click Reset to automatic.
 
 **Export CSV (locked).** The utility control reads `Export CSV…` and opens
 a confirm step that names the payload — the complete private report table,
@@ -128,9 +151,17 @@ gap #13); `runRedditMonitor` (risk #23); `RejectedArchive` + the
 retire with it); `setAutomationPaused` (risk #22, unwired duplicate); the hidden
 `modelPreset` input and unreachable `paused` form branch (risk #26).
 
-**In scope — settled 2026-07-25:** return-to after re-auth (gap #3).
-`requireAdmin` redirects carry the original destination and every sign-in
-surface honors it, so a session expiry on any operator page returns there.
+**In scope — settled 2026-07-25:** safe page return after re-auth (gap #3).
+A signed-out visit to `/admin` or `/admin/compile` carries that fixed pathname
+as an encoded `?from=` value to the full-page `/admin/login` form. After a
+successful sign-in, that form accepts `from` only when it exactly equals
+`/admin`, `/admin/compile`, or `/scanner`; every other value falls back to
+`/admin`. This preserves no query string or hash and performs no URL
+canonicalization: absent, absolute, protocol-relative, traversal,
+query-bearing, and other non-exact values are not return destinations.
+`/scanner` keeps its anonymous public-view behavior rather than redirecting
+through the page guard. Server-action guards and the public footer sign-in do
+not carry a return destination.
 
 **Defer with named reason:** self-expiring rules via `expires_at` (risk #25 — a
 real feature, not a redesign); admin error-boundary chrome (gap #1 — failure
@@ -139,9 +170,21 @@ surface must not change silently in a UI pass); rescue-vs-scan budget split
 robots `index,follow` on admin routes (gap #14 — separate hardening PR); true
 dossier patch scoping and stored run scope (the current schema has no patch
 scope for dossier runs); dossier history totals and browsing beyond the newest
-10 (server read contract); context-lane browsing beyond the 40 most recent
-current-patch observations (server read contract; Active lessons preserves an
-Undo for every still-active decision).
+10 (server read contract); automatic-record totals/browsing beyond the newest
+20, teaching-candidate totals/browsing beyond the newest 30 eligible rows, and
+scan-history totals/browsing beyond the newest 10 runs (server read contracts);
+context-lane browsing beyond the 40 most recent current-patch observations
+(server read contract; Active lessons preserves an Undo for every still-active
+decision).
+
+The admin error-boundary deferral includes the partial `moderateReport` failure:
+approval and its visibility trigger can commit before an excerpt insert throws,
+but the current route error replaces the queue, loses the excerpt text, and
+incorrectly claims nothing was published or counted. The pending-only queue has
+no rendered re-open or excerpt-retry path. The exported action is not a safe
+substitute: it has no pending-status guard and a repeated approval can append a
+duplicate excerpt. Phase 4 does not mock an inline retry or retained-input state
+until that transaction and recovery contract is designed separately.
 
 **If better UX would need a server or database contract change, stop and flag it.**
 
@@ -153,6 +196,8 @@ without full-page scrolling; equivalent controls identical across pages;
 different-risk controls visibly distinct without relying on color; explicit
 keyboard order, visible focus, labels, disclosure state, and live status
 feedback; desktop primary, every control operable at 390px; every active
-decision has at least one reachable Undo/Reset path, with all currently rendered
-recovery surfaces preserved; public and operator scanner data boundaries never
-merged; all parity dispositions honored against the inventory IDs.
+scanner decision has its honest Undo or Forget path, every reversible state has
+a reachable Undo/Reset, irreversible controls disclose the lack of reversal,
+and all currently rendered recovery surfaces are preserved; public and operator
+scanner data boundaries never merged; all parity dispositions honored against
+the inventory IDs.

@@ -35,7 +35,7 @@
   <nav class="section-nav" aria-label="Sections on this page">
     <a href="#status" aria-current="true">Status</a>
     <a href="#teach">Teach<span class="section-nav__count">30</span></a>
-    <a href="#records">Records<span class="section-nav__count">57</span></a>
+    <a href="#records">Records<span class="section-nav__count">20</span></a>
     <a href="#lanes">Context lanes<span class="section-nav__count">12</span></a>
     <a href="#lessons">Lessons<span class="section-nav__count">41</span></a>
     <a href="#history">Scan history</a>
@@ -61,7 +61,7 @@
         <button class="c-primary" type="button">Run capped scan now</button>
         <span class="cost-chip">Spends credits</span>
       </div>
-      <p class="op-note" style="max-width:34ch">Both runs spend real search credits and LLM calls — a test run only suppresses public changes. Neither run is reversible.</p>
+      <p class="op-note" style="max-width:40ch">Both runs can spend real search credits and paid LLM calls against the monthly caps, and both leave an operational run record. A test run suppresses scanner-content and public-content changes, but can mark a stale run failed. Neither run is reversible.</p>
     </div>
   </header>
 
@@ -111,7 +111,7 @@
       <summary>
         <span class="mono-label">Teach · Optional</span>
         <span class="ledger-copy">Auto-rejected pages are not assignments. They stay private and expire on their own; teach only when a bad pattern is worth remembering.</span>
-        <span class="ledger-count">30 recent candidates ›</span>
+        <span class="ledger-count">30-row recent eligible window ›</span>
       </summary>
     </details>
   </section>
@@ -122,7 +122,7 @@
       <summary>
         <span class="mono-label">Automatic records</span>
         <span class="ledger-copy">What the scanner kept. Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.</span>
-        <span class="ledger-count">20 most recent of 57 tracked ›</span>
+        <span class="ledger-count">20-row recent source-record window ›</span>
       </summary>
     </details>
     <details id="lanes">
@@ -142,7 +142,7 @@
     <details id="history">
       <summary>
         <span class="mono-label">Scan history &amp; diagnostics</span>
-        <span class="ledger-copy">Every run with its funnel, spend, skips, and errors.</span>
+        <span class="ledger-copy">The newest 10-run window with funnel, spend, skips, and errors.</span>
         <span class="ledger-count ledger-count--amber">1 failed · 7d ›</span>
       </summary>
     </details>

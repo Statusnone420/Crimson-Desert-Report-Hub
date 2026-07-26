@@ -117,10 +117,17 @@
     <details>
       <summary>
         <span class="mono-label">Current patch override</span>
-        <span class="ledger-copy">If the scanner stops finding Pearl Abyss patch notes, set the current patch by hand. The next successful scan takes control back. Changing it also swaps which observations the Scanner Monitor desk can moderate.</span>
+        <span class="ledger-copy">If the scanner stops finding Pearl Abyss patch notes, set the current patch by hand. This keeps the existing version-only payload and has no manual Undo; the next successful official patch sync takes control back. Changing it also swaps which observations the Scanner Monitor desk can moderate.</span>
         <span class="ledger-count ledger-count--green">Synced 1.15.00 ›</span>
       </summary>
-      <div class="ledger-body"><p class="op-note">Collapsed in this state.</p></div>
+      <div class="ledger-body">
+        <form>
+          <label for="patch_version_override">New current patch</label>
+          <input id="patch_version_override" name="patch_version" placeholder="1.15.00" pattern="^\d+\.\d{1,2}(?:\.\d{1,2})?$" title="Version like 1.13.02" required>
+          <p class="scope-line">Set current patch makes this manual version current across the site. There is no Clear or Undo, and it adds no official fix claims. The next successful official patch sync replaces it. It also changes the Scanner Monitor window: older observations lose card-level Undo, while any still-active rule remains undoable through Active lessons.</p>
+          <button class="c-breakglass" type="submit">Set current patch</button>
+        </form>
+      </div>
     </details>
   </section>
 

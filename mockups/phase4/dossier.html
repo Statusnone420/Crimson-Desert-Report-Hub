@@ -50,12 +50,12 @@
     <div>
       <div class="stat-label">Approved evidence</div>
       <div class="stat-value">1</div>
-      <div class="stat-caption">All approved direct reports in storage</div>
+      <div class="stat-caption">Tracker-wide approved-report read; not patch-filtered</div>
     </div>
     <div>
       <div class="stat-label">Verified</div>
       <div class="stat-value">1</div>
-      <div class="stat-caption">All reports with an approved public excerpt</div>
+      <div class="stat-caption">Distinct reports in the newest-1,000 excerpt rows</div>
     </div>
     <div>
       <div class="stat-label">Recent runs</div>
@@ -75,7 +75,7 @@
       <!-- Without an AI key, production disables the checkbox and changes its
            label to "Draft with AI: disabled, no AI key configured". -->
     </form>
-    <p class="scope-line" style="margin-top:10px"><b>Compile</b> reads all approved reports, all public scanner signals, all issue clusters, and up to the 1,000 newest approved excerpts in storage. Patch 1.15.00 supplies context in the generated heading; it does not filter those rows. Every click appends one run, and runs are never deleted.</p>
+    <p class="scope-line" style="margin-top:10px"><b>Compile</b> issues tracker-wide reads for approved reports, public scanner signals, and issue clusters, plus a newest-1,000 approved-excerpt read. Patch 1.15.00 supplies context in the generated heading; it does not filter those rows. Every successful compile appends one run, and the app has no delete path.</p>
   </section>
 
   <!-- 4 · RECORDS: current output -->
