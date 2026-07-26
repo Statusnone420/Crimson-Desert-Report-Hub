@@ -25,6 +25,7 @@ import {
   type PatchContext,
 } from "@/lib/patchWatch";
 import { composeIssueReadout, DISPLAY_THRESHOLD_NETWORKS, type IssueReadout } from "@/lib/readout";
+import { SCANNER_READ_REGISTERS, type ScannerReadRegister } from "@/lib/scannerRegisters";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 import { isMissingSupabaseColumn, isMissingSupabaseRelation } from "@/lib/supabaseCompatibility";
 
@@ -1351,6 +1352,17 @@ export type PublicScannerData = {
    * claim as "open" and must never be displayed as one.
    */
   llmPaused: boolean | null;
+  /**
+   * Which registers above could not be read. A value belonging to a listed
+   * register is a placeholder, not a count, and its surface must say so instead
+   * of printing it.
+   *
+   * `scannerConnected` is the shorthand for "this list is empty", so a consumer
+   * that has not been taught the registers still degrades the conservative way:
+   * one failed read hides everything. Consumers move to the registers one cell
+   * at a time to keep the numbers that were genuinely read.
+   */
+  readFailures: ScannerReadRegister[];
   steamPulse: SteamPulsePoint[];
   platformContext: PlatformContextSnapshot | null;
   pulseReadFailures: PulseReadFailure[];
@@ -1507,10 +1519,10 @@ function isIntakeRun(run: { mode: string; intent: string | null; search_queries_
  * title, URL, summary, rejection reason, or candidate row leaves this function.
  */
 async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
-  // Zeros here are not counts — `scannerConnected: false` marks every number in
-  // this object as unavailable, and the operator branch says so rather than
-  // printing an ordinary zero.
-  const disconnected = (circuitOpen: boolean | null): PublicScannerData => ({
+  // Zeros here are not counts — every register is listed as failed, which marks
+  // each number as unavailable, and each surface says so rather than printing an
+  // ordinary zero.
+  const allUnavailable = (circuitOpen: boolean | null): PublicScannerData => ({
     reviewedThisWeek: 0,
     filteredThisWeek: 0,
     keptThisWeek: 0,
@@ -1519,6 +1531,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     lastCheckedAt: null,
     scannerActive: false,
     scannerConnected: false,
+    readFailures: [...SCANNER_READ_REGISTERS],
     llmPaused: circuitOpen,
     steamPulse: [],
     platformContext: null,
@@ -1526,12 +1539,16 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
   });
   // No Supabase in this environment is a known state rather than a failed read:
   // no automation runs here, so there is no cost circuit to report open.
-  if (!hasSupabaseServiceConfig()) return disconnected(false);
+  if (!hasSupabaseServiceConfig()) return allUnavailable(false);
 
   // Unknown until the circuit read runs. A failure before that point must not
   // erase an open circuit, and must not invent one either — the engine fails
   // closed because it is deciding whether to spend; this value is only displayed.
   let llmPaused: boolean | null = null;
+  // Each read records only its own register. A failure no longer discards the
+  // numbers its siblings returned successfully — one broken query used to blank
+  // the whole scoreboard, which reads on the public page as a very quiet week.
+  const failures = new Set<ScannerReadRegister>();
   try {
     const supabase = createServiceClient();
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -1545,9 +1562,9 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       .in("status", ["success", "partial", "failed"])
       .gte("started_at", weekAgo)
       .order("started_at", { ascending: false });
-    if (runError) return disconnected(llmPaused);
+    if (runError) failures.add("week");
     const runs = (
-      (runData ?? []) as {
+      ((runError ? [] : runData) ?? []) as {
         search_results_seen: number;
         reddit_posts_seen: number;
         signals_inserted: number;
@@ -1589,9 +1606,9 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       .in("status", ["success", "partial", "failed"])
       .order("started_at", { ascending: false })
       .limit(1);
-    if (latestError) return disconnected(llmPaused);
+    if (latestError) failures.add("heartbeat");
     const latest = (latestRows ?? [])[0] as { finished_at: string | null; started_at: string } | undefined;
-    const lastCheckedAt = latest?.finished_at ?? latest?.started_at ?? null;
+    const lastCheckedAt = latestError ? null : (latest?.finished_at ?? latest?.started_at ?? null);
 
     // Same rolling-history evaluation the automation engine uses, so the badge
     // can never disagree with whether the next scan will actually call the LLM.
@@ -1603,34 +1620,49 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       .gte("started_at", circuitReadStartIso(now));
     llmPaused = llmPausedFromCircuitRead(circuitData as CircuitRunRow[] | null, circuitError, now);
 
-    const currentPatch = await getCurrentPatchMetadata(supabase);
-    const publicSignalClusters = await getPublicSignalClusterIdsForCurrentPatch(supabase, currentPatch);
-    const privateSignalClusters = new Set(Object.keys(await getCandidateSignalCountsByCluster(supabase, currentPatch)));
+    // Awaiting = current-patch eligible private-lead clusters not backed by a
+    // public link or approved report, including clusters not yet public. Four
+    // reads feed it, and any of them failing costs this one number rather than
+    // the whole scoreboard.
+    let awaiting = 0;
+    try {
+      const currentPatch = await getCurrentPatchMetadata(supabase);
+      const publicSignalClusters = await getPublicSignalClusterIdsForCurrentPatch(supabase, currentPatch);
+      const privateSignalClusters = new Set(
+        Object.keys(await getCandidateSignalCountsByCluster(supabase, currentPatch)),
+      );
 
-    const { data: reportData, error: reportError } = await supabase
-      .from("bug_reports")
-      .select("cluster_id, patch_version")
-      .eq("moderation_status", "approved");
-    if (reportError) return disconnected(llmPaused);
-    const approvedReportClusters = new Set<string>();
-    for (const report of filterPatchFamilyReports(
-      (reportData ?? []) as { cluster_id: string | null; patch_version: string | null }[],
-      currentPatch,
-    )) {
-      if (report.cluster_id) approvedReportClusters.add(report.cluster_id);
+      const { data: reportData, error: reportError } = await supabase
+        .from("bug_reports")
+        .select("cluster_id, patch_version")
+        .eq("moderation_status", "approved");
+      if (reportError) throw new Error(`approved reports read failed: ${reportError.message}`);
+      const approvedReportClusters = new Set<string>();
+      for (const report of filterPatchFamilyReports(
+        (reportData ?? []) as { cluster_id: string | null; patch_version: string | null }[],
+        currentPatch,
+      )) {
+        if (report.cluster_id) approvedReportClusters.add(report.cluster_id);
+      }
+
+      for (const id of privateSignalClusters) {
+        if (!publicSignalClusters.has(id) && !approvedReportClusters.has(id)) awaiting += 1;
+      }
+    } catch {
+      // A partial loop may already have counted; the number is unusable either way.
+      awaiting = 0;
+      failures.add("awaiting");
     }
 
     // One definition of "published" for every surface: the same full-card gate
     // the issue board and homepage use (needsFullIssueCard on decorated clusters).
     // Counting from raw sets here previously disagreed with the board.
-    const { clusters: decoratedClusters } = await getIssuesDataUncached();
-    const published = decoratedClusters.filter(needsFullIssueCard).length;
-
-    // Awaiting = current-patch eligible private-lead clusters not backed by a
-    // public link or approved report, including clusters not yet public.
-    let awaiting = 0;
-    for (const id of privateSignalClusters) {
-      if (!publicSignalClusters.has(id) && !approvedReportClusters.has(id)) awaiting += 1;
+    let published = 0;
+    try {
+      const { clusters: decoratedClusters } = await getIssuesDataUncached();
+      published = decoratedClusters.filter(needsFullIssueCard).length;
+    } catch {
+      failures.add("published");
     }
 
     const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
@@ -1644,12 +1676,14 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
       published,
       lastCheckedAt,
       scannerActive: !control.paused,
-      scannerConnected: true,
+      scannerConnected: failures.size === 0,
+      // Declaration order, not insertion order, so the list is stable.
+      readFailures: SCANNER_READ_REGISTERS.filter((register) => failures.has(register)),
       llmPaused,
       ...pulseContext,
     };
   } catch {
-    return disconnected(llmPaused);
+    return allUnavailable(llmPaused);
   }
 }
 

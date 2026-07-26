@@ -124,6 +124,7 @@ describe("homepage hero names the tier its subject belongs to", () => {
       published: 1,
       steamPulse: [],
       platformContext: null,
+      readFailures: [],
       pulseReadFailures: [],
     });
     mocks.getPatchRadarData.mockResolvedValue({

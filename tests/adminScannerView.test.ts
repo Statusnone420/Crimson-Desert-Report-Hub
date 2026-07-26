@@ -6,6 +6,7 @@ import { ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { emptyPatchRadarData } from "@/lib/radar.server";
 import type { PublicScannerData } from "@/lib/queries";
 import type { IntegrationStatus } from "@/lib/env";
+import type { ScannerReadRegister } from "@/lib/scannerRegisters";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/app/admin/actions", () => ({
@@ -49,6 +50,7 @@ const healthyScoreboard = {
   scannerActive: true,
   scannerConnected: true,
   llmPaused: false,
+  readFailures: [],
   steamPulse: [],
   platformContext: null,
   pulseReadFailures: [],
@@ -360,6 +362,7 @@ describe("AdminScannerView", () => {
       scannerActive: true,
       scannerConnected: true,
       llmPaused: false,
+      readFailures: [],
       steamPulse: [],
       platformContext: null,
       pulseReadFailures: [],
@@ -367,7 +370,7 @@ describe("AdminScannerView", () => {
 
     function render(overrides: {
       radarConnected: boolean;
-      scannerConnected: boolean;
+      readFailures?: ScannerReadRegister[];
       weekReviewed?: number;
       integrations?: IntegrationStatus[];
     }) {
@@ -392,7 +395,11 @@ describe("AdminScannerView", () => {
         activeRun: null,
         latestRealRun: null,
         latestFind: null,
-        scoreboard: { ...connectedScoreboard, scannerConnected: overrides.scannerConnected },
+        scoreboard: {
+          ...connectedScoreboard,
+          scannerConnected: (overrides.readFailures ?? []).length === 0,
+          readFailures: overrides.readFailures ?? [],
+        },
         radar: {
           ...radar,
           connected: overrides.radarConnected,
@@ -404,13 +411,13 @@ describe("AdminScannerView", () => {
     }
 
     it("says nothing requires intervention only when both health reads succeeded", () => {
-      const markup = render({ radarConnected: true, scannerConnected: true });
+      const markup = render({ radarConnected: true });
 
       expect(markup).toContain("Nothing requires intervention.");
     });
 
     it("cannot claim the operator is clear when the radar run read failed", () => {
-      const markup = render({ radarConnected: false, scannerConnected: true });
+      const markup = render({ radarConnected: false });
 
       expect(markup).not.toContain("Nothing requires intervention.");
       expect(markup).toContain("Scanner health is unavailable");
@@ -420,12 +427,16 @@ describe("AdminScannerView", () => {
       expect(markup).not.toContain("No scanner intervention required");
     });
 
-    it("cannot claim the operator is clear when the scoreboard read failed", () => {
-      const markup = render({ radarConnected: true, scannerConnected: false });
+    it("marks only the failed register in the funnel band", () => {
+      // Scanner health comes from the radar's run reads and the circuit, not
+      // from these counters — so a failed published read greys its own cell and
+      // leaves both the headline and its neighbours alone.
+      const markup = render({ radarConnected: true, readFailures: ["published"] });
 
-      expect(markup).not.toContain("Nothing requires intervention.");
-      expect(markup).toContain("Scanner health is unavailable");
-      expect(markup).toContain("Source radar funnel unavailable");
+      expect(markup).toContain("Nothing requires intervention.");
+      expect(markup).toContain('<div class="stat-band__value stat-band__value--amber">Unavailable</div>');
+      expect(markup).toContain("Reviewed · 7d");
+      expect(markup).not.toContain("The weekly read failed");
     });
 
     it("cannot claim the operator is clear while the cost circuit is unreadable", () => {
@@ -435,7 +446,6 @@ describe("AdminScannerView", () => {
       // contradict both the status line and what the scanner is doing.
       const markup = render({
         radarConnected: true,
-        scannerConnected: true,
         integrations: [
           {
             key: "ai_extraction",
@@ -453,15 +463,16 @@ describe("AdminScannerView", () => {
       expect(markup).toContain("Scanner health is unavailable");
     });
 
-    it("does not print scoreboard KPIs beside a live funnel when the scoreboard read failed", () => {
-      // A connected radar can report a busy week while the scoreboard read
-      // failed — the branch that renders the funnel bar also renders three
-      // KPI numbers that come entirely from the scoreboard.
-      const markup = render({ radarConnected: true, scannerConnected: false, weekReviewed: 12 });
+    it("keeps the funnel bar and marks only the unread KPI beside it", () => {
+      // A connected radar reports a busy week from its own read; the KPI column
+      // beside the bar is scoreboard-sourced, so one failed register must cost
+      // one KPI rather than the whole row.
+      const markup = render({ radarConnected: true, readFailures: ["awaiting"], weekReviewed: 12 });
 
-      expect(markup).toContain("Source radar funnel unavailable");
-      expect(markup).not.toContain("candidates reviewed");
-      expect(markup).not.toContain("Radar yield");
+      expect(markup).toContain("12 candidates reviewed");
+      expect(markup).toContain("Radar yield");
+      expect(markup).toContain('<span class="mono-label">unavailable</span>');
+      expect(markup).not.toContain('class="desk-funnel__num desk-funnel__num--blue"');
     });
   });
 });

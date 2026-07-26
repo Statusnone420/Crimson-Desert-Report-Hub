@@ -23,6 +23,7 @@ import { patchFamilyKey } from "@/lib/patchWatch";
 import { radarRecencyCounts, RADAR_RECENCY_BANDS } from "@/lib/radarDisplay";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getDashboardData, getDailySignalRollup, getPublicScannerData } from "@/lib/queries";
+import { registerUnread } from "@/lib/scannerRegisters";
 import { serializeJsonLd, webSiteJsonLd } from "@/lib/structuredData";
 
 export const revalidate = 300;
@@ -705,11 +706,13 @@ export default async function DispatchHomePage() {
               {/* Both numbers come from the scanner scoreboard (`radar`, getPublicScannerData),
                   not the patch radar read (`radarData`) — same week, one source. */}
               <div className="pulse-stat pulse-stat--secondary">
-                <div className="pulse-stat__value">{radar.scannerConnected ? radar.keptThisWeek : "—"}</div>
+                <div className="pulse-stat__value">
+                  {registerUnread(radar.readFailures, "week") ? "—" : radar.keptThisWeek}
+                </div>
                 <div className="pulse-stat__caption">
-                  {radar.scannerConnected
-                    ? `Public leads kept by the radar this week, out of ${radar.reviewedThisWeek} candidates reviewed in the same week.`
-                    : "The scanner read failed, so this week's kept and reviewed counts are unavailable — a quiet week and a broken read are not the same thing."}
+                  {registerUnread(radar.readFailures, "week")
+                    ? "The weekly scanner read failed, so this week's kept and reviewed counts are unavailable — a quiet week and a broken read are not the same thing."
+                    : `Public leads kept by the radar this week, out of ${radar.reviewedThisWeek} candidates reviewed in the same week.`}
                 </div>
               </div>
             </div>
@@ -1186,29 +1189,45 @@ export default async function DispatchHomePage() {
         <div className="dispatch-inset-box observatory-footnote surface-raised">
           <div>
             <p className="observatory-footnote__label">From the Observatory</p>
-            {radar.scannerConnected ? (
-              <>
-                <p className="observatory-footnote__copy dispatch-desktop-only">
+            {/* Two clauses, two registers. A failed weekly read no longer takes the
+                board count down with it, and neither prints a zero it never read. */}
+            <p className="observatory-footnote__copy dispatch-desktop-only">
+              {registerUnread(radar.readFailures, "week") ? (
+                <>The radar&apos;s weekly figures are unavailable right now.</>
+              ) : (
+                <>
                   The radar reviewed <span className="num-ink">{radar.reviewedThisWeek}</span> public candidate
                   {radar.reviewedThisWeek === 1 ? "" : "s"} this week and kept{" "}
-                  <span className="num-ink">{radar.keptThisWeek}</span>. The board currently shows{" "}
-                  <span className="num-ink">{radar.published}</span> published issue
+                  <span className="num-ink">{radar.keptThisWeek}</span>.
+                </>
+              )}{" "}
+              {registerUnread(radar.readFailures, "published") ? (
+                <>The published-issue count is unavailable right now.</>
+              ) : (
+                <>
+                  The board currently shows <span className="num-ink">{radar.published}</span> published issue
                   {radar.published === 1 ? "" : "s"}.
-                </p>
-                <p className="observatory-footnote__copy dispatch-mobile-only">
+                </>
+              )}
+            </p>
+            <p className="observatory-footnote__copy dispatch-mobile-only">
+              {registerUnread(radar.readFailures, "week") ? (
+                <>Radar this week: unavailable.</>
+              ) : (
+                <>
                   Radar this week: <span className="num-ink">{radar.reviewedThisWeek}</span> reviewed ·{" "}
-                  <span className="num-ink">{radar.keptThisWeek}</span> kept. Board now:{" "}
-                  <span className="num-ink">{radar.published}</span> published issue
+                  <span className="num-ink">{radar.keptThisWeek}</span> kept.
+                </>
+              )}{" "}
+              {registerUnread(radar.readFailures, "published") ? (
+                <>Board now: unavailable.</>
+              ) : (
+                <>
+                  Board now: <span className="num-ink">{radar.published}</span> published issue
                   {radar.published === 1 ? "" : "s"}.
-                </p>
-              </>
-            ) : (
-              /* Three zeros would read as a real, very quiet week. */
-              <p className="observatory-footnote__copy">
-                The radar&apos;s weekly figures are unavailable right now — the scanner read failed, so this
-                footnote has no reviewed, kept, or published count to report.
-              </p>
-            )}
+                </>
+              )}
+            </p>
           </div>
           <span className="observatory-footnote__link">
             <Link href="/scanner" className="dispatch-link">

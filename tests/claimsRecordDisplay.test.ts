@@ -118,6 +118,7 @@ describe("claims record consolidated status line", () => {
       published: 1,
       steamPulse: [],
       platformContext: null,
+      readFailures: [],
       pulseReadFailures: [],
     });
     mocks.getPatchRadarData.mockResolvedValue({
@@ -472,6 +473,7 @@ describe("claims record section grouping and truncation honesty", () => {
       published: 1,
       steamPulse: [],
       platformContext: null,
+      readFailures: [],
       pulseReadFailures: [],
     });
     mocks.getPatchRadarData.mockResolvedValue({
@@ -590,6 +592,7 @@ describe("claims record bracket-tag chips", () => {
       published: 1,
       steamPulse: [],
       platformContext: null,
+      readFailures: [],
       pulseReadFailures: [],
     });
     mocks.getPatchRadarData.mockResolvedValue({
