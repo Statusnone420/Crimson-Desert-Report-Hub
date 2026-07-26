@@ -23,7 +23,7 @@ function modeLabel(provider: string): string {
 }
 
 export default async function CompilePage({ searchParams }: { searchParams: Promise<{ run?: string }> }) {
-  await requireAdmin();
+  await requireAdmin("/admin/compile");
   const { run } = await searchParams;
   const supabase = createServiceClient();
   const aiAvailable = features().ai;

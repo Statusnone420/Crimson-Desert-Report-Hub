@@ -944,6 +944,45 @@ test.describe("public surface visual regression", () => {
     await expectHealthyPage(page, problems);
     await expect(page).toHaveScreenshot("admin-review.png", { fullPage: true });
 
+    // The export confirm gate: the utility names its payload before anything
+    // downloads, Download still hits the real route, and all three close paths
+    // (download, cancel, Escape) put the strip away. Runs after the screenshot
+    // so the baseline stays the collapsed state.
+    await page.getByRole("button", { name: "Export CSV" }).click();
+    await expect(page.getByText("Export all report-review rows?")).toBeVisible();
+    // The disclosure names the sensitive fields leaving the system and the
+    // two hash columns that deliberately never enter the CSV.
+    await expect(page.getByText(/PERS IDs, evidence URLs, and every moderation state/)).toBeVisible();
+    await expect(page.getByText("Submission and deduplication hashes are excluded.")).toBeVisible();
+    const download = page.waitForEvent("download");
+    await page.getByRole("link", { name: "Download CSV" }).click();
+    expect((await download).suggestedFilename()).toMatch(/^cd-reports-\d{4}-\d{2}-\d{2}\.csv$/);
+    await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
+    await page.getByRole("button", { name: "Export CSV" }).click();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
+    // Escape must close the strip immediately after a keyboard open, while
+    // focus is still on the trigger in the nav — the strip is a sibling, so
+    // its own handler never sees that keypress.
+    const exportTrigger = page.getByRole("button", { name: "Export CSV" });
+    await exportTrigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("Export all report-review rows?")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
+    await expect(exportTrigger).toBeFocused();
+
+    // 320px is the narrowest supported screen. All three destinations stay on
+    // screen and the page never scrolls sideways: the label row must wrap on
+    // its own, since the outer bar can only wrap the two groups as whole items.
+    const restoreViewport = page.viewportSize();
+    await page.setViewportSize({ width: 320, height: 900 });
+    for (const label of ["REPORT REVIEW", "SCANNER MONITOR", "DOSSIERS"]) {
+      await expect(page.getByRole("link", { name: label })).toBeInViewport();
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    if (restoreViewport) await page.setViewportSize(restoreViewport);
+
     await page.goto("/admin/compile");
     await expect(page.getByRole("heading", { name: "Compile Pearl Abyss dossier" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Compile now" })).toBeVisible();
@@ -988,8 +1027,18 @@ test.describe("public surface visual regression", () => {
     expect(adminStatusRequests).toBe(1);
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/admin\/login$/);
+
+    // An expired-session navigation carries its destination through sign-in:
+    // the operator lands back on the page they were headed to, not the
+    // console home. The plain guard bounce still works and names its origin.
     await page.goto("/admin");
-    await expect(page).toHaveURL(/\/admin\/login$/);
+    await expect(page).toHaveURL(/\/admin\/login\?from=%2Fadmin$/);
+    await page.goto("/admin/compile");
+    await expect(page).toHaveURL(/\/admin\/login\?from=%2Fadmin%2Fcompile$/);
+    await page.getByLabel("Password").fill("admin-password");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/admin\/compile$/);
+    await expect(page.getByRole("heading", { name: "Compile Pearl Abyss dossier" })).toBeVisible();
     await expectHealthyPage(page, problems);
   });
 

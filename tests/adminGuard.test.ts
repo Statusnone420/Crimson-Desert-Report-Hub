@@ -67,6 +67,13 @@ describe("requireAdmin", () => {
     expect(redirect).toHaveBeenCalledWith("/admin/login");
   });
 
+  it("carries a page's path through to the login form so sign-in can return there", async () => {
+    stubCookieStore(undefined);
+
+    await expect(requireAdmin("/admin/compile")).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirect).toHaveBeenCalledWith("/admin/login?from=%2Fadmin%2Fcompile");
+  });
+
   it("redirects when the cookie was signed with a different secret", async () => {
     stubCookieStore(createSessionToken("some-other-secret"));
 

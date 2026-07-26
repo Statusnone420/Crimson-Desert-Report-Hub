@@ -28,17 +28,31 @@ const COLUMNS = [
   "cluster_id",
 ];
 
+const PAGE_SIZE = 1000;
+
 export async function GET() {
   if (!(await isAdmin())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const supabase = createServiceClient();
-  const { data, error } = await supabase
-    .from("bug_reports")
-    .select(COLUMNS.join(","))
-    .order("created_at", { ascending: false });
-  if (error) return NextResponse.json({ error: "query_failed" }, { status: 500 });
+  // The hosted API caps one select at 1,000 rows, and the confirm step promises
+  // every row. Page in ascending created_at, id order: reports are never
+  // hard-deleted and new rows sort after every visited offset, so pages cannot
+  // skip or repeat a row mid-export.
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("bug_reports")
+      .select(COLUMNS.join(","))
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) return NextResponse.json({ error: "query_failed" }, { status: 500 });
+    const page = (data ?? []) as unknown as Record<string, unknown>[];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
 
-  const csv = buildCsv((data ?? []) as unknown as Record<string, unknown>[], COLUMNS);
+  const csv = buildCsv(rows, COLUMNS);
   return new NextResponse(csv, {
     headers: {
       "content-type": "text/csv; charset=utf-8",

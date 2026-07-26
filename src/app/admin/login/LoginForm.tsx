@@ -1,13 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { resolveLoginReturn } from "@/lib/loginReturn";
 
 export function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -19,7 +21,9 @@ export function LoginForm() {
       body: JSON.stringify({ password }),
     });
     setBusy(false);
-    if (res.ok) router.push("/admin");
+    // requireAdmin() put the interrupted destination in ?from=; sign-in
+    // resumes there instead of always dumping the operator on Report review.
+    if (res.ok) router.push(resolveLoginReturn(searchParams.get("from")));
     else setError(true);
   }
 

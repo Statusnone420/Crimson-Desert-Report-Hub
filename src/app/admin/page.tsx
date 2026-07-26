@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 const LOCKABLE_STATUSES: FixStatus[] = ["reported", "fix_claimed", "verified_fixed", "persists"];
 
 export default async function AdminPage() {
-  await requireAdmin();
+  await requireAdmin("/admin");
   const supabase = createServiceClient();
 
   const [{ data: flagged }, clusters, approved, pending, spam, currentPatch] = await Promise.all([
