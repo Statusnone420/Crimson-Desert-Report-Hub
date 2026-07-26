@@ -359,7 +359,13 @@ export function AdminScannerView({
   // failed, so their zeros are placeholders rather than counts. Nothing on this
   // page may then say the operator is clear — it would be reading "no work" off
   // a broken connection.
-  const healthKnown = radar.connected && scoreboard.scannerConnected;
+  //
+  // An unreadable circuit counts too, even though the rest of the scoreboard is
+  // fine: the engine fails closed on that same failure and stops using LLM
+  // extraction, so "nothing requires intervention" would contradict both the
+  // status line above and what the scanner is actually doing.
+  const healthKnown =
+    radar.connected && scoreboard.scannerConnected && unknownCircuitIntegrations.length === 0;
   const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length;
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
 

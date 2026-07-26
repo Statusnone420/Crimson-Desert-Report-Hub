@@ -5,6 +5,7 @@ import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { emptyPatchRadarData } from "@/lib/radar.server";
 import type { PublicScannerData } from "@/lib/queries";
+import type { IntegrationStatus } from "@/lib/env";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/app/admin/actions", () => ({
@@ -364,7 +365,12 @@ describe("AdminScannerView", () => {
       pulseReadFailures: [],
     };
 
-    function render(overrides: { radarConnected: boolean; scannerConnected: boolean; weekReviewed?: number }) {
+    function render(overrides: {
+      radarConnected: boolean;
+      scannerConnected: boolean;
+      weekReviewed?: number;
+      integrations?: IntegrationStatus[];
+    }) {
       const radar = emptyPatchRadarData(patch);
       return renderToStaticMarkup(createElement(AdminScannerView, {
         runs: [],
@@ -392,7 +398,7 @@ describe("AdminScannerView", () => {
           connected: overrides.radarConnected,
           funnel7d: { ...radar.funnel7d, reviewed: overrides.weekReviewed ?? 0 },
         },
-        integrations: [],
+        integrations: overrides.integrations ?? [],
         nowIso: "2026-07-22T18:00:00.000Z",
       }));
     }
@@ -420,6 +426,31 @@ describe("AdminScannerView", () => {
       expect(markup).not.toContain("Nothing requires intervention.");
       expect(markup).toContain("Scanner health is unavailable");
       expect(markup).toContain("Source radar funnel unavailable");
+    });
+
+    it("cannot claim the operator is clear while the cost circuit is unreadable", () => {
+      // Only the circuit query failed, so the scoreboard is legitimately
+      // connected — but the engine fails closed on that same failure and stops
+      // using LLM extraction. Saying "nothing requires intervention" here would
+      // contradict both the status line and what the scanner is doing.
+      const markup = render({
+        radarConnected: true,
+        scannerConnected: true,
+        integrations: [
+          {
+            key: "ai_extraction",
+            label: "AI extraction",
+            connected: true,
+            missingEnv: [],
+            detail: "The cost-safety circuit read failed.",
+            circuitUnknown: true,
+          },
+        ],
+      });
+
+      expect(markup).not.toContain("Nothing requires intervention.");
+      expect(markup).toContain("AI EXTRACTION STATE UNKNOWN");
+      expect(markup).toContain("Scanner health is unavailable");
     });
 
     it("does not print scoreboard KPIs beside a live funnel when the scoreboard read failed", () => {
