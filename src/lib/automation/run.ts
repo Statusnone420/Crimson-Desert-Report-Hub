@@ -16,7 +16,9 @@ import {
 } from "@/lib/automation/eligibility";
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
 import {
+  canonicalizeRuleScopes,
   matchScannerFeedbackRule,
+  storedRecordUrl,
   type ScannerFeedbackRule,
 } from "@/lib/automation/feedback";
 import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
@@ -1752,12 +1754,15 @@ async function refreshClusterStats(
       signals.map((signal) => [
         signal.id,
         matchScannerFeedbackRule(
-          {
-            url: signal.canonical_url ?? signal.source_url ?? "",
-            sourceDomain: signal.source_domain ?? null,
-          },
+          { url: storedRecordUrl(signal), sourceDomain: signal.source_domain ?? null },
           retainedSignalRules,
           now,
+          // Stored record against stored rule, neither side re-canonicalized.
+          // Whether a signal counts as evidence is fixed at the moment it was
+          // reviewed, and no later widening of canonicalization can move it in
+          // either direction — not by breaking a block that matched, and not by
+          // extending one across records that were stored separately.
+          { exactUrlAsRecorded: true },
         ),
       ]),
     );
@@ -2405,7 +2410,11 @@ async function executeAutomationRun(
 
     const routableClusters = await loadRoutableClusters(supabase);
     const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
-    const feedbackRules = await loadActiveScannerFeedbackRules(supabase);
+    // Intake only. Re-canonicalizing an exact-URL scope widens what it matches,
+    // which is right for "have I been taught about this page" and wrong for
+    // re-evaluating stored evidence — refreshClusterStats keeps comparing scope
+    // values exactly as recorded so a lesson can never move an evidence count.
+    const feedbackRules = canonicalizeRuleScopes(await loadActiveScannerFeedbackRules(supabase));
 
     await report("searching");
     const steamCollection =

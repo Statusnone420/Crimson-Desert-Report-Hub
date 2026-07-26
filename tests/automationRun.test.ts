@@ -2387,6 +2387,85 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("keeps an exact reviewed record out of evidence after canonicalization widens", async () => {
+    // The operator reviewed this exact Steam record and blocked it. Both the
+    // stored signal and the rule carry the `?l=english` form that was canonical
+    // when they were written. Canonicalizing only the signal would stop the
+    // block matching, put it back in the evidence count, and republish the
+    // cluster — a learning rule rewriting evidence, which it may never do.
+    const reviewed = "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english";
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-exact-reviewed",
+          slug: "exact-reviewed",
+          title: "Exact reviewed cluster",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: true,
+          is_public: true,
+        },
+      ],
+      scanner_feedback_rules: [
+        {
+          id: "rule-steam-exact",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: reviewed,
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-steam-reviewed",
+          cluster_id: "cluster-exact-reviewed",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: reviewed,
+          canonical_url: reviewed,
+          source_domain: "steamcommunity.com",
+          title: "Crimson Desert 1.13 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+        {
+          id: "signal-community-retained",
+          cluster_id: "cluster-exact-reviewed",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://community.example.com/crimson-desert-fps",
+          canonical_url: "https://community.example.com/crimson-desert-fps",
+          source_domain: "community.example.com",
+          title: "Crimson Desert performance regression",
+          summary: "A second community reports frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+      ],
+    });
+    honorSourceSignalProjection = true;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-exact-reviewed", new Date("2026-07-05T12:00:00.000Z"));
+
+    // One publishable domain left, so corroboration is not met and the cluster
+    // no longer qualifies on its own evidence.
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false });
+  });
+
   it("keeps a broad rule read past the hosted row cap out of retained evidence", async () => {
     // Paging the rule ledger to completion makes MORE rules visible to every
     // consumer, including the evidence refresh. The refresh narrows itself to
@@ -2599,6 +2678,47 @@ describe("runAutomationMonitor", () => {
       }),
     ]);
     expect(tables.automation_runs[0]).toMatchObject({ operator_rules_matched: 1 });
+  });
+
+  it("still enforces a Steam rule recorded under a different interface language", async () => {
+    // The rule was canonical when it was written; `l` only became droppable
+    // later. Intake re-canonicalizes stored scopes so the lesson keeps naming
+    // the page it was about — otherwise a rejected thread returns to the desk
+    // under any other language.
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-steam-thread",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes after the update",
+        url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana",
+        snippet: "Crimson Desert crashes every time I open the map.",
+        sourceDomain: "steamcommunity.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(0);
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({ reason: "off_topic", feedback_rule_id: "rule-steam-thread" }),
+    ]);
   });
 
   it("keeps enforcing an older rule that sits past the hosted row cap", async () => {
