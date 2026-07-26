@@ -83,7 +83,7 @@
     </div>
     <p class="all-clear">✓ All clear — no flagged reports need review</p>
     <p class="op-note" style="margin-top:6px">New flags appear here with the full private text, the auto-sort reason, and approve / reject / spam controls with cluster selection.</p>
-    <p class="op-note" style="margin-top:6px">This known-zero state renders only after the flagged, approved, pending, and spam reads all succeed. A read failure uses the existing admin error surface; it never becomes green 0 or “All clear.”</p>
+    <p class="op-note" style="margin-top:6px">This known-zero state renders only after the flagged, approved, pending, and spam reads succeed and the required paginated cluster read completes. A read failure uses the existing admin error surface; a service-truncated cluster window is not accepted as complete.</p>
   </section>
 
   <!-- 3 · OPTIONAL WORK — none on this page; the queue is the work. -->
@@ -127,7 +127,7 @@
         <form>
           <label for="patch_version_override">New current patch</label>
           <input id="patch_version_override" name="patch_version" placeholder="1.15.00" pattern="^\d+\.\d{1,2}(?:\.\d{1,2})?$" title="Version like 1.13.02" required>
-          <p class="scope-line">Set current patch makes this manual version current across the site. There is no Clear or Undo, and it adds no official fix claims. The next successful official patch sync replaces it. It also changes the Scanner Monitor window: older observations lose card-level Undo, while any still-active rule remains undoable through Active lessons.</p>
+          <p class="scope-line">Set current patch makes this manual version current across the site. There is no Clear or Undo, and it adds no official fix claims. The next successful official patch sync replaces it. It also changes the Scanner Monitor window: older observations lose card-level Undo; Active lessons retains rule revocation only while the rule remains active, unrevoked, and unexpired.</p>
           <button class="c-breakglass" type="submit">Set current patch</button>
         </form>
       </div>

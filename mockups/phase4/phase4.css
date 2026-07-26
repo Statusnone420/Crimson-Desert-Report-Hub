@@ -102,6 +102,7 @@ input, select, textarea {
   border: 1px solid var(--rule); border-radius: var(--r-btn); background: var(--dispatch-raised);
   margin: 14px 28px 0; padding: 10px 14px; font-size: 13px; color: var(--dispatch-ink-2);
 }
+.confirm-strip[hidden] { display: none; }
 
 .page { max-width: 1180px; margin: 0 auto; padding: 30px 28px 80px; }
 

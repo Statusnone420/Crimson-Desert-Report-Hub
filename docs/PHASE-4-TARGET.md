@@ -56,6 +56,14 @@ and the operator read must supply an exact total. Only then may the UI say
 uncounted `.select()` calls and the test that merely proves there is no literal
 `limit(50)` are not evidence that every active rule was returned.
 
+That ledger can recover only decisions whose rules remain active, unrevoked,
+and unexpired. Superseding or expiring a rule removes it from Active lessons
+without undoing its decision or restoring its target. If the affected
+observation is also outside the current-patch 40-row card window, no rendered
+recovery surface exists. Phase 4 must not call those historical decisions
+recoverable; a decision-history recovery surface is a separate data/UI
+contract.
+
 **Dossier truthfulness.** The current compiler issues tracker-wide, unfiltered
 reads for approved reports, public scanner signals, and issue clusters, plus a
 newest-1,000 read for approved excerpts. The generated counts describe the rows
@@ -142,24 +150,29 @@ inline confirmation group before downloading every report's fixed 22-field
 review export. It names the private free text, PERS IDs, evidence URLs, and all
 moderation states that leave the system. It also names the deliberate
 exclusions: `submitter_ip_hash` and `duplicate_fingerprint` never enter the CSV.
-The trigger exposes `aria-expanded`/`aria-controls`; Download, Cancel, and
-Escape close the group and return focus to the trigger.
+Every closed trigger exposes `aria-expanded="false"` and `aria-controls`; the
+open state sets `aria-expanded="true"`. Download, Cancel, and Escape close the
+group and return focus to the trigger.
 
 Formula-safe serialization is a Stage 2 prerequisite, not behavior to preserve.
 Before this control is complete, player-controlled string cells whose first
 non-whitespace character is `=`, `+`, `-`, or `@` (or whose first character is
 a tab or carriage return) must be neutralized before ordinary CSV quoting.
-Focused serializer tests and an authenticated export-route column-set test must
-pin both the formula defense and the two hash exclusions.
+The route must also page deterministically by `created_at` then `id` beyond the
+hosted PostgREST row cap; its current single select cannot support the word
+"every." Focused serializer tests and authenticated export-route tests spanning
+more than one API page must pin the formula defense, complete ordered row set,
+fixed column set, and two hash exclusions.
 
 ## Parity dispositions
 
 **Default disposition: Preserve.** Every inventory entry not named below keeps
 its write payload, hidden fields, guard order, validation text, revalidation
 set, conditional/degraded states, and deliberate friction, verbatim. The
-read-truth, active-rule pagination, and CSV-safety prerequisites named below are
-explicit exceptions. Presentation may change; behavior may not. Specifically
-preserved presentation-sensitive items:
+read-truth, active-rule pagination, admin-cluster pagination, and CSV
+safety/completeness prerequisites named below are explicit exceptions.
+Presentation may change; behavior may not. Specifically preserved
+presentation-sensitive items:
 the moderation cluster select stays inside the same form as all three decision
 buttons with a scope line stating that Reject/Spam also write it (risk #8); the
 scanner policy stays ONE form, visually sectioned (risks #4/#5); the lifecycle
@@ -167,9 +180,10 @@ select still omits `acknowledged` (risk #9); Keep-as-relevant stays outside the
 feedback-learning gate (risk #11); the Steam-review teaching refusal keeps its
 explanatory sentence (risk #31); both Undo surfaces for observation decisions
 remain for observations inside the current-patch 40-row desk, while Active
-lessons remains the recovery path for active decisions outside that window or
-after a patch change (risks #17/#29); both teaching forms remain distinct (risk
-#28); the
+lessons remains the recovery path only while a decision's rule is active,
+unrevoked, and unexpired outside that window or after a patch change (risks
+#17/#29). Superseded or expired decisions outside the card window have no
+rendered recovery. Both teaching forms remain distinct (risk #28); the
 visibility-override browser keeps its search gate, result cap, reason, and
 acknowledgement (risks #15/#16).
 
@@ -204,15 +218,22 @@ not carry a return destination.
   Supabase error must throw into the existing admin error boundary rather than
   become `[]`/`0`; focused tests must pin all four failures. The oldest-first
   50-row pending window and its separate exact total remain unchanged.
+- Before Report Review is complete, both the current-column and rolling-deploy
+  legacy projections in `readAdminClusters` must page beyond the hosted row cap
+  in stable `title`, `id` order. A multipage regression must place both a
+  forced-visibility row and an engine-owned lifecycle exception after page one
+  and prove that Reset to automatic remains reachable and Needs you cannot
+  render a false green zero.
 - Before the Scanner Monitor slice calls Active lessons complete, both
   active-feedback-rule consumers (`getAutomationAdminData` and scanner
   enforcement) must page deterministically past the hosted row cap, and the
   admin read must return an exact count. A regression with more than one API
   page must prove that no enforced rule loses its ledger recovery and no older
   rule silently stops being enforced.
-- Before the Export CSV slice is complete, implement the formula defense and
-  route allowlist tests specified in the locked export contract above. Do not
-  widen the 22-field allowlist to satisfy the old "complete table" wording.
+- Before the Export CSV slice is complete, implement the formula defense,
+  deterministic multi-page read, and route allowlist tests specified in the
+  locked export contract above. Do not widen the 22-field allowlist to satisfy
+  the old "complete table" wording.
 
 **Defer with named reason:** self-expiring rules via `expires_at` (risk #25 — a
 real feature, not a redesign); admin error-boundary chrome (gap #1 — failure
@@ -226,7 +247,10 @@ scope for dossier runs); dossier history totals and browsing beyond the newest
 scan-history totals/browsing beyond the newest 10 runs (server read contracts);
 context-lane browsing beyond the 40 most recent current-patch observations
 (server read contract; the paginated Active lessons prerequisite preserves a
-rule-revocation path for still-active decisions outside that card window);
+rule-revocation path only while a decision's rule remains active, unrevoked,
+and unexpired outside that card window); decision-history recovery for
+superseded or expired decisions whose target is outside the card window
+(server/UI contract);
 full restoration of an unclustered source lead after **Revoke rule**, and
 reactivation of an older same-scope rule after its replacement is revoked
 (RPC/data-contract changes; the redesigned ledger discloses both limits).

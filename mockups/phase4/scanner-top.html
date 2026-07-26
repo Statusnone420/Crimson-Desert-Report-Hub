@@ -24,10 +24,19 @@
   </div>
   <div class="shell-utilities">
     <span class="shell-utilities__label">Utilities</span>
-    <button class="util-btn" type="button">↓ Export CSV…</button>
+    <button id="export-trigger" class="util-btn" type="button" aria-expanded="false" aria-controls="export-confirm">↓ Export CSV…</button>
     <button class="util-btn" type="button">Sign out</button>
   </div>
 </nav>
+
+<!-- Closed export disclosure. Opening removes hidden and sets
+     aria-expanded=true; Download, Cancel, and Escape close it and return focus
+     to #export-trigger. -->
+<div id="export-confirm" class="confirm-strip" role="group" aria-labelledby="export-confirm-title" aria-describedby="export-confirm-detail" hidden>
+  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field private review export. Submission and deduplication hashes are excluded.</span></span>
+  <a class="c-secondary" href="#">Download CSV</a>
+  <button class="c-quiet" type="button">Cancel</button>
+</div>
 
 <main class="page">
 <div class="scanner-grid">
@@ -128,7 +137,7 @@
     <details id="lanes">
       <summary>
         <span class="mono-label">Context lanes</span>
-        <span class="ledger-copy">Wire and Asks on the Brief. The desk shows the 40 most recent current-patch items; hidden rows in that window keep card-level Undo. Active lessons retains a rule-revocation path outside the window or after a patch change.</span>
+        <span class="ledger-copy">Wire and Asks on the Brief. The desk shows the 40 most recent current-patch items; hidden rows in that window keep card-level Undo. Outside it, Active lessons retains rule revocation only while the rule stays active, unrevoked, and unexpired.</span>
         <span class="ledger-count">12 shown on this patch · 2 hidden ›</span>
       </summary>
     </details>

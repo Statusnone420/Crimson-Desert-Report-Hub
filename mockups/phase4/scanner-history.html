@@ -24,10 +24,19 @@
   </div>
   <div class="shell-utilities">
     <span class="shell-utilities__label">Utilities</span>
-    <button class="util-btn" type="button">↓ Export CSV…</button>
+    <button id="export-trigger" class="util-btn" type="button" aria-expanded="false" aria-controls="export-confirm">↓ Export CSV…</button>
     <button class="util-btn" type="button">Sign out</button>
   </div>
 </nav>
+
+<!-- Closed export disclosure. Opening removes hidden and sets
+     aria-expanded=true; Download, Cancel, and Escape close it and return focus
+     to #export-trigger. -->
+<div id="export-confirm" class="confirm-strip" role="group" aria-labelledby="export-confirm-title" aria-describedby="export-confirm-detail" hidden>
+  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field private review export. Submission and deduplication hashes are excluded.</span></span>
+  <a class="c-secondary" href="#">Download CSV</a>
+  <button class="c-quiet" type="button">Cancel</button>
+</div>
 
 <main class="page">
 <div class="scanner-grid">
@@ -146,7 +155,7 @@
             <button class="c-undo" type="submit">Undo — restore item and revoke rule</button>
           </form>
         </article>
-        <p class="count-note">Items outside this current-patch 40-row card window are not browseable here. After the required paginated rule read lands, any still-active decision remains revocable from Active lessons below; signal-removal limits are stated there.</p>
+        <p class="count-note">Items outside this current-patch 40-row card window are not browseable here. After the required paginated rule read lands, only decisions with active, unrevoked, unexpired rules remain revocable from Active lessons below. A superseded or expired decision outside this card window has no current recovery surface.</p>
       </div>
     </details>
   </section>
