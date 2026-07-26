@@ -27,6 +27,7 @@ const scoreboard = {
   scannerActive: false,
   scannerConnected: true,
   llmPaused: false,
+  readFailures: [],
   steamPulse: [],
   platformContext: null,
   pulseReadFailures: [],
@@ -47,7 +48,7 @@ function render(data: PublicScannerData) {
 
 describe("PublicScannerView with a failed scoreboard read", () => {
   it("does not publish a zero-filled published count as a count", () => {
-    const markup = render({ ...scoreboard, scannerConnected: false });
+    const markup = render({ ...scoreboard, scannerConnected: false, readFailures: ["published"] });
 
     expect(markup).toContain("The scanner read failed, so this count is unavailable — not zero");
     // The cell renders the word, not the placeholder number behind it.
@@ -58,10 +59,40 @@ describe("PublicScannerView with a failed scoreboard read", () => {
   it("does not claim every problem area carries a public link", () => {
     // `awaiting` is zero-filled when the read failed, and this is the strongest
     // claim on the public page — it must never be derived from an unread number.
-    const markup = render({ ...scoreboard, scannerConnected: false });
+    const markup = render({ ...scoreboard, scannerConnected: false, readFailures: ["awaiting"] });
 
     expect(markup).not.toContain("Every area carries a public link or an approved report");
     expect(markup).toContain("Whether each one carries a public link is unavailable right now");
+  });
+
+  it("keeps the published count when only the awaiting read failed", () => {
+    const markup = render({ ...scoreboard, published: 7, scannerConnected: false, readFailures: ["awaiting"] });
+
+    expect(markup).toContain("Full cards on the issue board");
+    expect(markup).toContain('<div class="stat-band__value stat-band__value--crimson">7</div>');
+  });
+
+  it("does not report an empty run history when the heartbeat read failed", () => {
+    const markup = render({ ...scoreboard, scannerConnected: false, readFailures: ["heartbeat"] });
+
+    expect(markup).not.toContain("No runs recorded");
+    expect(markup).toContain("Last check unavailable");
+    // The scheduler state comes from the settings read, which succeeded.
+    expect(markup).toContain("Scanner paused");
+  });
+
+  it("only calls the whole view offline when every register failed", () => {
+    const partial = render({ ...scoreboard, scannerConnected: false, readFailures: ["published"] });
+    const total = render({
+      ...scoreboard,
+      scannerConnected: false,
+      readFailures: ["week", "heartbeat", "awaiting", "published"],
+    });
+
+    expect(partial).not.toContain("Offline view.");
+    expect(partial).toContain("Scanner paused");
+    expect(total).toContain("Offline view.");
+    expect(total).toContain("Scanner unavailable");
   });
 
   it("still makes the claim when the read succeeded and nothing is awaiting", () => {

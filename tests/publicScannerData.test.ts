@@ -118,6 +118,23 @@ function isCircuitRead(trace: QueryTrace): boolean {
 
 const openCircuitRow = { skips: ["openrouter_unexpected_charge"], started_at: new Date().toISOString() };
 
+const heartbeatRow = { finished_at: "2026-07-26T12:00:00.000Z", started_at: "2026-07-26T11:58:00.000Z" };
+
+/** One scheduled run inside the week: 3 kept out of a non-zero candidate count. */
+const weeklyRunRow = {
+  search_results_seen: 10,
+  reddit_posts_seen: 0,
+  signals_inserted: 3,
+  signals_reobserved: 0,
+  status: "success",
+  mode: "scheduled",
+  intent: "broad_sweep",
+  search_queries_used: 2,
+  funnel: null,
+  finished_at: "2026-07-26T12:00:00.000Z",
+  started_at: "2026-07-26T11:58:00.000Z",
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
@@ -131,27 +148,41 @@ beforeEach(() => {
 });
 
 describe("getPublicScannerData read failures", () => {
-  it("reports the scanner disconnected when the weekly run read fails", async () => {
-    resolveQuery = (trace) => (isWeeklyRunRead(trace) ? { data: null, error: denied } : { data: [], error: null });
+  it("loses only the week when the weekly run read fails", async () => {
+    resolveQuery = (trace) => {
+      if (isWeeklyRunRead(trace)) return { data: null, error: denied };
+      if (isHeartbeatRead(trace)) return { data: [heartbeatRow], error: null };
+      return { data: [], error: null };
+    };
     const { getPublicScannerData } = await import("@/lib/queries");
 
     const data = await getPublicScannerData();
 
+    expect(data.readFailures).toEqual(["week"]);
     expect(data.scannerConnected).toBe(false);
-    expect(data.scannerActive).toBe(false);
+    // The heartbeat query succeeded, so its answer survives its sibling's failure.
+    expect(data.lastCheckedAt).toBe(heartbeatRow.finished_at);
   });
 
-  it("reports the scanner disconnected when the heartbeat read fails", async () => {
-    resolveQuery = (trace) => (isHeartbeatRead(trace) ? { data: null, error: denied } : { data: [], error: null });
+  it("loses only the heartbeat when the heartbeat read fails", async () => {
+    resolveQuery = (trace) => {
+      if (isHeartbeatRead(trace)) return { data: null, error: denied };
+      if (isWeeklyRunRead(trace)) return { data: [weeklyRunRow], error: null };
+      return { data: [], error: null };
+    };
     const { getPublicScannerData } = await import("@/lib/queries");
 
     const data = await getPublicScannerData();
 
-    expect(data.scannerConnected).toBe(false);
+    expect(data.readFailures).toEqual(["heartbeat"]);
     expect(data.lastCheckedAt).toBeNull();
+    // The whole point of the registers: one missing timestamp no longer takes
+    // the week's real counters down with it.
+    expect(data.keptThisWeek).toBe(3);
+    expect(data.reviewedThisWeek).toBeGreaterThan(0);
   });
 
-  it("reports the scanner disconnected when the approved-report read fails", async () => {
+  it("loses only awaiting when the approved-report read fails", async () => {
     resolveQuery = (trace) =>
       trace.table === "bug_reports" && trace.columns === "cluster_id, patch_version"
         ? { data: null, error: denied }
@@ -160,6 +191,47 @@ describe("getPublicScannerData read failures", () => {
 
     const data = await getPublicScannerData();
 
+    expect(data.readFailures).toEqual(["awaiting"]);
+  });
+
+  it("fails both registers that depend on the public-signal read", async () => {
+    resolveQuery = (trace) =>
+      trace.table === "source_signals" && trace.operations.includes("eq:public_status:public")
+        ? { data: null, error: denied }
+        : { data: [], error: null };
+    const { getPublicScannerData } = await import("@/lib/queries");
+
+    const data = await getPublicScannerData();
+
+    // One query, two registers: public signals feed both the awaiting split and
+    // the issue board the published count is taken from. The week and heartbeat
+    // registers do not touch it and survive.
+    expect(data.readFailures).toEqual(["awaiting", "published"]);
+    expect(data.scannerConnected).toBe(false);
+  });
+
+  it("marks published unavailable when the issue-board read degrades to empty", async () => {
+    // The board read returns empty rather than throwing on a query error, so an
+    // exception is not the only way this count can be wrong.
+    resolveQuery = (trace) =>
+      trace.table === "issue_clusters" ? { data: null, error: denied } : { data: [], error: null };
+    const { getPublicScannerData } = await import("@/lib/queries");
+
+    const data = await getPublicScannerData();
+
+    expect(data.readFailures).toContain("published");
+    expect(data.published).toBe(0);
+  });
+
+  it("marks every register unavailable when the whole read collapses", async () => {
+    mocks.getAutomationControlState.mockRejectedValue(new Error("settings unavailable"));
+    const { getPublicScannerData } = await import("@/lib/queries");
+
+    const data = await getPublicScannerData();
+
+    // A total outage still degrades the coarse way — the registers are for
+    // partial failures, not a replacement for the all-down case.
+    expect(data.readFailures).toEqual(["week", "heartbeat", "awaiting", "published"]);
     expect(data.scannerConnected).toBe(false);
   });
 
@@ -179,16 +251,20 @@ describe("getPublicScannerData read failures", () => {
     expect(data.llmPaused).toBe(true);
   });
 
-  it("reports the circuit unknown when the failure lands before it can be evaluated", async () => {
-    resolveQuery = (trace) => (isWeeklyRunRead(trace) ? { data: null, error: denied } : { data: [], error: null });
+  it("still evaluates the circuit after an unrelated register fails", async () => {
+    resolveQuery = (trace) => {
+      if (isWeeklyRunRead(trace)) return { data: null, error: denied };
+      if (isCircuitRead(trace)) return { data: [openCircuitRow], error: null };
+      return { data: [], error: null };
+    };
     const { getPublicScannerData } = await import("@/lib/queries");
 
     const data = await getPublicScannerData();
 
-    // Not `true`: the engine fails closed because it is deciding whether to
-    // spend, but this value is only displayed, and "we could not read it" is a
-    // different claim from "the circuit is open".
-    expect(data.llmPaused).toBeNull();
+    // The weekly failure no longer aborts the function, so the circuit gets a
+    // real answer rather than an unknown inherited from an unrelated query.
+    expect(data.llmPaused).toBe(true);
+    expect(data.readFailures).toEqual(["week"]);
   });
 
   it("reports the circuit unknown when the circuit read itself fails", async () => {

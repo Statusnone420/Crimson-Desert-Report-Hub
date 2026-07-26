@@ -7,6 +7,7 @@ import { CATEGORY_LABELS } from "@/lib/constants";
 import type { IntegrationStatus } from "@/lib/env";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import type { DecoratedCluster, PublicScannerData } from "@/lib/queries";
+import { everyRegisterUnread, registerUnread } from "@/lib/scannerRegisters";
 import type { PatchRadarData } from "@/lib/radar.server";
 
 function timeAgo(iso: string): string {
@@ -37,16 +38,19 @@ export function PublicScannerView({
 
   // No fabricated schedule: the status block shows only what run history
   // records — state and last check. There is no stored "next check" time.
-  const schedulerLabel = data.scannerConnected
-    ? data.scannerActive
+  // Whether the scanner is paused comes from the settings read, which survives
+  // any single register failing — only a total outage leaves it genuinely unknown.
+  const scannerUnavailable = everyRegisterUnread(data.readFailures);
+  const schedulerLabel = scannerUnavailable
+    ? "Scanner unavailable"
+    : data.scannerActive
       ? "Scanner scheduled"
-      : "Scanner paused"
-    : "Scanner unavailable";
-  const schedulerDotClass = data.scannerConnected
-    ? data.scannerActive
+      : "Scanner paused";
+  const schedulerDotClass = scannerUnavailable
+    ? ""
+    : data.scannerActive
       ? "obs-scheduler__dot--green"
-      : "obs-scheduler__dot--amber"
-    : "";
+      : "obs-scheduler__dot--amber";
 
   // Flow vs stock, never one row: the week's candidate flow is a partition that
   // must visibly add up (reviewed = filtered + re-observed + kept); the working
@@ -54,10 +58,10 @@ export function PublicScannerView({
   const flow = radar.connected ? radar.funnel7d : null;
   // The awaiting count is an admin number. The public caption still changes with
   // the state, but states it in words instead of printing the queue depth.
-  const problemAreasCaption = !data.scannerConnected
-    ? // `awaiting` is zero-filled when the scoreboard read failed, and "every area
-      // carries a public link" is the strongest claim on this page — it must not
-      // be derived from a number nobody read.
+  const problemAreasCaption = registerUnread(data.readFailures, "awaiting")
+    ? // `awaiting` is zero-filled when its read failed, and "every area carries a
+      // public link" is the strongest claim on this page — it must not be derived
+      // from a number nobody read.
       "Distinct issue areas holding at least one tracked lead. Whether each one carries a public link is unavailable right now."
     : radar.activeLeadClusters === 0
       ? "Distinct issue areas holding at least one tracked lead — a lead goes public only on corroboration or an approved report"
@@ -85,12 +89,12 @@ export function PublicScannerView({
     {
       key: "published",
       label: "Published issues",
-      value: data.scannerConnected ? data.published : "Unavailable",
-      caption: data.scannerConnected
-        ? "Full cards on the issue board"
-        : "The scanner read failed, so this count is unavailable — not zero",
+      value: registerUnread(data.readFailures, "published") ? "Unavailable" : data.published,
+      caption: registerUnread(data.readFailures, "published")
+        ? "The scanner read failed, so this count is unavailable — not zero"
+        : "Full cards on the issue board",
       valueClass:
-        data.scannerConnected && data.published > 0
+        !registerUnread(data.readFailures, "published") && data.published > 0
           ? "stat-band__value stat-band__value--crimson"
           : "stat-band__value",
     },
@@ -113,7 +117,14 @@ export function PublicScannerView({
           </span>{" "}
           {schedulerLabel}
           <br />
-          {data.lastCheckedAt ? `Last checked ${timeAgo(data.lastCheckedAt)}` : "No runs recorded"}
+          {/* `null` here means two different things: the run history is empty, or
+              its read failed. Only the register can tell them apart, and "no runs
+              recorded" is a claim about the scanner rather than about the read. */}
+          {registerUnread(data.readFailures, "heartbeat")
+            ? "Last check unavailable"
+            : data.lastCheckedAt
+              ? `Last checked ${timeAgo(data.lastCheckedAt)}`
+              : "No runs recorded"}
         </div>
       </header>
 
@@ -307,14 +318,14 @@ export function PublicScannerView({
           </>
         ) : (
           <p className="obs-question__empty">
-            {data.scannerConnected
-              ? "The radar has no open questions for this patch."
-              : "No mapped radar questions are available in this environment. Official patch context remains available."}
+            {scannerUnavailable
+              ? "No mapped radar questions are available in this environment. Official patch context remains available."
+              : "The radar has no open questions for this patch."}
           </p>
         )}
       </section>
 
-      {!data.scannerConnected ? (
+      {scannerUnavailable ? (
         <p className="obs-question__empty" style={{ paddingBottom: 24 }}>
           Offline view. Scanner data is unavailable in this environment; private candidates and rejected URLs stay
           hidden.

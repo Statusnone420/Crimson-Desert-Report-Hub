@@ -19,6 +19,7 @@ import type {
   ScannerFeedbackRuleRow,
 } from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
+import { registerUnread, type ScannerReadRegister } from "@/lib/scannerRegisters";
 
 function cadenceLabel(minutes: number): string {
   if (minutes === 60) return "hourly";
@@ -355,17 +356,20 @@ export function AdminScannerView({
   const olderSignals = signals.slice(6);
   const pausedIntegrations = integrations.filter((integration) => integration.paused);
   const unknownCircuitIntegrations = integrations.filter((integration) => integration.circuitUnknown);
+  const unreadRegister = (register: ScannerReadRegister) => registerUnread(scoreboard.readFailures, register);
   // A disconnected radar or scoreboard means the reads behind these numbers
   // failed, so their zeros are placeholders rather than counts. Nothing on this
   // page may then say the operator is clear — it would be reading "no work" off
   // a broken connection.
   //
-  // An unreadable circuit counts too, even though the rest of the scoreboard is
-  // fine: the engine fails closed on that same failure and stops using LLM
-  // extraction, so "nothing requires intervention" would contradict both the
-  // status line above and what the scanner is actually doing.
-  const healthKnown =
-    radar.connected && scoreboard.scannerConnected && unknownCircuitIntegrations.length === 0;
+  // An unreadable circuit counts too: the engine fails closed on that same
+  // failure and stops using LLM extraction, so "nothing requires intervention"
+  // would contradict both the status line above and what the scanner is doing.
+  //
+  // The scoreboard's counters are not health inputs — a failed published count
+  // says nothing about whether a run failed — so they gate their own cells
+  // rather than this headline.
+  const healthKnown = radar.connected && unknownCircuitIntegrations.length === 0;
   const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length;
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
 
@@ -491,21 +495,7 @@ export function AdminScannerView({
         </div>
       )}
 
-      {!scoreboard.scannerConnected ? (
-        /* Checked before the funnel branch: a connected radar can report a busy
-           week while the scoreboard read failed, and the KPI column beside the
-           funnel bar is entirely scoreboard-sourced. */
-        <div className="stat-band" aria-label="Source radar funnel unavailable">
-          <div className="stat-band__cell">
-            <div className="stat-band__label">Weekly funnel</div>
-            <div className="stat-band__value stat-band__value--amber">Unavailable</div>
-            <div className="stat-band__caption">
-              The scanner scoreboard read failed, so reviewed, filtered, awaiting, published, and radar yield are
-              unknown for this page load — not zero.
-            </div>
-          </div>
-        </div>
-      ) : radar.connected && radar.funnel7d.reviewed > 0 ? (
+      {radar.connected && radar.funnel7d.reviewed > 0 ? (
         /* Funnel as a proportional bar instead of a second stat band — the two
            bands read as clones; this row answers "where did the week's
            candidates go" in one shape and keeps the KPIs beside it. */
@@ -521,20 +511,43 @@ export function AdminScannerView({
               filtered={radar.funnel7d.filtered}
             />
           </div>
+          {/* Each KPI names its own register: a failed published read costs the
+              published number, not the two beside it. */}
           <div className="desk-funnel__kpis">
             <div className="desk-funnel__kpi">
               <span className="mono-label">Awaiting</span>
-              <span className="desk-funnel__num desk-funnel__num--blue">{scoreboard.awaiting}</span>
+              {unreadRegister("awaiting") ? (
+                <>
+                  <span className="desk-funnel__num">—</span>
+                  <span className="mono-label">unavailable</span>
+                </>
+              ) : (
+                <span className="desk-funnel__num desk-funnel__num--blue">{scoreboard.awaiting}</span>
+              )}
             </div>
             <div className="desk-funnel__kpi">
               <span className="mono-label">Published</span>
-              <span className="desk-funnel__num desk-funnel__num--crimson">{scoreboard.published}</span>
+              {unreadRegister("published") ? (
+                <>
+                  <span className="desk-funnel__num">—</span>
+                  <span className="mono-label">unavailable</span>
+                </>
+              ) : (
+                <span className="desk-funnel__num desk-funnel__num--crimson">{scoreboard.published}</span>
+              )}
             </div>
             <div className="desk-funnel__kpi">
               <span className="mono-label">Radar yield</span>
-              <span className="desk-funnel__num">
-                {scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}
-              </span>
+              {unreadRegister("week") ? (
+                <>
+                  <span className="desk-funnel__num">—</span>
+                  <span className="mono-label">unavailable</span>
+                </>
+              ) : (
+                <span className="desk-funnel__num">
+                  {scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -542,25 +555,55 @@ export function AdminScannerView({
         <div className="stat-band" aria-label="Source radar funnel">
           <div className="stat-band__cell">
             <div className="stat-band__label">Reviewed · 7d</div>
-            <div className="stat-band__value">{scoreboard.reviewedThisWeek}</div>
+            <div className={unreadRegister("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {unreadRegister("week") ? "Unavailable" : scoreboard.reviewedThisWeek}
+            </div>
+            {unreadRegister("week") ? <div className="stat-band__caption">The weekly read failed</div> : null}
           </div>
           <div className="stat-band__cell">
             <div className="stat-band__label">Filtered</div>
-            <div className="stat-band__value">{scoreboard.filteredThisWeek}</div>
+            <div className={unreadRegister("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {unreadRegister("week") ? "Unavailable" : scoreboard.filteredThisWeek}
+            </div>
           </div>
           <div className="stat-band__cell">
             <div className="stat-band__label">Awaiting corroboration</div>
-            <div className="stat-band__value stat-band__value--blue">{scoreboard.awaiting}</div>
+            <div
+              className={
+                unreadRegister("awaiting")
+                  ? "stat-band__value stat-band__value--amber"
+                  : "stat-band__value stat-band__value--blue"
+              }
+            >
+              {unreadRegister("awaiting") ? "Unavailable" : scoreboard.awaiting}
+            </div>
           </div>
           <div className="stat-band__cell">
             <div className="stat-band__label">Published issues</div>
-            <div className="stat-band__value stat-band__value--crimson">{scoreboard.published}</div>
+            <div
+              className={
+                unreadRegister("published")
+                  ? "stat-band__value stat-band__value--amber"
+                  : "stat-band__value stat-band__value--crimson"
+              }
+            >
+              {unreadRegister("published") ? "Unavailable" : scoreboard.published}
+            </div>
           </div>
           <div className="stat-band__cell">
             <div className="stat-band__label">
-              Live {scoreboard.published} · Watching {scoreboard.awaiting} · Kept {scoreboard.keptThisWeek}
+              {/* Each figure names its own register rather than the row sharing one fate. */}
+              Live {unreadRegister("published") ? "—" : scoreboard.published} ·{" "}
+              Watching {unreadRegister("awaiting") ? "—" : scoreboard.awaiting} ·{" "}
+              Kept {unreadRegister("week") ? "—" : scoreboard.keptThisWeek}
             </div>
-            <div className="stat-band__value">{scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}</div>
+            <div className={unreadRegister("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {unreadRegister("week")
+                ? "Unavailable"
+                : scoreboard.reviewedThisWeek > 0
+                  ? `${yieldPct.toFixed(1)}%`
+                  : "0%"}
+            </div>
             <div className="stat-band__caption">radar yield</div>
           </div>
         </div>

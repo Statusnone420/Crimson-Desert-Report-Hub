@@ -63,6 +63,7 @@ describe("homepage independent-register outages", () => {
       // Every scoreboard read succeeded. Without this the numbers below would be
       // placeholders, and the page would correctly refuse to print them.
       scannerConnected: true,
+      readFailures: [],
       steamPulse: [],
       platformContext: null,
       pulseReadFailures: [],
@@ -135,14 +136,15 @@ describe("homepage independent-register outages", () => {
     );
   });
 
-  it("prints no weekly radar count when the scanner read failed", async () => {
-    // The disconnected scoreboard is zero-filled, so publishing these numbers
-    // would announce a very quiet week that nobody measured.
+  it("prints no weekly radar count when the weekly read failed", async () => {
+    // The weekly register is zero-filled when its read failed, so publishing
+    // these numbers would announce a very quiet week that nobody measured.
     mocks.getPublicScannerData.mockResolvedValue({
       reviewedThisWeek: 0,
       keptThisWeek: 0,
-      published: 0,
+      published: 4,
       scannerConnected: false,
+      readFailures: ["week"],
       steamPulse: [],
       platformContext: null,
       pulseReadFailures: [],
@@ -153,7 +155,30 @@ describe("homepage independent-register outages", () => {
     expect(markup).not.toContain('<div class="pulse-stat__value">0</div>');
     expect(markup).not.toContain("Public leads kept by the radar this week");
     expect(markup).not.toContain("The radar reviewed");
-    expect(markup).toContain("The scanner read failed, so this week&#x27;s kept and reviewed counts are unavailable");
-    expect(markup).toContain("no reviewed, kept, or published count to report");
+    expect(markup).toContain("The weekly scanner read failed, so this week&#x27;s kept and reviewed counts");
+    expect(markup).toContain("The radar&#x27;s weekly figures are unavailable right now.");
+    // The board count came from a read that worked, so it survives.
+    expect(markup).toContain("The board currently shows");
+    expect(markup).toContain('<span class="num-ink">4</span> published issue');
+  });
+
+  it("keeps the weekly figures when only the published read failed", async () => {
+    mocks.getPublicScannerData.mockResolvedValue({
+      reviewedThisWeek: 9,
+      keptThisWeek: 3,
+      published: 0,
+      scannerConnected: false,
+      readFailures: ["published"],
+      steamPulse: [],
+      platformContext: null,
+      pulseReadFailures: [],
+    });
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(markup).toContain("The radar reviewed");
+    expect(markup).toContain("Public leads kept by the radar this week, out of 9 candidates reviewed");
+    expect(markup).toContain("The published-issue count is unavailable right now.");
+    expect(markup).not.toContain("published issue.");
   });
 });
