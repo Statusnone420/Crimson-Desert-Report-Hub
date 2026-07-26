@@ -41,6 +41,21 @@ const SCHEDULED_RECON_CREDIT_RESERVE = 1;
 const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
 export const OPENROUTER_AUTOMATION_MODEL = "deepseek/deepseek-v4-flash";
 
+/**
+ * The models I have approved for the paid automation lane, default first. Every
+ * entry must clear OPENROUTER_AUTOMATION_PROVIDER_ROUTING on its own — zero data
+ * retention, no training, structured outputs, and a price under the ceiling — or
+ * OpenRouter refuses to route it.
+ *
+ * This stays an allowlist rather than free text: an unrecognised value falls back
+ * to deterministic extraction instead of spending on an unvetted model.
+ */
+export const APPROVED_AUTOMATION_MODELS = [
+  OPENROUTER_AUTOMATION_MODEL,
+  "openai/gpt-oss-120b",
+  "google/gemini-2.5-flash-lite",
+] as const;
+
 export const OPENROUTER_FREE_PROVIDER_ROUTING = {
   require_parameters: true,
   data_collection: "deny",
@@ -53,7 +68,10 @@ export const OPENROUTER_AUTOMATION_PROVIDER_ROUTING = {
   data_collection: "deny",
   zdr: true,
   sort: "price",
-  max_price: { prompt: 0.1, completion: 0.2, request: 0, image: 0 },
+  // USD per million tokens. Wide enough that the approved models keep a real
+  // margin above the ceiling, so a routine provider price move degrades to
+  // deterministic extraction only when a model genuinely gets expensive.
+  max_price: { prompt: 0.2, completion: 0.5, request: 0, image: 0 },
 } as const;
 
 function positiveNumber(value: number | undefined, fallback: number): number {
@@ -75,10 +93,34 @@ export function rejectPaidOpenRouterModel(model: string): string {
 
 export function resolveAutomationOpenRouterModel(model: string | undefined): string {
   const resolved = model?.trim() || OPENROUTER_AUTOMATION_MODEL;
-  if (resolved !== OPENROUTER_AUTOMATION_MODEL) {
-    throw new Error(`Automation model must be ${OPENROUTER_AUTOMATION_MODEL}`);
+  if (!(APPROVED_AUTOMATION_MODELS as readonly string[]).includes(resolved)) {
+    throw new Error(`Automation model must be one of: ${APPROVED_AUTOMATION_MODELS.join(", ")}`);
   }
   return resolved;
+}
+
+/**
+ * OpenRouter answers a request no provider can serve with 404 and a message
+ * naming the filter that excluded everything — the price ceiling, zero data
+ * retention, or a required parameter. Nothing reaches a provider, so no
+ * generation row exists: the body carries an error message and no `id`.
+ *
+ * That absent id is what makes this safe to record as free. A 404 that does
+ * carry a generation id means a provider was reached, so it is not this case and
+ * keeps the conservative worst-case-cost path.
+ */
+export function isOpenRouterRoutingRefusal(status: number, body: unknown): boolean {
+  if (status !== 404) return false;
+  if (readOpenRouterResponseId(body) !== null) return false;
+  return /no (?:endpoints|allowed providers)/i.test(readOpenRouterErrorMessage(body) ?? "");
+}
+
+function readOpenRouterErrorMessage(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const error = (body as { error?: unknown }).error;
+  const message =
+    error && typeof error === "object" ? (error as { message?: unknown }).message : (body as { message?: unknown }).message;
+  return typeof message === "string" && message.trim() ? message : null;
 }
 
 export function maxOpenRouterRequestCostUsd(prompt: string, maxCompletionTokens: number): number {

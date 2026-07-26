@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  APPROVED_AUTOMATION_MODELS,
   computeAutomationBudget,
   countRemainingRunsThisMonth,
+  isOpenRouterRoutingRefusal,
   OPENROUTER_AUTOMATION_MODEL,
+  OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
   resolveAutomationOpenRouterModel,
 } from "@/lib/automation/budget";
 
@@ -187,10 +190,68 @@ describe("automation budget", () => {
     expect(budget.skipReasons).toContain("llm_budget_capped");
   });
 
-  it("allows only DeepSeek V4 Flash on the paid automation path", () => {
+  it("allows every approved automation model and nothing else", () => {
     expect(resolveAutomationOpenRouterModel(undefined)).toBe(OPENROUTER_AUTOMATION_MODEL);
-    expect(resolveAutomationOpenRouterModel("deepseek/deepseek-v4-flash")).toBe(OPENROUTER_AUTOMATION_MODEL);
+    for (const model of APPROVED_AUTOMATION_MODELS) {
+      expect(resolveAutomationOpenRouterModel(model)).toBe(model);
+    }
+    // An allowlist, not a price check: a cheap unvetted model is still refused.
     expect(() => resolveAutomationOpenRouterModel("deepseek/deepseek-v4-pro")).toThrow(/Automation model/);
+    expect(() => resolveAutomationOpenRouterModel("openai/gpt-oss-20b")).toThrow(/Automation model/);
+  });
+
+  it("keeps the three approved models the only approved models", () => {
+    // Adding one is a spending and privacy decision, so it should fail here
+    // first rather than pass silently on the strength of the routing filters.
+    expect([...APPROVED_AUTOMATION_MODELS]).toEqual([
+      "deepseek/deepseek-v4-flash",
+      "openai/gpt-oss-120b",
+      "google/gemini-2.5-flash-lite",
+    ]);
+  });
+
+  it("holds the routing ceiling above the approved models' listed prices", () => {
+    // USD per million tokens. The cheapest DeepSeek V4 Flash endpoint sat at
+    // 0.090/0.180 when this was set, so the ceiling leaves real headroom
+    // instead of tripping on an ordinary provider price move.
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.max_price).toEqual({
+      prompt: 0.2,
+      completion: 0.5,
+      request: 0,
+      image: 0,
+    });
+    // Privacy filters are not negotiable when the ceiling moves.
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.zdr).toBe(true);
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.data_collection).toBe("deny");
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.require_parameters).toBe(true);
+  });
+
+  describe("routing refusals", () => {
+    const refusal = {
+      error: { message: "No endpoints found matching your data policy (Zero data retention)." },
+    };
+
+    it("recognises a refusal that never reached a provider", () => {
+      expect(isOpenRouterRoutingRefusal(404, refusal)).toBe(true);
+      expect(isOpenRouterRoutingRefusal(404, { error: { message: "No allowed providers are available." } })).toBe(true);
+    });
+
+    it("treats an upstream outage as something else entirely", () => {
+      // 502 is a provider that failed mid-request; it can carry a real charge.
+      expect(isOpenRouterRoutingRefusal(502, refusal)).toBe(false);
+    });
+
+    it("refuses to call it free once a generation exists", () => {
+      // A generation id means a provider was reached, so the cost is real and
+      // unverified rather than zero — the conservative path must still run.
+      expect(isOpenRouterRoutingRefusal(404, { ...refusal, id: "gen-123" })).toBe(false);
+    });
+
+    it("does not match an unrelated 404", () => {
+      expect(isOpenRouterRoutingRefusal(404, { error: { message: "Not found" } })).toBe(false);
+      expect(isOpenRouterRoutingRefusal(404, {})).toBe(false);
+      expect(isOpenRouterRoutingRefusal(404, null)).toBe(false);
+    });
   });
 
   it("counts hourly runs remaining in the month by default", () => {

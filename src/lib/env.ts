@@ -85,7 +85,7 @@ export function applyLlmCircuitToStatuses(
 export function integrationStatuses(env: EnvLike = process.env): IntegrationStatus[] {
   const webSearchConnected = hasEnvValue(env.TAVILY_API_KEY);
 
-  // Scanner AI is intentionally limited to the owner-approved automation model.
+  // Scanner AI is intentionally limited to the approved automation models.
   const hasOpenRouterKey = hasEnvValue(env.OPENROUTER_API_KEY);
   const approvedAutomationModel = hasApprovedAutomationModel(env);
   const aiConnected = hasOpenRouterKey && approvedAutomationModel;
@@ -111,7 +111,7 @@ export function integrationStatuses(env: EnvLike = process.env): IntegrationStat
       connected: aiConnected,
       missingEnv: aiMissing,
       detail: aiConnected
-        ? "Extracting signals with budget-capped DeepSeek V4 Flash."
+        ? "Reads each candidate page for what broke and on which platform. It never decides what gets published."
         : hasOpenRouterKey && !approvedAutomationModel
           ? "Not connected — the configured automation model is not approved."
           : "Not connected — falling back to deterministic keyword extraction.",

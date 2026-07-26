@@ -970,6 +970,59 @@ describe("runAutomationMonitor", () => {
     expect(result.skips).not.toContain("openrouter_cost_unverified");
   });
 
+  it("stops asking OpenRouter for the rest of the run once no provider matches", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert patch 1.13 FPS drops in towns",
+        url: "https://reddit.com/r/CrimsonDesert/comments/fps/towns",
+        snippet: "Players report stutter and FPS drops after patch 1.13.00.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 combat stutter",
+        url: "https://steamcommunity.com/app/3321460/discussions/stutter",
+        snippet: "Players report combat stutter and FPS drops after patch 1.13.00.",
+        sourceDomain: "steamcommunity.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        issueTitle: candidate.title,
+        category: "performance",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: candidate.snippet,
+        clusterSlug: null,
+        extractionProvider: "deterministic",
+        extractionModel: null,
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: 0,
+        fallbackReason: "openrouter_no_route",
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("openrouter_no_route");
+    // The second candidate is still processed — deterministically — but the run
+    // stops offering it an LLM call, because the refusal will not change.
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(2);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][1].llmCallsRemaining).toBeGreaterThan(0);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[1][1].llmCallsRemaining).toBe(0);
+    // Nothing reached a provider, so the month's ledger is untouched.
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.skips).not.toContain("openrouter_cost_unverified");
+  });
+
   it("reserves scheduled LLM allowance for scanner extraction after claim mapping", async () => {
     resetDb({
       issue_clusters: [

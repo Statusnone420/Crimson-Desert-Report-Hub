@@ -131,7 +131,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       data_collection: "deny",
       zdr: true,
       sort: "price",
-      max_price: { prompt: 0.1, completion: 0.2, request: 0, image: 0 },
+      max_price: { prompt: 0.2, completion: 0.5, request: 0, image: 0 },
     });
     expect(requestedReasoning).toEqual({ effort: "none" });
     expect(requestedMaxTokens).toBe(200);
@@ -335,6 +335,33 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     // Unverifiable cost is charged at the request's worst-case ceiling.
     expect(result.llmCostUsd).toBeGreaterThan(0);
     expect(result.llmCostUsd).toBeLessThan(0.01);
+  });
+
+  it("leaves the circuit alone when no provider matches the routing filters", async () => {
+    const fetcher = async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({
+        error: { message: "No endpoints found matching your data policy (Zero data retention)." },
+      }),
+    });
+
+    const result = await mapClaimToClusterWithOpenRouter(
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+      clusters,
+      {
+        env: { OPENROUTER_API_KEY: "key" },
+        fetcher,
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 1,
+      },
+    );
+
+    expect(result).toMatchObject({ matchKind: "keyword_proposal", llmCallsUsed: 1 });
+    // A configuration fact, not an unverifiable cost: nothing spent, and the
+    // cost-safety circuit has no reason to count it.
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.circuitReason).toBeUndefined();
   });
 
   it("falls back to keyword proposal only when OpenRouter is unavailable", async () => {

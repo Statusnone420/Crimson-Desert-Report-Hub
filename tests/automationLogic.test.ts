@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+import { maxOpenRouterRequestCostUsd } from "@/lib/automation/budget";
 import { canonicalizeUrl, semanticFingerprint } from "@/lib/automation/dedupe";
 import {
   deterministicExtract,
@@ -327,7 +328,7 @@ describe("automation extraction", () => {
         // candidate text and unpublished cluster titles.
         zdr: true,
         sort: "price",
-        max_price: { prompt: 0.1, completion: 0.2, request: 0, image: 0 },
+        max_price: { prompt: 0.2, completion: 0.5, request: 0, image: 0 },
       },
       response_format: {
         type: "json_schema",
@@ -695,20 +696,85 @@ describe("automation extraction", () => {
     ]);
   });
 
-  it("charges invalid JSON attempts before retry budget checks", async () => {
+  it("charges nothing and stops retrying when no provider matches the routing filters", async () => {
+    // The routing filters are evaluated together, so a price move on the last
+    // zero-retention endpoint refuses the request before any provider runs.
     const fetcher = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({
+        error: { message: "No endpoints found matching your data policy (Zero data retention)." },
+      }),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: { OPENROUTER_API_KEY: "key" },
+      fetcher,
+      llmCallsRemaining: 3,
+      llmBudgetRemainingUsd: 1,
+    });
+
+    expect(result.extractionProvider).toBe("deterministic");
+    expect(result.fallbackReason).toBe("openrouter_no_route");
+    // Nothing reached a provider, so the month's books stay untouched — unlike
+    // the unverified-cost path, which charges the worst case.
+    expect(result.llmCostUsd).toBe(0);
+    // A retry would be refused identically.
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(result.llmCallsUsed).toBe(1);
+  });
+
+  it("still charges the worst case when a 404 carries a generation", async () => {
+    // A generation id means a provider was reached: the cost is unverified, not
+    // zero, so this must stay on the conservative path.
+    const fetcher = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({
+        id: "gen-abc",
+        error: { message: "No endpoints found matching your data policy (Zero data retention)." },
+      }),
+    }));
+
+    const result = await extractSignalWithOpenRouter(crashCandidate, {
+      env: { OPENROUTER_API_KEY: "key" },
+      fetcher,
+      llmCallsRemaining: 3,
+      llmBudgetRemainingUsd: 1,
+    });
+
+    expect(result.fallbackReason).toBe("openrouter_cost_unverified");
+    expect(result.llmCostUsd).toBeGreaterThan(0);
+  });
+
+  it("charges invalid JSON attempts before retry budget checks", async () => {
+    const invalidJson = async () => ({
       ok: true,
       status: 200,
       json: async () => ({ choices: [{ message: { content: "{not json" } }], usage: { cost: 0.0002 } }),
-    }));
+    });
 
+    // Derive the per-request reserve from the request the extractor actually
+    // sends, so this stays a budget test when the price ceiling moves.
+    const probe = vi.fn(invalidJson);
+    await extractSignalWithOpenRouter(crashCandidate, {
+      env: { OPENROUTER_API_KEY: "key" },
+      fetcher: probe,
+      llmCallsRemaining: 1,
+      llmBudgetRemainingUsd: 1,
+    });
+    const [, probeInit] = probe.mock.calls[0] as unknown as [string, { body: string }];
+    const requestCeiling = maxOpenRouterRequestCostUsd(probeInit.body, 400);
+
+    const fetcher = vi.fn(invalidJson);
     const result = await extractSignalWithOpenRouter(crashCandidate, {
       env: {
         OPENROUTER_API_KEY: "key",
       },
       fetcher,
       llmCallsRemaining: 2,
-      llmBudgetRemainingUsd: 0.0003,
+      // Room to reserve one request, not two.
+      llmBudgetRemainingUsd: requestCeiling + 0.0001,
     });
 
     expect(result.extractionProvider).toBe("deterministic");

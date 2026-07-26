@@ -41,6 +41,28 @@ describe("openRouterCircuitOpenFromRuns", () => {
     expect(openRouterCircuitOpenFromRuns(rows, boundaryNow)).toBe(false);
   });
 
+  it("never trips on routing refusals, however many land in the window", () => {
+    // The circuit exists for costs the scanner could not verify. A routing
+    // refusal never reached a provider, so there is no cost and no mystery —
+    // it must not be able to shut off extraction the way three blips do.
+    const refusals = [
+      { started_at: "2026-07-05T02:00:00.000Z", skips: ["openrouter_no_route"] },
+      { started_at: "2026-07-04T20:00:00.000Z", skips: ["openrouter_no_route"] },
+      { started_at: "2026-07-04T14:00:00.000Z", skips: ["openrouter_no_route"] },
+      { started_at: "2026-07-04T10:00:00.000Z", skips: ["openrouter_no_route"] },
+    ];
+    expect(openRouterCircuitOpenFromRuns(refusals, NOW)).toBe(false);
+  });
+
+  it("still counts real blips that share a run with a routing refusal", () => {
+    const rows = [
+      { started_at: "2026-07-05T02:00:00.000Z", skips: ["openrouter_no_route", "openrouter_cost_unverified"] },
+      blip("2026-07-04T20:00:00.000Z"),
+      blip("2026-07-04T14:00:00.000Z"),
+    ];
+    expect(openRouterCircuitOpenFromRuns(rows, NOW)).toBe(true);
+  });
+
   it("treats malformed rows as harmless", () => {
     const rows = [
       { started_at: null, skips: ["openrouter_cost_unverified"] },

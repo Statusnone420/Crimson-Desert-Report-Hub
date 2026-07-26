@@ -114,9 +114,13 @@ export type RunProgress = {
 
 function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): number {
   if (
-    ["openrouter_unexpected_charge", "openrouter_cost_unverified", "openrouter_budget_exceeded"].some((reason) =>
-      result.skips.includes(reason),
-    )
+    [
+      "openrouter_unexpected_charge",
+      "openrouter_cost_unverified",
+      "openrouter_budget_exceeded",
+      // Every later call would be refused the same way, so stop asking.
+      "openrouter_no_route",
+    ].some((reason) => result.skips.includes(reason))
   ) {
     return 0;
   }

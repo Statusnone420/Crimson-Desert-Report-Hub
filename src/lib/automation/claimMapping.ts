@@ -1,4 +1,5 @@
 import {
+  isOpenRouterRoutingRefusal,
   maxOpenRouterRequestCostUsd,
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
   resolveOpenRouterCostUsd,
@@ -268,6 +269,16 @@ export async function mapClaimToClusterWithOpenRouter(
   if (!response.ok) {
     try {
       const errorData = await response.json();
+      if (isOpenRouterRoutingRefusal(response.status, errorData)) {
+        // No provider matched the routing filters, so nothing was spent. This is
+        // a configuration fact, not an unverifiable cost: no circuit reason.
+        return {
+          ...fallback("Needs review: no OpenRouter provider matched the scanner's cost and privacy limits."),
+          llmCallsUsed: 1,
+          llmCostUsd: 0,
+          extractionModel: model,
+        };
+      }
       const errorCostUsd = await resolveOpenRouterCostUsd(
         errorData,
         apiKey,
