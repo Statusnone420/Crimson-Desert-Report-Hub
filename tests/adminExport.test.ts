@@ -100,6 +100,16 @@ describe("admin CSV export route", () => {
     expect(response.headers.get("content-type")).not.toContain("text/csv");
   });
 
+  it("neutralizes player-supplied formula cells before they reach the file", async () => {
+    stubPagedClient([{ data: [{ id: "report-1", issue_title: "=2+5+IMPORTDATA(evil)" }], error: null }]);
+
+    const response = await GET();
+    const text = await response.text();
+
+    expect(text).toContain(",'=2+5+IMPORTDATA(evil)");
+    expect(text).not.toContain(",=2+5+IMPORTDATA(evil)");
+  });
+
   it("returns a single short page without requesting a second one", async () => {
     const { calls } = stubPagedClient([{ data: makeRows(0, 3), error: null }]);
 
