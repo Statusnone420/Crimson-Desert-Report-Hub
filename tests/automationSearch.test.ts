@@ -240,6 +240,74 @@ describe("Tavily extract request", () => {
     ).rejects.toThrow("tavily extract returned no content");
   });
 
+  it("charges a refusal that reports credits consumed", async () => {
+    // `include_usage` is requested, so it is honoured — as a veto. A matching refusal
+    // alongside nonzero usage is a charged failure, and waiving it would understate
+    // the month and let a later run past the cap.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+        usage: { credits: 1 },
+      }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it("charges a refusal whose usage field cannot be read", async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+        usage: { credits: "one" },
+      }),
+    }));
+
+    await expect(
+      tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+        env: { TAVILY_API_KEY: "tavily-key" },
+        fetcher,
+      }),
+    ).rejects.toThrow("tavily extract returned no content");
+  });
+
+  it("waives the credit when a matching refusal reports zero usage", async () => {
+    // The live shape, captured from the API: Reddit refusals answer 200 with the URL
+    // in failed_results and `usage: {credits: 0}`.
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [],
+        failed_results: [
+          { url: "https://old.reddit.com/r/CrimsonDesert/comments/thin/", error: "Failed to fetch url" },
+        ],
+        usage: { credits: 0 },
+      }),
+    }));
+
+    const raw = await tavilyExtract("https://reddit.com/r/CrimsonDesert/comments/thin/", {
+      env: { TAVILY_API_KEY: "tavily-key" },
+      fetcher,
+    });
+
+    expect(raw).toBeNull();
+  });
+
   it("matches the refusal against the rewritten URL, not the one passed in", async () => {
     // Reddit URLs are rewritten to old.reddit.com before the request, so the
     // comparison must use the URL actually sent or every Reddit refusal would look

@@ -200,6 +200,7 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   const data = (await res.json()) as {
     results?: TavilyExtractResult[];
     failed_results?: { url?: string; error?: string }[];
+    usage?: { credits?: number };
   };
   const rawContent = (data.results ?? [])[0]?.raw_content?.trim();
   if (rawContent) return rawContent.slice(0, 4_000);
@@ -212,7 +213,17 @@ export async function tavilyExtract(url: string, options: TavilyExtractOptions =
   const refusedRequestedUrl = (data.failed_results ?? []).some(
     (entry) => typeof entry?.url === "string" && entry.url === requestedUrl,
   );
-  if (refusedRequestedUrl) return null;
+
+  // `include_usage` is requested, so honour it — but only as a VETO. Observed live:
+  // a refused fetch and a successful extract BOTH report `usage: {credits: 0}`, so
+  // a zero here cannot prove nothing was billed. It can only contradict a waiver.
+  // Any reported consumption, or a usage field we cannot read, sends the call down
+  // the throwing path where the caller books the credit worst case.
+  const reportedCredits = data.usage?.credits;
+  const usageContradictsWaiver =
+    data.usage !== undefined && (typeof reportedCredits !== "number" || reportedCredits > 0);
+
+  if (refusedRequestedUrl && !usageContradictsWaiver) return null;
   throw new Error("tavily extract returned no content");
 }
 

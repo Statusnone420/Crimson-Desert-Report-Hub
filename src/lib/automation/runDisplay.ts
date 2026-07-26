@@ -38,9 +38,14 @@ const SKIP_META: Record<string, MessageMeta> = {
     summaryLabel: "no LLM candidates",
   },
   candidate_recon: {
-    label: "Read the full page",
-    detail: "A promising trusted source had too little text to judge, so the scanner read the page itself before deciding.",
-    summaryLabel: "read the full page",
+    // Marks the ATTEMPT, and is emitted before the outcome is known. Success wording
+    // here made a refusal read as "1 read the full page; 1 full page unavailable" on
+    // one line — and since Reddit refuses our reader every time, that was the ordinary
+    // case, not an edge one. Whether text arrived is the next marker's job.
+    label: "Tried the full page",
+    detail:
+      "A promising trusted source had too little text to judge, so the scanner tried to read the page itself. Whether the text arrived is reported separately.",
+    summaryLabel: "tried the full page",
   },
   candidate_recon_unavailable: {
     label: "Full page unavailable",
