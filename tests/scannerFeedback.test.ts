@@ -79,21 +79,40 @@ describe("scanner feedback rules", () => {
     ).toMatchObject({ action: "block", rule: { id: "steam-exact-block" } });
   });
 
-  it("does not widen a rule for callers that compare scope values as recorded", () => {
+  it("compares stored evidence as recorded, on both sides", () => {
     // Learning rules gate discovery; they must never move an evidence count.
-    // refreshClusterStats re-checks STORED signals against exact-URL rules, so
-    // the matcher itself has to keep answering the narrow question — was this
-    // exact record reviewed — and leave aliasing to the intake path that opts in.
-    const storedBeforeTheChange = rule({
+    // refreshClusterStats re-checks STORED signals against exact-URL rules, and
+    // an answer that changes because canonicalization widened is a rule
+    // rewriting evidence. Canonicalizing one side alone breaks it in whichever
+    // direction the change runs, so this mode canonicalizes neither.
+    const asRecorded = { exactUrlAsRecorded: true };
+    const now = new Date("2026-07-22T12:00:00.000Z");
+    const block = rule({
       id: "steam-exact-block",
       scopeValue: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
     });
-    const storedSignal = {
-      url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana",
-      sourceDomain: "steamcommunity.com",
-    };
 
-    expect(matchScannerFeedbackRule(storedSignal, [storedBeforeTheChange])).toBeNull();
+    // The record the operator actually reviewed stays blocked. Canonicalizing
+    // only the signal would have let it back into the evidence count.
+    expect(
+      matchScannerFeedbackRule(
+        { url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english", sourceDomain: "steamcommunity.com" },
+        [block],
+        now,
+        asRecorded,
+      ),
+    ).toMatchObject({ action: "block", rule: { id: "steam-exact-block" } });
+
+    // A different stored record is still a different record. Canonicalizing
+    // both sides would have dropped this one out of the evidence count.
+    expect(
+      matchScannerFeedbackRule(
+        { url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana", sourceDomain: "steamcommunity.com" },
+        [block],
+        now,
+        asRecorded,
+      ),
+    ).toBeNull();
   });
 
   it("rewrites only exact-URL scopes, and only when canonicalization changes them", () => {

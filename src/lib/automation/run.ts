@@ -1728,6 +1728,22 @@ async function loadClusterSignals(
   return (data ?? []) as SourceSignalRow[];
 }
 
+/**
+ * The URL a stored signal is identified by when re-checking it against exact
+ * reviewed records. `canonical_url` was canonical when the row was written, so
+ * it is compared as recorded. Rows predating that column keep only the raw
+ * source URL, which has to be canonicalized to be comparable at all.
+ */
+function storedRecordUrl(signal: { canonical_url?: string | null; source_url?: string | null }): string {
+  if (signal.canonical_url) return signal.canonical_url;
+  const sourceUrl = signal.source_url ?? "";
+  try {
+    return canonicalizeUrl(sourceUrl);
+  } catch {
+    return sourceUrl;
+  }
+}
+
 async function refreshClusterStats(
   supabase: ReturnType<typeof createServiceClient>,
   clusterId: string,
@@ -1753,12 +1769,15 @@ async function refreshClusterStats(
       signals.map((signal) => [
         signal.id,
         matchScannerFeedbackRule(
-          {
-            url: signal.canonical_url ?? signal.source_url ?? "",
-            sourceDomain: signal.source_domain ?? null,
-          },
+          { url: storedRecordUrl(signal), sourceDomain: signal.source_domain ?? null },
           retainedSignalRules,
           now,
+          // Stored record against stored rule, neither side re-canonicalized.
+          // Whether a signal counts as evidence is fixed at the moment it was
+          // reviewed, and no later widening of canonicalization can move it in
+          // either direction — not by breaking a block that matched, and not by
+          // extending one across records that were stored separately.
+          { exactUrlAsRecorded: true },
         ),
       ]),
     );

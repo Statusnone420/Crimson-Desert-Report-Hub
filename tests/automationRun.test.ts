@@ -2387,6 +2387,85 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("keeps an exact reviewed record out of evidence after canonicalization widens", async () => {
+    // The operator reviewed this exact Steam record and blocked it. Both the
+    // stored signal and the rule carry the `?l=english` form that was canonical
+    // when they were written. Canonicalizing only the signal would stop the
+    // block matching, put it back in the evidence count, and republish the
+    // cluster — a learning rule rewriting evidence, which it may never do.
+    const reviewed = "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english";
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-exact-reviewed",
+          slug: "exact-reviewed",
+          title: "Exact reviewed cluster",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: true,
+          is_public: true,
+        },
+      ],
+      scanner_feedback_rules: [
+        {
+          id: "rule-steam-exact",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: reviewed,
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-steam-reviewed",
+          cluster_id: "cluster-exact-reviewed",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: reviewed,
+          canonical_url: reviewed,
+          source_domain: "steamcommunity.com",
+          title: "Crimson Desert 1.13 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+        {
+          id: "signal-community-retained",
+          cluster_id: "cluster-exact-reviewed",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://community.example.com/crimson-desert-fps",
+          canonical_url: "https://community.example.com/crimson-desert-fps",
+          source_domain: "community.example.com",
+          title: "Crimson Desert performance regression",
+          summary: "A second community reports frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+      ],
+    });
+    honorSourceSignalProjection = true;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-exact-reviewed", new Date("2026-07-05T12:00:00.000Z"));
+
+    // One publishable domain left, so corroboration is not met and the cluster
+    // no longer qualifies on its own evidence.
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false });
+  });
+
   it("keeps a broad rule read past the hosted row cap out of retained evidence", async () => {
     // Paging the rule ledger to completion makes MORE rules visible to every
     // consumer, including the evidence refresh. The refresh narrows itself to
