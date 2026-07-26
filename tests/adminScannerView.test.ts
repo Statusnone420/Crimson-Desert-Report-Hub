@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { emptyPatchRadarData } from "@/lib/radar.server";
-import type { AutomationRunRow, PublicScannerData } from "@/lib/queries";
+import type { AdminObservationRow, AutomationRunRow, PublicScannerData } from "@/lib/queries";
 import type { IntegrationStatus } from "@/lib/env";
 import type { ScannerReadRegister } from "@/lib/scannerRegisters";
 
@@ -63,6 +63,7 @@ describe("AdminScannerView", () => {
       signals: [],
       rejectedCandidates: [],
       observations: [],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
@@ -148,6 +149,7 @@ describe("AdminScannerView", () => {
       signals,
       rejectedCandidates: [],
       observations: [],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
@@ -198,6 +200,7 @@ describe("AdminScannerView", () => {
       }],
       rejectedCandidates: [],
       observations: [],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
@@ -255,6 +258,7 @@ describe("AdminScannerView", () => {
           decision_id: "decision-1",
         },
       ],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: true,
       feedbackRules: [],
       feedbackLearningAvailable: true,
@@ -322,6 +326,7 @@ describe("AdminScannerView", () => {
         feedback_rule_id: null,
       }],
       observations: [],
+      observationPatch: { version: "1.14.00", publishedAt: null },
       observationModerationAvailable: false,
       feedbackRules: [],
       feedbackLearningAvailable: false,
@@ -381,6 +386,7 @@ describe("AdminScannerView", () => {
         signals: [],
         rejectedCandidates: [],
         observations: [],
+        observationPatch: { version: "1.14.00", publishedAt: null },
         observationModerationAvailable: true,
         feedbackRules: [],
         feedbackLearningAvailable: true,
@@ -548,6 +554,7 @@ describe("AdminScannerView", () => {
         signals: [],
         rejectedCandidates: [],
         observations: [],
+        observationPatch: { version: "1.14.00", publishedAt: null },
         observationModerationAvailable: true,
         feedbackRules: [],
         feedbackLearningAvailable: true,
@@ -606,7 +613,7 @@ describe("AdminScannerView", () => {
       };
     }
 
-    function observation(index: number, sourcePublishedAt: string | null, isPublic = true) {
+    function observation(index: number, sourcePublishedAt: string | null, isPublic = true): AdminObservationRow {
       return {
         id: `observation-${index}`,
         kind: "community_ask" as const,
@@ -626,12 +633,20 @@ describe("AdminScannerView", () => {
       feedbackRules?: ReturnType<typeof feedbackRule>[];
       observations?: ReturnType<typeof observation>[];
       patchPublishedAt?: string | null;
+      patchVersion?: string;
+      /** The radar's separately cached copy, which can lag the observation read. */
+      radarPatch?: { version: string; publishedAt: string | null };
     }) {
+      const observationPatch = {
+        version: overrides.patchVersion ?? "1.14.00",
+        publishedAt: overrides.patchPublishedAt ?? null,
+      };
       return renderToStaticMarkup(createElement(AdminScannerView, {
         runs: [],
         signals: [],
         rejectedCandidates: [],
         observations: overrides.observations ?? [],
+        observationPatch,
         observationModerationAvailable: true,
         feedbackRules: overrides.feedbackRules ?? [],
         feedbackLearningAvailable: true,
@@ -648,10 +663,7 @@ describe("AdminScannerView", () => {
         latestRealRun: null,
         latestFind: null,
         scoreboard: healthyScoreboard,
-        radar: emptyPatchRadarData({
-          version: "1.14.00",
-          publishedAt: overrides.patchPublishedAt ?? null,
-        }),
+        radar: emptyPatchRadarData(overrides.radarPatch ?? observationPatch),
         integrations: [],
         nowIso: "2026-07-22T18:00:00.000Z",
       }));
@@ -739,6 +751,27 @@ describe("AdminScannerView", () => {
 
       expect(markup).toContain("2 this patch · 1 publishable");
       expect(markup).toContain("1 of 2 can appear on the Brief");
+    });
+
+    it("judges observations against the patch they were read with, not the cached radar copy", () => {
+      // The radar is cached for five minutes; the observation read is not. For
+      // that window after a rollover they disagree, and judging fresh 1.15.00
+      // coverage by the stale 1.14.00 version calls the new patch off-topic.
+      const covers1150 = {
+        ...observation(1, "2026-07-21T00:00:00.000Z"),
+        kind: "patch_release" as const,
+        title: "Crimson Desert 1.15.00 patch notes are live",
+        snippet: "Everything that changed in Crimson Desert 1.15.00.",
+      };
+
+      const markup = render({
+        patchVersion: "1.15.00",
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        radarPatch: { version: "1.14.00", publishedAt: "2026-06-01T00:00:00.000Z" },
+        observations: [covers1150],
+      });
+
+      expect(markup).toContain("1 this patch · 1 publishable");
     });
 
     it("collapses the record sections and keeps their contents reachable", () => {

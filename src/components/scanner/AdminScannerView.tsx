@@ -315,6 +315,7 @@ export function AdminScannerView({
   signals,
   rejectedCandidates,
   observations,
+  observationPatch,
   observationModerationAvailable,
   feedbackRules,
   feedbackLearningAvailable,
@@ -331,6 +332,8 @@ export function AdminScannerView({
   signals: AdminSignalRow[];
   rejectedCandidates: RejectedCandidateRow[];
   observations: AdminObservationRow[];
+  /** The patch the observation rows were read against, not the radar's cached copy. */
+  observationPatch: { version: string; publishedAt: string | null };
   observationModerationAvailable: boolean;
   feedbackRules: ScannerFeedbackRuleRow[];
   feedbackLearningAvailable: boolean;
@@ -388,8 +391,11 @@ export function AdminScannerView({
   // lane calls, not a copy of its conditions: a usable date, still public, still
   // relevant. Anything less would advertise items the Brief itself drops —
   // including the one just rejected, which stays in this list unpublished.
+  // Judged against the patch these rows were read with, never the radar's
+  // five-minute-cached copy: right after a rollover they disagree, and the
+  // stale one would call the new patch's own coverage off-topic.
   const publishableObservations = observations.filter((observation) =>
-    isBriefEligibleObservation(observation, radar.patch, nowMs),
+    isBriefEligibleObservation(observation, observationPatch, nowMs),
   ).length;
   // A collapsed section must never hide the fact that something inside it can
   // still be undone, or the operator has to go looking for their own recovery.

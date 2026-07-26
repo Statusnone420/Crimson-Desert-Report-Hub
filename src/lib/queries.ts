@@ -1296,6 +1296,11 @@ export async function getAutomationAdminData() {
     runs: (runs ?? []) as AutomationRunRow[],
     rejectedCandidates: rejectedCandidates as RejectedCandidateRow[],
     observations,
+    // The patch these rows were selected against, returned with them. The
+    // radar's copy is cached for five minutes, so on the first page load after
+    // a rollover it can still name the previous patch — judging fresh rows by
+    // a stale version would call the new patch's coverage off-topic.
+    observationPatch: currentPatch,
     observationModerationAvailable,
     feedbackLearningAvailable,
     feedbackRules,
