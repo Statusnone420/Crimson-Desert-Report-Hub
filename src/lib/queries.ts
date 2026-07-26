@@ -1,4 +1,11 @@
 import "server-only";
+import {
+  isDisplayableDatedObservation,
+  OBSERVATION_FUTURE_SKEW_MS,
+  patchEraFloorMs,
+} from "@/lib/observationDates";
+
+export { isDisplayableDatedObservation } from "@/lib/observationDates";
 
 import { unstable_cache } from "next/cache";
 import { countBy, rankClusters } from "@/lib/aggregates";
@@ -639,33 +646,13 @@ export function isPublicObservationEligible(row: PatchObservationRow, patchVersi
  * cannot be computed and date presence alone gates.
  */
 /** Providers occasionally report nonsense future dates; allow clock skew only. */
-const OBSERVATION_FUTURE_SKEW_MS = 48 * 60 * 60 * 1000;
+
 
 /**
  * Era floor: the START of the patch's UTC publish day. Date-only provider
  * dates land at midnight UTC, so patch-day coverage must not lose to a patch
  * note that carries a later clock time on the same day.
  */
-function patchEraFloorMs(patchPublishedAt: string | null): number {
-  if (!patchPublishedAt) return Number.NaN;
-  const publishedAt = new Date(patchPublishedAt).getTime();
-  if (!Number.isFinite(publishedAt)) return Number.NaN;
-  return new Date(publishedAt).setUTCHours(0, 0, 0, 0);
-}
-
-export function isDisplayableDatedObservation(
-  row: Pick<PatchObservationRow, "source_published_at">,
-  patchPublishedAt: string | null,
-  nowMs: number = Date.now(),
-): row is typeof row & { source_published_at: string } {
-  const published = row.source_published_at ? new Date(row.source_published_at).getTime() : Number.NaN;
-  if (!Number.isFinite(published)) return false;
-  if (published > nowMs + OBSERVATION_FUTURE_SKEW_MS) return false;
-  const eraStart = patchEraFloorMs(patchPublishedAt);
-  if (Number.isFinite(eraStart) && published < eraStart) return false;
-  return true;
-}
-
 /**
  * Pure lane split for the Brief's context modules: Wire coverage and Community
  * Asks stay separate genres, each real-dated, each sorted by when the SOURCE

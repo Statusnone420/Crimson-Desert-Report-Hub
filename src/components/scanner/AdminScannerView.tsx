@@ -19,6 +19,7 @@ import type {
   ScannerFeedbackRuleRow,
 } from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
+import { isDisplayableDatedObservation } from "@/lib/observationDates";
 import { registerUnread, type ScannerReadRegister } from "@/lib/scannerRegisters";
 
 function cadenceLabel(minutes: number): string {
@@ -384,8 +385,11 @@ export function AdminScannerView({
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
   // The dating gate decides whether a lane item can ever reach the Brief, so the
   // section says it once instead of every card repeating it.
-  const datedObservations = observations.filter(
-    (observation) => observation.source_published_at !== null,
+  // The same gate the public lane applies — a non-null date is not a usable
+  // one. Counting bare non-null values here would advertise an item as eligible
+  // for the Brief that the Brief itself rejects for being pre-patch or future.
+  const datedObservations = observations.filter((observation) =>
+    isDisplayableDatedObservation(observation, radar.patch.publishedAt, nowMs),
   ).length;
   // A collapsed section must never hide the fact that something inside it can
   // still be undone, or the operator has to go looking for their own recovery.

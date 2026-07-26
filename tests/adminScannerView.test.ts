@@ -625,6 +625,7 @@ describe("AdminScannerView", () => {
     function render(overrides: {
       feedbackRules?: ReturnType<typeof feedbackRule>[];
       observations?: ReturnType<typeof observation>[];
+      patchPublishedAt?: string | null;
     }) {
       return renderToStaticMarkup(createElement(AdminScannerView, {
         runs: [],
@@ -647,7 +648,10 @@ describe("AdminScannerView", () => {
         latestRealRun: null,
         latestFind: null,
         scoreboard: healthyScoreboard,
-        radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
+        radar: emptyPatchRadarData({
+          version: "1.14.00",
+          publishedAt: overrides.patchPublishedAt ?? null,
+        }),
         integrations: [],
         nowIso: "2026-07-22T18:00:00.000Z",
       }));
@@ -701,6 +705,24 @@ describe("AdminScannerView", () => {
 
       expect(markup).toContain("1 of 2 carry a source date");
       expect(markup).toContain("2 this patch · 1 publishable");
+    });
+
+    it("never calls an item publishable that the public lane would reject", () => {
+      // A date is not automatically a usable date: the Brief drops anything from
+      // before the patch era or implausibly far in the future. The operator
+      // summary has to apply the same bounds or it advertises a lane item that
+      // can never render.
+      const markup = render({
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        observations: [
+          observation(1, "2026-07-01T00:00:00.000Z"), // before the patch era
+          observation(2, "2026-09-01T00:00:00.000Z"), // implausibly far ahead
+          observation(3, "2026-07-21T00:00:00.000Z"), // the only real one
+        ],
+      });
+
+      expect(markup).toContain("3 this patch · 1 publishable");
+      expect(markup).toContain("1 of 3 carry a source date");
     });
 
     it("collapses the record sections and keeps their contents reachable", () => {
