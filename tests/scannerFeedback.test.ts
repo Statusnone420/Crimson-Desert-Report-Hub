@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canonicalizeRuleScopes,
   matchScannerFeedbackRule,
   scannerRuleScopeValue,
   sourcePathScopeValue,
@@ -57,6 +58,74 @@ describe("scanner feedback rules", () => {
       action: "block",
       rule: { id: "rule-exact-block", decision: "off_topic" },
     });
+  });
+
+  it("keeps a rule recorded before Steam parameters were droppable working at intake", () => {
+    // The stored value was canonical on the day it was written; the candidate
+    // is canonical today. Without re-canonicalizing the rule, every Steam lesson
+    // taught before this change would quietly stop working and the rejected
+    // thread would come back.
+    const storedBeforeTheChange = rule({
+      id: "steam-exact-block",
+      scopeValue: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
+    });
+    const candidate = {
+      url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana",
+      sourceDomain: "steamcommunity.com",
+    };
+
+    expect(
+      matchScannerFeedbackRule(candidate, canonicalizeRuleScopes([storedBeforeTheChange])),
+    ).toMatchObject({ action: "block", rule: { id: "steam-exact-block" } });
+  });
+
+  it("compares stored evidence as recorded, on both sides", () => {
+    // Learning rules gate discovery; they must never move an evidence count.
+    // refreshClusterStats re-checks STORED signals against exact-URL rules, and
+    // an answer that changes because canonicalization widened is a rule
+    // rewriting evidence. Canonicalizing one side alone breaks it in whichever
+    // direction the change runs, so this mode canonicalizes neither.
+    const asRecorded = { exactUrlAsRecorded: true };
+    const now = new Date("2026-07-22T12:00:00.000Z");
+    const block = rule({
+      id: "steam-exact-block",
+      scopeValue: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
+    });
+
+    // The record the operator actually reviewed stays blocked. Canonicalizing
+    // only the signal would have let it back into the evidence count.
+    expect(
+      matchScannerFeedbackRule(
+        { url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english", sourceDomain: "steamcommunity.com" },
+        [block],
+        now,
+        asRecorded,
+      ),
+    ).toMatchObject({ action: "block", rule: { id: "steam-exact-block" } });
+
+    // A different stored record is still a different record. Canonicalizing
+    // both sides would have dropped this one out of the evidence count.
+    expect(
+      matchScannerFeedbackRule(
+        { url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana", sourceDomain: "steamcommunity.com" },
+        [block],
+        now,
+        asRecorded,
+      ),
+    ).toBeNull();
+  });
+
+  it("rewrites only exact-URL scopes, and only when canonicalization changes them", () => {
+    const exact = rule({ scopeValue: "https://steamcommunity.com/app/1/discussions/0/9?l=english" });
+    const path = rule({ id: "path", scopeType: "source_path", scopeValue: "reddit.com/r/crimsondesert" });
+    const unchanged = rule({ id: "unchanged", scopeValue: "https://example.com/post" });
+
+    const [rewritten, keptPath, keptExact] = canonicalizeRuleScopes([exact, path, unchanged]);
+
+    expect(rewritten.scopeValue).toBe("https://steamcommunity.com/app/1/discussions/0/9");
+    // Untouched rules keep their identity, so nothing downstream sees a change.
+    expect(keptPath).toBe(path);
+    expect(keptExact).toBe(unchanged);
   });
 
   it("lets a newer exact allow supersede an older exact block", () => {
