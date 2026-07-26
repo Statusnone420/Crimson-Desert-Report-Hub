@@ -19,7 +19,7 @@ import type {
   ScannerFeedbackRuleRow,
 } from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
-import { isDisplayableDatedObservation } from "@/lib/observationDates";
+import { isBriefEligibleObservation } from "@/lib/observationDisplay";
 import { registerUnread, type ScannerReadRegister } from "@/lib/scannerRegisters";
 
 function cadenceLabel(minutes: number): string {
@@ -383,13 +383,13 @@ export function AdminScannerView({
       : null,
   ].filter(Boolean);
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
-  // The dating gate decides whether a lane item can ever reach the Brief, so the
-  // section says it once instead of every card repeating it.
-  // The same gate the public lane applies — a non-null date is not a usable
-  // one. Counting bare non-null values here would advertise an item as eligible
-  // for the Brief that the Brief itself rejects for being pre-patch or future.
-  const datedObservations = observations.filter((observation) =>
-    isDisplayableDatedObservation(observation, radar.patch.publishedAt, nowMs),
+  // What can reach the Brief decides how this section reads, so it says it once
+  // instead of every card repeating it. This is the same function the public
+  // lane calls, not a copy of its conditions: a usable date, still public, still
+  // relevant. Anything less would advertise items the Brief itself drops —
+  // including the one just rejected, which stays in this list unpublished.
+  const publishableObservations = observations.filter((observation) =>
+    isBriefEligibleObservation(observation, radar.patch, nowMs),
   ).length;
   // A collapsed section must never hide the fact that something inside it can
   // still be undone, or the operator has to go looking for their own recovery.
@@ -797,21 +797,25 @@ export function AdminScannerView({
           <summary className="operator-section__summary">
             <span className="dispatch-kicker">Context lanes</span>
             <h2 className="operator-section__title">Wire and Asks on the Brief</h2>
-            <span className={datedObservations === 0 ? "operator-section__count is-amber" : "operator-section__count"}>
-              {observations.length} this patch · {datedObservations} publishable
+            <span
+              className={
+                publishableObservations === 0 ? "operator-section__count is-amber" : "operator-section__count"
+              }
+            >
+              {observations.length} this patch · {publishableObservations} publishable
               {reversibleObservations > 0 ? ` · ${reversibleObservations} undoable` : ""}
             </span>
           </summary>
           <div className="operator-section__body">
-            {/* One statement of the dating rule for the whole section. Every card
-                still carries its own state chip; what it no longer carries is a
-                repeat of the same sentence ten times over. */}
+            {/* One statement of the rule for the whole section. Every card still
+                carries its own state chip; what it no longer carries is a repeat
+                of the same sentence ten times over. */}
             <p className="section-heading__note">
               {observations.length === 0
                 ? "Undated items never render publicly. Rejecting an item hides it immediately and records an undoable lesson."
-                : datedObservations === 0
-                  ? `None of these ${observations.length} carry a source date, so none can appear on the Brief. Rejecting an item hides it immediately and records an undoable lesson.`
-                  : `${datedObservations} of ${observations.length} carry a source date; the rest cannot appear on the Brief. Rejecting an item hides it immediately and records an undoable lesson.`}
+                : publishableObservations === 0
+                  ? `None of these ${observations.length} can appear on the Brief — most often for want of a source date. Rejecting an item hides it immediately and records an undoable lesson.`
+                  : `${publishableObservations} of ${observations.length} can appear on the Brief; the rest are undated, rejected, or off this patch. Rejecting an item hides it immediately and records an undoable lesson.`}
             </p>
             <div className="lead-record-grid">
               {observations.length > 0

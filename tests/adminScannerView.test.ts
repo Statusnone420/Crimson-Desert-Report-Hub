@@ -606,7 +606,7 @@ describe("AdminScannerView", () => {
       };
     }
 
-    function observation(index: number, sourcePublishedAt: string | null) {
+    function observation(index: number, sourcePublishedAt: string | null, isPublic = true) {
       return {
         id: `observation-${index}`,
         kind: "community_ask" as const,
@@ -617,7 +617,7 @@ describe("AdminScannerView", () => {
         source_published_at: sourcePublishedAt,
         observed_at: "2026-07-22T12:00:00.000Z",
         seen_count: 1,
-        is_public: true,
+        is_public: isPublic,
         decision_id: null,
       };
     }
@@ -694,7 +694,7 @@ describe("AdminScannerView", () => {
     it("says the dating rule once for the section instead of once per card", () => {
       const markup = render({ observations: [observation(1, null), observation(2, null), observation(3, null)] });
 
-      expect(markup).toContain("None of these 3 carry a source date");
+      expect(markup).toContain("None of these 3 can appear on the Brief");
       expect(markup).toContain("3 this patch · 0 publishable");
     });
 
@@ -703,7 +703,7 @@ describe("AdminScannerView", () => {
         observations: [observation(1, "2026-07-20T00:00:00.000Z"), observation(2, null)],
       });
 
-      expect(markup).toContain("1 of 2 carry a source date");
+      expect(markup).toContain("1 of 2 can appear on the Brief");
       expect(markup).toContain("2 this patch · 1 publishable");
     });
 
@@ -722,7 +722,23 @@ describe("AdminScannerView", () => {
       });
 
       expect(markup).toContain("3 this patch · 1 publishable");
-      expect(markup).toContain("1 of 3 carry a source date");
+      expect(markup).toContain("1 of 3 can appear on the Brief");
+    });
+
+    it("stops counting an item the operator just rejected", () => {
+      // Rejecting a lane item sets is_public false and leaves the card in this
+      // list. Counting the date alone would keep calling the thing just taken
+      // off the Brief publishable.
+      const markup = render({
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        observations: [
+          observation(1, "2026-07-21T00:00:00.000Z"),
+          observation(2, "2026-07-21T00:00:00.000Z", false),
+        ],
+      });
+
+      expect(markup).toContain("2 this patch · 1 publishable");
+      expect(markup).toContain("1 of 2 can appear on the Brief");
     });
 
     it("collapses the record sections and keeps their contents reachable", () => {
