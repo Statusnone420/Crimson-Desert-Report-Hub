@@ -52,9 +52,12 @@ describe("openRouterCircuitOpenFromRuns", () => {
 });
 
 describe("llmPausedFromCircuitRead", () => {
-  it("fails closed when the run-history read errored, matching the engine", () => {
-    expect(llmPausedFromCircuitRead(null, { message: "read outage" }, NOW)).toBe(true);
-    expect(llmPausedFromCircuitRead([], { message: "read outage" }, NOW)).toBe(true);
+  it("reports unknown when the run-history read errored, rather than claiming the circuit is open", () => {
+    // The engine still fails closed on this failure — it evaluates the circuit
+    // itself before spending. A status display has no such decision to make, and
+    // "we could not read it" is not evidence that the circuit is open.
+    expect(llmPausedFromCircuitRead(null, { message: "read outage" }, NOW)).toBeNull();
+    expect(llmPausedFromCircuitRead([], { message: "read outage" }, NOW)).toBeNull();
   });
 
   it("evaluates the circuit normally on a successful read", () => {

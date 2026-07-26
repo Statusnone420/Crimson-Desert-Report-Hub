@@ -37,13 +37,21 @@ export function circuitReadStartIso(now: Date): string {
  * only trip when COST_UNVERIFIED_TRIP_COUNT of them land inside the rolling window.
  */
 /**
- * Badge-side circuit evaluation over a raw history read. When the read itself
- * errored, the engine fails closed before provider work (loadMonthSpend /
- * startAutomationScan), so the status display must report paused too rather
- * than optimistically claiming the LLM lane is active.
+ * Badge-side circuit evaluation over a raw history read. `null` means the read
+ * failed, so the circuit state is unknown.
+ *
+ * The engine still fails closed on the same failure — it evaluates the circuit
+ * itself before provider work (loadMonthSpend / startAutomationScan) and skips
+ * the LLM lane. That is a decision about whether to spend. This function only
+ * feeds a status display, and a display must not turn "the read failed" into
+ * the claim that the cost circuit is open; it says unknown instead.
  */
-export function llmPausedFromCircuitRead(rows: CircuitRunRow[] | null, error: unknown, now: Date): boolean {
-  if (error) return true;
+export function llmPausedFromCircuitRead(
+  rows: CircuitRunRow[] | null,
+  error: unknown,
+  now: Date,
+): boolean | null {
+  if (error) return null;
   return openRouterCircuitOpenFromRuns(rows ?? [], now);
 }
 

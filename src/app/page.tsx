@@ -705,10 +705,11 @@ export default async function DispatchHomePage() {
               {/* Both numbers come from the scanner scoreboard (`radar`, getPublicScannerData),
                   not the patch radar read (`radarData`) — same week, one source. */}
               <div className="pulse-stat pulse-stat--secondary">
-                <div className="pulse-stat__value">{radar.keptThisWeek}</div>
+                <div className="pulse-stat__value">{radar.scannerConnected ? radar.keptThisWeek : "—"}</div>
                 <div className="pulse-stat__caption">
-                  Public leads kept by the radar this week, out of {radar.reviewedThisWeek} candidates reviewed
-                  in the same week.
+                  {radar.scannerConnected
+                    ? `Public leads kept by the radar this week, out of ${radar.reviewedThisWeek} candidates reviewed in the same week.`
+                    : "The scanner read failed, so this week's kept and reviewed counts are unavailable — a quiet week and a broken read are not the same thing."}
                 </div>
               </div>
             </div>
@@ -1185,19 +1186,29 @@ export default async function DispatchHomePage() {
         <div className="dispatch-inset-box observatory-footnote surface-raised">
           <div>
             <p className="observatory-footnote__label">From the Observatory</p>
-            <p className="observatory-footnote__copy dispatch-desktop-only">
-              The radar reviewed <span className="num-ink">{radar.reviewedThisWeek}</span> public candidate
-              {radar.reviewedThisWeek === 1 ? "" : "s"} this week and kept{" "}
-              <span className="num-ink">{radar.keptThisWeek}</span>. The board currently shows{" "}
-              <span className="num-ink">{radar.published}</span> published issue
-              {radar.published === 1 ? "" : "s"}.
-            </p>
-            <p className="observatory-footnote__copy dispatch-mobile-only">
-              Radar this week: <span className="num-ink">{radar.reviewedThisWeek}</span> reviewed ·{" "}
-              <span className="num-ink">{radar.keptThisWeek}</span> kept. Board now:{" "}
-              <span className="num-ink">{radar.published}</span> published issue
-              {radar.published === 1 ? "" : "s"}.
-            </p>
+            {radar.scannerConnected ? (
+              <>
+                <p className="observatory-footnote__copy dispatch-desktop-only">
+                  The radar reviewed <span className="num-ink">{radar.reviewedThisWeek}</span> public candidate
+                  {radar.reviewedThisWeek === 1 ? "" : "s"} this week and kept{" "}
+                  <span className="num-ink">{radar.keptThisWeek}</span>. The board currently shows{" "}
+                  <span className="num-ink">{radar.published}</span> published issue
+                  {radar.published === 1 ? "" : "s"}.
+                </p>
+                <p className="observatory-footnote__copy dispatch-mobile-only">
+                  Radar this week: <span className="num-ink">{radar.reviewedThisWeek}</span> reviewed ·{" "}
+                  <span className="num-ink">{radar.keptThisWeek}</span> kept. Board now:{" "}
+                  <span className="num-ink">{radar.published}</span> published issue
+                  {radar.published === 1 ? "" : "s"}.
+                </p>
+              </>
+            ) : (
+              /* Three zeros would read as a real, very quiet week. */
+              <p className="observatory-footnote__copy">
+                The radar&apos;s weekly figures are unavailable right now — the scanner read failed, so this
+                footnote has no reviewed, kept, or published count to report.
+              </p>
+            )}
           </div>
           <span className="observatory-footnote__link">
             <Link href="/scanner" className="dispatch-link">

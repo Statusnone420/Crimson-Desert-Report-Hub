@@ -191,6 +191,18 @@ describe("getPublicScannerData read failures", () => {
     expect(data.llmPaused).toBeNull();
   });
 
+  it("reports the circuit unknown when the circuit read itself fails", async () => {
+    // The tri-state has to cover this read too, not only failures before it —
+    // otherwise a permission error on exactly this query still renders "Paused".
+    resolveQuery = (trace) => (isCircuitRead(trace) ? { data: null, error: denied } : { data: [], error: null });
+    const { getPublicScannerData } = await import("@/lib/queries");
+
+    const data = await getPublicScannerData();
+
+    expect(data.scannerConnected).toBe(true);
+    expect(data.llmPaused).toBeNull();
+  });
+
   it("reports the scanner disconnected when the public-signal cluster read fails", async () => {
     resolveQuery = (trace) =>
       trace.table === "source_signals" && trace.operations.includes("eq:public_status:public")

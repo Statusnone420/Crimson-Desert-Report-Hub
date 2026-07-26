@@ -60,6 +60,9 @@ describe("homepage independent-register outages", () => {
       reviewedThisWeek: 9,
       keptThisWeek: 3,
       published: 1,
+      // Every scoreboard read succeeded. Without this the numbers below would be
+      // placeholders, and the page would correctly refuse to print them.
+      scannerConnected: true,
       steamPulse: [],
       platformContext: null,
       pulseReadFailures: [],
@@ -130,5 +133,27 @@ describe("homepage independent-register outages", () => {
     expect(markup).toContain(
       "Public leads kept by the radar this week, out of 9 candidates reviewed in the same week.",
     );
+  });
+
+  it("prints no weekly radar count when the scanner read failed", async () => {
+    // The disconnected scoreboard is zero-filled, so publishing these numbers
+    // would announce a very quiet week that nobody measured.
+    mocks.getPublicScannerData.mockResolvedValue({
+      reviewedThisWeek: 0,
+      keptThisWeek: 0,
+      published: 0,
+      scannerConnected: false,
+      steamPulse: [],
+      platformContext: null,
+      pulseReadFailures: [],
+    });
+
+    const markup = renderToStaticMarkup(await DispatchHomePage());
+
+    expect(markup).not.toContain('<div class="pulse-stat__value">0</div>');
+    expect(markup).not.toContain("Public leads kept by the radar this week");
+    expect(markup).not.toContain("The radar reviewed");
+    expect(markup).toContain("The scanner read failed, so this week&#x27;s kept and reviewed counts are unavailable");
+    expect(markup).toContain("no reviewed, kept, or published count to report");
   });
 });
