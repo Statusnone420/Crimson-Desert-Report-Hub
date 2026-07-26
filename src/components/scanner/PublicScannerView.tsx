@@ -232,14 +232,22 @@ export function PublicScannerView({
               <span className="obs-health__name">{integration.label}</span>
               <span
                 className={
-                  integration.paused
+                  integration.paused || integration.circuitUnknown
                     ? "obs-health__state obs-health__state--amber"
                     : integration.connected
                       ? "obs-health__state obs-health__state--green"
                       : "obs-health__state"
                 }
               >
-                {integration.paused ? "Paused" : integration.connected ? "Connected" : "Off"}
+                {/* "Unknown" and "Paused" are different claims: the circuit read
+                    failing is not evidence that the circuit is open. */}
+                {integration.circuitUnknown
+                  ? "Unknown"
+                  : integration.paused
+                    ? "Paused"
+                    : integration.connected
+                      ? "Connected"
+                      : "Off"}
               </span>
             </div>
             <p className="obs-health__caption">{integration.detail}</p>

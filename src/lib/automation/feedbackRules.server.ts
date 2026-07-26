@@ -3,6 +3,9 @@ import type { createServiceClient } from "@/lib/supabase";
 /** Rows requested per page; the hosted API may return fewer than asked for. */
 export const FEEDBACK_RULE_PAGE_SIZE = 1000;
 
+/** Runaway guard, far above any plausible rule count. */
+const MAX_FEEDBACK_RULE_PAGES = 200;
+
 type ReadFailure = { message: string; code?: string };
 
 /**
@@ -31,20 +34,25 @@ export async function readActiveFeedbackRulePages<Row extends { id: string; crea
 ): Promise<{ rows: Row[] } | { error: ReadFailure }> {
   const rows: Row[] = [];
   let cursor: { createdAt: string; id: string } | null = null;
-  for (;;) {
-    // Filters must precede the transforms: .order()/.limit() return a transform
-    // builder that no longer exposes .or().
+  // The only ordinary exit is an empty page. If anything ever stops the cursor
+  // narrowing the result set — a view that drops the filter, an ascending order
+  // paired with a descending cursor — the walk would spin and grow forever.
+  // A hung request is worse than a failed one, so bound it and fail loudly.
+  for (let page = 1; ; page += 1) {
+    if (page > MAX_FEEDBACK_RULE_PAGES) {
+      throw new Error(`scanner feedback rules paging did not terminate after ${MAX_FEEDBACK_RULE_PAGES} pages`);
+    }
     const filtered = supabase.from("scanner_feedback_rules").select(columns).is("revoked_at", null);
     const cursored =
       cursor === null
         ? filtered
         : filtered.or(`created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`);
-    const page = await cursored
+    const result = await cursored
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
       .limit(pageSize);
-    if (page.error) return { error: page.error };
-    const pageRows = (page.data ?? []) as unknown as Row[];
+    if (result.error) return { error: result.error };
+    const pageRows = (result.data ?? []) as unknown as Row[];
     if (pageRows.length === 0) return { rows };
     rows.push(...pageRows);
     const last = pageRows[pageRows.length - 1];

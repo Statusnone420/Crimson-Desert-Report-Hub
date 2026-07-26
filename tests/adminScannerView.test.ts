@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
 import { ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { emptyPatchRadarData } from "@/lib/radar.server";
+import type { PublicScannerData } from "@/lib/queries";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/app/admin/actions", () => ({
@@ -32,6 +33,26 @@ function findInput(node: ReactNode, name: string): ReactElement<InputProps> | nu
   return null;
 }
 
+/**
+ * A scoreboard whose reads all succeeded. Tests that are not about degraded
+ * health need this: a placeholder object reads as `scannerConnected: undefined`,
+ * which silently renders the unavailable branches instead of the ones under test.
+ */
+const healthyScoreboard = {
+  reviewedThisWeek: 0,
+  filteredThisWeek: 0,
+  keptThisWeek: 0,
+  awaiting: 0,
+  published: 0,
+  lastCheckedAt: null,
+  scannerActive: true,
+  scannerConnected: true,
+  llmPaused: false,
+  steamPulse: [],
+  platformContext: null,
+  pulseReadFailures: [],
+} satisfies PublicScannerData;
+
 describe("AdminScannerView", () => {
   it("keeps the owner-approved two-dollar LLM cap inside native form validation", () => {
     const view = AdminScannerView({
@@ -54,7 +75,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -139,7 +160,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -189,7 +210,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -246,7 +267,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -313,7 +334,7 @@ describe("AdminScannerView", () => {
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
-      scoreboard: {} as never,
+      scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
       integrations: [],
       nowIso: "2026-07-22T18:00:00.000Z",
@@ -343,7 +364,8 @@ describe("AdminScannerView", () => {
       pulseReadFailures: [],
     };
 
-    function render(overrides: { radarConnected: boolean; scannerConnected: boolean }) {
+    function render(overrides: { radarConnected: boolean; scannerConnected: boolean; weekReviewed?: number }) {
+      const radar = emptyPatchRadarData(patch);
       return renderToStaticMarkup(createElement(AdminScannerView, {
         runs: [],
         signals: [],
@@ -365,7 +387,11 @@ describe("AdminScannerView", () => {
         latestRealRun: null,
         latestFind: null,
         scoreboard: { ...connectedScoreboard, scannerConnected: overrides.scannerConnected },
-        radar: { ...emptyPatchRadarData(patch), connected: overrides.radarConnected },
+        radar: {
+          ...radar,
+          connected: overrides.radarConnected,
+          funnel7d: { ...radar.funnel7d, reviewed: overrides.weekReviewed ?? 0 },
+        },
         integrations: [],
         nowIso: "2026-07-22T18:00:00.000Z",
       }));
@@ -394,6 +420,17 @@ describe("AdminScannerView", () => {
       expect(markup).not.toContain("Nothing requires intervention.");
       expect(markup).toContain("Scanner health is unavailable");
       expect(markup).toContain("Source radar funnel unavailable");
+    });
+
+    it("does not print scoreboard KPIs beside a live funnel when the scoreboard read failed", () => {
+      // A connected radar can report a busy week while the scoreboard read
+      // failed — the branch that renders the funnel bar also renders three
+      // KPI numbers that come entirely from the scoreboard.
+      const markup = render({ radarConnected: true, scannerConnected: false, weekReviewed: 12 });
+
+      expect(markup).toContain("Source radar funnel unavailable");
+      expect(markup).not.toContain("candidates reviewed");
+      expect(markup).not.toContain("Radar yield");
     });
   });
 });

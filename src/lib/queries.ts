@@ -353,10 +353,14 @@ export async function getPublicSignalClusterIdsForCurrentPatch(
   supabase: ReturnType<typeof createServiceClient>,
   currentPatch: PatchContext,
 ): Promise<Set<string>> {
-  const { data } = await supabase
+  // An empty set here is not a harmless default: every private-lead cluster then
+  // looks uncorroborated, so a failed read would inflate "awaiting" rather than
+  // zero it. Surface it and let the caller decide.
+  const { data, error } = await supabase
     .from("source_signals")
     .select("cluster_id, source, title, summary, source_url, source_published_at")
     .eq("public_status", "public");
+  if (error) throw new Error(`public signal clusters read failed: ${error.message}`);
   const clusterIds = new Set<string>();
   for (const signal of filterPublicCurrentPatchSignals(
     (data ?? []) as PublicSignalEligibilityRow[],
@@ -1208,8 +1212,9 @@ export async function getAutomationAdminData() {
 
   // Paged to completion: this ledger is the only recovery surface for an
   // enforced rule, so a truncated read would strand rules the scanner is still
-  // applying. Its length is therefore an exact total of the active rules, read
-  // in the same round trip as the rows it counts.
+  // applying. Its length is therefore an exact total of the active rules,
+  // counted from the same rows the page renders rather than from a separate
+  // count query that could disagree with them.
   const feedbackRulesResult = await readActiveFeedbackRulePages<ScannerFeedbackRuleRow>(
     supabase,
     "id, decision_id, action, decision, scope_type, scope_value, reason, created_at, expires_at",
@@ -1340,8 +1345,12 @@ export type PublicScannerData = {
   lastCheckedAt: string | null;
   scannerActive: boolean;
   scannerConnected: boolean;
-  /** The cost-safety circuit is open right now — the same evaluation the next scan will make. */
-  llmPaused: boolean;
+  /**
+   * The cost-safety circuit is open right now — the same evaluation the next scan
+   * will make. `null` means the circuit could not be read, which is not the same
+   * claim as "open" and must never be displayed as one.
+   */
+  llmPaused: boolean | null;
   steamPulse: SteamPulsePoint[];
   platformContext: PlatformContextSnapshot | null;
   pulseReadFailures: PulseReadFailure[];
@@ -1499,9 +1508,9 @@ function isIntakeRun(run: { mode: string; intent: string | null; search_queries_
  */
 async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
   // Zeros here are not counts — `scannerConnected: false` marks every number in
-  // this object as unavailable, and each consumer has to say so rather than
-  // print an ordinary zero.
-  const disconnected = (circuitOpen: boolean): PublicScannerData => ({
+  // this object as unavailable, and the operator branch says so rather than
+  // printing an ordinary zero.
+  const disconnected = (circuitOpen: boolean | null): PublicScannerData => ({
     reviewedThisWeek: 0,
     filteredThisWeek: 0,
     keptThisWeek: 0,
@@ -1519,10 +1528,10 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
   // no automation runs here, so there is no cost circuit to report open.
   if (!hasSupabaseServiceConfig()) return disconnected(false);
 
-  // A failed read leaves the circuit unknown, so it fails closed exactly the way
-  // the engine's own circuit read does. An unrelated query failure must never
-  // erase a circuit that is actually open.
-  let llmPaused = true;
+  // Unknown until the circuit read runs. A failure before that point must not
+  // erase an open circuit, and must not invent one either — the engine fails
+  // closed because it is deciding whether to spend; this value is only displayed.
+  let llmPaused: boolean | null = null;
   try {
     const supabase = createServiceClient();
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();

@@ -354,6 +354,7 @@ export function AdminScannerView({
   const recentSignals = signals.slice(0, 6);
   const olderSignals = signals.slice(6);
   const pausedIntegrations = integrations.filter((integration) => integration.paused);
+  const unknownCircuitIntegrations = integrations.filter((integration) => integration.circuitUnknown);
   // A disconnected radar or scoreboard means the reads behind these numbers
   // failed, so their zeros are placeholders rather than counts. Nothing on this
   // page may then say the operator is clear — it would be reading "no work" off
@@ -391,6 +392,14 @@ export function AdminScannerView({
           <span key={integration.key}>
             {" · "}
             <span className="is-amber">{integration.label.toUpperCase()} PAUSED</span>
+          </span>
+        ))}
+        {/* An unreadable circuit is not a paused one; saying PAUSED here would
+            state as fact something the failed read never established. */}
+        {unknownCircuitIntegrations.map((integration) => (
+          <span key={integration.key}>
+            {" · "}
+            <span className="is-amber">{integration.label.toUpperCase()} STATE UNKNOWN</span>
           </span>
         ))}
       </div>
@@ -476,7 +485,21 @@ export function AdminScannerView({
         </div>
       )}
 
-      {radar.connected && radar.funnel7d.reviewed > 0 ? (
+      {!scoreboard.scannerConnected ? (
+        /* Checked before the funnel branch: a connected radar can report a busy
+           week while the scoreboard read failed, and the KPI column beside the
+           funnel bar is entirely scoreboard-sourced. */
+        <div className="stat-band" aria-label="Source radar funnel unavailable">
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Weekly funnel</div>
+            <div className="stat-band__value stat-band__value--amber">Unavailable</div>
+            <div className="stat-band__caption">
+              The scanner scoreboard read failed, so reviewed, filtered, awaiting, published, and radar yield are
+              unknown for this page load — not zero.
+            </div>
+          </div>
+        </div>
+      ) : radar.connected && radar.funnel7d.reviewed > 0 ? (
         /* Funnel as a proportional bar instead of a second stat band — the two
            bands read as clones; this row answers "where did the week's
            candidates go" in one shape and keeps the KPIs beside it. */
@@ -506,20 +529,6 @@ export function AdminScannerView({
               <span className="desk-funnel__num">
                 {scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}
               </span>
-            </div>
-          </div>
-        </div>
-      ) : !scoreboard.scannerConnected ? (
-        /* Every number in this band comes from the scoreboard read. When that
-           read failed the object is zero-filled, so printing it would invent a
-           quiet week out of a broken query. */
-        <div className="stat-band" aria-label="Source radar funnel unavailable">
-          <div className="stat-band__cell">
-            <div className="stat-band__label">Weekly funnel</div>
-            <div className="stat-band__value stat-band__value--amber">Unavailable</div>
-            <div className="stat-band__caption">
-              The scanner scoreboard read failed, so reviewed, filtered, awaiting, published, and radar yield are
-              unknown for this page load — not zero.
             </div>
           </div>
         </div>

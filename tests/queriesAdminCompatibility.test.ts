@@ -71,8 +71,10 @@ class FakeQuery {
     return this;
   }
 
-  order(column: string) {
-    this.trace.operations.push(`order:${column}`);
+  order(column: string, options?: { ascending?: boolean }) {
+    // Direction is recorded: a keyset cursor paired with the wrong sort order
+    // pages forever, and a trace that dropped the direction could not see it.
+    this.trace.operations.push(`order:${column}:${options?.ascending === false ? "desc" : "asc"}`);
     return this;
   }
 
@@ -259,7 +261,7 @@ describe("getAutomationAdminData rolling migration compatibility", () => {
     const ruleTraces = traces.filter((trace) => trace.table === "scanner_feedback_rules");
     expect(ruleTraces).toHaveLength(3);
     expect(ruleTraces[0].operations).toEqual(
-      expect.arrayContaining(["is:revoked_at:null", "order:created_at", "order:id", "limit:1000"]),
+      expect.arrayContaining(["is:revoked_at:null", "order:created_at:desc", "order:id:desc", "limit:1000"]),
     );
     expect(ruleTraces[1].operations).toContain(
       `or:created_at.lt.${tied},and(created_at.eq.${tied},id.lt.rule-b)`,

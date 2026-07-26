@@ -179,12 +179,29 @@ describe("getPublicScannerData read failures", () => {
     expect(data.llmPaused).toBe(true);
   });
 
-  it("fails the circuit closed when the failure lands before it can be evaluated", async () => {
+  it("reports the circuit unknown when the failure lands before it can be evaluated", async () => {
     resolveQuery = (trace) => (isWeeklyRunRead(trace) ? { data: null, error: denied } : { data: [], error: null });
     const { getPublicScannerData } = await import("@/lib/queries");
 
     const data = await getPublicScannerData();
 
-    expect(data.llmPaused).toBe(true);
+    // Not `true`: the engine fails closed because it is deciding whether to
+    // spend, but this value is only displayed, and "we could not read it" is a
+    // different claim from "the circuit is open".
+    expect(data.llmPaused).toBeNull();
+  });
+
+  it("reports the scanner disconnected when the public-signal cluster read fails", async () => {
+    resolveQuery = (trace) =>
+      trace.table === "source_signals" && trace.operations.includes("eq:public_status:public")
+        ? { data: null, error: denied }
+        : { data: [], error: null };
+    const { getPublicScannerData } = await import("@/lib/queries");
+
+    const data = await getPublicScannerData();
+
+    // An empty set would have made every private-lead cluster look
+    // uncorroborated, inflating "awaiting" rather than zeroing it.
+    expect(data.scannerConnected).toBe(false);
   });
 });
