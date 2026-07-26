@@ -190,7 +190,7 @@
             <input type="hidden" name="visibility" value="auto">
             <button class="c-undo" type="submit" aria-describedby="reset-cross-save-effect">Reset to automatic</button>
           </form>
-          <p class="scope-line" id="reset-cross-save-effect" style="flex-basis:100%"><b>Reset</b> clears the override reason and timestamp and immediately restores the cluster's saved automatic public baseline, so it may appear on or leave the Issue Board now. Signals hidden by Force hidden wait for the next normal visibility refresh.</p>
+          <p class="scope-line" id="reset-cross-save-effect" style="flex-basis:100%"><b>Reset</b> clears the override reason and timestamp, immediately restores the cluster's saved automatic public baseline, and recomputes every signal's visibility in the same action, so the cluster and its signals may appear on or leave the Issue Board now. If the signal recompute fails, the reset itself is already committed and the failure is raised, not hidden.</p>
         </div>
         <div class="line-item" style="flex-wrap:wrap">
           <div class="line-item__main">
@@ -202,7 +202,7 @@
             <input type="hidden" name="visibility" value="auto">
             <button class="c-undo" type="submit" aria-describedby="reset-graphics-effect">Reset to automatic</button>
           </form>
-          <p class="scope-line" id="reset-graphics-effect" style="flex-basis:100%"><b>Reset</b> clears the override reason and timestamp and immediately restores the cluster's saved automatic public baseline, so it may appear on or leave the Issue Board now. Signals hidden by Force hidden wait for the next normal visibility refresh.</p>
+          <p class="scope-line" id="reset-graphics-effect" style="flex-basis:100%"><b>Reset</b> clears the override reason and timestamp, immediately restores the cluster's saved automatic public baseline, and recomputes every signal's visibility in the same action, so the cluster and its signals may appear on or leave the Issue Board now. If the signal recompute fails, the reset itself is already committed and the failure is raised, not hidden.</p>
         </div>
 
         <div class="breakglass">
