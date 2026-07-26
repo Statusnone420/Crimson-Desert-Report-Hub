@@ -707,7 +707,8 @@ describe("AdminScannerView", () => {
       const markup = render({ observations: [observation(1, null), observation(2, null), observation(3, null)] });
 
       expect(markup).toContain("None of these 3 can appear on the Brief");
-      expect(markup).toContain("3 this patch · 0 publishable");
+      expect(markup).toContain("newest 3 this patch");
+      expect(markup).toContain("· 0 publishable");
     });
 
     it("counts the publishable ones when some carry a date", () => {
@@ -715,8 +716,9 @@ describe("AdminScannerView", () => {
         observations: [observation(1, "2026-07-20T00:00:00.000Z"), observation(2, null)],
       });
 
-      expect(markup).toContain("1 of 2 can appear on the Brief");
-      expect(markup).toContain("2 this patch · 1 publishable");
+      expect(markup).toContain("1 of these 2 can appear on the Brief");
+      expect(markup).toContain("newest 2 this patch");
+      expect(markup).toContain("· 1 publishable");
     });
 
     it("never calls an item publishable that the public lane would reject", () => {
@@ -733,8 +735,9 @@ describe("AdminScannerView", () => {
         ],
       });
 
-      expect(markup).toContain("3 this patch · 1 publishable");
-      expect(markup).toContain("1 of 3 can appear on the Brief");
+      expect(markup).toContain("newest 3 this patch");
+      expect(markup).toContain("· 1 publishable");
+      expect(markup).toContain("1 of these 3 can appear on the Brief");
     });
 
     it("stops counting an item the operator just rejected", () => {
@@ -749,8 +752,9 @@ describe("AdminScannerView", () => {
         ],
       });
 
-      expect(markup).toContain("2 this patch · 1 publishable");
-      expect(markup).toContain("1 of 2 can appear on the Brief");
+      expect(markup).toContain("newest 2 this patch");
+      expect(markup).toContain("· 1 publishable");
+      expect(markup).toContain("1 of these 2 can appear on the Brief");
     });
 
     it("judges observations against the patch they were read with, not the cached radar copy", () => {
@@ -771,7 +775,24 @@ describe("AdminScannerView", () => {
         observations: [covers1150],
       });
 
-      expect(markup).toContain("1 this patch · 1 publishable");
+      expect(markup).toContain("newest 1 this patch");
+      expect(markup).toContain("· 1 publishable");
+    });
+
+    it("presents the capped observation read as a window, never as the patch total", () => {
+      // The read stops at 40. On a busy patch all three figures in this summary
+      // describe that slice, so the label has to say so — "40 this patch" would
+      // deny the existence of everything older.
+      const markup = render({
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        observations: Array.from({ length: 40 }, (_, index) =>
+          observation(index + 1, "2026-07-21T00:00:00.000Z"),
+        ),
+      });
+
+      expect(markup).toContain("newest 40 this patch");
+      expect(markup).toContain("· 40 publishable");
+      expect(markup).toContain("40 of these 40 can appear on the Brief");
     });
 
     it("collapses the record sections and keeps their contents reachable", () => {

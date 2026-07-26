@@ -2726,6 +2726,9 @@ a.wire-item__title:hover { color: var(--dispatch-ink); }
   text-transform: uppercase;
   color: var(--dispatch-quiet);
 }
+/* Three figures in one line runs past a phone. Keep each figure whole so the
+   line breaks between them, never through "3 publishable". */
+.operator-section__count > span { white-space: nowrap; }
 .operator-section__count.is-amber { color: var(--amber); }
 .operator-section > summary::after {
   content: "+";

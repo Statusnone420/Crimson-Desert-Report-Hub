@@ -808,8 +808,13 @@ export function AdminScannerView({
                 publishableObservations === 0 ? "operator-section__count is-amber" : "operator-section__count"
               }
             >
-              {observations.length} this patch · {publishableObservations} publishable
-              {reversibleObservations > 0 ? ` · ${reversibleObservations} undoable` : ""}
+              {/* "newest": the read caps at 40, so on a busy patch this is a
+                  window, not the total — and all three figures count only what
+                  is inside it. Matches how the neighbouring record sections
+                  label their own capped reads. */}
+              <span>newest {observations.length} this patch</span>{" "}
+              <span>· {publishableObservations} publishable</span>
+              {reversibleObservations > 0 ? <> <span>· {reversibleObservations} undoable</span></> : null}
             </span>
           </summary>
           <div className="operator-section__body">
@@ -821,7 +826,7 @@ export function AdminScannerView({
                 ? "Undated items never render publicly. Rejecting an item hides it immediately and records an undoable lesson."
                 : publishableObservations === 0
                   ? `None of these ${observations.length} can appear on the Brief — most often for want of a source date. Rejecting an item hides it immediately and records an undoable lesson.`
-                  : `${publishableObservations} of ${observations.length} can appear on the Brief; the rest are undated, rejected, or off this patch. Rejecting an item hides it immediately and records an undoable lesson.`}
+                  : `${publishableObservations} of these ${observations.length} can appear on the Brief; the rest are undated, rejected, or off this patch. Rejecting an item hides it immediately and records an undoable lesson.`}
             </p>
             <div className="lead-record-grid">
               {observations.length > 0
