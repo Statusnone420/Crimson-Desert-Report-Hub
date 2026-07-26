@@ -275,9 +275,11 @@ different-risk controls visibly distinct without relying on color; explicit
 keyboard order, visible focus, labels, disclosure state, and live status
 feedback; desktop primary, every control operable at 390px; every active scanner
 rule returned by the required paginated read has an honest Undo, Revoke rule, or
-Forget lesson path; every reversible state has a reachable Undo/Reset;
-irreversible and partial controls disclose what cannot be restored; and all
-currently rendered recovery surfaces are preserved. Green zero is impossible
+Forget lesson path; every reversible state represented on the redesigned
+surface has a reachable Undo/Reset, while the named superseded/expired
+decision-history recovery deferral remains outside this gate; irreversible and
+partial controls disclose what cannot be restored; and all currently rendered
+recovery surfaces are preserved. Green zero is impossible
 after a failed source read, export formulas are neutralized without widening
 the private column allowlist, public and operator scanner data boundaries are
 never merged, and all parity dispositions are honored against the inventory

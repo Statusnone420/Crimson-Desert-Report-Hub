@@ -33,7 +33,7 @@
      aria-expanded=true; Download, Cancel, and Escape close it and return focus
      to #export-trigger. -->
 <div id="export-confirm" class="confirm-strip" role="group" aria-labelledby="export-confirm-title" aria-describedby="export-confirm-detail" hidden>
-  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field private review export. Submission and deduplication hashes are excluded.</span></span>
+  <span><b id="export-confirm-title">Export all report-review rows?</b> <span id="export-confirm-detail">Includes the fixed 22-field review export: private descriptions, repro steps, hardware specs, PERS IDs, evidence URLs, and every moderation state. Submission and deduplication hashes are excluded.</span></span>
   <a class="c-secondary" href="#">Download CSV</a>
   <button class="c-quiet" type="button">Cancel</button>
 </div>
@@ -59,7 +59,7 @@
     <div>
       <div class="stat-label">Approved evidence</div>
       <div class="stat-value">1</div>
-      <div class="stat-caption">Tracker-wide approved-report read; not patch-filtered</div>
+      <div class="stat-caption">Approved rows returned by the tracker-wide read; not patch-filtered</div>
     </div>
     <div>
       <div class="stat-label">Verified</div>
@@ -84,7 +84,7 @@
       <!-- Without an AI key, production disables the checkbox and changes its
            label to "Draft with AI: disabled, no AI key configured". -->
     </form>
-    <p class="scope-line" style="margin-top:10px"><b>Compile</b> issues tracker-wide reads for approved reports, public scanner signals, and issue clusters, plus a newest-1,000 approved-excerpt read. Patch 1.15.00 supplies context in the generated heading; it does not filter those rows. Every successful compile appends one run, and the app has no delete path.</p>
+    <p class="scope-line" style="margin-top:10px"><b>Compile</b> issues tracker-wide reads for approved reports, public scanner signals, and issue clusters, plus a newest-1,000 approved-excerpt read. Counts describe the rows those reads return; Patch 1.15.00 supplies context in the generated heading but does not filter them. Every successful compile appends one run, and the app has no delete path.</p>
   </section>
 
   <!-- 4 · RECORDS: current output -->
@@ -99,7 +99,7 @@ Generated 2026-07-25 by the Crimson Desert Report Hub (unofficial community trac
 
 ## Executive summary
 
-This tracker-wide snapshot separates 0 automated community signals, 1 approved direct report, and 1 verified report. Current patch 1.15.00 supplies report context; it does not filter the stored evidence. The largest direct-report category is Performance with 1 report. Most affected platform: PC (Steam).
+This tracker-wide returned-row snapshot separates 0 automated community signals, 1 approved direct report, and 1 verified report. Current patch 1.15.00 supplies report context; it does not filter the returned evidence. The largest direct-report category is Performance with 1 report. Most affected platform: PC (Steam).
 
 ## Top issues
 
