@@ -386,6 +386,121 @@ describe("appendUniqueObservation", () => {
     expect(observations.map((row) => row.url)).toContain("https://www.polygon.com/crimson-desert-offset-date/");
   });
 
+  it("grants the wire's real RFC 1123 dates displacement priority", () => {
+    // Ground truth (probed live 2026-07-27): Tavily's news index emits
+    // `Fri, 24 Jul 2026 00:00:00 GMT`, not ISO. If that shape does not count
+    // as dated, the entire displacement feature never fires in production.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+      );
+    }
+
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-wire-date/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "Fri, 24 Jul 2026 00:00:00 GMT",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(true);
+    expect(observations.map((row) => row.url)).toContain("https://www.polygon.com/crimson-desert-wire-date/");
+
+    // The RFC branch validates calendar components the same way the ISO
+    // branch does: PostgreSQL rejects Feb 30 in any format.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-rfc-rollover/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "Mon, 30 Feb 2026 00:00:00 GMT",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+
+    // And it anchors the whole string: `GMT-0500` parses in JavaScript but
+    // PostgreSQL rejects the zone, so it must not buy a swap.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-js-only-zone/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "Fri, 24 Jul 2026 00:00:00 GMT-0500",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+
+    // Edge whitespace PostgreSQL forgives is forgiven here too: a padded wire
+    // date must not silently switch displacement off.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-padded-wire-date/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "Fri, 24 Jul 2026 01:00:00 GMT ",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(true);
+    expect(observations.map((row) => row.url)).toContain(
+      "https://www.polygon.com/crimson-desert-padded-wire-date/",
+    );
+  });
+
+  it("allowlists date formats instead of trusting JavaScript's parser", () => {
+    // Every case here is a string Date.parse happily accepts. All but the
+    // last die at the RPC's ::timestamptz cast (rolled-over slash date;
+    // timezone displacement past PostgreSQL's ±15:59 limit; a JS-only zone
+    // suffix riding a space-separated ISO date through the lenient legacy
+    // parser; non-breaking spaces, which PostgreSQL's datetime scanner
+    // rejects and String.prototype.trim would have hidden) and must not buy
+    // a swap. The last would survive the cast, but it is no format the
+    // pipeline's sources emit, so it conservatively loses priority — never
+    // a slot.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+      );
+    }
+
+    for (const sourcePublishedAt of [
+      "02/30/2026",
+      "2026-07-24T00:00:00+16:00",
+      "2026-07-24 00:00:00 GMT-0500",
+      "Fri,\u00A024\u00A0Jul\u00A02026\u00A000:00:00\u00A0GMT",
+      "July 24, 2026",
+    ]) {
+      expect(
+        appendUniqueObservation(
+          observations,
+          candidate({
+            url: `https://www.polygon.com/crimson-desert-impostor/${encodeURIComponent(sourcePublishedAt)}/`,
+            sourceDomain: "polygon.com",
+            sourcePublishedAt,
+          }),
+          seenConflictHashes,
+        ),
+      ).toBe(false);
+    }
+    expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
+  });
+
   it("treats a malformed incumbent date as undated when selecting the displaced row", () => {
     // Five malformed-dated rows can fill the shelf while it has space, and
     // persistence will null every one of those timestamps. A genuinely dated
@@ -546,6 +661,13 @@ describe("persistObservations", () => {
           sourceDomain: "pushsquare.com",
           sourcePublishedAt: "2026-07-16T10:00:00.000Z",
         }),
+        // The wire's real date format (RFC 1123) counts as dated here too —
+        // the same allowlist drives displacement and payload order.
+        candidate({
+          url: "https://www.pcgamer.com/crimson-desert-wire-dated/",
+          sourceDomain: "pcgamer.com",
+          sourcePublishedAt: "Fri, 24 Jul 2026 00:00:00 GMT",
+        }),
       ],
       "1.13.01",
       report,
@@ -555,6 +677,7 @@ describe("persistObservations", () => {
     expect((rpcCalls[0].params.p_observations as { url: string }[]).map((row) => row.url)).toEqual([
       "https://www.polygon.com/crimson-desert-dated-late/",
       "https://www.pushsquare.com/news/crimson-desert-dated-last",
+      "https://www.pcgamer.com/crimson-desert-wire-dated/",
       "https://www.dsogaming.com/articles/undated-first/",
       "https://www.dsogaming.com/articles/malformed-date/",
     ]);

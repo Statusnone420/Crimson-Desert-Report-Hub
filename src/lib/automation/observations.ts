@@ -81,33 +81,92 @@ export function shouldCollectObservation(
   return domainTier(candidate.sourceDomain) === "trusted";
 }
 
+const RFC_1123_MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
 /**
- * A date only counts if it will survive persistence: the RPC stores a
- * malformed external timestamp as NULL, leaving the row exactly as
- * unrenderable as one that never carried a date. Judging the candidate AND
- * the shelf with the same test keeps a run of malformed-dated rows from
- * masquerading as a dated shelf and blocking a genuinely dated result.
+ * The wire's shape in the wild (probed live 2026-07-27): Tavily's news index
+ * emits RFC 1123 — `Fri, 24 Jul 2026 00:00:00 GMT` — while Reddit intake
+ * mints strict ISO via toISOString(). These two families are the entire
+ * legitimate supply of publication dates.
  *
- * Date.parse alone is not enough: JavaScript rolls a calendar-invalid ISO
- * date over (2026-02-30 parses as March 2) where PostgreSQL rejects it, so
- * for ISO-shaped strings the literal calendar components must also be real.
- * Validated from the string, not a UTC round-trip, because a timestamp with
- * a timezone offset can legitimately sit on a different UTC calendar day.
+ * Both patterns anchor the FULL string and separate with plain spaces only —
+ * never `\s`, which in JavaScript matches U+00A0 and friends, characters
+ * PostgreSQL's datetime scanner rejects outright (probed).
  */
-function hasUsableDate(sourcePublishedAt: string | null): boolean {
-  if (!sourcePublishedAt) return false;
-  if (!Number.isFinite(Date.parse(sourcePublishedAt))) return false;
-  const isoPrefix = /^(\d{4})-(\d{2})-(\d{2})/.exec(sourcePublishedAt);
-  if (!isoPrefix) return true;
-  const year = Number(isoPrefix[1]);
-  const month = Number(isoPrefix[2]);
-  const day = Number(isoPrefix[3]);
+const RFC_1123_DATE =
+  /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), +)?(\d{1,2}) +(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +(\d{4})(?: +\d{2}:\d{2}:\d{2})? +(?:GMT|UTC)$/i;
+
+/**
+ * Date, optional time, optional zone — nothing else. The tail alternation is
+ * the load-bearing part: an unanchored prefix match would wave through any
+ * trailing text JavaScript's lenient legacy parser tolerates, and PostgreSQL
+ * rejects several of those (`2026-07-24 00:00:00 GMT-0500`: the zone is the
+ * whole reason the cast fails). Offsets capture for the ±15:59 bound check.
+ */
+const ISO_8601_DATE =
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|([+-])(\d{2})(?::?(\d{2}))?)?)?$/i;
+
+/** JavaScript rolls impossible days over (Feb 30 -> Mar 2); PostgreSQL rejects them. */
+function isRealCalendarDay(year: number, month: number, day: number): boolean {
   const composed = new Date(Date.UTC(year, month - 1, day));
   return (
     composed.getUTCFullYear() === year &&
     composed.getUTCMonth() === month - 1 &&
     composed.getUTCDate() === day
   );
+}
+
+/**
+ * A date only counts if it will survive persistence: the RPC casts the string
+ * with `::timestamptz` and stores a failed cast as NULL, leaving the row
+ * exactly as unrenderable as one that never carried a date. Judging the
+ * candidate AND the shelf with the same test keeps a run of malformed-dated
+ * rows from masquerading as a dated shelf and blocking a genuinely dated
+ * result.
+ *
+ * This is an ALLOWLIST of the two formats the pipeline actually receives
+ * (ISO 8601 from Reddit intake and the database; RFC 1123 from the Tavily
+ * wire), not a test of what JavaScript can parse. JavaScript's parser is the
+ * wrong oracle for a PostgreSQL cast: it accepts strings PostgreSQL rejects —
+ * rolled-over calendar days in any format (02/30/2026, `Mon, 30 Feb 2026`),
+ * timezone offsets past PostgreSQL's ±15:59 displacement limit, zone suffixes
+ * like `GMT-0500` — and each acceptance would hand priority to a row that
+ * persists as undated. So both branches anchor their full pattern, validate
+ * the literal calendar components (from the string, not a UTC round-trip,
+ * because an offset timestamp can legitimately sit on a different UTC
+ * calendar day), the ISO branch bounds the offset, and Date.parse guards
+ * only what remains (time-of-day ranges, overall well-formedness — where
+ * JavaScript is the stricter side).
+ *
+ * Anything else returns false, which is the safe direction: an unrecognized
+ * format merely loses PRIORITY. The raw string still travels to the RPC,
+ * which may well store it ("July 24, 2026" casts fine) — the row keeps its
+ * date, it just never displaces another row on the strength of one this
+ * module cannot vouch for. (Incidentally that includes years below 100:
+ * Date.UTC maps them to 1900+, so isRealCalendarDay rejects them — not
+ * designed, but the safe direction, and no real source dates from 99 AD.)
+ *
+ * The edge trim strips ASCII blanks ONLY, matching what PostgreSQL itself
+ * ignores. String.prototype.trim would also strip U+00A0 — which PostgreSQL
+ * rejects — and since the RPC receives the RAW string, trimming more than
+ * the cast forgives would vouch for a value the cast then nulls.
+ */
+function hasUsableDate(sourcePublishedAt: string | null): boolean {
+  if (!sourcePublishedAt) return false;
+  const value = sourcePublishedAt.replace(/^[ \t]+|[ \t]+$/g, "");
+  if (!Number.isFinite(Date.parse(value))) return false;
+  const iso = ISO_8601_DATE.exec(value);
+  if (iso) {
+    if (!isRealCalendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]))) return false;
+    if (!iso[4]) return true;
+    return Number(iso[5]) * 60 + Number(iso[6] ?? "0") <= 15 * 60 + 59;
+  }
+  const rfc = RFC_1123_DATE.exec(value);
+  if (!rfc) return false;
+  return isRealCalendarDay(Number(rfc[3]), RFC_1123_MONTHS[rfc[2].toLowerCase()], Number(rfc[1]));
 }
 
 /**

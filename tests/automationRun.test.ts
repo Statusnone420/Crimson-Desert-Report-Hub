@@ -3931,6 +3931,9 @@ describe("runAutomationMonitor", () => {
     // discarded at the cap.
     mocks.tavilySearch.mockImplementation(async (_query: string, options?: { topic?: string }) => {
       if (options?.topic === "news") {
+        // RFC 1123 is what Tavily's news index really emits (probed live
+        // 2026-07-27) — the mapper passes published_date through untouched,
+        // so an ISO fixture here would test a wire that does not exist.
         return [
           {
             title: "Crimson Desert Patch 1.13.00 Released & Detailed",
@@ -3938,7 +3941,7 @@ describe("runAutomationMonitor", () => {
             snippet: "Pearl Abyss detailed the update for all platforms.",
             sourceDomain: "polygon.com",
             observedAt: "2026-07-05T12:00:00.000Z",
-            sourcePublishedAt: "2026-07-05T09:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 09:00:00 GMT",
           },
           {
             title: "Crimson Desert Patch 1.13.00 Released For All Platforms",
@@ -3946,7 +3949,7 @@ describe("runAutomationMonitor", () => {
             snippet: "The Crimson Desert update is out now.",
             sourceDomain: "pushsquare.com",
             observedAt: "2026-07-05T12:00:00.000Z",
-            sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 10:00:00 GMT",
           },
         ];
       }
