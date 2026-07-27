@@ -77,6 +77,30 @@ export function isOfficialDomain(hostname: string | null): boolean {
 }
 
 /**
+ * The single provider-context boundary: the platform's own reviews and the
+ * publisher's own pages are context about the game, never player evidence.
+ * Every surface that excludes provider context — promotion, presentation,
+ * radar aggregates — asks this one predicate, so the definition cannot fork
+ * the way parallel pattern lists once did (that drift is how real complaints
+ * leaked one symptom at a time).
+ */
+export function isProviderContextSource(input: {
+  source?: string | null;
+  sourceType?: string | null;
+  domain?: string | null;
+  url?: string | null;
+}): boolean {
+  if (input.source === "steam_review" || input.sourceType === "steam_review") return true;
+  if (input.domain) return isOfficialDomain(input.domain);
+  if (!input.url) return false;
+  try {
+    return isOfficialDomain(new URL(input.url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Count independent sources by registrable domain. Any number of subdomains of
  * one registrable domain contribute exactly one independent source, closing the
  * subdomain-fabrication path in the promotion gate. Official publisher domains
