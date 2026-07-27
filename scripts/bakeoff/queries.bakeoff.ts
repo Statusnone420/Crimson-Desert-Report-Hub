@@ -214,25 +214,27 @@ it("measures the live query pack against the real pre-screen", async () => {
         })[0],
     )
     .filter((query): query is string => Boolean(query));
-  // runScope marks which production RUN a query belongs to, because that is the
-  // span of prepareSignals' first-wins URL dedup. Discovery and the wire slot
-  // share one run; each corroborate rotation is its own run, and production
-  // re-judges a page an earlier run saw — that is a reobservation, and it counts.
-  const plan: { lane: string; query: string; topic?: "news"; runScope: string }[] = [
-    ...packQueries.map((query) => ({ lane: "discovery", query, runScope: "scan" })),
-    { lane: "wire", query: buildWireNewsQuery(), topic: "news" as const, runScope: "scan" },
-    ...corroborateQueries.map((query, index) => ({ lane: "corroborate", query, runScope: `corroborate-${index}` })),
+  const plan: { lane: string; query: string; topic?: "news" }[] = [
+    ...packQueries.map((query) => ({ lane: "discovery", query })),
+    { lane: "wire", query: buildWireNewsQuery(), topic: "news" as const },
+    ...corroborateQueries.map((query) => ({ lane: "corroborate", query })),
   ];
   const env = { TAVILY_API_KEY: key };
 
   const judged: Judged[] = [];
   // Production judges a page once PER RUN: prepareSignals canonicalizes every URL
-  // and the first encounter wins (run.ts). Overlapping queries re-returning the
-  // same page is worth SEEING per query, but judging the repeat would count one
-  // page as two units of yield — the totals here must match what production
-  // would take in, run scope by run scope.
-  const seenByRun = new Map<string, Set<string>>();
+  // and the first encounter wins (run.ts). Here every query models its OWN run.
+  // The scheduled budget runs one pack query per run at the default policy
+  // (budget.ts caps scheduled at three, policy default is one), the rotation
+  // window is time-derived so larger budgets produce OVERLAPPING windows a
+  // harness that runs each query once cannot reproduce, and a page a previous
+  // run saw is re-judged as a reobservation — it counts. So dedup spans one
+  // query, and cross-query overlap is REPORTED, never suppressed. The wire query
+  // is the one run production never issues alone — the wire slot needs a budget
+  // of two — so its overlap with discovery lands in that reported count too.
+  const seenAcrossQueries = new Set<string>();
   let repeatsSkipped = 0;
+  let crossQueryRepeats = 0;
   const lines: string[] = [];
   const emit = (line = "") => {
     lines.push(line);
@@ -245,13 +247,14 @@ it("measures the live query pack against the real pre-screen", async () => {
   // A self-describing marker, because this changed what the totals count. An
   // on-disk baseline without this line judged every repeat and is not comparable.
   emit(
-    "dedupe: urls judged once per run scope (discovery+wire share one run; each corroborate probe is its own); " +
-      "totals sum across those runs. Reports without this line are not comparable baselines",
+    "dedupe: each query models its own production run (at the default search depth a scheduled run issues one pack query), " +
+      "so urls are judged once per query and cross-query overlap is reported, not suppressed. " +
+      "Reports without this line are not comparable baselines",
   );
 
   const failures: string[] = [];
 
-  for (const { lane, query, topic, runScope } of plan) {
+  for (const { lane, query, topic } of plan) {
     let results: SearchResult[] = [];
     try {
       results = await tavilySearch(query, {
@@ -271,8 +274,7 @@ it("measures the live query pack against the real pre-screen", async () => {
       continue;
     }
     emit(`\n[${lane}] ${query}`);
-    const seenUrls = seenByRun.get(runScope) ?? new Set<string>();
-    seenByRun.set(runScope, seenUrls);
+    const seenUrls = new Set<string>();
     const fresh: SearchResult[] = [];
     let repeats = 0;
     let unparseable = 0;
@@ -293,6 +295,11 @@ it("measures the live query pack against the real pre-screen", async () => {
         continue;
       }
       seenUrls.add(canonical);
+      // Judged, not skipped: a page an earlier query already returned would be a
+      // separate run's reobservation in production. Counted so the overlap stays
+      // visible in the totals.
+      if (seenAcrossQueries.has(canonical)) crossQueryRepeats += 1;
+      seenAcrossQueries.add(canonical);
       // Production pre-screens the canonical URL, not the raw one (run.ts), and
       // the pre-screen reads URL text — so hand judge() the same string.
       fresh.push({ ...result, url: canonical });
@@ -306,7 +313,7 @@ it("measures the live query pack against the real pre-screen", async () => {
     // to prevent.
     if (rows.length === 0 && repeats === 0 && unparseable === 0) emit("  (no results)");
     if (repeats > 0) {
-      emit(`  (${repeats} repeat url${repeats === 1 ? "" : "s"} skipped — production judges a url once per run)`);
+      emit(`  (${repeats} repeat url${repeats === 1 ? "" : "s"} within this query skipped — production judges a url once per run)`);
     }
     for (const row of rows) {
       emit(
@@ -332,7 +339,8 @@ it("measures the live query pack against the real pre-screen", async () => {
 
   emit("\n=== TOTALS ===");
   emit(`results               ${judged.length}`);
-  emit(`repeat urls skipped   ${repeatsSkipped}   (pages a run already judged; production judges a url once per run)`);
+  emit(`repeat urls skipped   ${repeatsSkipped}   (within one query; production judges a url once per run)`);
+  emit(`cross-query repeats   ${crossQueryRepeats}   (judged each time — separate runs reobserve; only a burst run bundles discovery queries)`);
   emit(`kept as signals       ${kept}`);
   emit(`render in the Brief   ${observations}   (collected AND displayable)`);
   emit(`stored, never shown   ${observationsStored}   (collected, but the Brief needs a publication date)`);

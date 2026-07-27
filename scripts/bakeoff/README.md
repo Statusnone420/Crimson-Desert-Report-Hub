@@ -62,6 +62,14 @@ the exact failure it exists to catch.
 
 ## Reading the output
 
+Each query models its own production run, because at the default search depth a
+scheduled run issues exactly one pack query. Urls are deduped within a query
+(`repeat urls skipped`), while a page returned by two queries is judged both times
+and counted as a `cross-query repeat` — production's separate runs re-judge and
+reobserve such a page, so suppressing it would understate a query's yield. The
+report's `dedupe:` header line states these rules; never compare two reports whose
+headers differ.
+
 `OBSERVATION:<kind>` is not a rejection. Patch notes and press coverage are not player
 bug reports, so the pre-screen routes them to the Brief's context lanes instead of the
 Issue Board. That routing is the design working.
