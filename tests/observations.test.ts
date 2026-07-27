@@ -344,6 +344,34 @@ describe("appendUniqueObservation", () => {
     expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
   });
 
+  it("treats a malformed incumbent date as undated when selecting the displaced row", () => {
+    // Five malformed-dated rows can fill the shelf while it has space, and
+    // persistence will null every one of those timestamps. A genuinely dated
+    // candidate must see through them, or the Brief ends the run with a full
+    // shelf and nothing renderable.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: `https://www.dsogaming.com/articles/malformed-${index}/`,
+          sourcePublishedAt: "yesterday-ish",
+        }),
+        seenConflictHashes,
+      );
+    }
+
+    const dated = candidate({
+      url: "https://www.polygon.com/crimson-desert-real-date/",
+      sourceDomain: "polygon.com",
+      sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+    });
+    expect(appendUniqueObservation(observations, dated, seenConflictHashes)).toBe(true);
+    expect(observations.map((row) => row.url)).toContain("https://www.polygon.com/crimson-desert-real-date/");
+    expect(observations).toHaveLength(MAX_OBSERVATIONS_PER_RUN);
+  });
+
   it("applies every other gate to a displacing candidate — an untrusted dated page evicts nothing", () => {
     const observations: ObservationCandidate[] = [];
     const seenConflictHashes = new Set<string>();

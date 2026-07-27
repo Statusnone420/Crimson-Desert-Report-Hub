@@ -82,6 +82,17 @@ export function shouldCollectObservation(
 }
 
 /**
+ * A date only counts if it will survive persistence: the RPC stores a
+ * malformed external timestamp as NULL, leaving the row exactly as
+ * unrenderable as one that never carried a date. Judging the candidate AND
+ * the shelf with the same test keeps a run of malformed-dated rows from
+ * masquerading as a dated shelf and blocking a genuinely dated result.
+ */
+function hasUsableDate(sourcePublishedAt: string | null): boolean {
+  return sourcePublishedAt !== null && Number.isFinite(Date.parse(sourcePublishedAt));
+}
+
+/**
  * Deduplicate by campaign/source identity before applying the per-run cap.
  *
  * The cap is dated-priority. collectInputs appends the wire results AFTER the
@@ -110,14 +121,10 @@ export function appendUniqueObservation(
 ): boolean {
   const conflictHash = observationConflictHash(candidate);
   if (seenConflictHashes.has(conflictHash)) return false;
-  // A displacing date must actually parse: the persistence RPC stores a
-  // malformed external timestamp as NULL, so a truthy-but-unparseable string
-  // would spend the swap on a row exactly as unrenderable as the one it took.
-  const displacingDate = candidate.sourcePublishedAt ? Date.parse(candidate.sourcePublishedAt) : Number.NaN;
   let displaceIndex = -1;
-  if (observations.length >= MAX_OBSERVATIONS_PER_RUN && Number.isFinite(displacingDate)) {
+  if (observations.length >= MAX_OBSERVATIONS_PER_RUN && hasUsableDate(candidate.sourcePublishedAt)) {
     for (let index = observations.length - 1; index >= 0; index -= 1) {
-      if (!observations[index].sourcePublishedAt) {
+      if (!hasUsableDate(observations[index].sourcePublishedAt)) {
         displaceIndex = index;
         break;
       }
