@@ -1042,6 +1042,15 @@ describe("countIndependentDomains", () => {
     expect(
       isProviderContextSource({ source: "web_search", url: "https://www.reddit.com/r/CrimsonDesert/comments/x/" }),
     ).toBe(false);
+    // A mis-stamped domain column must not slip an official page past the
+    // boundary — the url is consulted even when a domain is present.
+    expect(
+      isProviderContextSource({
+        source: "web_search",
+        domain: "example.com",
+        url: "https://crimsondesert.pearlabyss.com/News/Notice/105",
+      }),
+    ).toBe(true);
     // An unparseable url is not provider context — it is nothing, and other
     // gates drop it; this predicate must not throw on it.
     expect(isProviderContextSource({ source: "web_search", url: "not a url" })).toBe(false);

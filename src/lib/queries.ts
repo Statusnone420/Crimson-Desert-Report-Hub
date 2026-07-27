@@ -8,6 +8,7 @@ import {
 import { unstable_cache } from "next/cache";
 import { countBy, rankClusters } from "@/lib/aggregates";
 import { needsFullIssueCard } from "@/lib/evidence";
+import { isProviderContextSource } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
 import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
@@ -334,9 +335,11 @@ export function filterPublicCurrentPatchSignals<T extends PublicSignalEligibilit
   currentPatch: { version: string; publishedAt: string | null },
 ): T[] {
   return rows.filter((row) => {
-    // Steam reviews can seed private radar questions and the aggregate Pulse,
-    // but they are not standalone public evidence/source cards.
-    if (row.source === "steam_review") return false;
+    // Provider context — Steam reviews and the publisher's own pages — can seed
+    // private radar questions and the aggregate Pulse, but it is never a
+    // standalone public evidence/source card. Shared predicate: this must not
+    // drift from the promotion engine's boundary.
+    if (isProviderContextSource({ source: row.source, url: row.source_url })) return false;
     if (!hasCrimsonDesertContext({
       title: row.title ?? "",
       snippet: row.summary,
@@ -395,7 +398,9 @@ export function countCurrentPatchCandidateSignalsByCluster(
   return countClusterIds(
     rows.filter((row) => {
       if (!row.cluster_id) return false;
-      if (row.source === "steam_review" || row.source_type === "steam_review") return false;
+      if (isProviderContextSource({ source: row.source, sourceType: row.source_type, url: row.source_url })) {
+        return false;
+      }
       if (!hasCrimsonDesertContext({
         title: row.title ?? "",
         snippet: row.summary,
