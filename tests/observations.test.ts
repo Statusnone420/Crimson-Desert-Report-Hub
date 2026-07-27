@@ -8,6 +8,7 @@ import {
   observationUrlHash,
   persistObservations,
   shouldCollectObservation,
+  upgradeObservationDate,
   type ObservationCandidate,
 } from "@/lib/automation/observations";
 import { preScreenCandidate } from "@/lib/automation/relevance";
@@ -609,6 +610,131 @@ describe("appendUniqueObservation", () => {
     for (const row of unknownEraShelf) unknownEraHashes.add(observationConflictHash(row));
     expect(appendUniqueObservation(unknownEraShelf, candidate(preEra), unknownEraHashes)).toBe(true);
     expect(unknownEraShelf.map((row) => row.url)).toContain("https://www.polygon.com/crimson-desert-pre-era/");
+  });
+
+  it("lets a dated duplicate upgrade its undated twin instead of vanishing", () => {
+    // General search returns a page undated; the wire returns the SAME page
+    // dated, later in the run. The duplicate never gets a second slot, but
+    // its date coalesces onto the incumbent — first-wins for content, the
+    // run's only dated copy of the page still makes its twin renderable.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    appendUniqueObservation(
+      observations,
+      candidate({ url: "https://www.dsogaming.com/articles/cd-mirror/" }),
+      seenConflictHashes,
+    );
+
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.dsogaming.com/articles/cd-mirror/",
+          sourcePublishedAt: "Thu, 16 Jul 2026 09:00:00 GMT",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+    expect(observations).toHaveLength(1);
+    expect(observations[0].sourcePublishedAt).toBe("Thu, 16 Jul 2026 09:00:00 GMT");
+
+    // A dated incumbent is never overwritten by a later duplicate's date.
+    appendUniqueObservation(
+      observations,
+      candidate({
+        url: "https://www.dsogaming.com/articles/cd-mirror/",
+        sourcePublishedAt: "Thu, 16 Jul 2026 11:00:00 GMT",
+      }),
+      seenConflictHashes,
+    );
+    expect(observations[0].sourcePublishedAt).toBe("Thu, 16 Jul 2026 09:00:00 GMT");
+
+    // A date the Brief could never show is no upgrade at all.
+    const undatedShelf: ObservationCandidate[] = [];
+    const undatedHashes = new Set<string>();
+    appendUniqueObservation(
+      undatedShelf,
+      candidate({ url: "https://www.dsogaming.com/articles/cd-second-mirror/" }),
+      undatedHashes,
+    );
+    appendUniqueObservation(
+      undatedShelf,
+      candidate({
+        url: "https://www.dsogaming.com/articles/cd-second-mirror/",
+        sourcePublishedAt: "2026-07-19T00:00:00.000Z",
+      }),
+      undatedHashes,
+    );
+    expect(undatedShelf[0].sourcePublishedAt).toBeNull();
+  });
+
+  it("never donates a date across an ask campaign's different threads", () => {
+    // "Day 20" and "Day 21" share one campaign fingerprint by design — but
+    // they are different pages with different publication dates. Donating
+    // Day 21's date to Day 20's row would carry a pre-era thread past the
+    // patch-era floor: a date must never describe a page it does not belong
+    // to.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    const dayTwenty = candidate({
+      kind: "community_ask",
+      title: "Day 20 of asking Pearl Abyss for controller remapping in Crimson Desert",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/day20/",
+      sourceDomain: "reddit.com",
+      sourcePublishedAt: "2026-07-01T09:00:00.000Z",
+    });
+    expect(
+      appendUniqueObservation(observations, dayTwenty, seenConflictHashes, PATCH_OPTIONS.currentPatchPublishedAt),
+    ).toBe(true);
+
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          kind: "community_ask",
+          title: "Day 21 of asking Pearl Abyss for controller remapping in Crimson Desert",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/day21/",
+          sourceDomain: "reddit.com",
+          sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+        }),
+        seenConflictHashes,
+        PATCH_OPTIONS.currentPatchPublishedAt,
+      ),
+    ).toBe(false);
+    expect(observations).toHaveLength(1);
+    expect(observations[0].url).toBe("https://www.reddit.com/r/CrimsonDesert/comments/day20/");
+    expect(observations[0].sourcePublishedAt).toBe("2026-07-01T09:00:00.000Z");
+  });
+
+  it("upgrades by canonical URL at the signal-dedup boundary", () => {
+    // prepareSignals drops a duplicate signal before the observation reroute
+    // sees it, so the date is offered to the shelf at the drop site.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    appendUniqueObservation(
+      observations,
+      candidate({ url: "https://www.dsogaming.com/articles/cd-mirror/" }),
+      seenConflictHashes,
+    );
+
+    expect(
+      upgradeObservationDate(
+        observations,
+        "https://www.dsogaming.com/articles/cd-mirror/",
+        "Thu, 16 Jul 2026 09:00:00 GMT",
+      ),
+    ).toBe(true);
+    expect(observations[0].sourcePublishedAt).toBe("Thu, 16 Jul 2026 09:00:00 GMT");
+
+    // No matching page, no date, or an already-dated row: all no-ops.
+    expect(
+      upgradeObservationDate(observations, "https://www.dsogaming.com/articles/unseen/", "Thu, 16 Jul 2026 09:00:00 GMT"),
+    ).toBe(false);
+    expect(upgradeObservationDate(observations, "https://www.dsogaming.com/articles/cd-mirror/", null)).toBe(false);
+    expect(
+      upgradeObservationDate(observations, "https://www.dsogaming.com/articles/cd-mirror/", "Thu, 16 Jul 2026 11:00:00 GMT"),
+    ).toBe(false);
+    expect(observations[0].sourcePublishedAt).toBe("Thu, 16 Jul 2026 09:00:00 GMT");
   });
 
   it("treats a malformed incumbent date as undated when selecting the displaced row", () => {

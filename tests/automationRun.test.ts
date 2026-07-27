@@ -3951,6 +3951,17 @@ describe("runAutomationMonitor", () => {
             observedAt: "2026-07-05T12:00:00.000Z",
             sourcePublishedAt: "Sun, 05 Jul 2026 10:00:00 GMT",
           },
+          // The wire also re-returns a URL a general query already surfaced.
+          // First-wins dedup drops this signal — but its date must coalesce
+          // onto the undated shelf twin instead of vanishing with it.
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.dsogaming.com/articles/cd-1-13-mirror-0",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "dsogaming.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 08:00:00 GMT",
+          },
         ];
       }
       // Every general query returns the same five undated patch-notes mirrors;
@@ -3984,7 +3995,13 @@ describe("runAutomationMonitor", () => {
     // The cap holds at five: the two dated rows displaced the two newest
     // undated mirrors, and the earliest mirrors keep first-wins seniority.
     expect(persistedObservations).toHaveLength(5);
-    expect(persistedObservations.filter((row) => row.source_published_at).length).toBe(2);
+    // Three dated rows: the two wire URLs, plus mirror-0 upgraded in place by
+    // its deduped wire twin's date.
+    expect(persistedObservations.filter((row) => row.source_published_at).length).toBe(3);
+    const upgradedMirror = persistedObservations.find(
+      (row) => row.url === "https://www.dsogaming.com/articles/cd-1-13-mirror-0",
+    );
+    expect(upgradedMirror?.source_published_at).toBe("Sun, 05 Jul 2026 08:00:00 GMT");
     expect(result.observationsKept).toBe(5);
     // Not a silent success: any unexpected rpc in this scenario would land in
     // an error-collecting catch and degrade the run to partial.

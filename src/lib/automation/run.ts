@@ -62,6 +62,7 @@ import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import {
   appendUniqueObservation,
   persistObservations,
+  upgradeObservationDate,
   type ObservationCandidate,
 } from "@/lib/automation/observations";
 import {
@@ -1070,6 +1071,15 @@ async function prepareSignals(
       ? signal.id
       : externalIdHash(signal.source, externalId);
     if ((signal.source !== "steam_review" && seenUrls.has(canonicalUrl)) || seenExternalIds.has(externalHash)) {
+      // First-wins for content — but a dated duplicate of a page already on
+      // the observation shelf still donates its date before being dropped.
+      // The wire returns some of the same URLs general search already
+      // surfaced undated, and its copy is the only one carrying the
+      // publication date the Brief requires. Steam reviews stay out: their
+      // shared provider URL never identifies a page.
+      if (signal.source !== "steam_review") {
+        upgradeObservationDate(observations, canonicalUrl, signal.sourcePublishedAt ?? null, currentPatch.publishedAt);
+      }
       result.signalsDeduped += 1;
       continue;
     }

@@ -214,6 +214,49 @@ function hasDisplayableDate(
 }
 
 /**
+ * A duplicate sighting of a page already on the shelf can still teach us one
+ * thing: the page's publication date. General search returns URLs undated;
+ * the wire returns some of the SAME URLs dated, later in the run, where
+ * first-wins dedup would discard them — date and all. Coalescing just the
+ * date onto the incumbent keeps first-wins semantics for content (title,
+ * snippet, position, seniority all stay with the first sighting) while
+ * letting the run's only dated copy of a page make its twin renderable.
+ * Only an incumbent whose date never clears the display gate is upgraded,
+ * and only to a date that clears it at the incumbent's own observedAt — a
+ * dated row is never overwritten, and junk never sneaks in as an "upgrade".
+ */
+function coalesceDuplicateDate(
+  row: ObservationCandidate,
+  sourcePublishedAt: string | null,
+  patchPublishedAt: string | null,
+): boolean {
+  if (!sourcePublishedAt) return false;
+  if (hasDisplayableDate(row, patchPublishedAt)) return false;
+  if (!hasDisplayableDate({ sourcePublishedAt, observedAt: row.observedAt }, patchPublishedAt)) return false;
+  row.sourcePublishedAt = sourcePublishedAt;
+  return true;
+}
+
+/**
+ * The prepareSignals hook: its first-wins URL dedup drops a duplicate signal
+ * before the observation reroute ever sees it, so the date has to be offered
+ * to the shelf at the drop site. Matches by canonical URL — the same page,
+ * whatever lane returned it. Returns whether a row was upgraded.
+ */
+export function upgradeObservationDate(
+  observations: ObservationCandidate[],
+  canonicalUrl: string,
+  sourcePublishedAt: string | null,
+  patchPublishedAt: string | null = null,
+): boolean {
+  for (const row of observations) {
+    if (row.url !== canonicalUrl) continue;
+    return coalesceDuplicateDate(row, sourcePublishedAt, patchPublishedAt);
+  }
+  return false;
+}
+
+/**
  * Deduplicate by campaign/source identity before applying the per-run cap.
  *
  * The cap is dated-priority. collectInputs appends the wire results AFTER the
@@ -243,7 +286,25 @@ export function appendUniqueObservation(
   patchPublishedAt: string | null = null,
 ): boolean {
   const conflictHash = observationConflictHash(candidate);
-  if (seenConflictHashes.has(conflictHash)) return false;
+  if (seenConflictHashes.has(conflictHash)) {
+    // Duplicate identity: never a second slot, but its date can still
+    // upgrade the incumbent (see coalesceDuplicateDate). Only for the SAME
+    // page: an ask-series fingerprint deliberately spans different URLs
+    // ("Day 20" and "Day 21" share a hash), and donating Day 21's date to
+    // Day 20's row would carry a pre-era thread past the patch-era floor —
+    // a date must never describe a page it does not belong to. For every
+    // other kind hash equality already implies URL equality. A hash in the
+    // seen set with no matching row means the row was displaced — nothing
+    // to upgrade, and the page stays out for the run.
+    for (const row of observations) {
+      if (observationConflictHash(row) !== conflictHash) continue;
+      if (row.url === candidate.url) {
+        coalesceDuplicateDate(row, candidate.sourcePublishedAt, patchPublishedAt);
+      }
+      break;
+    }
+    return false;
+  }
   let displaceIndex = -1;
   if (observations.length >= MAX_OBSERVATIONS_PER_RUN && hasDisplayableDate(candidate, patchPublishedAt)) {
     for (let index = observations.length - 1; index >= 0; index -= 1) {
