@@ -289,23 +289,26 @@ export function appendUniqueObservation(
 ): boolean {
   const conflictHash = observationConflictHash(candidate);
   if (seenConflictHashes.has(conflictHash)) {
-    // Duplicate identity: never a second slot, but its date can still
-    // upgrade the incumbent (see coalesceDuplicateDate). Only for the SAME
-    // page: an ask-series fingerprint deliberately spans different URLs
+    // Duplicate identity: never a second SIMULTANEOUS slot, but its date can
+    // still upgrade the incumbent (see coalesceDuplicateDate). Only for the
+    // SAME page: an ask-series fingerprint deliberately spans different URLs
     // ("Day 20" and "Day 21" share a hash), and donating Day 21's date to
     // Day 20's row would carry a pre-era thread past the patch-era floor —
     // a date must never describe a page it does not belong to. For every
-    // other kind hash equality already implies URL equality. A hash in the
-    // seen set with no matching row means the row was displaced — nothing
-    // to upgrade, and the page stays out for the run.
-    for (const row of observations) {
-      if (observationConflictHash(row) !== conflictHash) continue;
-      if (row.url === candidate.url) {
-        coalesceDuplicateDate(row, candidate.sourcePublishedAt, patchPublishedAt);
+    // other kind hash equality already implies URL equality.
+    const incumbent = observations.find((row) => observationConflictHash(row) === conflictHash);
+    if (incumbent) {
+      if (incumbent.url === candidate.url) {
+        coalesceDuplicateDate(incumbent, candidate.sourcePublishedAt, patchPublishedAt);
       }
-      break;
+      return false;
     }
-    return false;
+    // Hash seen with no row on the shelf: the page was displaced. Its DATED
+    // incarnation may claim one fresh consideration — a dated row is
+    // terminal (never displaced), so re-entry cannot oscillate; it ends the
+    // page's run in a strictly better state. Undated re-entry stays blocked,
+    // which is what makes the no-oscillation argument hold.
+    if (!hasDisplayableDate(candidate, patchPublishedAt)) return false;
   }
   let displaceIndex = -1;
   if (observations.length >= MAX_OBSERVATIONS_PER_RUN && hasDisplayableDate(candidate, patchPublishedAt)) {

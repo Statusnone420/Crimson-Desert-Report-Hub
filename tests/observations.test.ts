@@ -612,6 +612,60 @@ describe("appendUniqueObservation", () => {
     expect(unknownEraShelf.map((row) => row.url)).toContain("https://www.polygon.com/crimson-desert-pre-era/");
   });
 
+  it("lets a displaced page re-enter as its dated incarnation, once", () => {
+    // A-E undated fill the shelf; dated F displaces E. When E's own dated
+    // twin arrives later, there is no row left to upgrade — but the page may
+    // claim one fresh consideration and displace another undated row. Dated
+    // rows are terminal, so re-entry cannot oscillate.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+      );
+    }
+    appendUniqueObservation(
+      observations,
+      candidate({
+        url: "https://www.polygon.com/crimson-desert-wire-f/",
+        sourceDomain: "polygon.com",
+        sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+      }),
+      seenConflictHashes,
+    );
+    // undated-4 was displaced; its dated twin re-enters and takes undated-3's slot.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.dsogaming.com/articles/undated-4/",
+          sourcePublishedAt: "2026-07-16T10:00:00.000Z",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(true);
+    expect(observations.map((row) => row.url)).toEqual([
+      "https://www.dsogaming.com/articles/undated-0/",
+      "https://www.dsogaming.com/articles/undated-1/",
+      "https://www.dsogaming.com/articles/undated-2/",
+      "https://www.dsogaming.com/articles/undated-4/",
+      "https://www.polygon.com/crimson-desert-wire-f/",
+    ]);
+
+    // The oscillation guard: an UNDATED duplicate of a displaced page stays
+    // out — only the dated incarnation earns the fresh consideration.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({ url: "https://www.dsogaming.com/articles/undated-3/" }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+    expect(observations.map((row) => row.url)).not.toContain("https://www.dsogaming.com/articles/undated-3/");
+  });
+
   it("lets a dated duplicate upgrade its undated twin instead of vanishing", () => {
     // General search returns a page undated; the wire returns the SAME page
     // dated, later in the run. The duplicate never gets a second slot, but
