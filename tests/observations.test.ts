@@ -316,6 +316,34 @@ describe("appendUniqueObservation", () => {
     expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
   });
 
+  it("does not let an unparseable date displace anything", () => {
+    // The persistence RPC stores a malformed external timestamp as NULL, so a
+    // truthy-but-unparseable date would spend the swap on a row exactly as
+    // unrenderable as the one it took.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+      );
+    }
+
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-malformed-date/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "yesterday-ish",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+    expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
+  });
+
   it("applies every other gate to a displacing candidate — an untrusted dated page evicts nothing", () => {
     const observations: ObservationCandidate[] = [];
     const seenConflictHashes = new Set<string>();

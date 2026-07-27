@@ -110,8 +110,12 @@ export function appendUniqueObservation(
 ): boolean {
   const conflictHash = observationConflictHash(candidate);
   if (seenConflictHashes.has(conflictHash)) return false;
+  // A displacing date must actually parse: the persistence RPC stores a
+  // malformed external timestamp as NULL, so a truthy-but-unparseable string
+  // would spend the swap on a row exactly as unrenderable as the one it took.
+  const displacingDate = candidate.sourcePublishedAt ? Date.parse(candidate.sourcePublishedAt) : Number.NaN;
   let displaceIndex = -1;
-  if (observations.length >= MAX_OBSERVATIONS_PER_RUN && candidate.sourcePublishedAt) {
+  if (observations.length >= MAX_OBSERVATIONS_PER_RUN && Number.isFinite(displacingDate)) {
     for (let index = observations.length - 1; index >= 0; index -= 1) {
       if (!observations[index].sourcePublishedAt) {
         displaceIndex = index;
