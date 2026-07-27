@@ -3920,6 +3920,74 @@ describe("runAutomationMonitor", () => {
     expect(result.searchQueriesUsed).toBe(calls.length);
   });
 
+  it("keeps the wire's dated observations when the general queries fill the shelf first", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // The defect this pins: collectInputs appends the wire results AFTER the
+    // general queries, so a productive general turn filled every observation
+    // slot with undated rows the Brief can never render — and the only dated
+    // results in the run, the ones the wire credit exists to buy, were
+    // discarded at the cap.
+    mocks.tavilySearch.mockImplementation(async (_query: string, options?: { topic?: string }) => {
+      if (options?.topic === "news") {
+        return [
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.polygon.com/crimson-desert-1-13-notes",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "polygon.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "2026-07-05T09:00:00.000Z",
+          },
+          {
+            title: "Crimson Desert Patch 1.13.00 Released For All Platforms",
+            url: "https://www.pushsquare.com/news/crimson-desert-1-13-detailed",
+            snippet: "The Crimson Desert update is out now.",
+            sourceDomain: "pushsquare.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+          },
+        ];
+      }
+      // Every general query returns the same five undated patch-notes mirrors;
+      // prepareSignals' first-wins URL dedup collapses the repeats, so exactly
+      // five undated candidates reach the observation shelf — a full cap.
+      return Array.from({ length: 5 }, (_, index) => ({
+        title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+        url: `https://www.dsogaming.com/articles/cd-1-13-mirror-${index}`,
+        snippet: "Pearl Abyss detailed the update for all platforms.",
+        sourceDomain: "dsogaming.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      }));
+    });
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z -> the wire slot fires, so the run holds both lanes.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const urls = persistedObservations.map((row) => row.url);
+    expect(urls).toContain("https://www.polygon.com/crimson-desert-1-13-notes");
+    expect(urls).toContain("https://www.pushsquare.com/news/crimson-desert-1-13-detailed");
+    // The cap holds at five: the two dated rows displaced the two newest
+    // undated mirrors, and the earliest mirrors keep first-wins seniority.
+    expect(persistedObservations).toHaveLength(5);
+    expect(persistedObservations.filter((row) => row.source_published_at).length).toBe(2);
+    expect(result.observationsKept).toBe(5);
+    // Not a silent success: any unexpected rpc in this scenario would land in
+    // an error-collecting catch and degrade the run to partial.
+    expect(result.status).toBe("success");
+  });
+
   it("keeps every search slot on general (dated-less) search on non-wire turns", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;

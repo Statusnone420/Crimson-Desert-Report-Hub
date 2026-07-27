@@ -231,6 +231,116 @@ describe("appendUniqueObservation", () => {
       ),
     ).toBe(false);
   });
+
+  it("displaces the newest undated row when a dated candidate meets a full shelf", () => {
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+      );
+    }
+
+    const dated = candidate({
+      url: "https://www.polygon.com/crimson-desert-patch-fixes/",
+      sourceDomain: "polygon.com",
+      sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+    });
+    expect(appendUniqueObservation(observations, dated, seenConflictHashes)).toBe(true);
+
+    // Cap holds, the dated row is in, and the row that gave up its slot is the
+    // NEWEST undated one — earlier rows keep first-wins seniority.
+    expect(observations).toHaveLength(MAX_OBSERVATIONS_PER_RUN);
+    expect(observations.map((row) => row.url)).toEqual([
+      "https://www.dsogaming.com/articles/undated-0/",
+      "https://www.dsogaming.com/articles/undated-1/",
+      "https://www.dsogaming.com/articles/undated-2/",
+      "https://www.dsogaming.com/articles/undated-3/",
+      "https://www.polygon.com/crimson-desert-patch-fixes/",
+    ]);
+
+    // A second dated candidate takes the next-newest undated row's PLACE.
+    // In place matters: persistence inserts in array order under the per-patch
+    // cap, and appending would hand the dated row the first ordinal dropped.
+    const alsoDated = candidate({
+      url: "https://www.pushsquare.com/news/crimson-desert-patch-fixes",
+      sourceDomain: "pushsquare.com",
+      sourcePublishedAt: "2026-07-16T10:00:00.000Z",
+    });
+    expect(appendUniqueObservation(observations, alsoDated, seenConflictHashes)).toBe(true);
+    expect(observations.map((row) => row.url)).toEqual([
+      "https://www.dsogaming.com/articles/undated-0/",
+      "https://www.dsogaming.com/articles/undated-1/",
+      "https://www.dsogaming.com/articles/undated-2/",
+      "https://www.pushsquare.com/news/crimson-desert-patch-fixes",
+      "https://www.polygon.com/crimson-desert-patch-fixes/",
+    ]);
+
+    // The displaced page was considered this run: it cannot re-enter.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({ url: "https://www.dsogaming.com/articles/undated-4/" }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+  });
+
+  it("never displaces a dated row, even for another dated candidate", () => {
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: `https://www.dsogaming.com/articles/dated-${index}/`,
+          sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+        }),
+        seenConflictHashes,
+      );
+    }
+
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-late-dated/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "2026-07-16T10:00:00.000Z",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+    expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
+  });
+
+  it("applies every other gate to a displacing candidate — an untrusted dated page evicts nothing", () => {
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+      );
+    }
+
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://randomblog.example/crimson-desert-dated/",
+          sourceDomain: "randomblog.example",
+          sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+    expect(observations).toHaveLength(MAX_OBSERVATIONS_PER_RUN);
+    expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
+  });
 });
 
 type RpcCall = { name: string; params: Record<string, unknown> };
