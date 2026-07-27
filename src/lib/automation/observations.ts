@@ -374,12 +374,16 @@ export async function persistObservations(
       ...entries.filter(([, observation]) => !hasDisplayableDate(observation, patchPublishedAt)),
     ];
     // The payload date contract the RPC's coalesce relies on: non-null means
-    // "the Brief can render this". The update branch prefers the incoming
-    // date, so every non-null value must be a step toward renderability — a
-    // displayable date heals a bad stored one, an undisplayable sighting
-    // arrives as NULL and preserves whatever is stored (and, for a new row,
-    // stores NULL that a later displayable sighting can fill, instead of a
-    // junk date the old backfill could never touch).
+    // "the Brief can render this". For rows carrying the date_contract
+    // marker, the update branch prefers the incoming date, so every non-null
+    // value must be a step toward renderability — a displayable date heals a
+    // bad stored one, an undisplayable sighting arrives as NULL and
+    // preserves whatever is stored (and, for a new row, stores NULL that a
+    // later displayable sighting can fill, instead of a junk date the old
+    // backfill could never touch). The marker is the in-band version gate:
+    // payloads without it — an in-flight or rolled-back older deployment —
+    // get the legacy stored-first coalesce, so no deploy ordering can let an
+    // unvetted date replace a stored good one.
     const rows = prioritized.map(([hash, observation]) => ({
       kind: observation.kind,
       title: observation.title.slice(0, 240),
@@ -390,6 +394,7 @@ export async function persistObservations(
       source_published_at: hasDisplayableDate(observation, patchPublishedAt)
         ? observation.sourcePublishedAt
         : null,
+      date_contract: "displayable_only",
       observed_at: observation.observedAt,
     }));
 

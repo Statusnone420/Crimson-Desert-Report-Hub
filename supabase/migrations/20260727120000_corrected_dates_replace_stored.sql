@@ -7,30 +7,22 @@
 -- in memory. Flipping to incoming-first makes re-observation converge stored
 -- state toward renderability.
 --
--- The flip is safe ONLY together with the caller-side contract that ships in
--- the same change: `persistObservations` sends `source_published_at` non-null
--- ONLY when the date passes the Brief's own display gate (format allowlist,
--- 48h future-skew bound, patch-era floor). Every non-null incoming date is
--- therefore renderable, so "replace" can only move a stored date toward the
--- Brief; undisplayable sightings arrive as NULL and `coalesce` preserves
--- whatever is stored.
+-- The flip is gated IN-BAND rather than by deploy ordering: incoming-first
+-- coalescing applies only to observations whose JSON carries
+-- `date_contract = 'displayable_only'` — the marker the paired
+-- `persistObservations` stamps on every row after it started sending
+-- `source_published_at` non-null ONLY when the date passes the Brief's own
+-- display gate (format allowlist, 48h future-skew bound, patch-era floor).
+-- Every marked non-null date is therefore renderable, so "replace" can only
+-- move a stored date toward the Brief; marked undisplayable sightings arrive
+-- as NULL and preserve whatever is stored.
 --
--- Rollout order (rolling deploys): deploy the code FIRST, then apply this
--- migration. New code + old function degrades gracefully (stored-first
--- coalesce, inserts store NULL instead of junk). Old code + new function is
--- the one unsafe pairing — a raw unvetted date could replace a stored good
--- one — so this file must never be applied ahead of the code it pairs with.
---
--- Two ways that pairing sneaks back in, and the guard for each:
---   - Ordering alone is not airtight: a scheduled scan that BEGAN before the
---     deploy promotion runs old code to completion, and applying mid-flight
---     puts that run against the new function. Pause the scanner, deploy,
---     apply, unpause.
---   - A deployment ROLLBACK re-promotes old code while this migration stays
---     applied. Re-deploy the code before (or instead of) rolling back. A
---     junk date written in such a window is sticky: the new contract sends
---     unvouched dates as NULL, which preserves stored values, so nothing
---     heals it until a displayable sighting of that same URL arrives.
+-- Unmarked rows — any in-flight invocation of a previous deployment, or a
+-- rolled-back revision — keep the legacy stored-first coalesce exactly as
+-- before this migration, so no deploy/apply/rollback ordering can let an
+-- unvetted raw date replace a stored good one. Enforcement lives in the
+-- payload, not in a runbook: every pairing of old/new code with old/new
+-- function behaves identically to the older half of the pair.
 create or replace function public.persist_patch_observations(
   p_patch_version text,
   p_observations jsonb
@@ -132,10 +124,16 @@ begin
           title = pg_catalog.left(observation->>'title', 240),
           url = observation->>'url',
           snippet = pg_catalog.left(observation->>'snippet', 500),
-          -- Incoming-first: the caller only sends a non-null date the Brief
-          -- can render, so replacing is always a step toward renderability,
-          -- and a NULL incoming preserves whatever is stored.
-          source_published_at = coalesce(parsed_source_published_at, target.source_published_at)
+          -- Marked rows: incoming-first — the marker certifies the caller
+          -- only sends a non-null date the Brief can render, so replacing is
+          -- always a step toward renderability, and NULL preserves stored.
+          -- Unmarked rows (legacy callers): stored-first, exactly the
+          -- pre-migration behavior.
+          source_published_at = case
+            when observation->>'date_contract' = 'displayable_only'
+              then coalesce(parsed_source_published_at, target.source_published_at)
+            else coalesce(target.source_published_at, parsed_source_published_at)
+          end
       where target.id = existing_id;
     elsif current_count < 40 then
       insert into public.patch_observations (

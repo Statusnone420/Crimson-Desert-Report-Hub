@@ -938,6 +938,12 @@ describe("persistObservations", () => {
       null,
       null,
     ]);
+    // Every row carries the in-band version marker that unlocks the RPC's
+    // incoming-first coalesce; unmarked payloads (older deployments) keep
+    // legacy stored-first behavior regardless of deploy ordering.
+    expect(
+      (payload as unknown as { date_contract: string }[]).every((row) => row.date_contract === "displayable_only"),
+    ).toBe(true);
   });
 
   it("sends the latest fields needed to re-observe an existing row", async () => {
