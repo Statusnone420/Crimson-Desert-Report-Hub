@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { domainTier } from "@/lib/automation/domains";
 import { hasCrimsonDesertContext, type ObservationKind } from "@/lib/automation/relevance";
+import { isDisplayableDatedObservation, patchEraFloorMs } from "@/lib/observationDisplay";
 
 /**
  * Observation lane: the typed shelf for patch-day context the evidence funnel
@@ -12,7 +13,11 @@ import { hasCrimsonDesertContext, type ObservationKind } from "@/lib/automation/
  *   - allowlist: only domains already in the scanner's single TRUSTED_DOMAINS
  *     set are ever stored (no second, parallel trust list);
  *   - caps: at most MAX_OBSERVATIONS_PER_RUN per run and
- *     MAX_OBSERVATIONS_PER_PATCH per patch version;
+ *     MAX_OBSERVATIONS_PER_PATCH per patch version. The run cap is
+ *     dated-priority: a candidate carrying a displayable publication date
+ *     displaces the newest undated row when the shelf is full, because the
+ *     Brief can only render dated observations and the dated wire results
+ *     arrive last in a run;
  *   - no editorializing: title/snippet stored verbatim, displayed as-is;
  *   - hard separation: no cluster_id, no counts — an observation can never
  *     leak into evidence numbers.
@@ -77,25 +82,291 @@ export function shouldCollectObservation(
   return domainTier(candidate.sourceDomain) === "trusted";
 }
 
-/** Deduplicate by campaign/source identity before applying the per-run cap. */
+const RFC_1123_MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * The wire's shape in the wild (probed live 2026-07-27): Tavily's news index
+ * emits RFC 1123 — `Fri, 24 Jul 2026 00:00:00 GMT` — while Reddit intake
+ * mints strict ISO via toISOString(). These two families are the entire
+ * legitimate supply of publication dates.
+ *
+ * Both patterns anchor the FULL string and separate with plain spaces only —
+ * never `\s`, which in JavaScript matches U+00A0 and friends, characters
+ * PostgreSQL's datetime scanner rejects outright (probed).
+ */
+const RFC_1123_DATE =
+  /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), +)?(\d{1,2}) +(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +(\d{4})(?: +\d{2}:\d{2}:\d{2})? +(?:GMT|UTC)$/i;
+
+/**
+ * Date, optional time, optional zone — nothing else. The tail alternation is
+ * the load-bearing part: an unanchored prefix match would wave through any
+ * trailing text JavaScript's lenient legacy parser tolerates, and PostgreSQL
+ * rejects several of those (`2026-07-24 00:00:00 GMT-0500`: the zone is the
+ * whole reason the cast fails). Offsets capture for the ±15:59 bound check.
+ */
+const ISO_8601_DATE =
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|([+-])(\d{2})(?::?(\d{2}))?)?)?$/i;
+
+/** JavaScript rolls impossible days over (Feb 30 -> Mar 2); PostgreSQL rejects them. */
+function isRealCalendarDay(year: number, month: number, day: number): boolean {
+  const composed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    composed.getUTCFullYear() === year &&
+    composed.getUTCMonth() === month - 1 &&
+    composed.getUTCDate() === day
+  );
+}
+
+/**
+ * A date only counts if it will survive persistence: the RPC casts the string
+ * with `::timestamptz` and stores a failed cast as NULL, leaving the row
+ * exactly as unrenderable as one that never carried a date. Judging the
+ * candidate AND the shelf with the same test keeps a run of malformed-dated
+ * rows from masquerading as a dated shelf and blocking a genuinely dated
+ * result.
+ *
+ * This is an ALLOWLIST of the two formats the pipeline actually receives
+ * (ISO 8601 from Reddit intake and the database; RFC 1123 from the Tavily
+ * wire), not a test of what JavaScript can parse. JavaScript's parser is the
+ * wrong oracle for a PostgreSQL cast: it accepts strings PostgreSQL rejects —
+ * rolled-over calendar days in any format (02/30/2026, `Mon, 30 Feb 2026`),
+ * timezone offsets past PostgreSQL's ±15:59 displacement limit, zone suffixes
+ * like `GMT-0500` — and each acceptance would hand priority to a row that
+ * persists as undated. So both branches anchor their full pattern, validate
+ * the literal calendar components (from the string, not a UTC round-trip,
+ * because an offset timestamp can legitimately sit on a different UTC
+ * calendar day), the ISO branch bounds the offset, and Date.parse guards
+ * only what remains (time-of-day ranges, overall well-formedness — where
+ * JavaScript is the stricter side).
+ *
+ * Anything else returns false, which is the safe direction: an unrecognized
+ * format loses priority, and — because the RPC's coalesce now trusts every
+ * non-null incoming date to be renderable — persistObservations sends it as
+ * NULL rather than letting a date this module cannot vouch for replace or
+ * occupy stored state. The observation itself still persists; a later
+ * sighting in a vouched format fills the date in. (Incidentally the
+ * allowlist also rejects years below 100:
+ * Date.UTC maps them to 1900+, so isRealCalendarDay rejects them — not
+ * designed, but the safe direction, and no real source dates from 99 AD.)
+ *
+ * The edge trim strips ASCII blanks ONLY, matching what PostgreSQL itself
+ * ignores. String.prototype.trim would also strip U+00A0 — which PostgreSQL
+ * rejects — and since the RPC receives the RAW string, trimming more than
+ * the cast forgives would vouch for a value the cast then nulls.
+ */
+/** ASCII blanks only — see the trim note on hasUsableDate. */
+const ASCII_EDGE_BLANKS = /^[ \t]+|[ \t]+$/g;
+
+function hasUsableDate(sourcePublishedAt: string | null): boolean {
+  if (!sourcePublishedAt) return false;
+  const value = sourcePublishedAt.replace(ASCII_EDGE_BLANKS, "");
+  if (!Number.isFinite(Date.parse(value))) return false;
+  const iso = ISO_8601_DATE.exec(value);
+  if (iso) {
+    if (!isRealCalendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]))) return false;
+    if (!iso[4]) return true;
+    return Number(iso[5]) * 60 + Number(iso[6] ?? "0") <= 15 * 60 + 59;
+  }
+  const rfc = RFC_1123_DATE.exec(value);
+  if (!rfc) return false;
+  return isRealCalendarDay(Number(rfc[3]), RFC_1123_MONTHS[rfc[2].toLowerCase()], Number(rfc[1]));
+}
+
+/**
+ * Priority additionally requires a date the Brief could actually show:
+ * surviving the ::timestamptz cast is not enough, because the display gate
+ * also rejects dates more than 48 hours ahead of the clock and dates before
+ * the patch era. A timestamp eight days in the future casts fine and renders
+ * never — letting it outrank an undated row wastes the swap, and letting it
+ * sit on the shelf LOOKING dated blocks the genuinely dated candidate that
+ * arrives later. So displacement and payload order both reuse the Brief's own
+ * date predicate, judged at the run's observedAt: deterministic (no wall
+ * clock in the lane), and monotone-safe, since the Brief re-checks skew with
+ * a strictly later clock, a date that clears it here can never fail it there.
+ * The era floor applies whenever the caller knows the patch's publish date
+ * and is skipped when it does not — matching the display gate, which also
+ * skips it for an unknown era. NOTE: omitting patchPublishedAt is a silent
+ * weakening, not an error — a caller that forgets to thread it lets pre-era
+ * rows regain priority, so pass it wherever the patch is known. The non-date
+ * render gates (moderation, kind, relevance) are unchanged and can still
+ * hide a prioritized row.
+ *
+ * Trimmed ONCE, up front, so both halves of the composite judge the
+ * identical string: V8's strict ISO parser rejects a trailing blank that the
+ * cast forgives, and trimming inside only one half would let the two
+ * disagree about the same value.
+ */
+function hasDisplayableDate(
+  observation: Pick<ObservationCandidate, "sourcePublishedAt" | "observedAt">,
+  patchPublishedAt: string | null,
+): boolean {
+  if (!observation.sourcePublishedAt) return false;
+  const sourcePublishedAt = observation.sourcePublishedAt.replace(ASCII_EDGE_BLANKS, "");
+  if (!hasUsableDate(sourcePublishedAt)) return false;
+  const observedAtMs = Date.parse(observation.observedAt);
+  if (!Number.isFinite(observedAtMs)) return false;
+  return isDisplayableDatedObservation(
+    { source_published_at: sourcePublishedAt },
+    patchPublishedAt,
+    observedAtMs,
+  );
+}
+
+/**
+ * The persistence contract asks a stricter question than shelf priority: was
+ * EVERY display gate — the era floor included — actually enforced on this
+ * date? hasDisplayableDate skips the floor when the patch era is unknown,
+ * matching the render gate's behavior at that same moment. With a known,
+ * parseable era the two predicates are literally the same test — the split
+ * can only matter during degraded metadata, where the lenience is harmless
+ * for in-memory priority: a pseudo-dated row can only ever displace a row
+ * that also cannot render. But a payload date is a different
+ * promise. The RPC's marked coalesce REPLACES stored dates with incoming
+ * ones, and a date vetted without the floor can be pre-era — a run that read
+ * its patch through fallbackCurrentPatchMetadata (metadata read or sync
+ * down) would certify it, overwrite a stored good date, and once metadata
+ * recovers the Brief applies the real floor and the row goes dark, sticky
+ * until an unrelated re-sighting. So certification additionally requires the
+ * same finite era floor the Brief will use (patchEraFloorMs is NaN for a
+ * null OR unparseable era — one test, no second parser). With the era
+ * unknown, every date travels as NULL: stored state stays untouched, and a
+ * later certified sighting fills or heals it.
+ */
+function hasCertifiedDisplayableDate(
+  observation: Pick<ObservationCandidate, "sourcePublishedAt" | "observedAt">,
+  patchPublishedAt: string | null,
+): boolean {
+  if (!Number.isFinite(patchEraFloorMs(patchPublishedAt))) return false;
+  return hasDisplayableDate(observation, patchPublishedAt);
+}
+
+/**
+ * A duplicate sighting of a page already on the shelf can still teach us one
+ * thing: the page's publication date. General search returns URLs undated;
+ * the wire returns some of the SAME URLs dated, later in the run, where
+ * first-wins dedup would discard them — date and all. Coalescing just the
+ * date onto the incumbent keeps first-wins semantics for content (title,
+ * snippet, position, seniority all stay with the first sighting) while
+ * letting the run's only dated copy of a page make its twin renderable.
+ * Only an incumbent whose date never clears the display gate is upgraded,
+ * and only to a date that clears it at the incumbent's own observedAt — a
+ * dated row is never overwritten, and junk never sneaks in as an "upgrade".
+ */
+function coalesceDuplicateDate(
+  row: ObservationCandidate,
+  sourcePublishedAt: string | null,
+  patchPublishedAt: string | null,
+): boolean {
+  if (!sourcePublishedAt) return false;
+  if (hasDisplayableDate(row, patchPublishedAt)) return false;
+  if (!hasDisplayableDate({ sourcePublishedAt, observedAt: row.observedAt }, patchPublishedAt)) return false;
+  row.sourcePublishedAt = sourcePublishedAt;
+  return true;
+}
+
+/**
+ * The prepareSignals hook: its first-wins URL dedup drops a duplicate signal
+ * before the observation reroute ever sees it, so the date has to be offered
+ * to the shelf at the drop site. Matches by canonical URL — the same page,
+ * whatever lane returned it. Returns whether a row was upgraded.
+ */
+export function upgradeObservationDate(
+  observations: ObservationCandidate[],
+  canonicalUrl: string,
+  sourcePublishedAt: string | null,
+  patchPublishedAt: string | null = null,
+): boolean {
+  for (const row of observations) {
+    if (row.url !== canonicalUrl) continue;
+    return coalesceDuplicateDate(row, sourcePublishedAt, patchPublishedAt);
+  }
+  return false;
+}
+
+/**
+ * Deduplicate by campaign/source identity before applying the per-run cap.
+ *
+ * The cap is dated-priority. collectInputs appends the wire results AFTER the
+ * general queries, and the wire is the only SEARCH lane whose results carry
+ * real publication dates — the thing isBriefEligibleObservation requires.
+ * (Reddit intake is dated too, and arrives first; a shelf it fills is already
+ * renderable and nothing here displaces it.) A productive general turn could
+ * fill all five slots with undated rows a reader never sees, and the dated
+ * results the wire credit was spent on were discarded at the door. When the
+ * shelf is full, a dated candidate now takes the NEWEST undated row's place —
+ * in place, keeping the shelf deterministic for a given input order, while
+ * persistObservations separately orders dated rows ahead of the per-patch
+ * cap's cutoff. Earlier rows keep first-wins seniority, undated
+ * rows still fill the shelf freely when no dated candidate arrives, and total
+ * supply never drops. "Dated" here means hasDisplayableDate: a publication
+ * date the Brief's date gate would accept, not merely one persistence can
+ * parse — see that predicate for why both bounds matter. A displacing row can
+ * still be hidden by the non-date gates, but it can only ever take the place
+ * of a row whose date never clears. Reordering the inputs instead was
+ * rejected because input order also drives recon-fetch precedence, LLM budget
+ * consumption, and first-wins URL dedup.
+ */
 export function appendUniqueObservation(
   observations: ObservationCandidate[],
   candidate: ObservationCandidate,
   seenConflictHashes: Set<string>,
+  patchPublishedAt: string | null = null,
 ): boolean {
   const conflictHash = observationConflictHash(candidate);
-  if (seenConflictHashes.has(conflictHash)) return false;
+  if (seenConflictHashes.has(conflictHash)) {
+    // Duplicate identity: never a second SIMULTANEOUS slot, but its date can
+    // still upgrade the incumbent (see coalesceDuplicateDate). Only for the
+    // SAME page: an ask-series fingerprint deliberately spans different URLs
+    // ("Day 20" and "Day 21" share a hash), and donating Day 21's date to
+    // Day 20's row would carry a pre-era thread past the patch-era floor —
+    // a date must never describe a page it does not belong to. For every
+    // other kind hash equality already implies URL equality.
+    const incumbent = observations.find((row) => observationConflictHash(row) === conflictHash);
+    if (incumbent) {
+      if (incumbent.url === candidate.url) {
+        coalesceDuplicateDate(incumbent, candidate.sourcePublishedAt, patchPublishedAt);
+      }
+      return false;
+    }
+    // Hash seen with no row on the shelf: the page was displaced. Its DATED
+    // incarnation may claim one fresh consideration — a dated row is
+    // terminal (never displaced), so re-entry cannot oscillate; it ends the
+    // page's run in a strictly better state. Undated re-entry stays blocked,
+    // which is what makes the no-oscillation argument hold.
+    if (!hasDisplayableDate(candidate, patchPublishedAt)) return false;
+  }
+  let displaceIndex = -1;
+  if (observations.length >= MAX_OBSERVATIONS_PER_RUN && hasDisplayableDate(candidate, patchPublishedAt)) {
+    for (let index = observations.length - 1; index >= 0; index -= 1) {
+      if (!hasDisplayableDate(observations[index], patchPublishedAt)) {
+        displaceIndex = index;
+        break;
+      }
+    }
+  }
+  // Every other rule still applies to a displacing candidate: the shared gate
+  // sees one open slot only when an undated row is actually giving one up.
   if (!shouldCollectObservation({
     title: candidate.title,
     snippet: candidate.snippet,
     url: candidate.url,
     sourceDomain: candidate.sourceDomain,
     observationKind: candidate.kind,
-  }, observations.length)) {
+  }, displaceIndex >= 0 ? observations.length - 1 : observations.length)) {
     return false;
   }
   seenConflictHashes.add(conflictHash);
-  observations.push(candidate);
+  if (displaceIndex >= 0) {
+    // In place, inheriting the displaced row's ordinal. The displaced row's
+    // hash stays in the seen set: one consideration per run, so a page cannot
+    // oscillate in and out of the shelf.
+    observations.splice(displaceIndex, 1, candidate);
+  } else {
+    observations.push(candidate);
+  }
   return true;
 }
 
@@ -113,6 +384,7 @@ export async function persistObservations(
   observations: ObservationCandidate[],
   patchVersion: string,
   report: { errors: string[]; observationsKept: number },
+  patchPublishedAt: string | null = null,
 ): Promise<void> {
   if (observations.length === 0) return;
   try {
@@ -121,14 +393,42 @@ export async function persistObservations(
       const hash = observationConflictHash(observation);
       if (!byHash.has(hash)) byHash.set(hash, observation);
     }
-    const rows = [...byHash.entries()].map(([hash, observation]) => ({
+    // The RPC inserts in array order and stops minting new rows at the patch
+    // cap, so ordinal IS priority under scarcity. Displayably dated rows go
+    // first: when a patch's shelf is nearly full, the remaining capacity must
+    // not be spent on rows the Brief can never render while a renderable one
+    // waits at the tail. Stable within each class — collection order still
+    // breaks ties.
+    const entries = [...byHash.entries()];
+    const prioritized = [
+      ...entries.filter(([, observation]) => hasCertifiedDisplayableDate(observation, patchPublishedAt)),
+      ...entries.filter(([, observation]) => !hasCertifiedDisplayableDate(observation, patchPublishedAt)),
+    ];
+    // The payload date contract the RPC's coalesce relies on: non-null means
+    // "the Brief can render this". For rows carrying the date_contract
+    // marker, the update branch prefers the incoming date, so every non-null
+    // value must be a step toward renderability — a displayable date heals a
+    // bad stored one, an undisplayable sighting arrives as NULL and
+    // preserves whatever is stored (and, for a new row, stores NULL that a
+    // later displayable sighting can fill, instead of a junk date the old
+    // backfill could never touch). Certification requires the era floor to
+    // have actually run — see hasCertifiedDisplayableDate — so a run with
+    // unknown patch metadata withholds every date rather than vouch for one
+    // the floor never judged. The marker is the in-band version gate:
+    // payloads without it — an in-flight or rolled-back older deployment —
+    // get the legacy stored-first coalesce, so no deploy ordering can let an
+    // unvetted date replace a stored good one.
+    const rows = prioritized.map(([hash, observation]) => ({
       kind: observation.kind,
       title: observation.title.slice(0, 240),
       url: observation.url,
       url_hash: hash,
       source_domain: observation.sourceDomain,
       snippet: observation.snippet.slice(0, 500),
-      source_published_at: observation.sourcePublishedAt,
+      source_published_at: hasCertifiedDisplayableDate(observation, patchPublishedAt)
+        ? observation.sourcePublishedAt
+        : null,
+      date_contract: "displayable_only",
       observed_at: observation.observedAt,
     }));
 
