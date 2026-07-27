@@ -62,6 +62,7 @@ import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import {
   appendUniqueObservation,
   persistObservations,
+  upgradeObservationDate,
   type ObservationCandidate,
 } from "@/lib/automation/observations";
 import {
@@ -1038,7 +1039,7 @@ async function prepareSignals(
       snippet: snippet.slice(0, 500),
       sourcePublishedAt: signal.sourcePublishedAt ?? null,
       observedAt: signal.observedAt,
-    }, seenObservationHashes);
+    }, seenObservationHashes, currentPatch.publishedAt);
   };
   // Recon uses Tavily's extract endpoint, so it must be gated on the SAME
   // configured-web-search signal as paid search in collectInputs. Without this,
@@ -1070,6 +1071,56 @@ async function prepareSignals(
       ? signal.id
       : externalIdHash(signal.source, externalId);
     if ((signal.source !== "steam_review" && seenUrls.has(canonicalUrl)) || seenExternalIds.has(externalHash)) {
+      // First-wins for content — but a dated duplicate of a page already on
+      // the observation shelf still donates its date before being dropped.
+      // The wire returns some of the same URLs general search already
+      // surfaced undated, and its copy is the only one carrying the
+      // publication date the Brief requires. Steam reviews stay out: their
+      // shared provider URL never identifies a page.
+      if (signal.source !== "steam_review") {
+        const donated = upgradeObservationDate(
+          observations,
+          canonicalUrl,
+          signal.sourcePublishedAt ?? null,
+          currentPatch.publishedAt,
+        );
+        // No row to donate to: if the page's undated incarnation was
+        // displaced from the shelf, its dated twin can still claim a fresh
+        // consideration (appendUniqueObservation owns that rule). The
+        // duplicate skipped the main pipeline, so it re-runs the same gates
+        // its first sighting faced: a page already kept as a signal must
+        // not also become an observation (one candidate yields a signal or
+        // an observation, never both), operator block rules — a blocked
+        // page must not re-enter through this side door — and the
+        // pre-screen, which decides whether it is observation material at
+        // all.
+        if (
+          !donated &&
+          signal.sourcePublishedAt &&
+          !prepared.some((row) => row.canonicalUrl === canonicalUrl)
+        ) {
+          const duplicateRule = matchScannerFeedbackRule(
+            { url: canonicalUrl, sourceDomain: signal.sourceDomain },
+            feedbackRules,
+            now,
+          );
+          if (duplicateRule?.action !== "block") {
+            const duplicateScreen = preScreenCandidate(
+              {
+                title: signal.title,
+                snippet: signal.body,
+                url: canonicalUrl,
+                sourceDomain: signal.sourceDomain,
+                sourcePublishedAt: signal.sourcePublishedAt ?? null,
+              },
+              { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
+            );
+            if (!duplicateScreen.keep) {
+              collectObservation(duplicateScreen, signal, canonicalUrl, signal.body);
+            }
+          }
+        }
+      }
       result.signalsDeduped += 1;
       continue;
     }
@@ -2517,7 +2568,7 @@ async function executeAutomationRun(
       }
       // Observation lane persists after signals and never affects them: it is
       // best-effort by design and reports failures into the ledger only.
-      await persistObservations(supabase, prepared.observations, currentPatch.version, result);
+      await persistObservations(supabase, prepared.observations, currentPatch.version, result, currentPatch.publishedAt);
       if (steamCollection) {
         await persistSteamReviewCollection(
           supabase,

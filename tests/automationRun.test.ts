@@ -3920,6 +3920,168 @@ describe("runAutomationMonitor", () => {
     expect(result.searchQueriesUsed).toBe(calls.length);
   });
 
+  it("keeps the wire's dated observations when the general queries fill the shelf first", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // The defect this pins: collectInputs appends the wire results AFTER the
+    // general queries, so a productive general turn filled every observation
+    // slot with undated rows the Brief can never render — and the only dated
+    // results in the run, the ones the wire credit exists to buy, were
+    // discarded at the cap.
+    mocks.tavilySearch.mockImplementation(async (_query: string, options?: { topic?: string }) => {
+      if (options?.topic === "news") {
+        // RFC 1123 is what Tavily's news index really emits (probed live
+        // 2026-07-27) — the mapper passes published_date through untouched,
+        // so an ISO fixture here would test a wire that does not exist.
+        return [
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.polygon.com/crimson-desert-1-13-notes",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "polygon.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 09:00:00 GMT",
+          },
+          {
+            title: "Crimson Desert Patch 1.13.00 Released For All Platforms",
+            url: "https://www.pushsquare.com/news/crimson-desert-1-13-detailed",
+            snippet: "The Crimson Desert update is out now.",
+            sourceDomain: "pushsquare.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 10:00:00 GMT",
+          },
+          // The wire also re-returns a URL a general query already surfaced.
+          // First-wins dedup drops this signal — but its date must coalesce
+          // onto the undated shelf twin instead of vanishing with it.
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.dsogaming.com/articles/cd-1-13-mirror-0",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "dsogaming.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 08:00:00 GMT",
+          },
+          // And a dated duplicate of a mirror the dated wire results have
+          // ALREADY DISPLACED by the time it arrives: no shelf row remains
+          // to upgrade, so the page re-enters as its dated incarnation and
+          // takes another undated row's slot.
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.dsogaming.com/articles/cd-1-13-mirror-4",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "dsogaming.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 07:00:00 GMT",
+          },
+        ];
+      }
+      // Every general query returns the same five undated patch-notes mirrors;
+      // prepareSignals' first-wins URL dedup collapses the repeats, so exactly
+      // five undated candidates reach the observation shelf — a full cap.
+      return Array.from({ length: 5 }, (_, index) => ({
+        title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+        url: `https://www.dsogaming.com/articles/cd-1-13-mirror-${index}`,
+        snippet: "Pearl Abyss detailed the update for all platforms.",
+        sourceDomain: "dsogaming.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      }));
+    });
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z -> the wire slot fires, so the run holds both lanes.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const urls = persistedObservations.map((row) => row.url);
+    expect(urls).toContain("https://www.polygon.com/crimson-desert-1-13-notes");
+    expect(urls).toContain("https://www.pushsquare.com/news/crimson-desert-1-13-detailed");
+    // The cap holds at five: the two dated rows displaced the two newest
+    // undated mirrors, and the earliest mirrors keep first-wins seniority.
+    expect(persistedObservations).toHaveLength(5);
+    // Four dated rows: the two wire URLs, mirror-0 upgraded in place by its
+    // deduped wire twin's date, and displaced mirror-4 re-entering as its
+    // dated incarnation in another undated row's slot.
+    expect(persistedObservations.filter((row) => row.source_published_at).length).toBe(4);
+    const upgradedMirror = persistedObservations.find(
+      (row) => row.url === "https://www.dsogaming.com/articles/cd-1-13-mirror-0",
+    );
+    expect(upgradedMirror?.source_published_at).toBe("Sun, 05 Jul 2026 08:00:00 GMT");
+    const reenteredMirror = persistedObservations.find(
+      (row) => row.url === "https://www.dsogaming.com/articles/cd-1-13-mirror-4",
+    );
+    expect(reenteredMirror?.source_published_at).toBe("Sun, 05 Jul 2026 07:00:00 GMT");
+    expect(result.observationsKept).toBe(5);
+    // Not a silent success: any unexpected rpc in this scenario would land in
+    // an error-collecting catch and degrade the run to partial.
+    expect(result.status).toBe("success");
+  });
+
+  it("never attaches an observation to a URL already kept as a signal", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // The side door this pins shut: a general query keeps a page as a source
+    // signal, then the wire re-returns the same URL with a different excerpt —
+    // one that pre-screens as observation material — plus the publication date
+    // the general copy lacked. The displaced-page re-entry path must not turn
+    // that duplicate into an observation: one candidate yields a signal or an
+    // observation, never the same page arguing both sides.
+    const complaintUrl = "https://reddit.com/r/CrimsonDesert/comments/fps/towns";
+    mocks.tavilySearch.mockImplementation(async (_query: string, options?: { topic?: string }) => {
+      if (options?.topic === "news") {
+        return [
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: complaintUrl,
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "reddit.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 09:00:00 GMT",
+          },
+        ];
+      }
+      return [
+        {
+          title: "Crimson Desert patch 1.13 FPS drops in towns",
+          url: complaintUrl,
+          snippet: "Players report stutter and FPS drops after patch 1.13.00.",
+          sourceDomain: "reddit.com",
+          observedAt: "2026-07-05T12:00:00.000Z",
+          sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        },
+      ];
+    });
+    const defaultRpc = mocks.rpc.getMockImplementation()!;
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      return defaultRpc(name, args);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z -> the wire slot fires, so both copies of the page arrive.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The complaint copy was kept as a signal...
+    expect(sourceSignalRows().map((row) => row.canonical_url)).toContain(complaintUrl);
+    // ...so the wire's dated marketing copy must not also mint an observation.
+    expect(persistedObservations.map((row) => row.url)).not.toContain(complaintUrl);
+    expect(result.status).toBe("success");
+  });
+
   it("keeps every search slot on general (dated-less) search on non-wire turns", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
