@@ -968,6 +968,7 @@ describe("persistObservations", () => {
       ],
       "1.13.01",
       report,
+      "2026-07-08T00:00:00.000Z",
     );
 
     expect(report.errors).toEqual([]);
@@ -998,6 +999,51 @@ describe("persistObservations", () => {
     expect(
       (payload as unknown as { date_contract: string }[]).every((row) => row.date_contract === "displayable_only"),
     ).toBe(true);
+  });
+
+  it("withholds every payload date when the patch era is unknown", async () => {
+    // A run whose patch metadata came through fallbackCurrentPatchMetadata
+    // (read or sync down) has no era floor to judge against, so nothing can
+    // be certified: the marked coalesce would let a pre-era date replace a
+    // stored good one, and once metadata recovers the Brief applies the real
+    // floor and the row goes dark — sticky until an unrelated re-sighting.
+    // With the era unknown, even a perfectly formatted in-window date must
+    // travel as NULL (marked + NULL preserves whatever is stored), and the
+    // payload keeps collection order — no row claims a priority the payload
+    // does not back.
+    const datedRows = [
+      candidate({ url: "https://www.dsogaming.com/articles/undated/" }),
+      candidate({
+        url: "https://www.polygon.com/crimson-desert-iso-dated/",
+        sourceDomain: "polygon.com",
+        sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+      }),
+      candidate({
+        url: "https://www.pcgamer.com/crimson-desert-wire-dated/",
+        sourceDomain: "pcgamer.com",
+        sourcePublishedAt: "Thu, 16 Jul 2026 11:00:00 GMT",
+      }),
+    ];
+    for (const unknownEra of [null, "not-a-date"]) {
+      const rpcCalls: RpcCall[] = [];
+      const report = { errors: [] as string[], observationsKept: 0 };
+      await persistObservations(
+        stubClient({ rpcCalls, rpcResult: { data: 3, error: null } }),
+        datedRows,
+        "1.13.01",
+        report,
+        unknownEra,
+      );
+      expect(report.errors).toEqual([]);
+      const payload = rpcCalls[0].params.p_observations as {
+        url: string;
+        source_published_at: string | null;
+        date_contract: string;
+      }[];
+      expect(payload.map((row) => row.url)).toEqual(datedRows.map((row) => row.url));
+      expect(payload.map((row) => row.source_published_at)).toEqual([null, null, null]);
+      expect(payload.every((row) => row.date_contract === "displayable_only")).toBe(true);
+    }
   });
 
   it("sends the latest fields needed to re-observe an existing row", async () => {

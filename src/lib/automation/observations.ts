@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { domainTier } from "@/lib/automation/domains";
 import { hasCrimsonDesertContext, type ObservationKind } from "@/lib/automation/relevance";
-import { isDisplayableDatedObservation } from "@/lib/observationDisplay";
+import { isDisplayableDatedObservation, patchEraFloorMs } from "@/lib/observationDisplay";
 
 /**
  * Observation lane: the typed shelf for patch-day context the evidence funnel
@@ -216,6 +216,34 @@ function hasDisplayableDate(
 }
 
 /**
+ * The persistence contract asks a stricter question than shelf priority: was
+ * EVERY display gate — the era floor included — actually enforced on this
+ * date? hasDisplayableDate skips the floor when the patch era is unknown,
+ * matching the render gate's behavior at that same moment. With a known,
+ * parseable era the two predicates are literally the same test — the split
+ * can only matter during degraded metadata, where the lenience is harmless
+ * for in-memory priority: a pseudo-dated row can only ever displace a row
+ * that also cannot render. But a payload date is a different
+ * promise. The RPC's marked coalesce REPLACES stored dates with incoming
+ * ones, and a date vetted without the floor can be pre-era — a run that read
+ * its patch through fallbackCurrentPatchMetadata (metadata read or sync
+ * down) would certify it, overwrite a stored good date, and once metadata
+ * recovers the Brief applies the real floor and the row goes dark, sticky
+ * until an unrelated re-sighting. So certification additionally requires the
+ * same finite era floor the Brief will use (patchEraFloorMs is NaN for a
+ * null OR unparseable era — one test, no second parser). With the era
+ * unknown, every date travels as NULL: stored state stays untouched, and a
+ * later certified sighting fills or heals it.
+ */
+function hasCertifiedDisplayableDate(
+  observation: Pick<ObservationCandidate, "sourcePublishedAt" | "observedAt">,
+  patchPublishedAt: string | null,
+): boolean {
+  if (!Number.isFinite(patchEraFloorMs(patchPublishedAt))) return false;
+  return hasDisplayableDate(observation, patchPublishedAt);
+}
+
+/**
  * A duplicate sighting of a page already on the shelf can still teach us one
  * thing: the page's publication date. General search returns URLs undated;
  * the wire returns some of the SAME URLs dated, later in the run, where
@@ -373,8 +401,8 @@ export async function persistObservations(
     // breaks ties.
     const entries = [...byHash.entries()];
     const prioritized = [
-      ...entries.filter(([, observation]) => hasDisplayableDate(observation, patchPublishedAt)),
-      ...entries.filter(([, observation]) => !hasDisplayableDate(observation, patchPublishedAt)),
+      ...entries.filter(([, observation]) => hasCertifiedDisplayableDate(observation, patchPublishedAt)),
+      ...entries.filter(([, observation]) => !hasCertifiedDisplayableDate(observation, patchPublishedAt)),
     ];
     // The payload date contract the RPC's coalesce relies on: non-null means
     // "the Brief can render this". For rows carrying the date_contract
@@ -383,7 +411,10 @@ export async function persistObservations(
     // bad stored one, an undisplayable sighting arrives as NULL and
     // preserves whatever is stored (and, for a new row, stores NULL that a
     // later displayable sighting can fill, instead of a junk date the old
-    // backfill could never touch). The marker is the in-band version gate:
+    // backfill could never touch). Certification requires the era floor to
+    // have actually run — see hasCertifiedDisplayableDate — so a run with
+    // unknown patch metadata withholds every date rather than vouch for one
+    // the floor never judged. The marker is the in-band version gate:
     // payloads without it — an in-flight or rolled-back older deployment —
     // get the legacy stored-first coalesce, so no deploy ordering can let an
     // unvetted date replace a stored good one.
@@ -394,7 +425,7 @@ export async function persistObservations(
       url_hash: hash,
       source_domain: observation.sourceDomain,
       snippet: observation.snippet.slice(0, 500),
-      source_published_at: hasDisplayableDate(observation, patchPublishedAt)
+      source_published_at: hasCertifiedDisplayableDate(observation, patchPublishedAt)
         ? observation.sourcePublishedAt
         : null,
       date_contract: "displayable_only",
