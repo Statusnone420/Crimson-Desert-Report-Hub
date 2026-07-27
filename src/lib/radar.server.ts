@@ -7,6 +7,7 @@ import {
   evaluateCurrentPatchEligibility,
   type CurrentPatchEligibilityReason,
 } from "@/lib/automation/eligibility";
+import { isProviderContextSource } from "@/lib/automation/domains";
 import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
@@ -224,9 +225,18 @@ function weekStartKey(ms: number): string {
 const PLATFORM_SET = new Set<string>(PLATFORMS);
 const CATEGORY_SET = new Set<string>(CATEGORIES);
 
-/** A tracked lead is retained, non-hidden web evidence — provider context stays in its aggregate lane. */
+/**
+ * A tracked lead is retained, non-hidden web evidence — provider context stays
+ * in its aggregate lane. The boundary is the shared predicate the promotion
+ * engine uses, so a source the scanner refuses to present as evidence can never
+ * count as a lead here either. The radar row carries no domain column, so the
+ * official-domain half resolves from the stored url.
+ */
 function isTrackedLead(row: RadarSignalRow): boolean {
-  return row.public_status !== "hidden" && row.source !== "steam_review" && row.source_type !== "steam_review";
+  return (
+    row.public_status !== "hidden" &&
+    !isProviderContextSource({ source: row.source, sourceType: row.source_type, url: row.source_url })
+  );
 }
 
 /**

@@ -8,7 +8,7 @@ import {
   type ClaimMappingDecision,
 } from "@/lib/automation/claimMapping";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
-import { countIndependentDomains, domainTier, isOfficialDomain } from "@/lib/automation/domains";
+import { countIndependentDomains, domainTier, isOfficialDomain, isProviderContextSource } from "@/lib/automation/domains";
 import {
   evaluateCurrentPatchEligibility,
   type CurrentPatchContext,
@@ -423,8 +423,9 @@ function isContextOnlySignal(row: SourceSignalRow): boolean {
   // never player evidence. The official half also covers rows stored BEFORE the
   // pre-screen learned to route official domains to the observation lane — they
   // resolve to private with reason source_context_only instead of ever being
-  // presented as a cluster's evidence.
-  return row.source === "steam_review" || isOfficialDomain(signalDomain(row));
+  // presented as a cluster's evidence. One shared predicate holds the boundary
+  // here and in the radar's tracked-lead filter, so the definitions cannot fork.
+  return isProviderContextSource({ source: row.source, domain: signalDomain(row) });
 }
 
 function stalePromotionReason(reason: CurrentPatchEligibilityReason | "source_not_issue_report" | "off_topic"): string {

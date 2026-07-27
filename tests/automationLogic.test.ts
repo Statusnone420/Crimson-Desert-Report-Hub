@@ -9,7 +9,7 @@ import {
   extractSignalWithOpenRouter,
   parseOpenRouterExtraction,
 } from "@/lib/automation/extract";
-import { countIndependentDomains, domainTier, registrableDomain } from "@/lib/automation/domains";
+import { countIndependentDomains, domainTier, isProviderContextSource, registrableDomain } from "@/lib/automation/domains";
 import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { buildMemorySearchQueries, chooseScanIntent } from "@/lib/automation/memory";
@@ -1030,6 +1030,21 @@ describe("countIndependentDomains", () => {
       independentDomainCount: 2,
       trustedDomainCount: 1,
     });
+  });
+
+  it("holds one provider-context boundary for steam reviews and official pages alike", () => {
+    expect(isProviderContextSource({ source: "steam_review" })).toBe(true);
+    expect(isProviderContextSource({ sourceType: "steam_review" })).toBe(true);
+    expect(isProviderContextSource({ source: "web_search", domain: "crimsondesert.pearlabyss.com" })).toBe(true);
+    expect(
+      isProviderContextSource({ source: "web_search", url: "https://crimsondesert.pearlabyss.com/News/Notice/105" }),
+    ).toBe(true);
+    expect(
+      isProviderContextSource({ source: "web_search", url: "https://www.reddit.com/r/CrimsonDesert/comments/x/" }),
+    ).toBe(false);
+    // An unparseable url is not provider context — it is nothing, and other
+    // gates drop it; this predicate must not throw on it.
+    expect(isProviderContextSource({ source: "web_search", url: "not a url" })).toBe(false);
   });
 
   it("never counts the publisher's own domain as an independent source", () => {
