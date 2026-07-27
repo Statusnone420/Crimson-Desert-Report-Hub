@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { it } from "vitest";
 
+import { canonicalizeUrl } from "@/lib/automation/dedupe";
 import { domainTier, registrableDomain } from "@/lib/automation/domains";
 import { buildMemorySearchQueries } from "@/lib/automation/memory";
 import { shouldCollectObservation } from "@/lib/automation/observations";
@@ -213,14 +214,25 @@ it("measures the live query pack against the real pre-screen", async () => {
         })[0],
     )
     .filter((query): query is string => Boolean(query));
-  const plan: { lane: string; query: string; topic?: "news" }[] = [
-    ...packQueries.map((query) => ({ lane: "discovery", query })),
-    { lane: "wire", query: buildWireNewsQuery(), topic: "news" as const },
-    ...corroborateQueries.map((query) => ({ lane: "corroborate", query })),
+  // runScope marks which production RUN a query belongs to, because that is the
+  // span of prepareSignals' first-wins URL dedup. Discovery and the wire slot
+  // share one run; each corroborate rotation is its own run, and production
+  // re-judges a page an earlier run saw — that is a reobservation, and it counts.
+  const plan: { lane: string; query: string; topic?: "news"; runScope: string }[] = [
+    ...packQueries.map((query) => ({ lane: "discovery", query, runScope: "scan" })),
+    { lane: "wire", query: buildWireNewsQuery(), topic: "news" as const, runScope: "scan" },
+    ...corroborateQueries.map((query, index) => ({ lane: "corroborate", query, runScope: `corroborate-${index}` })),
   ];
   const env = { TAVILY_API_KEY: key };
 
   const judged: Judged[] = [];
+  // Production judges a page once PER RUN: prepareSignals canonicalizes every URL
+  // and the first encounter wins (run.ts). Overlapping queries re-returning the
+  // same page is worth SEEING per query, but judging the repeat would count one
+  // page as two units of yield — the totals here must match what production
+  // would take in, run scope by run scope.
+  const seenByRun = new Map<string, Set<string>>();
+  let repeatsSkipped = 0;
   const lines: string[] = [];
   const emit = (line = "") => {
     lines.push(line);
@@ -230,10 +242,16 @@ it("measures the live query pack against the real pre-screen", async () => {
   emit(`patch ${PATCH_VERSION} published ${startDate}`);
   emit(`${plan.length} queries, one Tavily credit each, development key`);
   emit(`corroborate probe title: "${CORROBORATE_PROBE_TITLE}"`);
+  // A self-describing marker, because this changed what the totals count. An
+  // on-disk baseline without this line judged every repeat and is not comparable.
+  emit(
+    "dedupe: urls judged once per run scope (discovery+wire share one run; each corroborate probe is its own); " +
+      "totals sum across those runs. Reports without this line are not comparable baselines",
+  );
 
   const failures: string[] = [];
 
-  for (const { lane, query, topic } of plan) {
+  for (const { lane, query, topic, runScope } of plan) {
     let results: SearchResult[] = [];
     try {
       results = await tavilySearch(query, {
@@ -252,11 +270,44 @@ it("measures the live query pack against the real pre-screen", async () => {
       emit(`\n! ${message}`);
       continue;
     }
-    const rows = judge(lane, query, results);
+    emit(`\n[${lane}] ${query}`);
+    const seenUrls = seenByRun.get(runScope) ?? new Set<string>();
+    seenByRun.set(runScope, seenUrls);
+    const fresh: SearchResult[] = [];
+    let repeats = 0;
+    let unparseable = 0;
+    for (const result of results) {
+      let canonical: string;
+      try {
+        canonical = canonicalizeUrl(result.url);
+      } catch {
+        // Production records an error and skips a signal whose URL will not parse
+        // (run.ts); judging it here would count a row production never takes in.
+        // Loud, because a silent drop is this harness's enemy.
+        unparseable += 1;
+        emit(`  ! unparseable url skipped: ${result.url}`);
+        continue;
+      }
+      if (seenUrls.has(canonical)) {
+        repeats += 1;
+        continue;
+      }
+      seenUrls.add(canonical);
+      // Production pre-screens the canonical URL, not the raw one (run.ts), and
+      // the pre-screen reads URL text — so hand judge() the same string.
+      fresh.push({ ...result, url: canonical });
+    }
+    repeatsSkipped += repeats;
+    const rows = judge(lane, query, fresh);
     judged.push(...rows);
 
-    emit(`\n[${lane}] ${query}`);
-    if (rows.length === 0) emit("  (no results)");
+    // A query whose every result was a repeat or a broken URL did NOT return
+    // nothing — saying so would be the self-contradicting report this tool exists
+    // to prevent.
+    if (rows.length === 0 && repeats === 0 && unparseable === 0) emit("  (no results)");
+    if (repeats > 0) {
+      emit(`  (${repeats} repeat url${repeats === 1 ? "" : "s"} skipped — production judges a url once per run)`);
+    }
     for (const row of rows) {
       emit(
         `  ${row.outcome.padEnd(30)} ${(row.dated ? "dated" : "  -  ").padEnd(6)} ${row.domain.padEnd(26)} ${row.title.slice(0, 58)}`,
@@ -281,6 +332,7 @@ it("measures the live query pack against the real pre-screen", async () => {
 
   emit("\n=== TOTALS ===");
   emit(`results               ${judged.length}`);
+  emit(`repeat urls skipped   ${repeatsSkipped}   (pages a run already judged; production judges a url once per run)`);
   emit(`kept as signals       ${kept}`);
   emit(`render in the Brief   ${observations}   (collected AND displayable)`);
   emit(`stored, never shown   ${observationsStored}   (collected, but the Brief needs a publication date)`);
@@ -298,12 +350,27 @@ it("measures the live query pack against the real pre-screen", async () => {
   emit("\nby lane");
   for (const lane of ["discovery", "wire", "corroborate"]) {
     const rows = judged.filter((row) => row.lane === lane);
-    const laneDomains = new Set(rows.map((row) => registrableDomain(row.domain) ?? row.domain));
+    // Domains from rows that actually supplied something. A rejected or dropped
+    // row's host proved nothing, and counting it let a corroborate probe claim
+    // domains that corroborated nothing. For discovery and wire, "something" is a
+    // kept signal or an observation the Brief renders; for corroborate it is kept
+    // signals ONLY, because production's independent-domain count reads
+    // source_signals and an observation never corroborates a cluster.
+    const evidenceDomains = new Set(
+      rows
+        .filter((row) =>
+          row.outcome === "KEPT" || (lane !== "corroborate" && row.outcome.startsWith("OBSERVATION:")),
+        )
+        .map((row) => registrableDomain(row.domain) ?? row.domain),
+    );
+    // Two definitions must not share one label: corroborate's number is a
+    // different metric from the other lanes', and the report has to say so.
+    const domainsLabel = lane === "corroborate" ? "corroborating domains" : "evidence domains";
     emit(
       `  ${lane.padEnd(13)} ${String(rows.length).padStart(3)} results  ` +
         `${String(rows.filter((row) => row.outcome === "KEPT").length).padStart(2)} kept  ` +
         `${String(rows.filter((row) => row.dated).length).padStart(2)} dated  ` +
-        `${laneDomains.size} domains (${[...laneDomains].join(", ") || "NONE"})`,
+        `${evidenceDomains.size} ${domainsLabel} (${[...evidenceDomains].join(", ") || "NONE"})`,
     );
   }
 
