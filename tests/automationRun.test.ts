@@ -3062,6 +3062,38 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0].raw_text).toContain("constant stutter and fps drops on patch 1.13.00");
   });
 
+  it("never spends a recon fetch on an official page whose verdict is already fixed", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // A publisher known-issues notice qualifies for the recon lane on every axis
+    // the borderline check reads — trusted domain, current patch, "players" and
+    // "issue" context cues — but rescue is impossible by construction: the
+    // re-screen routes official domains straight back to the observation lane
+    // whatever the fetched text says, so the credit must never be booked.
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 known issues notice",
+        snippet:
+          "Players report the quest cannot progress and the game crashes when riding a bear. We are aware of the issue.",
+        url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+        sourceDomain: "crimsondesert.pearlabyss.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue("must never be requested");
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(result.candidatesRescued).toBe(0);
+    // Never a signal — official pages are provider context, not player evidence.
+    expect(sourceSignalRows()).toHaveLength(0);
+  });
+
   it("caps recon fetches per run and falls back to snippet-only for the overflow", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -5692,6 +5724,61 @@ describe("Steam Pulse intake", () => {
     const { refreshClusterVisibility } = await importRunner();
 
     await refreshClusterVisibility("cluster-steam", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ is_public: true, direct_report_count: 1, public_signal_count: 0 });
+    expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "source_context_only" });
+  });
+
+  it("keeps a stored official-domain signal private as provider context", async () => {
+    // Rows stored BEFORE the pre-screen learned to route official domains to the
+    // observation lane. The publisher's page must resolve to context-only — never
+    // presented as a cluster's player evidence — even where it was already public.
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-official",
+          slug: "official-stutter",
+          title: "Official stutter",
+          category: "performance",
+          auto_public: false,
+          is_public: false,
+          visibility_revision: 0,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-official",
+          cluster_id: "cluster-official",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Stutter after patch 1.13.00",
+          moderation_status: "approved",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-official",
+          cluster_id: "cluster-official",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          canonical_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          source_domain: "crimsondesert.pearlabyss.com",
+          title: "Crimson Desert known issues after patch 1.13.00",
+          summary: "Crimson Desert stutters after patch 1.13.00.",
+          raw_text: "Official known issues notice.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-official", new Date("2026-07-05T12:00:00.000Z"));
 
     expect(tables.issue_clusters[0]).toMatchObject({ is_public: true, direct_report_count: 1, public_signal_count: 0 });
     expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "source_context_only" });

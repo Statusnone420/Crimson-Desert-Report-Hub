@@ -8,7 +8,7 @@ import {
   type ClaimMappingDecision,
 } from "@/lib/automation/claimMapping";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
-import { countIndependentDomains, domainTier } from "@/lib/automation/domains";
+import { countIndependentDomains, domainTier, isOfficialDomain } from "@/lib/automation/domains";
 import {
   evaluateCurrentPatchEligibility,
   type CurrentPatchContext,
@@ -373,6 +373,11 @@ function isBorderlineRescueCandidate(
   currentPatch: CurrentPatchContext,
 ): boolean {
   if (domainTier(signal.sourceDomain) !== "trusted") return false;
+  // Recon exists to read a page once before REJECTING a promising candidate.
+  // An official page cannot be rescued by construction — the re-screen routes
+  // it straight back to the observation lane whatever the fetched text says —
+  // so fetching it would spend a scarce Tavily credit on a predetermined verdict.
+  if (isOfficialDomain(signal.sourceDomain)) return false;
   const text = `${signal.title} ${signal.body}`;
   if (RESCUE_EXCLUDED_CONTENT.test(text)) return false;
   if (!RESCUE_CONTEXT.test(text)) return false;
@@ -414,7 +419,12 @@ function hasStoredSignalGameContext(row: SourceSignalRow): boolean {
 }
 
 function isContextOnlySignal(row: SourceSignalRow): boolean {
-  return row.source === "steam_review";
+  // Steam reviews and the publisher's own pages are both provider context,
+  // never player evidence. The official half also covers rows stored BEFORE the
+  // pre-screen learned to route official domains to the observation lane — they
+  // resolve to private with reason source_context_only instead of ever being
+  // presented as a cluster's evidence.
+  return row.source === "steam_review" || isOfficialDomain(signalDomain(row));
 }
 
 function stalePromotionReason(reason: CurrentPatchEligibilityReason | "source_not_issue_report" | "off_topic"): string {

@@ -1031,6 +1031,20 @@ describe("countIndependentDomains", () => {
       trustedDomainCount: 1,
     });
   });
+
+  it("never counts the publisher's own domain as an independent source", () => {
+    // Provider context is never player evidence: an official page must not be
+    // the second domain that promotes a cluster, and a cluster whose only
+    // sources are official pages has zero independent sources.
+    expect(countIndependentDomains(["crimsondesert.pearlabyss.com", "old.reddit.com"])).toEqual({
+      independentDomainCount: 1,
+      trustedDomainCount: 1,
+    });
+    expect(countIndependentDomains(["crimsondesert.pearlabyss.com", "pearlabyss.com"])).toEqual({
+      independentDomainCount: 0,
+      trustedDomainCount: 0,
+    });
+  });
 });
 
 describe("scanner memory planning", () => {

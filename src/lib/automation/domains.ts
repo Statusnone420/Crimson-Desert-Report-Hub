@@ -17,6 +17,14 @@ const TRUSTED_DOMAINS = new Set([
   "tomshardware.com",
 ]);
 
+// The publisher's own registrable domains. Official pages are provider context
+// — patch notes, known-issues notices — and provider context is never player
+// evidence: an official page must not create a cluster or stand as an
+// independent corroborating source, however many symptom nouns its known-issues
+// list carries. The domain stays in TRUSTED_DOMAINS so the observation lane can
+// carry official notices; it is excluded from independence counting instead.
+const OFFICIAL_DOMAINS = new Set(["pearlabyss.com"]);
+
 // Registrable-domain suffixes that span two labels. Kept deliberately small —
 // only the public suffixes a Crimson Desert source realistically uses — so we
 // collapse eTLD+1 correctly for our sources without a full public-suffix-list
@@ -62,10 +70,19 @@ export function domainTier(domain: string | null): DomainTier {
   return TRUSTED_DOMAINS.has(registrable) ? "trusted" : "unknown";
 }
 
+/** True when the hostname collapses to one of the publisher's own domains. */
+export function isOfficialDomain(hostname: string | null): boolean {
+  const registrable = registrableDomain(hostname);
+  return registrable ? OFFICIAL_DOMAINS.has(registrable) : false;
+}
+
 /**
  * Count independent sources by registrable domain. Any number of subdomains of
  * one registrable domain contribute exactly one independent source, closing the
- * subdomain-fabrication path in the promotion gate.
+ * subdomain-fabrication path in the promotion gate. Official publisher domains
+ * contribute nothing at all: provider context is never player evidence, so an
+ * official page must not be the second domain that promotes a cluster — this
+ * also retroactively disarms any official row already stored as a signal.
  */
 export function countIndependentDomains(hostnames: string[]): {
   independentDomainCount: number;
@@ -74,7 +91,7 @@ export function countIndependentDomains(hostnames: string[]): {
   const registrable = new Set<string>();
   for (const hostname of hostnames) {
     const domain = registrableDomain(hostname);
-    if (domain) registrable.add(domain);
+    if (domain && !OFFICIAL_DOMAINS.has(domain)) registrable.add(domain);
   }
   let trustedDomainCount = 0;
   for (const domain of registrable) if (TRUSTED_DOMAINS.has(domain)) trustedDomainCount += 1;

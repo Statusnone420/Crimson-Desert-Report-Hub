@@ -92,4 +92,28 @@ describe("scanner trust regressions", () => {
       publishedAt: CURRENT_PATCH.currentPatchPublishedAt,
     })).toEqual({ canStore: true, canPublish: true, reason: "fresh_source" });
   });
+
+  it("routes an official known-issues page to the observation lane, never to evidence", () => {
+    // The publisher's evergreen Known Issues page carries the same symptom nouns
+    // as a player complaint and its title matches no patch-release pattern, so
+    // before the official-domain route it reached keep: true and pearlabyss.com
+    // could corroborate a cluster as "player evidence".
+    expect(preScreenCandidate({
+      title: "Crimson Desert – Known Issues",
+      snippet: "Quest cannot progress after the cutscene in some regions. The game crashes when riding a bear.",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+      sourceDomain: "crimsondesert.pearlabyss.com",
+      sourcePublishedAt: "2026-07-21T12:00:00.000Z",
+    }, CURRENT_PATCH)).toEqual({ keep: false, reason: "source_not_issue_report", observationKind: "patch_release" });
+  });
+
+  it("still keeps the identical complaint text from a non-official domain", () => {
+    expect(preScreenCandidate({
+      title: "Crimson Desert – Known Issues megathread",
+      snippet: "Quest cannot progress after the cutscene in some regions. The game crashes when riding a bear.",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/example/known_issues_megathread/",
+      sourceDomain: "reddit.com",
+      sourcePublishedAt: "2026-07-21T12:00:00.000Z",
+    }, CURRENT_PATCH)).toEqual({ keep: true });
+  });
 });
