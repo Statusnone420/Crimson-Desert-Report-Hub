@@ -3094,6 +3094,35 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()).toHaveLength(0);
   });
 
+  it("stores an operator-rescued official page without minting a cluster", async () => {
+    // Rescue deliberately skips the pre-screen — the admin has judged the page
+    // relevant, and the signal is stored. The clustering boundary must still
+    // hold: provider content may support an existing cluster, but it never
+    // creates a durable cluster title of its own.
+    resetDb();
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+    const { createServiceClient } = await import("@/lib/supabase");
+
+    await rescueCandidateSignal(createServiceClient() as never, {
+      title: "Crimson Desert – Known Issues",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+      sourceDomain: "crimsondesert.pearlabyss.com",
+      sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      snippet: "Quest cannot progress after the cutscene. The game crashes when riding a bear.",
+    });
+
+    expect(tables.issue_clusters).toHaveLength(0);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: null,
+      source_domain: "crimsondesert.pearlabyss.com",
+      public_status: "private",
+    });
+    // The ledger names the caveat instead of reporting an unqualified success.
+    expect(tables.automation_runs.at(-1)?.skips).toContain("provider_context_no_cluster");
+  });
+
   it("caps recon fetches per run and falls back to snippet-only for the overflow", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
