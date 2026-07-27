@@ -50,19 +50,83 @@ export type BuildSearchQueryOptions = {
   rotationOffset?: number;
 };
 
-// Reddit (esp. r/CrimsonDesert) surfaced via Tavily is where the genuinely useful
-// current-patch signals live, so the pack LEADS with subreddit-targeted queries. But
-// it must stay domain-diverse: promotion needs >= 2 independent domains, so a Reddit-only
-// pack could never corroborate. Keep the Steam query plus general (non-`site:`) web
-// queries so clusters can still reach 2-independent-domain corroboration.
+/**
+ * Every query here earned its place in a measured bake-off against the live API
+ * (`npm run scan:bakeoff`), judged by the real pre-screen. Two rules came out of
+ * that run and both are load-bearing:
+ *
+ * 1. A `site:` filter is not a guarantee. When the scope has no matching content
+ *    Tavily does not return nothing — it drops the filter and searches openly.
+ *    `site:pcgamer.com Crimson Desert patch performance` came back as Borderlands
+ *    4, Helldivers 2 and Oblivion mods, and junk on a TRUSTED domain is worse
+ *    than junk anywhere else, because a trusted domain is what qualifies a
+ *    candidate for a paid recon fetch.
+ *
+ *    What decides it is whether the SCOPE is dedicated to this game. Measured
+ *    5 of 5 in scope alone: `crimsondesert.pearlabyss.com`, the Steam app's
+ *    news, `r/CrimsonDesert`. Those places are about Crimson Desert or they are
+ *    empty. A general outlet publishes about everything, so in a week with no
+ *    Crimson Desert coverage the fallback is whatever it did publish — which is
+ *    why no PRESS outlet is ever asked alone.
+ *
+ *    Note `pearlabyss.com` is NOT such a scope: the publisher also ships Black
+ *    Desert, and `hasCrimsonDesertContext` accepts the publisher's name, so a
+ *    root-scoped result could carry another game's pages into the pipeline. The
+ *    official query is pinned to the game's own subdomain for that reason.
+ *
+ * 2. Grouping is not a guarantee either. `site:A OR site:B` holds only while at
+ *    least one member carries matching content. Measured: pairing the Pearl Abyss
+ *    ROOT domain (which indexes almost nothing) with the Steam store collapsed so
+ *    completely that Tavily matched the bare word "OR" and returned five
+ *    dictionary definitions of it. The same pair pointed at the game's own
+ *    subdomain returned 5 of 5 in scope. Every group therefore needs one member
+ *    that reliably carries coverage.
+ *
+ *    Collapse is also INTERMITTENT, which is the part worth remembering. The
+ *    versionless pcgamer/eurogamer/dsogaming trio returned three real Crimson
+ *    Desert articles in one run and five dictionary definitions of "OR" four
+ *    minutes later. Adding the patch version to the same trio returned three
+ *    on-domain results, two of them naming 1.15.00. A version is therefore not
+ *    only what lets a press article clear canPublish, it is also what keeps the
+ *    group anchored. No press slot ships without one.
+ *
+ * 3. A `site:` scope that is genuinely dedicated to the game can still be the
+ *    wrong QUESTION. `site:store.steampowered.com Crimson Desert patch <v>
+ *    update` was measured 5 of 5 in scope and looked like the best slot in the
+ *    pack — but in scope means store pages: a Thai Deluxe Pack listing, a German
+ *    storefront, an English Deluxe Pack listing. None are patch notes, and
+ *    `steampowered.com` is not in TRUSTED_DOMAINS, so the observation gate
+ *    discards them regardless of what the pre-screen decides. The slot was
+ *    dropped rather than trusted: trusting the domain would also reclassify
+ *    every Steam review the run stamps with it.
+ *
+ * 4. Anchor the open-web query in the game, not the words. Unanchored
+ *    "Crimson Desert patch" matched a coffee brand, a dictionary, the Harvard
+ *    Crimson store and the US Army Corps of Engineers.
+ *
+ * Domain diversity is the point, not a nicety: promotion needs >= 2 independent
+ * registrable domains, and Reddit alone can never corroborate itself no matter
+ * how many threads it contributes. The press trios rotate by turn, so a trio
+ * that is empty this turn is not a permanent loss.
+ */
 function queryPack(patchVersion: string): string[] {
   return [
+    // The game's own site, not the publisher's. Measured 5 of 5 in scope alone.
+    `site:crimsondesert.pearlabyss.com Crimson Desert patch ${patchVersion} notes known issues`,
+    // Anchored open web: the highest-yield slot in the pack. Measured 2 kept + 2
+    // observations across five distinct domains, and no coffee.
+    `Crimson Desert game Pearl Abyss patch ${patchVersion} players stutter crash bug report`,
+    // One Reddit query, down from four. Still where players complain.
     `site:reddit.com r/CrimsonDesert Crimson Desert patch ${patchVersion} crash stutter performance bug`,
-    `site:reddit.com Crimson Desert patch ${patchVersion} crash freeze stutter issue`,
-    `Crimson Desert patch ${patchVersion} FPS drops stutter issue`,
     `site:steamcommunity.com Crimson Desert patch ${patchVersion} stutter low FPS issue`,
-    `Crimson Desert patch ${patchVersion} crash freeze issue`,
-    `Crimson Desert PS5 PC performance drops patch ${patchVersion}`,
+    // Console/PC performance press: the non-Reddit corroboration single-source
+    // clusters have been waiting for. Every trio carries the version — see the
+    // note on group collapse above, and note that a press article that never
+    // names the current patch cannot clear canPublish, so a versionless press
+    // hit is stored context at best and can never be the second domain.
+    `site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch ${patchVersion} performance problems`,
+    `site:pcgamer.com OR site:eurogamer.net OR site:dsogaming.com Crimson Desert patch ${patchVersion} performance problems`,
+    `site:ign.com OR site:gamespot.com OR site:polygon.com Crimson Desert patch ${patchVersion} update problems`,
   ];
 }
 
@@ -76,8 +140,27 @@ function queryPack(patchVersion: string): string[] {
  */
 export const WIRE_NEWS_TURN_INTERVAL = 3;
 
-export function buildWireNewsQuery(patchVersion: string): string {
-  return `Crimson Desert patch ${patchVersion} update Pearl Abyss`;
+/**
+ * Deliberately carries NO patch version, and deliberately does NOT quote the
+ * game name. Both were measured against the live news index:
+ *
+ *   - versioned            -> 0 of 5 on topic (Path of Exile, 007 First Light)
+ *   - "Crimson Desert"     -> 0 of 5 on topic
+ *   - this query           -> 3 of 5 on topic, both dated 1.15.00 articles
+ *
+ * Quoting helps on general search and hurts here, which is why the two surfaces
+ * get different query shapes rather than one house style. A version string that
+ * appears in no headline leaves the index matching the generic words around it;
+ * the patch gates downstream still decide what is stored, so naming the version
+ * bought nothing and cost the whole result set.
+ *
+ * The news index is volatile: consecutive runs of this exact query returned 3 of
+ * 5 and 0 of 5 on topic minutes apart. Off-topic results are correctly dropped as
+ * `off_topic`, so a bad draw costs one credit and never reaches the Brief. Judge
+ * this slot over several runs of `npm run scan:bakeoff`, never a single one.
+ */
+export function buildWireNewsQuery(): string {
+  return "Crimson Desert Pearl Abyss patch update performance";
 }
 
 export function buildSearchQueries(

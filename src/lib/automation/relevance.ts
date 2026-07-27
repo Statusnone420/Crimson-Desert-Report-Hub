@@ -1,5 +1,5 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
-import { domainTier } from "@/lib/automation/domains";
+import { domainTier, isOfficialDomain } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
 import { CURRENT_PATCH } from "@/lib/constants";
 
@@ -434,6 +434,16 @@ export function preScreenCandidate(
   }
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {
     return { keep: false, reason: "source_not_issue_report" };
+  }
+  // The publisher's own pages are provider context, never player evidence. A
+  // known-issues list reaches this point carrying the same symptom nouns as a
+  // complaint — and a patch-notes title that LISTS live issues skips the
+  // patch_release route above for the same reason — but an official
+  // acknowledgment must not create a cluster or corroborate one. It is still
+  // worth showing, so it routes to the patch_release observation lane instead
+  // of being kept.
+  if (isOfficialDomain(input.sourceDomain)) {
+    return { keep: false, reason: "source_not_issue_report", observationKind: "patch_release" };
   }
   return { keep: true };
 }

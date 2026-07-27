@@ -8,7 +8,7 @@ import {
   type ClaimMappingDecision,
 } from "@/lib/automation/claimMapping";
 import { canonicalizeUrl, hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
-import { countIndependentDomains, domainTier } from "@/lib/automation/domains";
+import { countIndependentDomains, domainTier, isOfficialDomain } from "@/lib/automation/domains";
 import {
   evaluateCurrentPatchEligibility,
   type CurrentPatchContext,
@@ -373,6 +373,11 @@ function isBorderlineRescueCandidate(
   currentPatch: CurrentPatchContext,
 ): boolean {
   if (domainTier(signal.sourceDomain) !== "trusted") return false;
+  // Recon exists to read a page once before REJECTING a promising candidate.
+  // An official page cannot be rescued by construction — the re-screen routes
+  // it straight back to the observation lane whatever the fetched text says —
+  // so fetching it would spend a scarce Tavily credit on a predetermined verdict.
+  if (isOfficialDomain(signal.sourceDomain)) return false;
   const text = `${signal.title} ${signal.body}`;
   if (RESCUE_EXCLUDED_CONTENT.test(text)) return false;
   if (!RESCUE_CONTEXT.test(text)) return false;
@@ -414,7 +419,12 @@ function hasStoredSignalGameContext(row: SourceSignalRow): boolean {
 }
 
 function isContextOnlySignal(row: SourceSignalRow): boolean {
-  return row.source === "steam_review";
+  // Steam reviews and the publisher's own pages are both provider context,
+  // never player evidence. The official half also covers rows stored BEFORE the
+  // pre-screen learned to route official domains to the observation lane — they
+  // resolve to private with reason source_context_only instead of ever being
+  // presented as a cluster's evidence.
+  return row.source === "steam_review" || isOfficialDomain(signalDomain(row));
 }
 
 function stalePromotionReason(reason: CurrentPatchEligibilityReason | "source_not_issue_report" | "off_topic"): string {
@@ -969,7 +979,7 @@ async function collectInputs(
       try {
         result.searchQueriesUsed += 1;
         result.estimatedCostUsd += SEARCH_QUERY_COST_USD;
-        const found = await tavilySearch(buildWireNewsQuery(currentPatch.version), { now, startDate, topic: "news" });
+        const found = await tavilySearch(buildWireNewsQuery(), { now, startDate, topic: "news" });
         result.searchResultsSeen += found.length;
         inputs.push(...found.slice(0, 5).map(searchResultToInput));
       } catch (error) {
@@ -1568,6 +1578,18 @@ async function createCluster(supabase: ReturnType<typeof createServiceClient>, s
   return id;
 }
 
+// The domain column is nullable, so the boundary also reads the canonical url —
+// a candidate carrying an official url with no stored domain must not slip the
+// no-create guard.
+function isOfficialSignal(signal: Pick<PreparedSignal, "sourceDomain" | "canonicalUrl">): boolean {
+  if (isOfficialDomain(signal.sourceDomain)) return true;
+  try {
+    return isOfficialDomain(new URL(signal.canonicalUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
 async function resolveClusterId(
   supabase: ReturnType<typeof createServiceClient>,
   signal: PreparedSignal,
@@ -1589,10 +1611,14 @@ async function resolveClusterId(
     routableClusters,
   );
   const reportCluster = matchingReportCluster(signal, reports);
-  if (signal.source === "steam_review") {
-    // Steam is private provider context, never player evidence. It may support
-    // a cluster whose public-safe metadata already exists, but it must not
-    // create durable titles or descriptions from an individual review.
+  if (signal.source === "steam_review" || isOfficialSignal(signal)) {
+    // Steam reviews and the publisher's own pages are private provider context,
+    // never player evidence. Either may support a cluster whose public-safe
+    // metadata already exists, but neither may create durable titles or
+    // descriptions from provider content. The guard lives HERE because an
+    // operator rescue deliberately skips the pre-screen — marking an official
+    // rejection Relevant stores the signal, and it must still never mint a
+    // cluster.
     const clusterId = existingSignalCluster ?? routedCluster?.id ?? reportCluster;
     if (clusterId) clusterBySemantic.set(signal.semantic, clusterId);
     return clusterId ?? null;
@@ -1949,10 +1975,14 @@ async function persistOneSignal(
   routableClusters: RoutableCluster[],
   now: Date,
   runId: string | null,
-): Promise<{ clusterId: string; promoted: boolean; reobserved: boolean }> {
+): Promise<{ clusterId: string | null; promoted: boolean; reobserved: boolean }> {
   const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
-  if (!clusterId) throw new Error("rescued signal did not resolve to a cluster");
-  const touchedClusters = new Set([clusterId]);
+  // resolveClusterId returns null ONLY for provider context with no existing
+  // cluster to support (a steam review, an official page). Store the signal
+  // clusterless exactly as the batch path does — provider content never mints
+  // a cluster, and failing the rescue would punish the operator for the
+  // boundary holding.
+  const touchedClusters = new Set<string>(clusterId ? [clusterId] : []);
   let persistence: SignalPersistence | null = null;
   let persistenceError: unknown = null;
   let promoted = false;
@@ -2786,6 +2816,9 @@ export async function rescueCandidateSignal(
     if (persistence.reobserved) result.signalsReobserved = 1;
     else result.signalsInserted = 1;
     if (persistence.promoted) result.clustersPromoted = 1;
+    // Provider context stored without a cluster is a success with a caveat the
+    // operator should be able to read off the ledger, not infer from a zero.
+    if (persistence.clusterId === null) result.skips.push("provider_context_no_cluster");
     result.candidatesRescued = 1;
     if (result.errors.length > 0) result.status = "partial";
   } catch (error) {

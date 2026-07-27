@@ -1408,12 +1408,16 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash stutter performance bug",
-    );
-    expect(mocks.tavilySearch.mock.calls[1][0]).toBe(
-      "site:reddit.com r/CrimsonDesert Crimson Desert patch 1.13.00 crash freeze stutter bug",
-    );
+    // The point of the rotation is that two adjacent one-credit scans do not spend
+    // their single credit on the same question. Asserting the property rather than a
+    // slot index: which slot an offset lands on is a function of pack length, and the
+    // pack is expected to change as the bake-off measures new queries.
+    const [firstQuery] = mocks.tavilySearch.mock.calls[0] as [string];
+    const [secondQuery] = mocks.tavilySearch.mock.calls[1] as [string];
+
+    expect(firstQuery).not.toBe(secondQuery);
+    expect(firstQuery).toContain("1.13.00");
+    expect(secondQuery).toContain("1.13.00");
   });
 
   it("budget 0 still runs Tavily and deterministic extraction without paid LLM calls", async () => {
@@ -3058,6 +3062,67 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0].raw_text).toContain("constant stutter and fps drops on patch 1.13.00");
   });
 
+  it("never spends a recon fetch on an official page whose verdict is already fixed", async () => {
+    delete process.env.REDDIT_CLIENT_ID;
+    delete process.env.REDDIT_CLIENT_SECRET;
+    delete process.env.REDDIT_USER_AGENT;
+    // A publisher known-issues notice qualifies for the recon lane on every axis
+    // the borderline check reads — trusted domain, current patch, "players" and
+    // "issue" context cues — but rescue is impossible by construction: the
+    // re-screen routes official domains straight back to the observation lane
+    // whatever the fetched text says, so the credit must never be booked.
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 known issues notice",
+        snippet:
+          "Players report the quest cannot progress and the game crashes when riding a bear. We are aware of the issue.",
+        url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+        sourceDomain: "crimsondesert.pearlabyss.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue("must never be requested");
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(result.candidatesRescued).toBe(0);
+    // Never a signal — official pages are provider context, not player evidence.
+    expect(sourceSignalRows()).toHaveLength(0);
+  });
+
+  it("stores an operator-rescued official page without minting a cluster", async () => {
+    // Rescue deliberately skips the pre-screen — the admin has judged the page
+    // relevant, and the signal is stored. The clustering boundary must still
+    // hold: provider content may support an existing cluster, but it never
+    // creates a durable cluster title of its own.
+    resetDb();
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+    const { createServiceClient } = await import("@/lib/supabase");
+
+    await rescueCandidateSignal(createServiceClient() as never, {
+      title: "Crimson Desert – Known Issues",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+      sourceDomain: "crimsondesert.pearlabyss.com",
+      sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      snippet: "Quest cannot progress after the cutscene. The game crashes when riding a bear.",
+    });
+
+    expect(tables.issue_clusters).toHaveLength(0);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: null,
+      source_domain: "crimsondesert.pearlabyss.com",
+      public_status: "private",
+    });
+    // The ledger names the caveat instead of reporting an unqualified success.
+    expect(tables.automation_runs.at(-1)?.skips).toContain("provider_context_no_cluster");
+  });
+
   it("caps recon fetches per run and falls back to snippet-only for the overflow", async () => {
     delete process.env.REDDIT_CLIENT_ID;
     delete process.env.REDDIT_CLIENT_SECRET;
@@ -3845,7 +3910,12 @@ describe("runAutomationMonitor", () => {
     const calls = mocks.tavilySearch.mock.calls as [string, { topic?: string }?][];
     const newsCalls = calls.filter(([, options]) => options?.topic === "news");
     expect(newsCalls).toHaveLength(1);
-    expect(newsCalls[0][0]).toContain("Crimson Desert patch 1.13.00");
+    // The wire query names the game and never the patch version. Measured: the
+    // versioned form returned dated articles about other games entirely, because the
+    // news index matched the generic words around a version string no headline
+    // carries. The patch gates downstream still decide what gets stored.
+    expect(newsCalls[0][0]).toContain("Crimson Desert");
+    expect(newsCalls[0][0]).not.toContain("1.13.00");
     // The wire REPLACES a general slot: total credit spend is unchanged.
     expect(result.searchQueriesUsed).toBe(calls.length);
   });
@@ -3904,8 +3974,17 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com");
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
+    // Site-scoped, but not pinned to one forum: the corroborate lane now rotates
+    // through community AND press sources so a reddit-heavy cluster can reach the
+    // second independent domain promotion requires. Which source a given turn draws
+    // is covered directly in the query-planning tests.
+    // Pinned exactly. The lane rotation depends on run.ts passing BOTH laneCount and
+    // searchRotationOffset through to the query builder; a loose `/^site:/` still
+    // passed when either was dropped, which is how the rotation could silently
+    // collapse back onto one forum.
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
+      "site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch 1.13.00 crash stutter freeze FPS",
+    );
     expect(tables.automation_runs[1]).toMatchObject({
       intent: "corroborate_cluster",
     });
@@ -4087,9 +4166,16 @@ describe("runAutomationMonitor", () => {
       },
     });
 
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com");
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("1.13.00");
-    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Shader compilation stutter");
+    // Site-scoped, but not pinned to one forum: the corroborate lane now rotates
+    // through community AND press sources so a reddit-heavy cluster can reach the
+    // second independent domain promotion requires. Which source a given turn draws
+    // is covered directly in the query-planning tests.
+    // Pinned exactly, including the cluster title the lane is corroborating. See the
+    // note on the sibling assertion: a loose site: match hid a dropped laneCount.
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
+      "site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch 1.13.00 " +
+        "Shader compilation stutter crash stutter freeze FPS",
+    );
     expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
   });
 
@@ -5667,6 +5753,61 @@ describe("Steam Pulse intake", () => {
     const { refreshClusterVisibility } = await importRunner();
 
     await refreshClusterVisibility("cluster-steam", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ is_public: true, direct_report_count: 1, public_signal_count: 0 });
+    expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "source_context_only" });
+  });
+
+  it("keeps a stored official-domain signal private as provider context", async () => {
+    // Rows stored BEFORE the pre-screen learned to route official domains to the
+    // observation lane. The publisher's page must resolve to context-only — never
+    // presented as a cluster's player evidence — even where it was already public.
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-official",
+          slug: "official-stutter",
+          title: "Official stutter",
+          category: "performance",
+          auto_public: false,
+          is_public: false,
+          visibility_revision: 0,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-official",
+          cluster_id: "cluster-official",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Stutter after patch 1.13.00",
+          moderation_status: "approved",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-official",
+          cluster_id: "cluster-official",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          canonical_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          source_domain: "crimsondesert.pearlabyss.com",
+          title: "Crimson Desert known issues after patch 1.13.00",
+          summary: "Crimson Desert stutters after patch 1.13.00.",
+          raw_text: "Official known issues notice.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-official", new Date("2026-07-05T12:00:00.000Z"));
 
     expect(tables.issue_clusters[0]).toMatchObject({ is_public: true, direct_report_count: 1, public_signal_count: 0 });
     expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "source_context_only" });

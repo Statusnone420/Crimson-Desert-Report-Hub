@@ -11,6 +11,7 @@
     "test:e2e": "playwright test",
     "test:e2e:update": "playwright test --update-snapshots",
     "test:e2e:n0": "playwright test --config=playwright.n0.config.ts",
+    "scan:bakeoff": "vitest run --config scripts/bakeoff/vitest.config.ts",
     "preview:seed": "node scripts/generate-preview-seed.mjs",
     "dev:preview": "node scripts/preview-dev.mjs",
     "db:start": "supabase start",
