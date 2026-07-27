@@ -1038,7 +1038,7 @@ async function prepareSignals(
       snippet: snippet.slice(0, 500),
       sourcePublishedAt: signal.sourcePublishedAt ?? null,
       observedAt: signal.observedAt,
-    }, seenObservationHashes);
+    }, seenObservationHashes, currentPatch.publishedAt);
   };
   // Recon uses Tavily's extract endpoint, so it must be gated on the SAME
   // configured-web-search signal as paid search in collectInputs. Without this,
@@ -2517,7 +2517,7 @@ async function executeAutomationRun(
       }
       // Observation lane persists after signals and never affects them: it is
       // best-effort by design and reports failures into the ledger only.
-      await persistObservations(supabase, prepared.observations, currentPatch.version, result);
+      await persistObservations(supabase, prepared.observations, currentPatch.version, result, currentPatch.publishedAt);
       if (steamCollection) {
         await persistSteamReviewCollection(
           supabase,

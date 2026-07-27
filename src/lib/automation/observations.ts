@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { domainTier } from "@/lib/automation/domains";
 import { hasCrimsonDesertContext, type ObservationKind } from "@/lib/automation/relevance";
+import { isDisplayableDatedObservation } from "@/lib/observationDisplay";
 
 /**
  * Observation lane: the typed shelf for patch-day context the evidence funnel
@@ -13,10 +14,10 @@ import { hasCrimsonDesertContext, type ObservationKind } from "@/lib/automation/
  *     set are ever stored (no second, parallel trust list);
  *   - caps: at most MAX_OBSERVATIONS_PER_RUN per run and
  *     MAX_OBSERVATIONS_PER_PATCH per patch version. The run cap is
- *     dated-priority: a candidate carrying a real publication date displaces
- *     the newest undated row when the shelf is full, because the Brief can
- *     only render dated observations and the dated wire results arrive last
- *     in a run;
+ *     dated-priority: a candidate carrying a displayable publication date
+ *     displaces the newest undated row when the shelf is full, because the
+ *     Brief can only render dated observations and the dated wire results
+ *     arrive last in a run;
  *   - no editorializing: title/snippet stored verbatim, displayed as-is;
  *   - hard separation: no cluster_id, no counts — an observation can never
  *     leak into evidence numbers.
@@ -154,9 +155,12 @@ function isRealCalendarDay(year: number, month: number, day: number): boolean {
  * rejects — and since the RPC receives the RAW string, trimming more than
  * the cast forgives would vouch for a value the cast then nulls.
  */
+/** ASCII blanks only — see the trim note on hasUsableDate. */
+const ASCII_EDGE_BLANKS = /^[ \t]+|[ \t]+$/g;
+
 function hasUsableDate(sourcePublishedAt: string | null): boolean {
   if (!sourcePublishedAt) return false;
-  const value = sourcePublishedAt.replace(/^[ \t]+|[ \t]+$/g, "");
+  const value = sourcePublishedAt.replace(ASCII_EDGE_BLANKS, "");
   if (!Number.isFinite(Date.parse(value))) return false;
   const iso = ISO_8601_DATE.exec(value);
   if (iso) {
@@ -167,6 +171,46 @@ function hasUsableDate(sourcePublishedAt: string | null): boolean {
   const rfc = RFC_1123_DATE.exec(value);
   if (!rfc) return false;
   return isRealCalendarDay(Number(rfc[3]), RFC_1123_MONTHS[rfc[2].toLowerCase()], Number(rfc[1]));
+}
+
+/**
+ * Priority additionally requires a date the Brief could actually show:
+ * surviving the ::timestamptz cast is not enough, because the display gate
+ * also rejects dates more than 48 hours ahead of the clock and dates before
+ * the patch era. A timestamp eight days in the future casts fine and renders
+ * never — letting it outrank an undated row wastes the swap, and letting it
+ * sit on the shelf LOOKING dated blocks the genuinely dated candidate that
+ * arrives later. So displacement and payload order both reuse the Brief's own
+ * date predicate, judged at the run's observedAt: deterministic (no wall
+ * clock in the lane), and monotone-safe, since the Brief re-checks skew with
+ * a strictly later clock, a date that clears it here can never fail it there.
+ * The era floor applies whenever the caller knows the patch's publish date
+ * and is skipped when it does not — matching the display gate, which also
+ * skips it for an unknown era. NOTE: omitting patchPublishedAt is a silent
+ * weakening, not an error — a caller that forgets to thread it lets pre-era
+ * rows regain priority, so pass it wherever the patch is known. The non-date
+ * render gates (moderation, kind, relevance) are unchanged and can still
+ * hide a prioritized row.
+ *
+ * Trimmed ONCE, up front, so both halves of the composite judge the
+ * identical string: V8's strict ISO parser rejects a trailing blank that the
+ * cast forgives, and trimming inside only one half would let the two
+ * disagree about the same value.
+ */
+function hasDisplayableDate(
+  observation: Pick<ObservationCandidate, "sourcePublishedAt" | "observedAt">,
+  patchPublishedAt: string | null,
+): boolean {
+  if (!observation.sourcePublishedAt) return false;
+  const sourcePublishedAt = observation.sourcePublishedAt.replace(ASCII_EDGE_BLANKS, "");
+  if (!hasUsableDate(sourcePublishedAt)) return false;
+  const observedAtMs = Date.parse(observation.observedAt);
+  if (!Number.isFinite(observedAtMs)) return false;
+  return isDisplayableDatedObservation(
+    { source_published_at: sourcePublishedAt },
+    patchPublishedAt,
+    observedAtMs,
+  );
 }
 
 /**
@@ -184,24 +228,26 @@ function hasUsableDate(sourcePublishedAt: string | null): boolean {
  * persistObservations separately orders dated rows ahead of the per-patch
  * cap's cutoff. Earlier rows keep first-wins seniority, undated
  * rows still fill the shelf freely when no dated candidate arrives, and total
- * supply never drops. "Dated" here means carries a publication date; the Brief
- * additionally requires the date to land inside the patch era, so a displacing
- * row is not guaranteed to render — but it can only ever take the place of a
- * row that never could. Reordering the inputs instead was rejected because
- * input order also drives recon-fetch precedence, LLM budget consumption, and
- * first-wins URL dedup.
+ * supply never drops. "Dated" here means hasDisplayableDate: a publication
+ * date the Brief's date gate would accept, not merely one persistence can
+ * parse — see that predicate for why both bounds matter. A displacing row can
+ * still be hidden by the non-date gates, but it can only ever take the place
+ * of a row whose date never clears. Reordering the inputs instead was
+ * rejected because input order also drives recon-fetch precedence, LLM budget
+ * consumption, and first-wins URL dedup.
  */
 export function appendUniqueObservation(
   observations: ObservationCandidate[],
   candidate: ObservationCandidate,
   seenConflictHashes: Set<string>,
+  patchPublishedAt: string | null = null,
 ): boolean {
   const conflictHash = observationConflictHash(candidate);
   if (seenConflictHashes.has(conflictHash)) return false;
   let displaceIndex = -1;
-  if (observations.length >= MAX_OBSERVATIONS_PER_RUN && hasUsableDate(candidate.sourcePublishedAt)) {
+  if (observations.length >= MAX_OBSERVATIONS_PER_RUN && hasDisplayableDate(candidate, patchPublishedAt)) {
     for (let index = observations.length - 1; index >= 0; index -= 1) {
-      if (!hasUsableDate(observations[index].sourcePublishedAt)) {
+      if (!hasDisplayableDate(observations[index], patchPublishedAt)) {
         displaceIndex = index;
         break;
       }
@@ -244,6 +290,7 @@ export async function persistObservations(
   observations: ObservationCandidate[],
   patchVersion: string,
   report: { errors: string[]; observationsKept: number },
+  patchPublishedAt: string | null = null,
 ): Promise<void> {
   if (observations.length === 0) return;
   try {
@@ -253,14 +300,15 @@ export async function persistObservations(
       if (!byHash.has(hash)) byHash.set(hash, observation);
     }
     // The RPC inserts in array order and stops minting new rows at the patch
-    // cap, so ordinal IS priority under scarcity. Dated rows go first: when a
-    // patch's shelf is nearly full, the remaining capacity must not be spent
-    // on rows the Brief can never render while a renderable one waits at the
-    // tail. Stable within each class — collection order still breaks ties.
+    // cap, so ordinal IS priority under scarcity. Displayably dated rows go
+    // first: when a patch's shelf is nearly full, the remaining capacity must
+    // not be spent on rows the Brief can never render while a renderable one
+    // waits at the tail. Stable within each class — collection order still
+    // breaks ties.
     const entries = [...byHash.entries()];
     const prioritized = [
-      ...entries.filter(([, observation]) => hasUsableDate(observation.sourcePublishedAt)),
-      ...entries.filter(([, observation]) => !hasUsableDate(observation.sourcePublishedAt)),
+      ...entries.filter(([, observation]) => hasDisplayableDate(observation, patchPublishedAt)),
+      ...entries.filter(([, observation]) => !hasDisplayableDate(observation, patchPublishedAt)),
     ];
     const rows = prioritized.map(([hash, observation]) => ({
       kind: observation.kind,

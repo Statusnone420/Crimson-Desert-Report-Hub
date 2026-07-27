@@ -406,7 +406,7 @@ describe("appendUniqueObservation", () => {
         candidate({
           url: "https://www.polygon.com/crimson-desert-wire-date/",
           sourceDomain: "polygon.com",
-          sourcePublishedAt: "Fri, 24 Jul 2026 00:00:00 GMT",
+          sourcePublishedAt: "Thu, 16 Jul 2026 09:00:00 GMT",
         }),
         seenConflictHashes,
       ),
@@ -435,7 +435,7 @@ describe("appendUniqueObservation", () => {
         candidate({
           url: "https://www.polygon.com/crimson-desert-js-only-zone/",
           sourceDomain: "polygon.com",
-          sourcePublishedAt: "Fri, 24 Jul 2026 00:00:00 GMT-0500",
+          sourcePublishedAt: "Thu, 16 Jul 2026 00:00:00 GMT-0500",
         }),
         seenConflictHashes,
       ),
@@ -449,13 +449,30 @@ describe("appendUniqueObservation", () => {
         candidate({
           url: "https://www.polygon.com/crimson-desert-padded-wire-date/",
           sourceDomain: "polygon.com",
-          sourcePublishedAt: "Fri, 24 Jul 2026 01:00:00 GMT ",
+          sourcePublishedAt: "Thu, 16 Jul 2026 01:00:00 GMT ",
         }),
         seenConflictHashes,
       ),
     ).toBe(true);
     expect(observations.map((row) => row.url)).toContain(
       "https://www.polygon.com/crimson-desert-padded-wire-date/",
+    );
+
+    // Padded ISO too: the composite trims once up front, so the strict ISO
+    // parser and the display gate judge the identical string.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-padded-iso-date/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "2026-07-16T02:00:00.000Z ",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(true);
+    expect(observations.map((row) => row.url)).toContain(
+      "https://www.polygon.com/crimson-desert-padded-iso-date/",
     );
   });
 
@@ -481,10 +498,10 @@ describe("appendUniqueObservation", () => {
 
     for (const sourcePublishedAt of [
       "02/30/2026",
-      "2026-07-24T00:00:00+16:00",
-      "2026-07-24 00:00:00 GMT-0500",
-      "Fri,\u00A024\u00A0Jul\u00A02026\u00A000:00:00\u00A0GMT",
-      "July 24, 2026",
+      "2026-07-16T00:00:00+16:00",
+      "2026-07-16 00:00:00 GMT-0500",
+      "Thu,\u00A016\u00A0Jul\u00A02026\u00A000:00:00\u00A0GMT",
+      "July 16, 2026",
     ]) {
       expect(
         appendUniqueObservation(
@@ -499,6 +516,99 @@ describe("appendUniqueObservation", () => {
       ).toBe(false);
     }
     expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
+  });
+
+  it("denies priority to a date the Brief could never show, in both directions", () => {
+    // A timestamp far in the future survives the ::timestamptz cast, but the
+    // display gate rejects anything more than 48 hours past the clock — so it
+    // must neither buy a swap nor sit on the shelf masquerading as dated.
+    // Judged at the run's observedAt (2026-07-16T12:00Z here): the Brief
+    // re-checks with a strictly later clock, so clearing skew at collection
+    // can never flip to failing it at render.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+      );
+    }
+
+    // Direction one: the future-dated candidate evicts nothing.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-future-date/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "2026-07-19T00:00:00.000Z",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+    expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
+
+    // Direction two: a future-dated incumbent does not block a real dated
+    // candidate — it reads as undated to the shelf scan and gives up its slot.
+    const futureShelf: ObservationCandidate[] = [];
+    const futureHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        futureShelf,
+        candidate({
+          url: `https://www.dsogaming.com/articles/future-${index}/`,
+          sourcePublishedAt: "2026-07-19T00:00:00.000Z",
+        }),
+        futureHashes,
+      );
+    }
+    expect(
+      appendUniqueObservation(
+        futureShelf,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-really-dated/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+        }),
+        futureHashes,
+      ),
+    ).toBe(true);
+    expect(futureShelf.map((row) => row.url)).toContain("https://www.polygon.com/crimson-desert-really-dated/");
+  });
+
+  it("applies the patch-era floor to priority when the era is known", () => {
+    // The display gate's other date bound: a row published before the patch
+    // era never renders in this patch's Brief, no matter how real its date.
+    // With the era supplied, it gets no priority; with the era unknown, the
+    // check is skipped — exactly like the display gate itself.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+        PATCH_OPTIONS.currentPatchPublishedAt,
+      );
+    }
+
+    const preEra = {
+      url: "https://www.polygon.com/crimson-desert-pre-era/",
+      sourceDomain: "polygon.com",
+      sourcePublishedAt: "2026-07-01T09:00:00.000Z",
+    };
+    expect(
+      appendUniqueObservation(observations, candidate(preEra), seenConflictHashes, PATCH_OPTIONS.currentPatchPublishedAt),
+    ).toBe(false);
+    expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
+
+    // Same candidate, era unknown: the floor cannot apply, so the date counts.
+    const unknownEraShelf = observations.map((row) => ({ ...row }));
+    const unknownEraHashes = new Set<string>();
+    for (const row of unknownEraShelf) unknownEraHashes.add(observationConflictHash(row));
+    expect(appendUniqueObservation(unknownEraShelf, candidate(preEra), unknownEraHashes)).toBe(true);
+    expect(unknownEraShelf.map((row) => row.url)).toContain("https://www.polygon.com/crimson-desert-pre-era/");
   });
 
   it("treats a malformed incumbent date as undated when selecting the displaced row", () => {
@@ -662,11 +772,18 @@ describe("persistObservations", () => {
           sourcePublishedAt: "2026-07-16T10:00:00.000Z",
         }),
         // The wire's real date format (RFC 1123) counts as dated here too —
-        // the same allowlist drives displacement and payload order.
+        // the same predicate drives displacement and payload order.
         candidate({
           url: "https://www.pcgamer.com/crimson-desert-wire-dated/",
           sourceDomain: "pcgamer.com",
-          sourcePublishedAt: "Fri, 24 Jul 2026 00:00:00 GMT",
+          sourcePublishedAt: "Thu, 16 Jul 2026 11:00:00 GMT",
+        }),
+        // Casts fine, renders never: a date past the skew window belongs in
+        // the unrenderable class, judged at the row's own observedAt.
+        candidate({
+          url: "https://www.eurogamer.net/crimson-desert-future-dated",
+          sourceDomain: "eurogamer.net",
+          sourcePublishedAt: "2026-07-19T00:00:00.000Z",
         }),
       ],
       "1.13.01",
@@ -680,6 +797,7 @@ describe("persistObservations", () => {
       "https://www.pcgamer.com/crimson-desert-wire-dated/",
       "https://www.dsogaming.com/articles/undated-first/",
       "https://www.dsogaming.com/articles/malformed-date/",
+      "https://www.eurogamer.net/crimson-desert-future-dated",
     ]);
   });
 
