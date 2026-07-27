@@ -344,6 +344,48 @@ describe("appendUniqueObservation", () => {
     expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
   });
 
+  it("rejects a calendar-invalid ISO date that JavaScript would roll over", () => {
+    // Date.parse accepts 2026-02-30 as March 2; the persistence RPC rejects it
+    // and stores NULL. A rolled-over date must not buy a swap.
+    const observations: ObservationCandidate[] = [];
+    const seenConflictHashes = new Set<string>();
+    for (let index = 0; index < MAX_OBSERVATIONS_PER_RUN; index += 1) {
+      appendUniqueObservation(
+        observations,
+        candidate({ url: `https://www.dsogaming.com/articles/undated-${index}/` }),
+        seenConflictHashes,
+      );
+    }
+
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-rollover-date/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "2026-02-30T00:00:00.000Z",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(false);
+    expect(observations.every((row) => row.url.includes("dsogaming"))).toBe(true);
+
+    // A real calendar date with a timezone offset is NOT collateral damage,
+    // even when its UTC day differs from the literal one.
+    expect(
+      appendUniqueObservation(
+        observations,
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-offset-date/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "2026-07-16T23:30:00-05:00",
+        }),
+        seenConflictHashes,
+      ),
+    ).toBe(true);
+    expect(observations.map((row) => row.url)).toContain("https://www.polygon.com/crimson-desert-offset-date/");
+  });
+
   it("treats a malformed incumbent date as undated when selecting the displaced row", () => {
     // Five malformed-dated rows can fill the shelf while it has space, and
     // persistence will null every one of those timestamps. A genuinely dated

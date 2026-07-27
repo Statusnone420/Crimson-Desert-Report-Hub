@@ -87,9 +87,27 @@ export function shouldCollectObservation(
  * unrenderable as one that never carried a date. Judging the candidate AND
  * the shelf with the same test keeps a run of malformed-dated rows from
  * masquerading as a dated shelf and blocking a genuinely dated result.
+ *
+ * Date.parse alone is not enough: JavaScript rolls a calendar-invalid ISO
+ * date over (2026-02-30 parses as March 2) where PostgreSQL rejects it, so
+ * for ISO-shaped strings the literal calendar components must also be real.
+ * Validated from the string, not a UTC round-trip, because a timestamp with
+ * a timezone offset can legitimately sit on a different UTC calendar day.
  */
 function hasUsableDate(sourcePublishedAt: string | null): boolean {
-  return sourcePublishedAt !== null && Number.isFinite(Date.parse(sourcePublishedAt));
+  if (!sourcePublishedAt) return false;
+  if (!Number.isFinite(Date.parse(sourcePublishedAt))) return false;
+  const isoPrefix = /^(\d{4})-(\d{2})-(\d{2})/.exec(sourcePublishedAt);
+  if (!isoPrefix) return true;
+  const year = Number(isoPrefix[1]);
+  const month = Number(isoPrefix[2]);
+  const day = Number(isoPrefix[3]);
+  const composed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    composed.getUTCFullYear() === year &&
+    composed.getUTCMonth() === month - 1 &&
+    composed.getUTCDate() === day
+  );
 }
 
 /**
