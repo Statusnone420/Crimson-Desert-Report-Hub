@@ -231,8 +231,14 @@ it("measures the live query pack against the real pre-screen", async () => {
   // run saw is re-judged as a reobservation — it counts. So dedup spans one
   // query, and cross-query overlap is REPORTED, never suppressed. The wire query
   // is the one run production never issues alone — the wire slot needs a budget
-  // of two — so its overlap with discovery lands in that reported count too.
+  // of two, and the run's general results land ahead of it in first-wins order.
+  // WHICH pack query shares its run rotates through the whole pack (gcd of the
+  // wire interval and pack length is 1), so no single pairing is real; instead
+  // the wire's overlap with ALL of discovery is reported as the upper bound on
+  // what any shared run could dedupe. The five-observation cap stays out of the
+  // harness entirely — see the collectedThisRun note in judge().
   const seenAcrossQueries = new Set<string>();
+  const discoverySeen = new Set<string>();
   let repeatsSkipped = 0;
   let crossQueryRepeats = 0;
   const lines: string[] = [];
@@ -278,6 +284,7 @@ it("measures the live query pack against the real pre-screen", async () => {
     const fresh: SearchResult[] = [];
     let repeats = 0;
     let unparseable = 0;
+    let wireDiscoveryOverlap = 0;
     for (const result of results) {
       let canonical: string;
       try {
@@ -300,6 +307,8 @@ it("measures the live query pack against the real pre-screen", async () => {
       // visible in the totals.
       if (seenAcrossQueries.has(canonical)) crossQueryRepeats += 1;
       seenAcrossQueries.add(canonical);
+      if (lane === "discovery") discoverySeen.add(canonical);
+      if (lane === "wire" && discoverySeen.has(canonical)) wireDiscoveryOverlap += 1;
       // Production pre-screens the canonical URL, not the raw one (run.ts), and
       // the pre-screen reads URL text — so hand judge() the same string.
       fresh.push({ ...result, url: canonical });
@@ -314,6 +323,12 @@ it("measures the live query pack against the real pre-screen", async () => {
     if (rows.length === 0 && repeats === 0 && unparseable === 0) emit("  (no results)");
     if (repeats > 0) {
       emit(`  (${repeats} repeat url${repeats === 1 ? "" : "s"} within this query skipped — production judges a url once per run)`);
+    }
+    if (lane === "wire" && rows.length > 0) {
+      emit(
+        `  (${wireDiscoveryOverlap} of ${rows.length} also returned by a discovery query — the upper bound on what a ` +
+          "shared run's first-wins dedup could discard against discovery results; which pack query shares the wire's run rotates)",
+      );
     }
     for (const row of rows) {
       emit(

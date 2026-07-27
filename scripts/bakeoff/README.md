@@ -70,6 +70,12 @@ reobserve such a page, so suppressing it would understate a query's yield. The
 report's `dedupe:` header line states these rules; never compare two reports whose
 headers differ.
 
+The wire query is the one run production never issues alone — the wire slot needs a
+budget of two, and the run's other results land ahead of it in first-wins order — so
+its report line states how many wire results discovery also returned: the upper bound
+on what a shared run could dedupe against discovery, since which query shares the
+wire's run rotates through the whole pack.
+
 `OBSERVATION:<kind>` is not a rejection. Patch notes and press coverage are not player
 bug reports, so the pre-screen routes them to the Brief's context lanes instead of the
 Issue Board. That routing is the design working.
