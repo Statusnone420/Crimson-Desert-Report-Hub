@@ -121,9 +121,9 @@ function hasUsableDate(sourcePublishedAt: string | null): boolean {
  * fill all five slots with undated rows a reader never sees, and the dated
  * results the wire credit was spent on were discarded at the door. When the
  * shelf is full, a dated candidate now takes the NEWEST undated row's place —
- * in place, keeping that row's position, because persistence inserts in array
- * order under the per-patch cap and appending would hand the dated row the
- * first ordinal to be dropped. Earlier rows keep first-wins seniority, undated
+ * in place, keeping the shelf deterministic for a given input order, while
+ * persistObservations separately orders dated rows ahead of the per-patch
+ * cap's cutoff. Earlier rows keep first-wins seniority, undated
  * rows still fill the shelf freely when no dated candidate arrives, and total
  * supply never drops. "Dated" here means carries a publication date; the Brief
  * additionally requires the date to land inside the patch era, so a displacing
@@ -193,7 +193,17 @@ export async function persistObservations(
       const hash = observationConflictHash(observation);
       if (!byHash.has(hash)) byHash.set(hash, observation);
     }
-    const rows = [...byHash.entries()].map(([hash, observation]) => ({
+    // The RPC inserts in array order and stops minting new rows at the patch
+    // cap, so ordinal IS priority under scarcity. Dated rows go first: when a
+    // patch's shelf is nearly full, the remaining capacity must not be spent
+    // on rows the Brief can never render while a renderable one waits at the
+    // tail. Stable within each class — collection order still breaks ties.
+    const entries = [...byHash.entries()];
+    const prioritized = [
+      ...entries.filter(([, observation]) => hasUsableDate(observation.sourcePublishedAt)),
+      ...entries.filter(([, observation]) => !hasUsableDate(observation.sourcePublishedAt)),
+    ];
+    const rows = prioritized.map(([hash, observation]) => ({
       kind: observation.kind,
       title: observation.title.slice(0, 240),
       url: observation.url,

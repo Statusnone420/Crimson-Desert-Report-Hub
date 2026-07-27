@@ -520,6 +520,46 @@ describe("persistObservations", () => {
     ]);
   });
 
+  it("orders dated rows ahead of the patch cap's cutoff", async () => {
+    // The RPC inserts in array order and stops minting new rows at the patch
+    // cap, so ordinal is priority under scarcity: a renderable dated row must
+    // never wait at the tail behind rows the Brief can never show. Collection
+    // order still breaks ties within each class, and a malformed date counts
+    // as undated — persistence will null it.
+    const rpcCalls: RpcCall[] = [];
+    const report = { errors: [] as string[], observationsKept: 0 };
+    await persistObservations(
+      stubClient({ rpcCalls, rpcResult: { data: 4, error: null } }),
+      [
+        candidate({ url: "https://www.dsogaming.com/articles/undated-first/" }),
+        candidate({
+          url: "https://www.polygon.com/crimson-desert-dated-late/",
+          sourceDomain: "polygon.com",
+          sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+        }),
+        candidate({
+          url: "https://www.dsogaming.com/articles/malformed-date/",
+          sourcePublishedAt: "yesterday-ish",
+        }),
+        candidate({
+          url: "https://www.pushsquare.com/news/crimson-desert-dated-last",
+          sourceDomain: "pushsquare.com",
+          sourcePublishedAt: "2026-07-16T10:00:00.000Z",
+        }),
+      ],
+      "1.13.01",
+      report,
+    );
+
+    expect(report.errors).toEqual([]);
+    expect((rpcCalls[0].params.p_observations as { url: string }[]).map((row) => row.url)).toEqual([
+      "https://www.polygon.com/crimson-desert-dated-late/",
+      "https://www.pushsquare.com/news/crimson-desert-dated-last",
+      "https://www.dsogaming.com/articles/undated-first/",
+      "https://www.dsogaming.com/articles/malformed-date/",
+    ]);
+  });
+
   it("sends the latest fields needed to re-observe an existing row", async () => {
     const day21 = candidate({
       kind: "community_ask",
