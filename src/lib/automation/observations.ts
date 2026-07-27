@@ -143,10 +143,12 @@ function isRealCalendarDay(year: number, month: number, day: number): boolean {
  * JavaScript is the stricter side).
  *
  * Anything else returns false, which is the safe direction: an unrecognized
- * format merely loses PRIORITY. The raw string still travels to the RPC,
- * which may well store it ("July 24, 2026" casts fine) — the row keeps its
- * date, it just never displaces another row on the strength of one this
- * module cannot vouch for. (Incidentally that includes years below 100:
+ * format loses priority, and — because the RPC's coalesce now trusts every
+ * non-null incoming date to be renderable — persistObservations sends it as
+ * NULL rather than letting a date this module cannot vouch for replace or
+ * occupy stored state. The observation itself still persists; a later
+ * sighting in a vouched format fills the date in. (Incidentally the
+ * allowlist also rejects years below 100:
  * Date.UTC maps them to 1900+, so isRealCalendarDay rejects them — not
  * designed, but the safe direction, and no real source dates from 99 AD.)
  *
@@ -371,6 +373,13 @@ export async function persistObservations(
       ...entries.filter(([, observation]) => hasDisplayableDate(observation, patchPublishedAt)),
       ...entries.filter(([, observation]) => !hasDisplayableDate(observation, patchPublishedAt)),
     ];
+    // The payload date contract the RPC's coalesce relies on: non-null means
+    // "the Brief can render this". The update branch prefers the incoming
+    // date, so every non-null value must be a step toward renderability — a
+    // displayable date heals a bad stored one, an undisplayable sighting
+    // arrives as NULL and preserves whatever is stored (and, for a new row,
+    // stores NULL that a later displayable sighting can fill, instead of a
+    // junk date the old backfill could never touch).
     const rows = prioritized.map(([hash, observation]) => ({
       kind: observation.kind,
       title: observation.title.slice(0, 240),
@@ -378,7 +387,9 @@ export async function persistObservations(
       url_hash: hash,
       source_domain: observation.sourceDomain,
       snippet: observation.snippet.slice(0, 500),
-      source_published_at: observation.sourcePublishedAt,
+      source_published_at: hasDisplayableDate(observation, patchPublishedAt)
+        ? observation.sourcePublishedAt
+        : null,
       observed_at: observation.observedAt,
     }));
 

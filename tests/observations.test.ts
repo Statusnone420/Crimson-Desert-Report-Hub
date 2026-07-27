@@ -917,13 +917,26 @@ describe("persistObservations", () => {
     );
 
     expect(report.errors).toEqual([]);
-    expect((rpcCalls[0].params.p_observations as { url: string }[]).map((row) => row.url)).toEqual([
+    const payload = rpcCalls[0].params.p_observations as { url: string; source_published_at: string | null }[];
+    expect(payload.map((row) => row.url)).toEqual([
       "https://www.polygon.com/crimson-desert-dated-late/",
       "https://www.pushsquare.com/news/crimson-desert-dated-last",
       "https://www.pcgamer.com/crimson-desert-wire-dated/",
       "https://www.dsogaming.com/articles/undated-first/",
       "https://www.dsogaming.com/articles/malformed-date/",
       "https://www.eurogamer.net/crimson-desert-future-dated",
+    ]);
+    // The payload date contract: non-null means the Brief can render it. The
+    // RPC's coalesce prefers the incoming date, so a malformed or future
+    // date must arrive as NULL — never as a raw string that could replace or
+    // squat on stored state.
+    expect(payload.map((row) => row.source_published_at)).toEqual([
+      "2026-07-16T09:00:00.000Z",
+      "2026-07-16T10:00:00.000Z",
+      "Thu, 16 Jul 2026 11:00:00 GMT",
+      null,
+      null,
+      null,
     ]);
   });
 
