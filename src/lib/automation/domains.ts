@@ -79,10 +79,15 @@ export function isOfficialDomain(hostname: string | null): boolean {
 /**
  * The single provider-context boundary: the platform's own reviews and the
  * publisher's own pages are context about the game, never player evidence.
- * Every surface that excludes provider context — promotion, presentation,
- * radar aggregates — asks this one predicate, so the definition cannot fork
- * the way parallel pattern lists once did (that drift is how real complaints
- * leaked one symptom at a time).
+ * The promotion engine, the clustering no-create guard, the public evidence
+ * filters, and the radar's tracked-lead filter all ask this one predicate, so
+ * the definition cannot fork the way parallel pattern lists once did (that
+ * drift is how real complaints leaked one symptom at a time). Callers pass
+ * what their row carries: a row missing sourceType is judged on source alone,
+ * and a domain that clears the check still falls through to the url, so a
+ * nullable or mis-stamped domain column can never slip an official page past
+ * the boundary. An unparseable url is not provider context — it is nothing,
+ * and other gates drop it.
  */
 export function isProviderContextSource(input: {
   source?: string | null;
@@ -91,7 +96,7 @@ export function isProviderContextSource(input: {
   url?: string | null;
 }): boolean {
   if (input.source === "steam_review" || input.sourceType === "steam_review") return true;
-  if (input.domain) return isOfficialDomain(input.domain);
+  if (input.domain && isOfficialDomain(input.domain)) return true;
   if (!input.url) return false;
   try {
     return isOfficialDomain(new URL(input.url).hostname);

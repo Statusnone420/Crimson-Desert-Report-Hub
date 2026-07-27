@@ -424,8 +424,14 @@ function isContextOnlySignal(row: SourceSignalRow): boolean {
   // pre-screen learned to route official domains to the observation lane — they
   // resolve to private with reason source_context_only instead of ever being
   // presented as a cluster's evidence. One shared predicate holds the boundary
-  // here and in the radar's tracked-lead filter, so the definitions cannot fork.
-  return isProviderContextSource({ source: row.source, domain: signalDomain(row) });
+  // here and in the radar's tracked-lead filter, so the definitions cannot
+  // fork, and the url rides along so a mis-stamped domain column cannot slip
+  // an official page past the guard that decides public display.
+  return isProviderContextSource({
+    source: row.source,
+    domain: signalDomain(row),
+    url: row.canonical_url ?? row.source_url,
+  });
 }
 
 function stalePromotionReason(reason: CurrentPatchEligibilityReason | "source_not_issue_report" | "off_topic"): string {
@@ -1579,18 +1585,6 @@ async function createCluster(supabase: ReturnType<typeof createServiceClient>, s
   return id;
 }
 
-// The domain column is nullable, so the boundary also reads the canonical url —
-// a candidate carrying an official url with no stored domain must not slip the
-// no-create guard.
-function isOfficialSignal(signal: Pick<PreparedSignal, "sourceDomain" | "canonicalUrl">): boolean {
-  if (isOfficialDomain(signal.sourceDomain)) return true;
-  try {
-    return isOfficialDomain(new URL(signal.canonicalUrl).hostname);
-  } catch {
-    return false;
-  }
-}
-
 async function resolveClusterId(
   supabase: ReturnType<typeof createServiceClient>,
   signal: PreparedSignal,
@@ -1612,14 +1606,15 @@ async function resolveClusterId(
     routableClusters,
   );
   const reportCluster = matchingReportCluster(signal, reports);
-  if (signal.source === "steam_review" || isOfficialSignal(signal)) {
+  if (isProviderContextSource({ source: signal.source, domain: signal.sourceDomain, url: signal.canonicalUrl })) {
     // Steam reviews and the publisher's own pages are private provider context,
     // never player evidence. Either may support a cluster whose public-safe
     // metadata already exists, but neither may create durable titles or
     // descriptions from provider content. The guard lives HERE because an
     // operator rescue deliberately skips the pre-screen — marking an official
     // rejection Relevant stores the signal, and it must still never mint a
-    // cluster.
+    // cluster. The canonical url rides along because the domain column is
+    // nullable, and a candidate stored without one must not slip the guard.
     const clusterId = existingSignalCluster ?? routedCluster?.id ?? reportCluster;
     if (clusterId) clusterBySemantic.set(signal.semantic, clusterId);
     return clusterId ?? null;
