@@ -480,6 +480,25 @@ describe("countCurrentPatchCandidateSignalsByCluster", () => {
     expect(counts).toEqual({});
   });
 
+  it("excludes official publisher pages from radar candidate counts", () => {
+    const counts = countCurrentPatchCandidateSignalsByCluster(
+      [
+        {
+          cluster_id: "official-context-only",
+          title: "Crimson Desert – Known Issues after patch 1.13.01",
+          summary: "The game crashes when riding a bear. Quest cannot progress.",
+          source_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          source_published_at: "2026-07-09T00:00:00Z",
+          source: "web_search",
+          source_type: "web_search",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(counts).toEqual({});
+  });
+
   it("paginates every private candidate before aggregating counts", async () => {
     const firstPage = Array.from({ length: 1000 }, (_, index) => ({
       id: `candidate-${index}`,
@@ -705,6 +724,17 @@ describe("filterPublicCurrentPatchSignals", () => {
           source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
           title: "Crimson Desert player issue on Steam",
           summary: "Players report stutter after patch 1.13.01.",
+        },
+        {
+          // A stored official row keeps public_status until its cluster's next
+          // visibility refresh — this filter is what keeps it off the public
+          // evidence cards in the meantime. Provider context, never evidence.
+          ...base,
+          id: "official-provider-context",
+          source: "web_search",
+          source_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          title: "Crimson Desert – Known Issues after patch 1.13.01",
+          summary: "The game crashes when riding a bear. Quest cannot progress.",
         },
       ],
       { version: "1.13.01", publishedAt: "2026-07-22T09:00:00.000Z" },

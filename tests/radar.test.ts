@@ -147,6 +147,37 @@ describe("composePatchRadarData buckets and recurrence", () => {
     expect(data.recurrence).toHaveLength(1);
   });
 
+  it("excludes official publisher pages from every public radar aggregate", () => {
+    // Provider context is never player evidence: a stored official-domain row
+    // (possible before the pre-screen learned to route official domains to the
+    // observation lane) must not count as a tracked lead any more than a Steam
+    // review does. The radar row carries no domain, so the boundary resolves
+    // from the stored url.
+    const data = compose({
+      signals: [
+        signal(),
+        signal({
+          cluster_id: "official-context-only",
+          source_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          title: "SENTINEL_TITLE Crimson Desert patch 1.14.00 known issues crashes",
+          summary: "SENTINEL_SUMMARY official notice: the game crashes after patch 1.14.00",
+          category: "crash_startup",
+          confidence: "high",
+          seen_count: 9,
+          source_published_at: "2026-07-18T10:00:00Z",
+          extracted_facts: { platform: "ps5" },
+        }),
+      ],
+    });
+
+    expect(data.recurring).toEqual({ recurringLeads: 0, trackedLeads: 1, maxSeenCount: 1 });
+    expect(data.activeLeadClusters).toBe(1);
+    expect(data.categories).toEqual([{ category: "performance", tracked: 1, new7d: 1 }]);
+    expect(data.platforms).toEqual([{ platform: "pc_steam", tracked: 1 }]);
+    expect(data.confidenceMix).toEqual({ high: 0, medium: 1, low: 0 });
+    expect(data.dateCoverage).toEqual({ withSourceDate: 0, tracked: 1 });
+  });
+
   it("excludes hidden signals from every tracked-lead aggregate", () => {
     const data = compose({
       signals: [signal(), signal({ public_status: "hidden", seen_count: 18 })],
