@@ -214,6 +214,56 @@ export function readOpenRouterUsageCostUsd(data: unknown): number | null {
   );
 }
 
+export type OpenRouterKeyBudget = {
+  limitUsd: number | null;
+  limitRemainingUsd: number | null;
+  limitReset: "daily" | "weekly" | "monthly" | null;
+  usageMonthlyUsd: number;
+};
+
+type OpenRouterKeyBudgetFetcher = (
+  url: string,
+  init: { method: "GET"; headers: Record<string, string> },
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
+const OPENROUTER_CURRENT_KEY_URL = "https://openrouter.ai/api/v1/key";
+
+/**
+ * Read OpenRouter's aggregate, provider-enforced key budget. This is the
+ * no-write authority for preview diagnostics: an application-local allowance
+ * cannot safely coordinate concurrent serverless requests.
+ */
+export async function readOpenRouterKeyBudget(
+  apiKey: string,
+  fetcher: OpenRouterKeyBudgetFetcher = fetch as unknown as OpenRouterKeyBudgetFetcher,
+): Promise<OpenRouterKeyBudget | null> {
+  try {
+    const response = await fetcher(OPENROUTER_CURRENT_KEY_URL, {
+      method: "GET",
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    const data = body && typeof body === "object" ? (body as { data?: unknown }).data : null;
+    if (!data || typeof data !== "object") return null;
+
+    const rawLimit = (data as { limit?: unknown }).limit;
+    const rawRemaining = (data as { limit_remaining?: unknown }).limit_remaining;
+    const rawReset = (data as { limit_reset?: unknown }).limit_reset;
+    const limitUsd = rawLimit === null ? null : nonnegativeNumber(rawLimit);
+    const limitRemainingUsd = rawRemaining === null ? null : nonnegativeNumber(rawRemaining);
+    const usageMonthlyUsd = nonnegativeNumber((data as { usage_monthly?: unknown }).usage_monthly);
+    const limitReset =
+      rawReset === "daily" || rawReset === "weekly" || rawReset === "monthly" || rawReset === null ? rawReset : undefined;
+    if (limitUsd === null && rawLimit !== null) return null;
+    if (limitRemainingUsd === null && rawRemaining !== null) return null;
+    if (usageMonthlyUsd === null || limitReset === undefined) return null;
+    return { limitUsd, limitRemainingUsd, limitReset, usageMonthlyUsd };
+  } catch {
+    return null;
+  }
+}
+
 export type OpenRouterGenerationFetcher = (
   url: string,
   init: {

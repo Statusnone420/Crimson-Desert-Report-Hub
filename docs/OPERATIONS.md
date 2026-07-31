@@ -85,7 +85,7 @@ curl -H "Authorization: Bearer <CRON_SECRET>" \
 
 It is bounded and deterministic, and it does not write public data or the persisted scan ledger.
 
-When a paid model or its provider routing changes, authenticate on the Vercel preview and use **Test AI provider route** on `/scanner`. That preview-only check sends synthetic text through the configured model with one LLM call and a `$0.005` ceiling. It does not use Tavily or the database, it treats deterministic fallback as failure, and its endpoint cannot call the provider outside Vercel preview.
+When a paid model or its provider routing changes, authenticate on the Vercel preview and use **Test AI provider route** on `/scanner`. That preview-only check sends synthetic text through the configured model with one LLM call and a `$0.005` ceiling. Before generation, it requires OpenRouter to report a provider-enforced monthly key limit no greater than the app's `$2` LLM cap and enough aggregate budget for the request ceiling. It does not use Tavily or the database, it treats deterministic fallback or unverifiable provider budgeting as failure, and its endpoint cannot call the provider outside Vercel preview. The displayed call cost comes from OpenRouter's usage or generation record; OpenRouter Activity remains the authoritative account ledger.
 
 Preview requests are capped at two Tavily search queries and are intended for occasional connectivity checks, not repeated quota-free probes.
 

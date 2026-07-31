@@ -32,6 +32,16 @@ type ProviderSmokeResult = {
   fallbackReason?: string;
 };
 
+function providerSmokeErrorMessage(result: ProviderSmokeResult): string {
+  if (result.error === "provider_smoke_budget_unverified") {
+    return "OpenRouter must enforce a monthly key limit of $2 or less before this check can run.";
+  }
+  if (result.error === "provider_smoke_budget_exhausted") {
+    return "The OpenRouter key has less than one safe request ceiling left this month.";
+  }
+  return `AI route check failed: ${result.fallbackReason ?? result.error ?? "unknown error"}.`;
+}
+
 const STAGE_LABELS: Record<string, string> = {
   starting: "Warming up",
   searching: "Searching public sources",
@@ -150,7 +160,7 @@ export function ScanControls({ activeRunId, isPreview }: { activeRunId: string |
       const res = await fetch("/api/admin/scan/provider-smoke", { method: "POST" });
       const data = (await res.json()) as ProviderSmokeResult;
       setSmokeResult(data);
-      if (!res.ok || !data.ok) setError(`AI route check failed: ${data.fallbackReason ?? data.error ?? "unknown error"}.`);
+      if (!res.ok || !data.ok) setError(providerSmokeErrorMessage(data));
     } catch {
       setError("Could not reach the AI route check. Try again.");
     } finally {

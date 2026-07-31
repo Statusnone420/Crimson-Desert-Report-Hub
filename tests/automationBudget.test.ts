@@ -10,6 +10,7 @@ import {
   OPENROUTER_AUTOMATION_MODEL,
   OPENROUTER_DEEPSEEK_ROLLBACK_MODEL,
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
+  readOpenRouterKeyBudget,
   resolveAutomationOpenRouterModel,
 } from "@/lib/automation/budget";
 
@@ -252,6 +253,43 @@ describe("automation budget", () => {
         OPENROUTER_DEEPSEEK_ROLLBACK_MODEL,
       ),
     ).toBeCloseTo(0.001024);
+  });
+
+  describe("OpenRouter key budget", () => {
+    it("reads the provider-enforced monthly limit and actual key usage", async () => {
+      const budget = await readOpenRouterKeyBudget("test-key", async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            limit: 2,
+            limit_remaining: 1.75,
+            limit_reset: "monthly",
+            usage_monthly: 0.25,
+          },
+        }),
+      }));
+
+      expect(budget).toEqual({
+        limitUsd: 2,
+        limitRemainingUsd: 1.75,
+        limitReset: "monthly",
+        usageMonthlyUsd: 0.25,
+      });
+    });
+
+    it("fails closed when OpenRouter does not return a usable key budget", async () => {
+      await expect(
+        readOpenRouterKeyBudget("test-key", async () => ({ ok: false, status: 503, json: async () => ({}) })),
+      ).resolves.toBeNull();
+      await expect(
+        readOpenRouterKeyBudget("test-key", async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { limit: "unknown" } }),
+        })),
+      ).resolves.toBeNull();
+    });
   });
 
   describe("routing refusals", () => {

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/adminGuard";
-import { automationModelSettings, resolveAutomationOpenRouterModel } from "@/lib/automation/budget";
+import {
+  automationModelSettings,
+  MAX_MONTHLY_LLM_USD_CAP,
+  readOpenRouterKeyBudget,
+  resolveAutomationOpenRouterModel,
+} from "@/lib/automation/budget";
 import { extractSignalWithOpenRouter } from "@/lib/automation/extract";
 import { isVercelPreview } from "@/lib/previewGuard";
 
@@ -19,12 +24,28 @@ export async function POST() {
 
   let model: string;
   let providerRoute: string;
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   try {
+    if (!apiKey) throw new Error("missing OpenRouter key");
     model = resolveAutomationOpenRouterModel(process.env.OPENROUTER_AUTOMATION_MODEL);
     const routing = automationModelSettings(model).provider;
     providerRoute = routing.only?.[0] ?? (routing.zdr ? "OpenRouter ZDR pool" : "OpenRouter provider pool");
   } catch {
     return NextResponse.json({ ok: false, error: "provider_smoke_config_invalid" }, { status: 500 });
+  }
+
+  const keyBudget = await readOpenRouterKeyBudget(apiKey);
+  if (
+    !keyBudget ||
+    keyBudget.limitUsd === null ||
+    keyBudget.limitRemainingUsd === null ||
+    keyBudget.limitReset !== "monthly" ||
+    keyBudget.limitUsd > MAX_MONTHLY_LLM_USD_CAP
+  ) {
+    return NextResponse.json({ ok: false, error: "provider_smoke_budget_unverified" }, { status: 503 });
+  }
+  if (keyBudget.limitRemainingUsd < PROVIDER_SMOKE_MAX_COST_USD) {
+    return NextResponse.json({ ok: false, error: "provider_smoke_budget_exhausted" }, { status: 429 });
   }
 
   try {
