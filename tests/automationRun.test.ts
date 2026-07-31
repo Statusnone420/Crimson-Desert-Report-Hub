@@ -131,6 +131,7 @@ let issueClusterInsertRace: { slug: string; row: Row } | null = null;
 let sourceSignalInsertFailure: { title?: string; externalHash?: string; message: string } | null = null;
 let observationEventInsertFailure: string | null = null;
 let honorSourceSignalProjection = false;
+let honorIssueClusterProjection = false;
 /**
  * Stands in for the hosted PostgREST row cap: the API can return fewer rows
  * than the requested limit, so a reader that stops on a short page silently
@@ -166,6 +167,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   sourceSignalInsertFailure = null;
   observationEventInsertFailure = null;
   honorSourceSignalProjection = false;
+  honorIssueClusterProjection = false;
   hostedRowCap = null;
 }
 
@@ -441,7 +443,11 @@ class FakeQuery {
       };
     }
     let rows = this.filteredRows().map((row) => ({ ...row }));
-    if (this.table === "source_signals" && honorSourceSignalProjection && this.selectedColumns) {
+    if (
+      this.selectedColumns &&
+      ((this.table === "source_signals" && honorSourceSignalProjection) ||
+        (this.table === "issue_clusters" && honorIssueClusterProjection))
+    ) {
       const selected = this.selectedColumns.split(",").map((column) => column.trim());
       rows = rows.map((row) => Object.fromEntries(selected.map((column) => [column, row[column]])));
     }
@@ -678,6 +684,7 @@ describe("runAutomationMonitor", () => {
       description: `Auto description ${index}.`,
       last_signal_at: `2026-07-${String(25 - index).padStart(2, "0")}T12:00:00.000Z`,
       created_at: "2026-07-01T00:00:00.000Z",
+      admin_visibility_override: index === 0 ? "force_hidden" : null,
     }));
 
     const options = selectSemanticClusterOptions([...named, ...auto]);
@@ -693,9 +700,9 @@ describe("runAutomationMonitor", () => {
     ]);
     expect(namedOptions.at(-1)?.slug).toBe("watch-created-newer");
     expect(namedOptions.map((option) => option.slug)).not.toContain("watch-oldest");
-    expect(autoOptions.map((option) => option.slug)).not.toContain("auto-semantic-24");
+    expect(autoOptions.map((option) => option.slug)).not.toContain("auto-semantic-00");
     expect(options[0]).toMatchObject({ slug: "watch-recent", description: "Recent named context." });
-    expect(autoOptions[0]).toMatchObject({ slug: "auto-semantic-00", description: "Auto description 0." });
+    expect(autoOptions[0]).toMatchObject({ slug: "auto-semantic-01", description: "Auto description 1." });
   });
 
   it("immediately restores automatic cluster and signal visibility after force-hidden is cleared", async () => {
@@ -4748,6 +4755,81 @@ describe("runAutomationMonitor", () => {
     );
     expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-z-performance" });
     expect(tables.issue_clusters).toHaveLength(2);
+  });
+
+  it("keeps force-hidden merged auto-clusters out of semantic rescue routing", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-active-xbox",
+          slug: "auto-3504f3a93c0b",
+          title: "Xbox graphics glitches",
+          category: "graphics_visual",
+          description: "Active aggregate for Xbox graphics reports.",
+          last_signal_at: "2026-07-30T12:00:00.000Z",
+          created_at: "2026-07-20T12:00:00.000Z",
+          admin_visibility_override: null,
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+        {
+          id: "cluster-retired-xbox",
+          slug: "auto-b7e557a13e9d",
+          title: "Xbox graphics glitch duplicate",
+          category: "graphics_visual",
+          description: "Merged duplicate that must never receive new signals.",
+          last_signal_at: "2026-07-31T12:00:00.000Z",
+          created_at: "2026-07-21T12:00:00.000Z",
+          admin_visibility_override: "force_hidden",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 1,
+        },
+      ],
+    });
+    honorIssueClusterProjection = true;
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Xbox texture corruption",
+      category: "graphics_visual",
+      platform: "xbox_series",
+      confidence: "high",
+      summary: "Xbox players report corrupted textures after the current patch.",
+      clusterAssignment: "sure",
+      clusterReason: "The report appears to match the retired duplicate.",
+      clusterSlug: "auto-b7e557a13e9d",
+      extractionProvider: "openrouter",
+      extractionModel: "openai/gpt-5.6-luna",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Xbox texture corruption after patch",
+        url: "https://reddit.com/r/CrimsonDesert/comments/xbox/texture-corruption/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-31T11:00:00.000Z",
+        snippet: "Xbox players report corrupted textures after the current patch.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        clusterOptions: expect.not.arrayContaining([
+          expect.objectContaining({ slug: "auto-b7e557a13e9d" }),
+        ]),
+      }),
+    );
+    expect(sourceSignalRows()[0]?.cluster_id).not.toBe("cluster-retired-xbox");
   });
 
   it("rescues deterministically without spending when the monthly LLM budget is exhausted", async () => {

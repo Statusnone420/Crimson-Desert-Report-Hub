@@ -1517,6 +1517,7 @@ export type SemanticClusterCandidate = {
   description?: string | null;
   last_signal_at?: string | null;
   created_at?: string | null;
+  admin_visibility_override?: "force_public" | "force_hidden" | null;
 };
 
 type RoutableClusterRow = SemanticClusterCandidate;
@@ -1524,10 +1525,15 @@ type RoutableClusterRow = SemanticClusterCandidate;
 export const MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS = 24;
 export const MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS = 24;
 const ROUTABLE_CLUSTER_PAGE_SIZE = 1000;
-const ROUTABLE_CLUSTER_COLUMNS = "id, slug, title, category, description, last_signal_at, created_at";
+const ROUTABLE_CLUSTER_COLUMNS =
+  "id, slug, title, category, description, last_signal_at, created_at, admin_visibility_override";
 
 function isAutoCluster(cluster: RoutableClusterRow): boolean {
   return cluster.slug.startsWith("auto-");
+}
+
+function isActiveAutoCluster(cluster: RoutableClusterRow): boolean {
+  return isAutoCluster(cluster) && cluster.admin_visibility_override !== "force_hidden";
 }
 
 function isRoutableClusterRow(value: unknown): value is RoutableClusterRow {
@@ -1553,7 +1559,7 @@ export function selectSemanticClusterOptions(clusters: SemanticClusterCandidate[
   const select = (predicate: (cluster: RoutableClusterRow) => boolean, limit: number) =>
     clusters.filter(predicate).sort(compareSemanticClusterRecency).slice(0, limit);
   const named = select((cluster) => !isAutoCluster(cluster), MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS);
-  const auto = select(isAutoCluster, MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS);
+  const auto = select(isActiveAutoCluster, MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS);
   return [...named, ...auto].map((cluster) => ({
     slug: cluster.slug,
     title: cluster.title,
@@ -1609,7 +1615,7 @@ async function loadClusterRoutingState(
     keywordClusters,
     semanticRoutingClusters: [
       ...keywordClusters,
-      ...allClusters.filter((cluster) => isAutoCluster(cluster) && selectedAutoSlugs.has(cluster.slug)),
+      ...allClusters.filter((cluster) => isActiveAutoCluster(cluster) && selectedAutoSlugs.has(cluster.slug)),
     ],
     semanticOptions,
   };
