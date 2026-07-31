@@ -596,8 +596,9 @@ function countGpus(rows: DashboardReportRow[]): Record<string, number> {
 /**
  * Which clock a lane item is showing, carried in the data rather than inferred
  * at render time. `published` is the source's own publication date.
- * `first_seen_by_radar` is the row's immutable `created_at` — when the scanner
- * first saw the thread — and is never described as a publication date anywhere
+ * `first_seen_by_radar` is the row's URL-bound `created_at` — when the scanner
+ * first saw the current thread. A serialized campaign rebinds it when its row
+ * advances to a new URL. It is never described as a publication date anywhere
  * it surfaces.
  */
 export type PublicObservationTimestamp =
@@ -681,10 +682,11 @@ function byNewestTimestamp(left: PublicObservation, right: PublicObservation): n
  * Community Asks are player threads, and the search provider almost never dates
  * them. Requiring a publication date emptied the lane of real, live campaigns.
  * An undated ask therefore renders on its first-discovery time instead — the
- * row's immutable `created_at`, labelled as such, never copied into
- * `source_published_at` and never called published. It may only do so inside the
- * current patch's era, and not at all when the patch publication time is
- * unknown (fail closed).
+ * current URL's `created_at`, labelled as such, never copied into
+ * `source_published_at` and never called published. Serialized campaign rows
+ * rebind that clock when their representative URL changes. It may only do so
+ * inside the current patch's era, and not at all when the patch publication
+ * time is unknown (fail closed).
  */
 export function splitPublicObservationLanes(
   rows: PatchObservationRow[],

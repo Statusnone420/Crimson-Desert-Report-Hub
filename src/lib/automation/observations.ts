@@ -284,6 +284,11 @@ export function appendUniqueObservation(
 
 type ObservationClient = Pick<SupabaseClient, "rpc">;
 
+export type StoredObservationDate = {
+  url: string;
+  sourcePublishedAt: string | null;
+};
+
 /**
  * Best-effort persistence: the observation lane must never fail a scan run or
  * block signal persistence. Errors are reported into the run ledger only.
@@ -297,7 +302,7 @@ export async function persistObservations(
   patchVersion: string,
   report: { errors: string[]; observationsKept: number },
   patchPublishedAt: string | null = null,
-  storedDatesByUrlHash: ReadonlyMap<string, string | null> = new Map(),
+  storedDatesByUrlHash: ReadonlyMap<string, StoredObservationDate> = new Map(),
 ): Promise<void> {
   if (observations.length === 0) return;
   try {
@@ -321,28 +326,32 @@ export async function persistObservations(
     // "the Brief can render this". For rows carrying the date_contract
     // marker, the update branch prefers the incoming date, so every non-null
     // value must be a step toward renderability — a displayable date heals a
-    // bad stored one, an undisplayable sighting arrives as NULL and
-    // preserves whatever is stored (and, for a new row, stores NULL that a
-    // later displayable sighting can fill, instead of a junk date the old
-    // backfill could never touch). Certification requires the era floor to
-    // have actually run — see hasCertifiedDisplayableDate — so a run with
-    // unknown patch metadata withholds every date rather than vouch for one
-    // the floor never judged. The marker is the in-band version gate:
+    // bad stored one. An undisplayable same-page sighting arrives as NULL and
+    // preserves that page's stored date; a campaign rollover to a different
+    // URL clears the prior page's date in the RPC. A new row stores NULL so a
+    // later displayable sighting can fill it instead of retaining junk the old
+    // backfill could never touch. Certification requires the era floor to have
+    // actually run — see hasCertifiedDisplayableDate — so a run with unknown
+    // patch metadata withholds every date rather than vouch for one the floor
+    // never judged. The marker is the in-band version gate:
     // payloads without it — an in-flight or rolled-back older deployment —
     // get the legacy stored-first coalesce, so no deploy ordering can let an
     // unvetted date replace a stored good one.
     //
-    // One further restriction on top of that contract: a row that ALREADY has a
-    // renderable stored date keeps it. Re-observation may FILL a null date and
-    // HEAL an unrenderable one, but it may not overwrite a good date with a
-    // different good date — the first verified publication date for a page is
-    // the one a reader saw, and later sightings of the same page are not new
-    // evidence about when it was published. Withholding sends NULL, which the
-    // RPC's coalesce turns into "leave the stored value alone".
+    // One further restriction on top of that contract: the exact page that
+    // ALREADY has a renderable stored date keeps it. Re-observation may FILL a
+    // null date and HEAL an unrenderable one, but it may not overwrite a good
+    // date with a different good date. Community-ask campaign hashes span
+    // multiple thread URLs, so the hash alone cannot establish date ownership.
+    // Withholding sends NULL, which the RPC turns into "leave the stored value
+    // alone" only while the stored and incoming URLs still match.
     const keepsStoredDate = (hash: string, observation: ObservationCandidate): boolean => {
       const stored = storedDatesByUrlHash.get(hash);
-      if (!stored) return false;
-      return hasDisplayableDate({ sourcePublishedAt: stored, observedAt: observation.observedAt }, patchPublishedAt);
+      if (!stored || stored.url !== observation.url) return false;
+      return hasDisplayableDate(
+        { sourcePublishedAt: stored.sourcePublishedAt, observedAt: observation.observedAt },
+        patchPublishedAt,
+      );
     };
     const rows = prioritized.map(([hash, observation]) => ({
       kind: observation.kind,

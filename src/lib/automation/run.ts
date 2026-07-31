@@ -62,6 +62,7 @@ import {
   persistObservations,
   upgradeObservationDate,
   type ObservationCandidate,
+  type StoredObservationDate,
 } from "@/lib/automation/observations";
 import { resolveAssertedSourceDate, resolveSourceDate } from "@/lib/automation/sourceDate";
 import {
@@ -461,16 +462,18 @@ async function updateRunIntent(
  *   - byCanonicalUrl feeds the source-date resolver's last precedence step, so
  *     a page we already have a verified date for keeps it when an undated
  *     sighting arrives. Exact URL only — a date describes one page.
- *   - byUrlHash is the row identity the persistence RPC uses, so a re-sighting
- *     can tell "this row has a good date already" from "this row is undated".
+ *   - byUrlHash is the row identity the persistence RPC uses. Its value carries
+ *     the URL too because a community-ask campaign hash can span several pages,
+ *     while a publication date belongs to exactly one of them.
  *
- * A missing table (migration not applied on this deploy yet) or any read error
- * degrades to empty maps: the resolver loses one input and falls back to null,
- * which is the same answer it gave before this map existed.
+ * Only the narrowly identified rolling-deploy case where patch_observations is
+ * absent degrades to empty maps. Permissions, timeouts and all other failures
+ * stop the run before persistence can replace a date without knowing who owns
+ * the stored one.
  */
 type StoredObservationDates = {
   byCanonicalUrl: ReadonlyMap<string, string | null>;
-  byUrlHash: ReadonlyMap<string, string | null>;
+  byUrlHash: ReadonlyMap<string, StoredObservationDate>;
 };
 
 const EMPTY_STORED_SOURCE_DATES: StoredObservationDates = {
@@ -482,22 +485,40 @@ async function loadStoredSourceDates(
   supabase: ReturnType<typeof createServiceClient>,
   patchVersion: string,
 ): Promise<StoredObservationDates> {
+  const storedDateQuery = supabase
+    .from("patch_observations")
+    .select("url, url_hash, source_published_at")
+    .eq("patch_version", patchVersion);
+  let response: Awaited<typeof storedDateQuery>;
   try {
-    const { data, error } = await supabase
-      .from("patch_observations")
-      .select("url, url_hash, source_published_at")
-      .eq("patch_version", patchVersion);
-    if (error) return EMPTY_STORED_SOURCE_DATES;
-    const byCanonicalUrl = new Map<string, string | null>();
-    const byUrlHash = new Map<string, string | null>();
-    for (const row of (data ?? []) as { url?: string | null; url_hash?: string | null; source_published_at?: string | null }[]) {
-      if (row.url) byCanonicalUrl.set(row.url, row.source_published_at ?? null);
-      if (row.url_hash) byUrlHash.set(row.url_hash, row.source_published_at ?? null);
-    }
-    return { byCanonicalUrl, byUrlHash };
-  } catch {
-    return EMPTY_STORED_SOURCE_DATES;
+    response = await storedDateQuery;
+  } catch (error) {
+    throw new Error(
+      `stored observation dates read failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
+  if (response.error) {
+    if (isMissingSupabaseRelation(response.error, "patch_observations")) {
+      return EMPTY_STORED_SOURCE_DATES;
+    }
+    throw new Error(`stored observation dates read failed: ${response.error.message}`);
+  }
+  const byCanonicalUrl = new Map<string, string | null>();
+  const byUrlHash = new Map<string, StoredObservationDate>();
+  for (const row of (response.data ?? []) as {
+    url?: string | null;
+    url_hash?: string | null;
+    source_published_at?: string | null;
+  }[]) {
+    if (row.url) byCanonicalUrl.set(row.url, row.source_published_at ?? null);
+    if (row.url && row.url_hash) {
+      byUrlHash.set(row.url_hash, {
+        url: row.url,
+        sourcePublishedAt: row.source_published_at ?? null,
+      });
+    }
+  }
+  return { byCanonicalUrl, byUrlHash };
 }
 
 async function loadRecentRunMemory(supabase: ReturnType<typeof createServiceClient>): Promise<ScanMemory["recentRuns"]> {

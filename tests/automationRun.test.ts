@@ -83,6 +83,7 @@ type TableName =
   | "steam_review_receipts"
   | "steam_pulse_snapshots"
   | "platform_context_snapshots"
+  | "patch_observations"
   | "signal_observation_events"
   | "issue_clusters"
   | "bug_reports"
@@ -108,6 +109,7 @@ const tables: Record<TableName, Row[]> = {
   steam_review_receipts: [],
   steam_pulse_snapshots: [],
   platform_context_snapshots: [],
+  patch_observations: [],
   signal_observation_events: [],
   issue_clusters: [],
   bug_reports: [],
@@ -117,7 +119,7 @@ const tables: Record<TableName, Row[]> = {
 const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters?: Filter[] }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
-let selectFailure: { table: TableName; message: string; columns?: string } | null = null;
+let selectFailure: { table: TableName; message: string; code?: string; columns?: string } | null = null;
 let insertFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
 let updateFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
@@ -429,7 +431,14 @@ class FakeQuery {
       selectFailure?.table === this.table &&
       (!selectFailure.columns || (this.selectedColumns ?? "").includes(selectFailure.columns))
     ) {
-      return { data: null, count: null, error: { message: selectFailure.message } };
+      return {
+        data: null,
+        count: null,
+        error: {
+          ...(selectFailure.code ? { code: selectFailure.code } : {}),
+          message: selectFailure.message,
+        },
+      };
     }
     let rows = this.filteredRows().map((row) => ({ ...row }));
     if (this.table === "source_signals" && honorSourceSignalProjection && this.selectedColumns) {
@@ -4001,6 +4010,53 @@ describe("runAutomationMonitor", () => {
     const scannerTimes = new Set(["2026-07-05T12:00:00.000Z", ...persistedObservations.map((row) => String(row.observed_at))]);
     expect(persistedObservations.some((row) => scannerTimes.has(String(row.source_published_at)))).toBe(false);
     expect(result.status).toBe("success");
+  });
+
+  it("stops before observation persistence when stored-date ownership cannot be read", async () => {
+    selectFailure = {
+      table: "patch_observations",
+      code: "42501",
+      message: "permission denied for table patch_observations",
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.errors).toContain(
+      "stored observation dates read failed: permission denied for table patch_observations",
+    );
+    expect(mocks.rpc).not.toHaveBeenCalledWith("persist_patch_observations", expect.anything());
+  });
+
+  it("keeps the rolling-deploy fallback narrow to a missing observations relation", async () => {
+    selectFailure = {
+      table: "patch_observations",
+      code: "PGRST205",
+      message: "Could not find the table patch_observations in the schema cache",
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.errors).toEqual([]);
+  });
+
+  it("surfaces a thrown stored-date timeout instead of treating it as no rows", async () => {
+    beforeSelect = (table) => {
+      if (table === "patch_observations") throw new Error("database request timed out");
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.errors).toContain("stored observation dates read failed: database request timed out");
+    expect(mocks.rpc).not.toHaveBeenCalledWith("persist_patch_observations", expect.anything());
   });
 
   it("keeps every search slot on general (dated-less) search on non-wire turns", async () => {

@@ -1083,7 +1083,9 @@ describe("persistObservations", () => {
     });
     const pageHash = observationConflictHash(page);
 
-    async function payloadFor(stored: Map<string, string | null>) {
+    async function payloadFor(
+      stored: Map<string, { url: string; sourcePublishedAt: string | null }>,
+    ) {
       const rpcCalls: RpcCall[] = [];
       const report = { errors: [] as string[], observationsKept: 0 };
       await persistObservations(
@@ -1099,29 +1101,85 @@ describe("persistObservations", () => {
     }
 
     it("fills a stored null date", async () => {
-      expect(await payloadFor(new Map([[pageHash, null]]))).toMatchObject({
+      expect(await payloadFor(new Map([[pageHash, { url: page.url, sourcePublishedAt: null }]]))).toMatchObject({
         source_published_at: "2026-07-16T09:00:00.000Z",
       });
     });
 
     it("heals a stored date the Brief could never render", async () => {
       // Pre-era: stored, unrenderable, and previously stuck that way.
-      expect(await payloadFor(new Map([[pageHash, "2026-01-02T00:00:00.000Z"]]))).toMatchObject({
+      expect(
+        await payloadFor(
+          new Map([[pageHash, { url: page.url, sourcePublishedAt: "2026-01-02T00:00:00.000Z" }]]),
+        ),
+      ).toMatchObject({
         source_published_at: "2026-07-16T09:00:00.000Z",
       });
     });
 
     it("does not replace a stored date that is already valid", async () => {
       // NULL in the payload is how the RPC is told to leave the stored value alone.
-      expect(await payloadFor(new Map([[pageHash, "2026-07-14T09:00:00.000Z"]]))).toMatchObject({
+      expect(
+        await payloadFor(
+          new Map([[pageHash, { url: page.url, sourcePublishedAt: "2026-07-14T09:00:00.000Z" }]]),
+        ),
+      ).toMatchObject({
         source_published_at: null,
       });
     });
 
     it("never lets an unrelated page's stored date decide this row", async () => {
-      expect(await payloadFor(new Map([["some-other-page-hash", "2026-07-14T09:00:00.000Z"]]))).toMatchObject({
-        source_published_at: "2026-07-16T09:00:00.000Z",
+      expect(
+        await payloadFor(
+          new Map([
+            [
+              "some-other-page-hash",
+              {
+                url: "https://example.com/unrelated",
+                sourcePublishedAt: "2026-07-14T09:00:00.000Z",
+              },
+            ],
+          ]),
+        ),
+      ).toMatchObject({ source_published_at: "2026-07-16T09:00:00.000Z" });
+    });
+
+    it("does not preserve a prior campaign thread's date for a new URL", async () => {
+      const day21 = candidate({
+        kind: "community_ask",
+        title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+        observedAt: "2026-07-20T12:00:00.000Z",
       });
+      const rpcCalls: RpcCall[] = [];
+      const report = { errors: [] as string[], observationsKept: 0 };
+
+      await persistObservations(
+        stubClient({ rpcCalls }),
+        [day21],
+        "1.13.01",
+        report,
+        PATCH_PUBLISHED_AT,
+        new Map([
+          [
+            observationConflictHash(day21),
+            {
+              url: "https://www.reddit.com/r/CrimsonDesert/comments/aaa/day_20/",
+              sourcePublishedAt: "2026-07-14T09:00:00.000Z",
+            },
+          ],
+        ]),
+      );
+
+      expect(report.errors).toEqual([]);
+      expect(rpcCalls[0].params.p_observations).toEqual([
+        expect.objectContaining({
+          url: day21.url,
+          source_published_at: day21.sourcePublishedAt,
+        }),
+      ]);
     });
   });
 

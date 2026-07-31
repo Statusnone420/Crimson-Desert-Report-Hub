@@ -175,10 +175,12 @@ export function passesNonDateBriefGates(
 /**
  * First-discovery fallback for the Community Asks lane only.
  *
- * `created_at` is the row's immutable insert time — when the radar first saw the
- * thread, NOT when the thread was published. It may stand in for a publication
- * date only inside the current patch's era, so an ask carried over from an
- * earlier patch cannot present itself as part of this patch's conversation.
+ * `created_at` is when the radar first saw the row's current URL, NOT when that
+ * page was published. It starts at insert time and is rebound only when a
+ * serialized community-ask campaign advances the same row to a new thread URL.
+ * It may stand in for a publication date only inside the current patch's era,
+ * so an ask carried over from an earlier patch cannot present itself as part of
+ * this patch's conversation.
  *
  * Fails closed on an unknown or unparseable patch publication time: with no era
  * to compare against there is no honest way to say the discovery belongs to this
