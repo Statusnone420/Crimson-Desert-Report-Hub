@@ -58,6 +58,8 @@ type AutomationModelSettings = {
   provider: ProviderRouting;
   /** Luna can use gateway reasoning; the manual rollback keeps its prior route. */
   reasoning: { effort: "high"; exclude: true } | { effort: "none" };
+  /** Sampling is model-specific; high-reasoning Luna does not accept temperature. */
+  temperature?: 0;
 };
 
 /**
@@ -117,6 +119,7 @@ const AUTOMATION_MODEL_SETTINGS: Record<(typeof APPROVED_AUTOMATION_MODELS)[numb
   [OPENROUTER_DEEPSEEK_ROLLBACK_MODEL]: {
     provider: OPENROUTER_DEEPSEEK_ROLLBACK_PROVIDER_ROUTING,
     reasoning: { effort: "none" },
+    temperature: 0,
   },
 };
 

@@ -168,7 +168,7 @@ function claimMappingRequest(claim: ClaimMappingClaim, clusters: ClaimMappingClu
   const modelSettings = automationModelSettings(model);
   return {
     model,
-    temperature: 0,
+    ...(modelSettings.temperature === undefined ? {} : { temperature: modelSettings.temperature }),
     reasoning: modelSettings.reasoning,
     max_completion_tokens: AUTOMATION_TASK_SETTINGS.claim_mapping.maxCompletionTokens,
     provider: modelSettings.provider,

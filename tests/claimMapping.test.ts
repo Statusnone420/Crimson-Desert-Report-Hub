@@ -81,6 +81,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     let requestedReasoning: unknown = null;
     let requestedMaxTokens: number | null = null;
     let requestedSystemPrompt: string | null = null;
+    let requestedTemperaturePresent = false;
     const fetcher = async (_url: string, init: { body: string }) => {
       const body = JSON.parse(init.body) as {
         model?: string;
@@ -94,6 +95,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       requestedReasoning = body.reasoning;
       requestedMaxTokens = body.max_completion_tokens ?? null;
       requestedSystemPrompt = body.messages?.find((message) => message.role === "system")?.content ?? null;
+      requestedTemperaturePresent = "temperature" in body;
       return {
         ok: true,
         status: 200,
@@ -135,6 +137,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     });
     expect(requestedReasoning).toEqual({ effort: "high", exclude: true });
     expect(requestedMaxTokens).toBe(2048);
+    expect(requestedTemperaturePresent).toBe(false);
     expect(requestedSystemPrompt).toMatch(/untrusted data/i);
     expect(requestedSystemPrompt).toMatch(/ignore .*instructions/i);
     expect(result).toMatchObject({
@@ -181,6 +184,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
 
     expect(request).toMatchObject({
       model: "deepseek/deepseek-v4-flash",
+      temperature: 0,
       reasoning: { effort: "none" },
       max_completion_tokens: 2048,
       provider: {

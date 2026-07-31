@@ -289,7 +289,7 @@ function extractionRequest(candidate: SourceCandidate, model: string, clusterOpt
   const modelSettings = automationModelSettings(model);
   return {
     model,
-    temperature: 0,
+    ...(modelSettings.temperature === undefined ? {} : { temperature: modelSettings.temperature }),
     reasoning: modelSettings.reasoning,
     // `max_completion_tokens` covers both reasoning and the final strict JSON
     // result. Do not lower it to the visible JSON size: high reasoning would

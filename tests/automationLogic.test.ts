@@ -410,7 +410,8 @@ describe("automation extraction", () => {
       }),
     );
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
-    expect(JSON.parse(init.body)).toMatchObject({
+    const outboundRequest = JSON.parse(init.body) as Record<string, unknown>;
+    expect(outboundRequest).toMatchObject({
       model: "openai/gpt-5.6-luna",
       reasoning: { effort: "high", exclude: true },
       max_completion_tokens: 3200,
@@ -440,6 +441,7 @@ describe("automation extraction", () => {
         },
       },
     });
+    expect(outboundRequest).not.toHaveProperty("temperature");
     const request = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
     expect(request.messages[0].content).toMatch(/untrusted data/i);
     expect(request.messages[0].content).toMatch(/ignore .*instructions/i);
@@ -545,6 +547,7 @@ describe("automation extraction", () => {
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
     expect(JSON.parse(init.body)).toMatchObject({
       model: "deepseek/deepseek-v4-flash",
+      temperature: 0,
       reasoning: { effort: "none" },
       max_completion_tokens: 3200,
       provider: {
