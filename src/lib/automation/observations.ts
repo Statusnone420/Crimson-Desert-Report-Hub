@@ -8,6 +8,7 @@ import {
   isDisplayableDatedObservation,
   patchEraFloorMs,
 } from "@/lib/observationDisplay";
+import { isMissingSupabaseRpc } from "@/lib/supabaseCompatibility";
 
 /**
  * Observation lane: the typed shelf for patch-day context the evidence funnel
@@ -368,15 +369,33 @@ export async function persistObservations(
       observed_at: observation.observedAt,
     }));
 
-    const { data, error } = await supabase.rpc("persist_patch_observations", {
+    // The extra named parameter is a schema handshake. Before the URL-bound
+    // migration lands, PostgREST rejects this signature without executing the
+    // old two-argument function. The narrow fallback below can then send only
+    // rows that the old RPC cannot pair with a previous page's clock.
+    let result = await supabase.rpc("persist_patch_observations", {
       p_patch_version: patchVersion,
       p_observations: rows,
+      p_date_contract_version: 2,
     });
-    if (error) {
-      report.errors.push(`observation persistence failed: ${error.message}`);
+
+    if (result.error && isMissingSupabaseRpc(result.error, "persist_patch_observations")) {
+      const legacySafeRows = rows.filter((row) => {
+        const stored = storedDatesByUrlHash.get(row.url_hash);
+        return !stored || stored.url === row.url || row.source_published_at !== null;
+      });
+      if (legacySafeRows.length === 0) return;
+      result = await supabase.rpc("persist_patch_observations", {
+        p_patch_version: patchVersion,
+        p_observations: legacySafeRows,
+      });
+    }
+
+    if (result.error) {
+      report.errors.push(`observation persistence failed: ${result.error.message}`);
       return;
     }
-    report.observationsKept += Number(data ?? 0);
+    report.observationsKept += Number(result.data ?? 0);
   } catch (error) {
     report.errors.push(
       `observation persistence failed: ${error instanceof Error ? error.message : String(error)}`,

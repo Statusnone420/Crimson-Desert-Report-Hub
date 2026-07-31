@@ -19,7 +19,7 @@ import type {
   ScannerFeedbackRuleRow,
 } from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
-import { isBriefEligibleObservation } from "@/lib/observationDisplay";
+import { isBriefRenderableObservation } from "@/lib/observationDisplay";
 import { registerUnread, type ScannerReadRegister } from "@/lib/scannerRegisters";
 
 function cadenceLabel(minutes: number): string {
@@ -222,14 +222,30 @@ const OBSERVATION_KIND_LABELS: Record<AdminObservationRow["kind"], string> = {
   community_ask: "COMMUNITY ASK",
 };
 
-function observationDateLabel(iso: string | null): string {
-  if (!iso) return "no source date — never shown publicly";
-  const date = new Date(iso);
-  if (!Number.isFinite(date.getTime())) return "no source date — never shown publicly";
-  return `published ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`;
+function observationDateLabel(
+  observation: AdminObservationRow,
+  patch: { version: string; publishedAt: string | null },
+  nowMs: number,
+): string {
+  if (observation.source_published_at) {
+    const published = new Date(observation.source_published_at);
+    if (Number.isFinite(published.getTime())) {
+      return `published ${published.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`;
+    }
+  }
+  if (isBriefRenderableObservation(observation, patch, nowMs)) {
+    const firstSeen = new Date(observation.created_at);
+    return `first seen by radar ${firstSeen.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`;
+  }
+  return "no usable public lane date";
 }
 
-function observationRow(observation: AdminObservationRow, moderationAvailable: boolean) {
+function observationRow(
+  observation: AdminObservationRow,
+  moderationAvailable: boolean,
+  patch: { version: string; publishedAt: string | null },
+  nowMs: number,
+) {
   const laneLabel = observation.kind === "community_ask" ? "ASKS LANE" : "WIRE LANE";
   return (
     <article key={observation.id} className="lead-item">
@@ -238,7 +254,7 @@ function observationRow(observation: AdminObservationRow, moderationAvailable: b
           {observation.is_public ? "PUBLIC" : "HIDDEN"}
         </span>{" "}
         · {laneLabel} · {OBSERVATION_KIND_LABELS[observation.kind]} ·{" "}
-        {observationDateLabel(observation.source_published_at)}
+        {observationDateLabel(observation, patch, nowMs)}
         {observation.seen_count > 1 ? ` · SEEN ${observation.seen_count}×` : ""}
       </div>
       <h3 className="lead-item__title">{observation.title}</h3>
@@ -387,15 +403,15 @@ export function AdminScannerView({
   ].filter(Boolean);
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
   // What can reach the Brief decides how this section reads, so it says it once
-  // instead of every card repeating it. This is the same function the public
-  // lane calls, not a copy of its conditions: a usable date, still public, still
-  // relevant. Anything less would advertise items the Brief itself drops —
-  // including the one just rejected, which stays in this list unpublished.
+  // instead of every card repeating it. This is the same complete function the
+  // public lane calls, including the URL-bound first-seen fallback for eligible
+  // undated Asks. Anything less would advertise items the Brief itself drops —
+  // or hide ones it actually renders.
   // Judged against the patch these rows were read with, never the radar's
   // five-minute-cached copy: right after a rollover they disagree, and the
   // stale one would call the new patch's own coverage off-topic.
   const publishableObservations = observations.filter((observation) =>
-    isBriefEligibleObservation(observation, observationPatch, nowMs),
+    isBriefRenderableObservation(observation, observationPatch, nowMs),
   ).length;
   // A collapsed section must never hide the fact that something inside it can
   // still be undone, or the operator has to go looking for their own recovery.
@@ -823,14 +839,16 @@ export function AdminScannerView({
                 of the same sentence ten times over. */}
             <p className="section-heading__note">
               {observations.length === 0
-                ? "Undated items never render publicly. Rejecting an item hides it immediately and records an undoable lesson."
+                ? "Wire requires a source date; eligible undated Asks use their first-seen-by-radar clock. Rejecting an item hides it immediately and records an undoable lesson."
                 : publishableObservations === 0
-                  ? `None of these ${observations.length} can appear on the Brief — most often for want of a source date. Rejecting an item hides it immediately and records an undoable lesson.`
-                  : `${publishableObservations} of these ${observations.length} can appear on the Brief; the rest are undated, rejected, or off this patch. Rejecting an item hides it immediately and records an undoable lesson.`}
+                  ? `None of these ${observations.length} can appear on the Brief — they are rejected, off this patch, or lack a usable lane clock. Rejecting an item hides it immediately and records an undoable lesson.`
+                  : `${publishableObservations} of these ${observations.length} can appear on the Brief; the rest are rejected, off this patch, or lack a usable lane clock. Rejecting an item hides it immediately and records an undoable lesson.`}
             </p>
             <div className="lead-record-grid">
               {observations.length > 0
-                ? observations.map((observation) => observationRow(observation, observationModerationAvailable))
+                ? observations.map((observation) =>
+                    observationRow(observation, observationModerationAvailable, observationPatch, nowMs),
+                  )
                 : <p className="decision-empty">No observations recorded for this patch yet.</p>}
             </div>
           </div>

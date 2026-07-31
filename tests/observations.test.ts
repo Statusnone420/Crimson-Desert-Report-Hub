@@ -1181,6 +1181,65 @@ describe("persistObservations", () => {
         }),
       ]);
     });
+
+    it("withholds an undated URL rollover from the legacy RPC while persisting safe rows", async () => {
+      const day21 = candidate({
+        kind: "community_ask",
+        title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: null,
+        observedAt: "2026-07-21T12:00:00.000Z",
+      });
+      const safeNewPage = candidate({
+        url: "https://www.dsogaming.com/articles/crimson-desert-undated-followup/",
+        observedAt: "2026-07-21T12:00:00.000Z",
+      });
+      const rpcCalls: RpcCall[] = [];
+      const rpcResults = [
+        {
+          data: null,
+          error: {
+            code: "PGRST202",
+            message: "Could not find the function public.persist_patch_observations in the schema cache",
+          },
+        },
+        { data: 1, error: null },
+      ];
+      const client = {
+        rpc(name: string, params: Record<string, unknown>) {
+          rpcCalls.push({ name, params });
+          return Promise.resolve(rpcResults[rpcCalls.length - 1]);
+        },
+      } as unknown as Pick<SupabaseClient, "rpc">;
+      const report = { errors: [] as string[], observationsKept: 0 };
+
+      await persistObservations(
+        client,
+        [day21, safeNewPage],
+        "1.13.01",
+        report,
+        PATCH_PUBLISHED_AT,
+        new Map([
+          [
+            observationConflictHash(day21),
+            {
+              url: "https://www.reddit.com/r/CrimsonDesert/comments/aaa/day_20/",
+              sourcePublishedAt: "2026-07-20T08:00:00.000Z",
+            },
+          ],
+        ]),
+      );
+
+      expect(report).toEqual({ errors: [], observationsKept: 1 });
+      expect(rpcCalls).toHaveLength(2);
+      expect(rpcCalls[0].params).toMatchObject({ p_date_contract_version: 2 });
+      expect(rpcCalls[0].params.p_observations).toHaveLength(2);
+      expect(rpcCalls[1].params).not.toHaveProperty("p_date_contract_version");
+      expect(rpcCalls[1].params.p_observations).toEqual([
+        expect.objectContaining({ url: safeNewPage.url }),
+      ]);
+    });
   });
 
   it("keeps a repeated source scoped to the requested patch", async () => {

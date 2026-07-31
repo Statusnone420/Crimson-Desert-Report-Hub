@@ -63,6 +63,10 @@ describe("atomic patch observation persistence migration", () => {
   it("moves page-owned clocks when a campaign hash advances to a different URL", () => {
     const sql = readFileSync(urlBoundDatesMigrationPath, "utf8");
 
+    expect(sql).toMatch(
+      /create or replace function public\.persist_patch_observations\(\s*p_patch_version text,\s*p_observations jsonb,\s*p_date_contract_version integer\s*\)/i,
+    );
+    expect(sql).toMatch(/if p_date_contract_version is distinct from 2 then[\s\S]*unsupported observation date contract version/i);
     expect(sql).toMatch(/select id, url\s+into existing_id, existing_url[\s\S]*for update/i);
     expect(sql).toMatch(
       /created_at = case\s+when observation->>'date_contract' = 'displayable_only'\s+and existing_url is distinct from observation->>'url'\s+then \(observation->>'observed_at'\)::timestamptz\s+else target\.created_at\s+end/i,
@@ -72,6 +76,11 @@ describe("atomic patch observation persistence migration", () => {
     );
     expect(sql).toMatch(/security invoker/i);
     expect(sql).toMatch(/set search_path = ''/i);
+    expect(sql).toMatch(
+      /create or replace function public\.persist_patch_observations\(\s*p_patch_version text,\s*p_observations jsonb\s*\)[\s\S]*language sql[\s\S]*select public\.persist_patch_observations\(p_patch_version, p_observations, 2\)/i,
+    );
+    expect(sql).toMatch(/revoke all on function public\.persist_patch_observations\(text, jsonb, integer\)[\s\S]*from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.persist_patch_observations\(text, jsonb, integer\)[\s\S]*to service_role/i);
     expect(sql).toMatch(/revoke all on function public\.persist_patch_observations\(text, jsonb\)[\s\S]*from public, anon, authenticated/i);
     expect(sql).toMatch(/grant execute on function public\.persist_patch_observations\(text, jsonb\)[\s\S]*to service_role/i);
   });

@@ -16,7 +16,8 @@ select lives_ok(
         'source_published_at', '2026-07-20T08:00:00.000Z',
         'date_contract', 'displayable_only',
         'observed_at', '2026-07-20T12:00:00.000Z'
-      ))
+      )),
+      2
     )
   $sql$,
   'inserts the first campaign thread'

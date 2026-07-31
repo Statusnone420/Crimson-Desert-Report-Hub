@@ -233,6 +233,7 @@ describe("AdminScannerView", () => {
       url: "https://www.reddit.com/r/CrimsonDesert/comments/ask/",
       source_domain: "reddit.com",
       snippet: "A recurring customization request.",
+      created_at: "2026-07-22T17:00:00.000Z",
       observed_at: "2026-07-22T17:00:00.000Z",
       seen_count: 2,
     };
@@ -282,7 +283,7 @@ describe("AdminScannerView", () => {
 
     expect(markup).toContain("Wire and Asks on the Brief");
     expect(markup).toContain("Reject and teach…");
-    expect(markup).toContain("no source date — never shown publicly");
+    expect(markup).toContain("no usable public lane date");
     expect(markup).toContain("Undo — restore item and revoke rule");
     expect(markup).toContain('name="decision_id" value="decision-1"');
     // The hidden item never re-offers a second reject.
@@ -622,6 +623,7 @@ describe("AdminScannerView", () => {
         source_domain: "reddit.com",
         snippet: "Players asking for something.",
         source_published_at: sourcePublishedAt,
+        created_at: "2026-07-21T12:00:00.000Z",
         observed_at: "2026-07-22T12:00:00.000Z",
         seen_count: 1,
         is_public: isPublic,
@@ -719,6 +721,18 @@ describe("AdminScannerView", () => {
       expect(markup).toContain("1 of these 2 can appear on the Brief");
       expect(markup).toContain("newest 2 this patch");
       expect(markup).toContain("· 1 publishable");
+    });
+
+    it("counts and labels an eligible undated ask exactly as the public lane does", () => {
+      const markup = render({
+        patchPublishedAt: "2026-07-20T00:00:00.000Z",
+        observations: [observation(1, null)],
+      });
+
+      expect(markup).toContain("1 of these 1 can appear on the Brief");
+      expect(markup).toContain("· 1 publishable");
+      expect(markup).toContain("first seen by radar Jul 21");
+      expect(markup).not.toContain("no source date — never shown publicly");
     });
 
     it("never calls an item publishable that the public lane would reject", () => {

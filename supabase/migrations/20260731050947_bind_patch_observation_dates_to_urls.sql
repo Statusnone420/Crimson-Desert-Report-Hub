@@ -7,9 +7,13 @@
 --
 -- The behavior remains gated by the existing in-band date_contract marker.
 -- Unmarked/legacy callers retain the previous stored-first behavior exactly.
+-- The three-argument overload is also a deployment handshake: a new caller can
+-- distinguish this implementation from the previous two-argument RPC before
+-- deciding whether a legacy payload is safe to send.
 create or replace function public.persist_patch_observations(
   p_patch_version text,
-  p_observations jsonb
+  p_observations jsonb,
+  p_date_contract_version integer
 )
 returns integer
 language plpgsql
@@ -25,6 +29,10 @@ declare
   inserted_count integer := 0;
   parsed_source_published_at timestamptz;
 begin
+  if p_date_contract_version is distinct from 2 then
+    raise exception 'unsupported observation date contract version' using errcode = '22023';
+  end if;
+
   if p_patch_version is null
     or p_patch_version !~ '^[0-9]+\.[0-9]{1,2}(\.[0-9]{1,2})?$' then
     raise exception 'invalid patch version' using errcode = '22023';
@@ -163,6 +171,26 @@ begin
   return inserted_count;
 end;
 $$;
+
+-- Preserve the pre-migration application contract. Once this migration lands,
+-- an older in-flight app still reaches the URL-bound implementation through the
+-- original two-argument signature.
+create or replace function public.persist_patch_observations(
+  p_patch_version text,
+  p_observations jsonb
+)
+returns integer
+language sql
+security invoker
+set search_path = ''
+as $$
+  select public.persist_patch_observations(p_patch_version, p_observations, 2);
+$$;
+
+revoke all on function public.persist_patch_observations(text, jsonb, integer)
+  from public, anon, authenticated;
+grant execute on function public.persist_patch_observations(text, jsonb, integer)
+  to service_role;
 
 revoke all on function public.persist_patch_observations(text, jsonb)
   from public, anon, authenticated;

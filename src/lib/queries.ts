@@ -1,9 +1,7 @@
 import "server-only";
 import {
-  isBriefEligibleObservation,
-  isFirstSeenByRadarRenderable,
+  isBriefRenderableObservation,
   OBSERVATION_FUTURE_SKEW_MS,
-  passesNonDateBriefGates,
   patchEraFloorMs,
 } from "@/lib/observationDisplay";
 
@@ -697,24 +695,19 @@ export function splitPublicObservationLanes(
   const asks: PublicObservation[] = [];
 
   for (const row of rows) {
-    const publiclyDated = isBriefEligibleObservation(row, patch, nowMs);
+    if (!isBriefRenderableObservation(row, patch, nowMs)) continue;
     if (row.kind !== "community_ask") {
-      if (publiclyDated && row.source_published_at) {
+      if (row.source_published_at) {
         coverage.push(
           toPublicObservation(row, { kind: "published", value: row.source_published_at }) as PublishedObservation,
         );
       }
       continue;
     }
-    if (publiclyDated && row.source_published_at) {
+    if (row.source_published_at) {
       asks.push(toPublicObservation(row, { kind: "published", value: row.source_published_at }));
       continue;
     }
-    // Undated (or undisplayably dated) ask: the non-date gates still all apply,
-    // and the discovery time has to sit inside this patch's era.
-    if (!passesNonDateBriefGates(row, patch.version)) continue;
-    if (row.source_published_at) continue;
-    if (!isFirstSeenByRadarRenderable(row.created_at, patch.publishedAt, nowMs)) continue;
     asks.push(toPublicObservation(row, { kind: "first_seen_by_radar", value: row.created_at as string }));
   }
 
@@ -1198,6 +1191,7 @@ export type AdminObservationRow = {
   source_domain: string | null;
   snippet: string | null;
   source_published_at: string | null;
+  created_at: string;
   observed_at: string;
   seen_count: number;
   is_public: boolean;
@@ -1332,7 +1326,7 @@ export async function getAutomationAdminData() {
   const currentPatch = await getCurrentPatchMetadata(supabase);
   const observationRowsResult = await supabase
     .from("patch_observations")
-    .select("id, kind, title, url, source_domain, snippet, source_published_at, observed_at, seen_count, is_public")
+    .select("id, kind, title, url, source_domain, snippet, source_published_at, created_at, observed_at, seen_count, is_public")
     .eq("patch_version", currentPatch.version)
     .order("observed_at", { ascending: false })
     .limit(40);

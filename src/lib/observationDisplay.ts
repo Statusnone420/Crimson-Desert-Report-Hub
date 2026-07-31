@@ -150,6 +150,7 @@ type BriefObservationRow = {
   source_domain: string | null;
   snippet: string | null;
   source_published_at?: string | null;
+  created_at?: string | null;
   is_public: boolean;
 };
 
@@ -210,4 +211,24 @@ export function isBriefEligibleObservation(
 ): boolean {
   if (!isDisplayableDatedObservation(row, patch.publishedAt, nowMs)) return false;
   return passesNonDateBriefGates(row, patch.version);
+}
+
+/**
+ * The complete renderability rule across both Brief lanes.
+ *
+ * Wire remains publication-date-only. Community Asks may instead use their
+ * URL-bound first-seen clock, but only when the date is genuinely absent and
+ * every moderation, kind, relevance and current-patch gate still passes.
+ * Keeping this decision shared prevents the operator count from contradicting
+ * the public lane.
+ */
+export function isBriefRenderableObservation(
+  row: BriefObservationRow,
+  patch: { version: string; publishedAt: string | null },
+  nowMs: number = Date.now(),
+): boolean {
+  if (isBriefEligibleObservation(row, patch, nowMs)) return true;
+  if (row.kind !== "community_ask" || row.source_published_at) return false;
+  if (!passesNonDateBriefGates(row, patch.version)) return false;
+  return isFirstSeenByRadarRenderable(row.created_at, patch.publishedAt, nowMs);
 }

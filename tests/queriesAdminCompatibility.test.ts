@@ -109,6 +109,15 @@ beforeEach(() => {
 });
 
 describe("getAutomationAdminData rolling migration compatibility", () => {
+  it("selects the first-seen clock required by the public Community Asks fallback", async () => {
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    await getAutomationAdminData();
+
+    const observationRead = traces.find((trace) => trace.table === "patch_observations");
+    expect(observationRead?.columns.split(",").map((column) => column.trim())).toContain("created_at");
+  });
+
   it("retries a legacy rejected-candidate projection and normalizes feedback fields", async () => {
     resolveQuery = (trace) => {
       if (trace.table !== "automation_rejected_candidates") return { data: [], error: null };
