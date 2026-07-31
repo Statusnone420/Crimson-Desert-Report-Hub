@@ -25,7 +25,7 @@ The application keeps these registers separate in storage and in public language
 ## Provider boundaries
 
 - Tavily is the approved public-web discovery provider and stays within the documented monthly credit ceiling.
-- High-value OpenRouter work defaults to GPT-5.6 Luna on the first-party OpenAI provider, with model-specific price ceilings and a hard $2 UTC-month cap. DeepSeek V4 Flash is a manual rollback only; neither provider nor model fallback is automatic.
+- High-value OpenRouter work defaults to GPT-5.6 Luna on the first-party OpenAI provider, with model-specific price ceilings and a hard $2 UTC-month cap. Switching to DeepSeek V4 Flash is manual, never automatic. Luna requests are pinned to OpenAI with provider fallback disabled; DeepSeek rollback requests may route among eligible zero-data-retention providers under the model's price ceiling.
 - Routine moderation and dossier writing use free or deterministic fallback paths.
 - Reddit API access and direct subreddit monitoring are permanently off.
 - The protected preview route is deterministic-only and does not publish or write the scan ledger.
