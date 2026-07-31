@@ -3,7 +3,6 @@ import { APPROVED_AUTOMATION_MODELS } from "@/lib/automation/budget";
 import {
   applyLlmCircuitToStatuses,
   automationBudgetUsd,
-  automationSubreddits,
   computeFeatures,
   integrationStatuses,
   platformContextConfigured,
@@ -15,7 +14,6 @@ describe("computeFeatures", () => {
   it("everything off with no keys", () => {
     expect(computeFeatures({})).toEqual({
       turnstile: false,
-      reddit: false,
       ai: false,
       xSearch: false,
       webSearch: false,
@@ -23,15 +21,13 @@ describe("computeFeatures", () => {
     });
   });
 
-  it("reddit stays off with partial or complete legacy credentials", () => {
-    expect(computeFeatures({ REDDIT_CLIENT_ID: "a", REDDIT_CLIENT_SECRET: "b" }).reddit).toBe(false);
-    expect(
-      computeFeatures({
-        REDDIT_CLIENT_ID: "a",
-        REDDIT_CLIENT_SECRET: "b",
-        REDDIT_USER_AGENT: "c",
-      }).reddit,
-    ).toBe(false);
+  it("exposes no Reddit feature flag for legacy credentials to switch on", () => {
+    const features = computeFeatures({
+      REDDIT_CLIENT_ID: "a",
+      REDDIT_CLIENT_SECRET: "b",
+      REDDIT_USER_AGENT: "c",
+    });
+    expect(Object.keys(features).some((key) => /reddit/i.test(key))).toBe(false);
   });
 
   it("ai requires OpenRouter with the approved automation model", () => {
@@ -65,10 +61,7 @@ describe("computeFeatures", () => {
         REDDIT_CLIENT_SECRET: "b",
         REDDIT_USER_AGENT: "c",
       }),
-    ).toMatchObject({
-      reddit: false,
-      automation: false,
-    });
+    ).toMatchObject({ automation: false });
   });
 
   it("treats whitespace values as unset", () => {
@@ -78,7 +71,7 @@ describe("computeFeatures", () => {
         TURNSTILE_SECRET_KEY: "t",
         GROQ_API_KEY: " ",
       }),
-    ).toEqual({ turnstile: false, reddit: false, ai: false, xSearch: false, webSearch: false, automation: false });
+    ).toEqual({ turnstile: false, ai: false, xSearch: false, webSearch: false, automation: false });
   });
 });
 
@@ -206,14 +199,6 @@ describe("automation env helpers", () => {
 
   it("keeps an explicit zero-dollar budget at zero", () => {
     expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "0" })).toBe(0);
-  });
-
-  it("normalizes automation subreddit list", () => {
-    expect(automationSubreddits({ AUTOMATION_SUBREDDITS: "r/CrimsonDesert, PCGaming, , r/Games" })).toEqual([
-      "CrimsonDesert",
-      "PCGaming",
-      "Games",
-    ]);
   });
 });
 

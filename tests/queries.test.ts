@@ -26,13 +26,14 @@ vi.mock("server-only", () => ({}));
 type ObservationQueryRow = {
   id: string;
   patch_version: string;
-  kind: string;
+  kind: "patch_release" | "press_reception" | "fix_announcement" | "community_ask";
   is_public: boolean;
   title: string;
   url: string;
   source_domain: string | null;
   snippet: string | null;
   source_published_at: string | null;
+  created_at?: string | null;
   observed_at: string;
   seen_count: number;
 };
@@ -42,6 +43,18 @@ function observationClient(rows: ObservationQueryRow[], error: { message: string
     from(table: string) {
       expect(table).toBe("patch_observations");
       const filters: ((row: ObservationQueryRow) => boolean)[] = [];
+      // Postgres does not quietly mismatch an unparseable timestamp comparison —
+      // it rejects the request. Modelling that is what makes "never send a raw,
+      // possibly malformed patch time into .gte()" a testable claim rather than
+      // a hope: a silently-empty result would look identical to a correct one.
+      let comparisonError: { message: string } | null = null;
+      const requireTimestamp = (operator: string, column: string, value: string) => {
+        if (Number.isNaN(new Date(value).getTime())) {
+          comparisonError = {
+            message: `invalid input syntax for type timestamptz: "${value}" (${column}=${operator})`,
+          };
+        }
+      };
       const query = {
         select() {
           return query;
@@ -56,11 +69,18 @@ function observationClient(rows: ObservationQueryRow[], error: { message: string
         },
         not(column: string, operator: string, value: unknown) {
           if (operator === "is" && value === null) {
-            filters.push((row) => row[column as keyof ObservationQueryRow] !== null);
+            filters.push((row) => row[column as keyof ObservationQueryRow] != null);
+          }
+          return query;
+        },
+        is(column: string, value: unknown) {
+          if (value === null) {
+            filters.push((row) => row[column as keyof ObservationQueryRow] == null);
           }
           return query;
         },
         lte(column: string, value: string) {
+          requireTimestamp("lte", column, value);
           filters.push((row) => {
             const current = row[column as keyof ObservationQueryRow];
             return typeof current === "string" && new Date(current).getTime() <= new Date(value).getTime();
@@ -68,6 +88,7 @@ function observationClient(rows: ObservationQueryRow[], error: { message: string
           return query;
         },
         gte(column: string, value: string) {
+          requireTimestamp("gte", column, value);
           filters.push((row) => {
             const current = row[column as keyof ObservationQueryRow];
             return typeof current === "string" && new Date(current).getTime() >= new Date(value).getTime();
@@ -78,7 +99,11 @@ function observationClient(rows: ObservationQueryRow[], error: { message: string
           return query;
         },
         limit(count: number) {
-          return Promise.resolve({ data: error ? null : rows.filter((row) => filters.every((filter) => filter(row))).slice(0, count), error });
+          const failure = error ?? comparisonError;
+          return Promise.resolve({
+            data: failure ? null : rows.filter((row) => filters.every((filter) => filter(row))).slice(0, count),
+            error: failure,
+          });
         },
       };
       return query;
@@ -89,7 +114,7 @@ function observationClient(rows: ObservationQueryRow[], error: { message: string
 describe("getPublicObservations", () => {
   it("keeps separate eight-row budgets for coverage and community asks", async () => {
     const rows: ObservationQueryRow[] = [
-      ...Array.from({ length: 8 }, (_, index) => ({
+      ...Array.from({ length: 8 }, (_, index): ObservationQueryRow => ({
         id: `coverage-${index}`,
         patch_version: "1.13.01",
         kind: "press_reception",
@@ -105,7 +130,7 @@ describe("getPublicObservations", () => {
       {
         id: "ask-current",
         patch_version: "1.13.01",
-        kind: "community_ask",
+        kind: "community_ask" as const,
         is_public: true,
         title: "Current-patch Crimson Desert community ask",
         url: "https://reddit.com/r/CrimsonDesert/current-ask",
@@ -118,7 +143,7 @@ describe("getPublicObservations", () => {
       {
         id: "ask-old-patch",
         patch_version: "1.13.00",
-        kind: "community_ask",
+        kind: "community_ask" as const,
         is_public: true,
         title: "Old-patch Crimson Desert community ask",
         url: "https://reddit.com/r/CrimsonDesert/old-ask",
@@ -140,6 +165,69 @@ describe("getPublicObservations", () => {
       expect.objectContaining({ id: "ask-current", title: "Current-patch Crimson Desert community ask" }),
     ]);
     expect([...lanes.coverage, ...lanes.asks].map((observation) => observation.id)).not.toContain("ask-old-patch");
+  });
+
+  it("stands down only the undated-ask lane when the patch publication time is malformed", async () => {
+    // The failure this pins: sending an unparseable patch time straight into
+    // .gte() made the database reject the undated-ask read, and one failed lane
+    // query blanked BOTH lanes. Failing closed means dropping the undated asks,
+    // not the dated rows that were never in question.
+    const rows: ObservationQueryRow[] = [
+      {
+        id: "dated-coverage",
+        patch_version: "1.13.01",
+        kind: "press_reception",
+        is_public: true,
+        title: "Crimson Desert 1.13.01 performance test",
+        url: "https://example.com/crimson-desert-perf",
+        source_domain: "example.com",
+        snippet: "We measured the patch.",
+        source_published_at: "2026-07-16T12:00:00Z",
+        created_at: "2026-07-16T12:00:00Z",
+        observed_at: "2026-07-16T12:00:00Z",
+        seen_count: 1,
+      },
+      {
+        id: "dated-ask",
+        patch_version: "1.13.01",
+        kind: "community_ask",
+        is_public: true,
+        title: "Crimson Desert horse mane preset request",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/ask/",
+        source_domain: "reddit.com",
+        snippet: "Please add mane presets.",
+        source_published_at: "2026-07-16T13:00:00Z",
+        created_at: "2026-07-16T13:00:00Z",
+        observed_at: "2026-07-16T13:00:00Z",
+        seen_count: 2,
+      },
+      {
+        id: "undated-ask",
+        patch_version: "1.13.01",
+        kind: "community_ask",
+        is_public: true,
+        title: "Day 12 of asking for a Crimson Desert photo mode",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/photo-mode/",
+        source_domain: "reddit.com",
+        snippet: "Please add a photo mode.",
+        source_published_at: null,
+        created_at: "2026-07-16T14:00:00Z",
+        observed_at: "2026-07-16T14:00:00Z",
+        seen_count: 3,
+      },
+    ];
+
+    const lanes = await getPublicObservations(observationClient(rows) as never, {
+      version: "1.13.01",
+      publishedAt: "not a date",
+    });
+
+    expect(lanes.coverage.map((observation) => observation.id)).toEqual(["dated-coverage"]);
+    expect(lanes.asks.map((observation) => observation.id)).toEqual(["dated-ask"]);
+    expect(lanes.asks.every((observation) => observation.timestamp.kind === "published")).toBe(true);
+    // Not a collapsed read: the lanes carry rows, and the undated ask is the
+    // only thing missing.
+    expect([...lanes.coverage, ...lanes.asks]).toHaveLength(2);
   });
 
   it("keeps out-of-era dates from consuming the per-lane budget ahead of valid rows", async () => {
@@ -246,7 +334,98 @@ describe("getPublicObservations", () => {
 
     expect(lanes.coverage.map((observation) => observation.id)).toEqual(["newer-dated", "older-dated"]);
     expect(lanes.asks.map((observation) => observation.id)).toEqual(["dated-ask"]);
-    expect(lanes.asks[0].sourcePublishedAt).toBe("2026-07-24T12:00:00Z");
+    expect(lanes.asks[0].timestamp).toEqual({ kind: "published", value: "2026-07-24T12:00:00Z" });
+  });
+
+  describe("lane clocks", () => {
+    const PATCH = { version: "1.15.00", publishedAt: "2026-07-24T00:00:00Z" };
+    const NOW = Date.parse("2026-07-28T12:00:00Z");
+    const askRow = (overrides: Partial<ObservationQueryRow> = {}): ObservationQueryRow => ({
+      id: "ask",
+      patch_version: "1.15.00",
+      kind: "community_ask",
+      is_public: true,
+      title: "Day 12 of asking for a Crimson Desert photo mode",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/photo-mode/",
+      source_domain: "reddit.com",
+      snippet: "Please add a photo mode.",
+      source_published_at: null,
+      created_at: "2026-07-26T08:00:00Z",
+      observed_at: "2026-07-26T08:00:00Z",
+      seen_count: 3,
+      ...overrides,
+    });
+
+    it("renders an eligible undated ask on its first-discovery time", () => {
+      const lanes = splitPublicObservationLanes([askRow()], PATCH, NOW);
+      expect(lanes.asks).toHaveLength(1);
+      expect(lanes.asks[0].timestamp).toEqual({
+        kind: "first_seen_by_radar",
+        value: "2026-07-26T08:00:00Z",
+      });
+    });
+
+    it("drops an undated ask first discovered before the current patch shipped", () => {
+      const lanes = splitPublicObservationLanes(
+        [askRow({ created_at: "2026-07-20T08:00:00Z" })],
+        PATCH,
+        NOW,
+      );
+      expect(lanes.asks).toEqual([]);
+    });
+
+    it("fails closed on undated asks when the patch publication time is unavailable", () => {
+      for (const publishedAt of [null, "not a date"]) {
+        const lanes = splitPublicObservationLanes([askRow()], { version: "1.15.00", publishedAt }, NOW);
+        expect(lanes.asks).toEqual([]);
+      }
+    });
+
+    it("still requires a publication date on From the Wire", () => {
+      const undatedCoverage: ObservationQueryRow = {
+        id: "undated-coverage",
+        patch_version: "1.15.00",
+        kind: "press_reception",
+        is_public: true,
+        title: "Crimson Desert 1.15.00 performance test",
+        url: "https://example.com/crimson-desert-perf",
+        source_domain: "example.com",
+        snippet: "We measured the patch.",
+        source_published_at: null,
+        created_at: "2026-07-26T08:00:00Z",
+        observed_at: "2026-07-26T08:00:00Z",
+        seen_count: 1,
+      };
+      const lanes = splitPublicObservationLanes([undatedCoverage], PATCH, NOW);
+      expect(lanes.coverage).toEqual([]);
+      expect(lanes.asks).toEqual([]);
+    });
+
+    it("never copies first-discovery time into a published timestamp", () => {
+      const lanes = splitPublicObservationLanes([askRow()], PATCH, NOW);
+      expect(lanes.asks[0].timestamp.kind).toBe("first_seen_by_radar");
+      expect(lanes.coverage.every((observation) => observation.timestamp.kind === "published")).toBe(true);
+    });
+
+    it("keeps a hidden or off-topic undated ask out of the lane", () => {
+      expect(splitPublicObservationLanes([askRow({ is_public: false })], PATCH, NOW).asks).toEqual([]);
+      expect(
+        splitPublicObservationLanes(
+          [askRow({ title: "Day 12 of asking for a photo mode", url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/x/" })],
+          PATCH,
+          NOW,
+        ).asks,
+      ).toEqual([]);
+    });
+
+    it("prefers a real publication date over first-discovery time when both exist", () => {
+      const lanes = splitPublicObservationLanes(
+        [askRow({ source_published_at: "2026-07-25T09:00:00Z" })],
+        PATCH,
+        NOW,
+      );
+      expect(lanes.asks[0].timestamp).toEqual({ kind: "published", value: "2026-07-25T09:00:00Z" });
+    });
   });
 
   it("gates on date presence alone when the patch has no recorded publish date", () => {

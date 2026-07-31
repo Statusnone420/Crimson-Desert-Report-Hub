@@ -1,7 +1,9 @@
 import "server-only";
 import {
   isBriefEligibleObservation,
+  isFirstSeenByRadarRenderable,
   OBSERVATION_FUTURE_SKEW_MS,
+  passesNonDateBriefGates,
   patchEraFloorMs,
 } from "@/lib/observationDisplay";
 
@@ -591,6 +593,17 @@ function countGpus(rows: DashboardReportRow[]): Record<string, number> {
   return counts;
 }
 
+/**
+ * Which clock a lane item is showing, carried in the data rather than inferred
+ * at render time. `published` is the source's own publication date.
+ * `first_seen_by_radar` is the row's immutable `created_at` — when the scanner
+ * first saw the thread — and is never described as a publication date anywhere
+ * it surfaces.
+ */
+export type PublicObservationTimestamp =
+  | { kind: "published"; value: string }
+  | { kind: "first_seen_by_radar"; value: string };
+
 export type PublicObservation = {
   id: string;
   kind: "patch_release" | "press_reception" | "fix_announcement" | "community_ask";
@@ -598,15 +611,19 @@ export type PublicObservation = {
   url: string;
   sourceDomain: string | null;
   snippet: string | null;
-  /** Real source publication date. Display gates require it; never null in lane output. */
-  sourcePublishedAt: string;
+  timestamp: PublicObservationTimestamp;
   observedAt: string;
   seenCount: number;
 };
 
+/** A lane item that is guaranteed to be carrying a real publication date. */
+export type PublishedObservation = PublicObservation & {
+  timestamp: Extract<PublicObservationTimestamp, { kind: "published" }>;
+};
+
 export type PublicObservationLanes = {
-  /** From the Wire: third-party coverage of the current patch. */
-  coverage: PublicObservation[];
+  /** From the Wire: third-party coverage of the current patch. Dated by the source, always. */
+  coverage: PublishedObservation[];
   /** Community Asks: player requests — their own lane, never mixed with coverage. */
   asks: PublicObservation[];
 };
@@ -619,6 +636,7 @@ type PatchObservationRow = {
   source_domain: string | null;
   snippet: string | null;
   source_published_at?: string | null;
+  created_at?: string | null;
   observed_at: string;
   seen_count: number;
   is_public: boolean;
@@ -631,37 +649,76 @@ const COVERAGE_OBSERVATION_KINDS: PublicObservation["kind"][] = [
   "fix_announcement",
 ];
 
+function toPublicObservation(
+  row: PatchObservationRow,
+  timestamp: PublicObservationTimestamp,
+): PublicObservation {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    url: row.url,
+    sourceDomain: row.source_domain,
+    snippet: row.snippet,
+    timestamp,
+    observedAt: row.observed_at,
+    seenCount: row.seen_count,
+  };
+}
+
+function byNewestTimestamp(left: PublicObservation, right: PublicObservation): number {
+  return new Date(right.timestamp.value).getTime() - new Date(left.timestamp.value).getTime();
+}
+
 /**
- * Pure lane split for the Brief's context modules: Wire coverage and Community
- * Asks stay separate genres, each real-dated, each sorted by when the SOURCE
- * published — not by when the scanner found it.
+ * Pure lane split for the Brief's context modules. Wire coverage and Community
+ * Asks stay separate genres — and, since this PR, separate CLOCKS.
+ *
+ * From the Wire is press coverage: an article without a publication date cannot
+ * be placed in the patch's timeline honestly, so the lane still requires one and
+ * still sorts by it. Scanner discovery time never appears here.
+ *
+ * Community Asks are player threads, and the search provider almost never dates
+ * them. Requiring a publication date emptied the lane of real, live campaigns.
+ * An undated ask therefore renders on its first-discovery time instead — the
+ * row's immutable `created_at`, labelled as such, never copied into
+ * `source_published_at` and never called published. It may only do so inside the
+ * current patch's era, and not at all when the patch publication time is
+ * unknown (fail closed).
  */
 export function splitPublicObservationLanes(
   rows: PatchObservationRow[],
   patch: { version: string; publishedAt: string | null },
+  nowMs: number = Date.now(),
 ): PublicObservationLanes {
-  const displayable = rows
-    .filter((row): row is PatchObservationRow & { source_published_at: string } =>
-      isBriefEligibleObservation(row, patch),
-    )
-    .sort(
-      (left, right) =>
-        new Date(right.source_published_at).getTime() - new Date(left.source_published_at).getTime(),
-    )
-    .map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      title: row.title,
-      url: row.url,
-      sourceDomain: row.source_domain,
-      snippet: row.snippet,
-      sourcePublishedAt: row.source_published_at,
-      observedAt: row.observed_at,
-      seenCount: row.seen_count,
-    }));
+  const coverage: PublishedObservation[] = [];
+  const asks: PublicObservation[] = [];
+
+  for (const row of rows) {
+    const publiclyDated = isBriefEligibleObservation(row, patch, nowMs);
+    if (row.kind !== "community_ask") {
+      if (publiclyDated && row.source_published_at) {
+        coverage.push(
+          toPublicObservation(row, { kind: "published", value: row.source_published_at }) as PublishedObservation,
+        );
+      }
+      continue;
+    }
+    if (publiclyDated && row.source_published_at) {
+      asks.push(toPublicObservation(row, { kind: "published", value: row.source_published_at }));
+      continue;
+    }
+    // Undated (or undisplayably dated) ask: the non-date gates still all apply,
+    // and the discovery time has to sit inside this patch's era.
+    if (!passesNonDateBriefGates(row, patch.version)) continue;
+    if (row.source_published_at) continue;
+    if (!isFirstSeenByRadarRenderable(row.created_at, patch.publishedAt, nowMs)) continue;
+    asks.push(toPublicObservation(row, { kind: "first_seen_by_radar", value: row.created_at as string }));
+  }
+
   return {
-    coverage: displayable.filter((observation) => observation.kind !== "community_ask"),
-    asks: displayable.filter((observation) => observation.kind === "community_ask"),
+    coverage: coverage.sort(byNewestTimestamp).slice(0, PUBLIC_OBSERVATIONS_PER_LANE),
+    asks: asks.sort(byNewestTimestamp).slice(0, PUBLIC_OBSERVATIONS_PER_LANE),
   };
 }
 
@@ -680,33 +737,60 @@ export async function getPublicObservations(
     // split re-checks every gate itself so it stays the single answer to
     // "would this render", wherever its rows came from.
     const selectColumns =
-      "id, kind, title, url, source_domain, snippet, source_published_at, observed_at, seen_count, is_public";
+      "id, kind, title, url, source_domain, snippet, source_published_at, created_at, observed_at, seen_count, is_public";
     // Both date gates also run server-side, before the per-lane limit: a batch
     // of nonsense far-future provider dates would otherwise sort first, consume
     // the limit, then be dropped client-side — starving the lane of valid rows.
-    const latestAllowedIso = new Date(Date.now() + OBSERVATION_FUTURE_SKEW_MS).toISOString();
+    const nowMs = Date.now();
+    const latestAllowedIso = new Date(nowMs + OBSERVATION_FUTURE_SKEW_MS).toISOString();
     const eraFloorMs = patchEraFloorMs(patch.publishedAt);
     const eraStartIso = Number.isFinite(eraFloorMs) ? new Date(eraFloorMs).toISOString() : null;
-    const laneQuery = (lane: "coverage" | "asks") => {
-      const base = supabase
+    const laneBase = (kinds: PublicObservation["kind"][]) =>
+      supabase
         .from("patch_observations")
         .select(selectColumns)
         .eq("patch_version", patch.version)
-        .eq("is_public", true);
-      const byKind =
-        lane === "coverage" ? base.in("kind", COVERAGE_OBSERVATION_KINDS) : base.eq("kind", "community_ask");
-      const dated = byKind
+        .eq("is_public", true)
+        .in("kind", kinds);
+    const datedQuery = (kinds: PublicObservation["kind"][]) => {
+      const dated = laneBase(kinds)
         .not("source_published_at", "is", null)
         .lte("source_published_at", latestAllowedIso);
       return (eraStartIso ? dated.gte("source_published_at", eraStartIso) : dated)
         .order("source_published_at", { ascending: false })
         .limit(PUBLIC_OBSERVATIONS_PER_LANE);
     };
-    const [coverage, asks] = await Promise.all([laneQuery("coverage"), laneQuery("asks")]);
-    if (coverage.error || asks.error) return EMPTY_OBSERVATION_LANES;
+    // Undated asks, newest discovery first. Bounded server-side by `eraStartIso`
+    // — the parsed, normalized era floor, never the raw `patch.publishedAt`,
+    // which may be a string the database cannot compare and would fail the whole
+    // read. A null floor means the patch publication time is missing or
+    // malformed, so ONLY this lane stands down: the fail-closed answer the split
+    // gives anyway, reached without spending a query. The dated lanes above are
+    // unaffected and still return their rows. The exact publication time (not
+    // the floored day) is re-applied per row in the split, so this bound is a
+    // pre-filter, never the rule.
+    const undatedAsksQuery = eraStartIso
+      ? laneBase(["community_ask"])
+          .is("source_published_at", null)
+          .gte("created_at", eraStartIso)
+          .lte("created_at", latestAllowedIso)
+          .order("created_at", { ascending: false })
+          .limit(PUBLIC_OBSERVATIONS_PER_LANE)
+      : null;
+    const [coverage, asks, undatedAsks] = await Promise.all([
+      datedQuery(COVERAGE_OBSERVATION_KINDS),
+      datedQuery(["community_ask"]),
+      undatedAsksQuery ?? Promise.resolve({ data: [], error: null }),
+    ]);
+    if (coverage.error || asks.error || undatedAsks.error) return EMPTY_OBSERVATION_LANES;
     return splitPublicObservationLanes(
-      [...(coverage.data ?? []), ...(asks.data ?? [])] as PatchObservationRow[],
+      [
+        ...(coverage.data ?? []),
+        ...(asks.data ?? []),
+        ...(undatedAsks.data ?? []),
+      ] as PatchObservationRow[],
       patch,
+      nowMs,
     );
   } catch {
     return EMPTY_OBSERVATION_LANES;

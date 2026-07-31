@@ -387,17 +387,6 @@ export function preScreenCandidate(
   if (hasUnsupportedSourceContext(input)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
-  // Community asks are patch-agnostic, so they are tagged before the patch
-  // gates. A campaign about a BUG ("day 20 of asking to fix the crashes")
-  // carries symptom language and falls through to the normal complaint path —
-  // the ask lane only takes pure requests.
-  if (
-    matchesAny(sourceText, COMMUNITY_ASK_PATTERNS) &&
-    !hasComplaintSymptom(sourceText) &&
-    isFreshEnoughForAsk(input.sourcePublishedAt)
-  ) {
-    return { keep: false, reason: "source_not_issue_report", observationKind: "community_ask" };
-  }
   if (mentionsOnlyOtherPatch(sourceText, options.currentPatchVersion ?? CURRENT_PATCH)) {
     return { keep: false, reason: "wrong_patch" };
   }
@@ -407,6 +396,24 @@ export function preScreenCandidate(
   );
   if (!patchEligibility.canStore) {
     return { keep: false, reason: patchEligibility.reason === "wrong_patch" ? "wrong_patch" : "stale_source" };
+  }
+  // Community asks are patch-AGNOSTIC in content — a request names no version —
+  // but they are not exempt from the patch gates. They run AFTER off-topic,
+  // unrelated-subreddit, wrong-patch, verified pre-era date and current-patch
+  // eligibility, because an ask published before this patch, or explicitly tied
+  // to an older one, is an archive thread and must not be published as part of
+  // the current patch's conversation. Being ahead of those gates is exactly how
+  // "day 40 of asking" threads from a previous patch reached the live lane.
+  //
+  // A campaign about a BUG ("day 20 of asking to fix the crashes") carries
+  // symptom language and falls through to the normal complaint path — the ask
+  // lane only takes pure requests.
+  if (
+    matchesAny(sourceText, COMMUNITY_ASK_PATTERNS) &&
+    !hasComplaintSymptom(sourceText) &&
+    isFreshEnoughForAsk(input.sourcePublishedAt)
+  ) {
+    return { keep: false, reason: "source_not_issue_report", observationKind: "community_ask" };
   }
   if (
     isPatchReleaseTitle(input.title) &&

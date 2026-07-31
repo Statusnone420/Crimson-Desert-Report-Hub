@@ -1134,7 +1134,7 @@ export default async function DispatchHomePage() {
                   className={index === 0 ? "wire-item" : "wire-item wire-item--overflow"}
                 >
                   <p className="wire-item__meta">
-                    {observation.sourceDomain ?? "source"} · {shortDate(observation.sourcePublishedAt)}
+                    {observation.sourceDomain ?? "source"} · {shortDate(observation.timestamp.value)}
                   </p>
                   <a
                     className="wire-item__title"
@@ -1167,7 +1167,13 @@ export default async function DispatchHomePage() {
                   className={index === 0 ? "wire-item" : "wire-item wire-item--overflow"}
                 >
                   <p className="wire-item__meta">
-                    {observation.sourceDomain ?? "source"} · {shortDate(observation.sourcePublishedAt)}
+                    {observation.sourceDomain ?? "source"} ·{" "}
+                    {/* Two clocks, never conflated: a source's own publication
+                        date, or — when it never gave one — the day the radar
+                        first saw the thread, said in those words. */}
+                    {observation.timestamp.kind === "published"
+                      ? shortDate(observation.timestamp.value)
+                      : `first seen by radar ${shortDate(observation.timestamp.value)}`}
                     {observation.seenCount > 1 ? ` · seen ${observation.seenCount}×` : ""}
                   </p>
                   <a

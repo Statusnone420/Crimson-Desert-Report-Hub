@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { domainTier } from "@/lib/automation/domains";
 import { hasCrimsonDesertContext, type ObservationKind } from "@/lib/automation/relevance";
-import { isDisplayableDatedObservation, patchEraFloorMs } from "@/lib/observationDisplay";
+import {
+  ASCII_EDGE_BLANKS,
+  hasUsableDate,
+  isDisplayableDatedObservation,
+  patchEraFloorMs,
+} from "@/lib/observationDisplay";
 
 /**
  * Observation lane: the typed shelf for patch-day context the evidence funnel
@@ -80,99 +85,6 @@ export function shouldCollectObservation(
   if (collectedThisRun >= MAX_OBSERVATIONS_PER_RUN) return false;
   if (!hasCrimsonDesertContext(candidate)) return false;
   return domainTier(candidate.sourceDomain) === "trusted";
-}
-
-const RFC_1123_MONTHS: Record<string, number> = {
-  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
-  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
-};
-
-/**
- * The wire's shape in the wild (probed live 2026-07-27): Tavily's news index
- * emits RFC 1123 — `Fri, 24 Jul 2026 00:00:00 GMT` — while Reddit intake
- * mints strict ISO via toISOString(). These two families are the entire
- * legitimate supply of publication dates.
- *
- * Both patterns anchor the FULL string and separate with plain spaces only —
- * never `\s`, which in JavaScript matches U+00A0 and friends, characters
- * PostgreSQL's datetime scanner rejects outright (probed).
- */
-const RFC_1123_DATE =
-  /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), +)?(\d{1,2}) +(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +(\d{4})(?: +\d{2}:\d{2}:\d{2})? +(?:GMT|UTC)$/i;
-
-/**
- * Date, optional time, optional zone — nothing else. The tail alternation is
- * the load-bearing part: an unanchored prefix match would wave through any
- * trailing text JavaScript's lenient legacy parser tolerates, and PostgreSQL
- * rejects several of those (`2026-07-24 00:00:00 GMT-0500`: the zone is the
- * whole reason the cast fails). Offsets capture for the ±15:59 bound check.
- */
-const ISO_8601_DATE =
-  /^(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|([+-])(\d{2})(?::?(\d{2}))?)?)?$/i;
-
-/** JavaScript rolls impossible days over (Feb 30 -> Mar 2); PostgreSQL rejects them. */
-function isRealCalendarDay(year: number, month: number, day: number): boolean {
-  const composed = new Date(Date.UTC(year, month - 1, day));
-  return (
-    composed.getUTCFullYear() === year &&
-    composed.getUTCMonth() === month - 1 &&
-    composed.getUTCDate() === day
-  );
-}
-
-/**
- * A date only counts if it will survive persistence: the RPC casts the string
- * with `::timestamptz` and stores a failed cast as NULL, leaving the row
- * exactly as unrenderable as one that never carried a date. Judging the
- * candidate AND the shelf with the same test keeps a run of malformed-dated
- * rows from masquerading as a dated shelf and blocking a genuinely dated
- * result.
- *
- * This is an ALLOWLIST of the two formats the pipeline actually receives
- * (ISO 8601 from Reddit intake and the database; RFC 1123 from the Tavily
- * wire), not a test of what JavaScript can parse. JavaScript's parser is the
- * wrong oracle for a PostgreSQL cast: it accepts strings PostgreSQL rejects —
- * rolled-over calendar days in any format (02/30/2026, `Mon, 30 Feb 2026`),
- * timezone offsets past PostgreSQL's ±15:59 displacement limit, zone suffixes
- * like `GMT-0500` — and each acceptance would hand priority to a row that
- * persists as undated. So both branches anchor their full pattern, validate
- * the literal calendar components (from the string, not a UTC round-trip,
- * because an offset timestamp can legitimately sit on a different UTC
- * calendar day), the ISO branch bounds the offset, and Date.parse guards
- * only what remains (time-of-day ranges, overall well-formedness — where
- * JavaScript is the stricter side).
- *
- * Anything else returns false, which is the safe direction: an unrecognized
- * format loses priority, and — because the RPC's coalesce now trusts every
- * non-null incoming date to be renderable — persistObservations sends it as
- * NULL rather than letting a date this module cannot vouch for replace or
- * occupy stored state. The observation itself still persists; a later
- * sighting in a vouched format fills the date in. (Incidentally the
- * allowlist also rejects years below 100:
- * Date.UTC maps them to 1900+, so isRealCalendarDay rejects them — not
- * designed, but the safe direction, and no real source dates from 99 AD.)
- *
- * The edge trim strips ASCII blanks ONLY, matching what PostgreSQL itself
- * ignores. String.prototype.trim would also strip U+00A0 — which PostgreSQL
- * rejects — and since the RPC receives the RAW string, trimming more than
- * the cast forgives would vouch for a value the cast then nulls.
- */
-/** ASCII blanks only — see the trim note on hasUsableDate. */
-const ASCII_EDGE_BLANKS = /^[ \t]+|[ \t]+$/g;
-
-function hasUsableDate(sourcePublishedAt: string | null): boolean {
-  if (!sourcePublishedAt) return false;
-  const value = sourcePublishedAt.replace(ASCII_EDGE_BLANKS, "");
-  if (!Number.isFinite(Date.parse(value))) return false;
-  const iso = ISO_8601_DATE.exec(value);
-  if (iso) {
-    if (!isRealCalendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]))) return false;
-    if (!iso[4]) return true;
-    return Number(iso[5]) * 60 + Number(iso[6] ?? "0") <= 15 * 60 + 59;
-  }
-  const rfc = RFC_1123_DATE.exec(value);
-  if (!rfc) return false;
-  return isRealCalendarDay(Number(rfc[3]), RFC_1123_MONTHS[rfc[2].toLowerCase()], Number(rfc[1]));
 }
 
 /**
@@ -385,6 +297,7 @@ export async function persistObservations(
   patchVersion: string,
   report: { errors: string[]; observationsKept: number },
   patchPublishedAt: string | null = null,
+  storedDatesByUrlHash: ReadonlyMap<string, string | null> = new Map(),
 ): Promise<void> {
   if (observations.length === 0) return;
   try {
@@ -418,6 +331,19 @@ export async function persistObservations(
     // payloads without it — an in-flight or rolled-back older deployment —
     // get the legacy stored-first coalesce, so no deploy ordering can let an
     // unvetted date replace a stored good one.
+    //
+    // One further restriction on top of that contract: a row that ALREADY has a
+    // renderable stored date keeps it. Re-observation may FILL a null date and
+    // HEAL an unrenderable one, but it may not overwrite a good date with a
+    // different good date — the first verified publication date for a page is
+    // the one a reader saw, and later sightings of the same page are not new
+    // evidence about when it was published. Withholding sends NULL, which the
+    // RPC's coalesce turns into "leave the stored value alone".
+    const keepsStoredDate = (hash: string, observation: ObservationCandidate): boolean => {
+      const stored = storedDatesByUrlHash.get(hash);
+      if (!stored) return false;
+      return hasDisplayableDate({ sourcePublishedAt: stored, observedAt: observation.observedAt }, patchPublishedAt);
+    };
     const rows = prioritized.map(([hash, observation]) => ({
       kind: observation.kind,
       title: observation.title.slice(0, 240),
@@ -425,9 +351,10 @@ export async function persistObservations(
       url_hash: hash,
       source_domain: observation.sourceDomain,
       snippet: observation.snippet.slice(0, 500),
-      source_published_at: hasCertifiedDisplayableDate(observation, patchPublishedAt)
-        ? observation.sourcePublishedAt
-        : null,
+      source_published_at:
+        hasCertifiedDisplayableDate(observation, patchPublishedAt) && !keepsStoredDate(hash, observation)
+          ? observation.sourcePublishedAt
+          : null,
       date_contract: "displayable_only",
       observed_at: observation.observedAt,
     }));

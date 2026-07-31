@@ -162,11 +162,6 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "The cron fired, but a real scan started inside the scanner policy window, so this attempt stood down. Dry runs never block it.",
     summaryLabel: "recent scan already ran",
   },
-  reddit_disabled: {
-    label: "Reddit disabled",
-    detail: "The Reddit API is permanently disabled, so this run used web search only.",
-    summaryLabel: "Reddit disabled",
-  },
   scan_already_running: {
     label: "Scan already running",
     detail: "Another scan was still in progress, so this one did not start.",
@@ -267,7 +262,6 @@ const DROP_SKIP_PLAIN: Record<string, string> = {
   category_other: "not sortable into a bug area",
   off_topic: "not about Crimson Desert",
   duplicate: "a duplicate of something we already have",
-  reddit_disabled: "Reddit source is off",
   openrouter_invalid_json: "an AI read failed (used a fallback)",
   openrouter_provider_failure: "an AI provider failed (used a fallback)",
 };

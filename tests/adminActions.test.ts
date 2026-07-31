@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
-  fetchNewPosts: vi.fn(),
-  getRedditToken: vi.fn(),
   rpc: vi.fn(),
   redirect: vi.fn(),
   refreshClusterVisibility: vi.fn(),
@@ -28,10 +26,6 @@ vi.mock("@/lib/automation/run", () => ({
 }));
 vi.mock("@/lib/officialPatch.server", () => ({
   getCurrentPatchMetadata: vi.fn(async () => ({ version: "1.13.01", publishedAt: "2026-07-08T00:00:00Z" })),
-}));
-vi.mock("@/lib/reddit.server", () => ({
-  fetchNewPosts: mocks.fetchNewPosts,
-  getRedditToken: mocks.getRedditToken,
 }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 
@@ -146,20 +140,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("runRedditMonitor", () => {
-  it("stays permanently disabled when legacy Reddit credentials remain", async () => {
+describe("admin action surface", () => {
+  it("exposes no Reddit API monitor, with or without legacy credentials", async () => {
     vi.stubEnv("REDDIT_CLIENT_ID", "legacy-id");
     vi.stubEnv("REDDIT_CLIENT_SECRET", "legacy-secret");
     vi.stubEnv("REDDIT_USER_AGENT", "legacy-agent");
-    mocks.getRedditToken.mockResolvedValue("legacy-token");
-    mocks.fetchNewPosts.mockResolvedValue([]);
-    const { runRedditMonitor } = await import("@/app/admin/actions");
-    const formData = new FormData();
-    formData.set("subreddits", "CrimsonDesert");
+    const actions = await import("@/app/admin/actions");
 
-    await expect(runRedditMonitor(formData)).rejects.toThrow("reddit monitor permanently disabled");
-    expect(mocks.getRedditToken).not.toHaveBeenCalled();
-    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+    expect(Object.keys(actions).some((name) => /reddit/i.test(name))).toBe(false);
   });
 });
 

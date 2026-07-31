@@ -46,7 +46,6 @@ import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import {
   automationBudgetUsd,
-  automationSubreddits,
   features,
   platformContextConfigured,
   steamPulseEnabled,
@@ -58,13 +57,13 @@ import {
   syncOfficialPatchNote,
   type CurrentPatchMetadata,
 } from "@/lib/officialPatch.server";
-import { fetchNewPosts, getRedditToken } from "@/lib/reddit.server";
 import {
   appendUniqueObservation,
   persistObservations,
   upgradeObservationDate,
   type ObservationCandidate,
 } from "@/lib/automation/observations";
+import { resolveAssertedSourceDate, resolveSourceDate } from "@/lib/automation/sourceDate";
 import {
   buildSteamPulseSnapshot,
   fetchSteamReviewBatch,
@@ -81,7 +80,6 @@ export type AutomationMode = "scheduled" | "manual" | "dry_run";
 
 export type AutomationResult = {
   status: "success" | "partial" | "failed" | "skipped";
-  redditPostsSeen: number;
   searchQueriesUsed: number;
   searchResultsSeen: number;
   llmCallsUsed: number;
@@ -220,7 +218,7 @@ export async function hasActiveRun(
 }
 
 type SourceInput = {
-  source: "reddit" | "web_search" | "steam_review";
+  source: "web_search" | "steam_review";
   id: string;
   title: string;
   body: string;
@@ -371,6 +369,7 @@ const RESCUE_CONTEXT = /\b(?:discussion|comments?|thread|feedback|player|players
 
 function isBorderlineRescueCandidate(
   signal: SourceInput,
+  assertedSourceDate: string | null,
   currentPatch: CurrentPatchContext,
 ): boolean {
   if (domainTier(signal.sourceDomain) !== "trusted") return false;
@@ -383,7 +382,7 @@ function isBorderlineRescueCandidate(
   if (RESCUE_EXCLUDED_CONTENT.test(text)) return false;
   if (!RESCUE_CONTEXT.test(text)) return false;
   return evaluateCurrentPatchEligibility(
-    { title: signal.title, snippet: signal.body, sourcePublishedAt: signal.sourcePublishedAt ?? null },
+    { title: signal.title, snippet: signal.body, sourcePublishedAt: assertedSourceDate },
     currentPatch,
   ).canStore;
 }
@@ -452,6 +451,52 @@ async function updateRunIntent(
     await supabase.from("automation_runs").update({ intent }).eq("id", runId);
   } catch {
     // best-effort by design
+  }
+}
+
+/**
+ * Publication dates this patch's observation shelf already holds, keyed two
+ * ways for two different jobs:
+ *
+ *   - byCanonicalUrl feeds the source-date resolver's last precedence step, so
+ *     a page we already have a verified date for keeps it when an undated
+ *     sighting arrives. Exact URL only — a date describes one page.
+ *   - byUrlHash is the row identity the persistence RPC uses, so a re-sighting
+ *     can tell "this row has a good date already" from "this row is undated".
+ *
+ * A missing table (migration not applied on this deploy yet) or any read error
+ * degrades to empty maps: the resolver loses one input and falls back to null,
+ * which is the same answer it gave before this map existed.
+ */
+type StoredObservationDates = {
+  byCanonicalUrl: ReadonlyMap<string, string | null>;
+  byUrlHash: ReadonlyMap<string, string | null>;
+};
+
+const EMPTY_STORED_SOURCE_DATES: StoredObservationDates = {
+  byCanonicalUrl: new Map(),
+  byUrlHash: new Map(),
+};
+
+async function loadStoredSourceDates(
+  supabase: ReturnType<typeof createServiceClient>,
+  patchVersion: string,
+): Promise<StoredObservationDates> {
+  try {
+    const { data, error } = await supabase
+      .from("patch_observations")
+      .select("url, url_hash, source_published_at")
+      .eq("patch_version", patchVersion);
+    if (error) return EMPTY_STORED_SOURCE_DATES;
+    const byCanonicalUrl = new Map<string, string | null>();
+    const byUrlHash = new Map<string, string | null>();
+    for (const row of (data ?? []) as { url?: string | null; url_hash?: string | null; source_published_at?: string | null }[]) {
+      if (row.url) byCanonicalUrl.set(row.url, row.source_published_at ?? null);
+      if (row.url_hash) byUrlHash.set(row.url_hash, row.source_published_at ?? null);
+    }
+    return { byCanonicalUrl, byUrlHash };
+  } catch {
+    return EMPTY_STORED_SOURCE_DATES;
   }
 }
 
@@ -922,34 +967,6 @@ async function collectInputs(
   const inputs: SourceInput[] = [];
   const f = features();
 
-  if (f.reddit) {
-    try {
-      const token = await getRedditToken();
-      for (const subreddit of automationSubreddits()) {
-        const posts = await fetchNewPosts(subreddit, token, 25);
-        result.redditPostsSeen += posts.length;
-        for (const post of posts) {
-          const sourcePublishedAt = new Date(post.created_utc * 1000).toISOString();
-          inputs.push({
-            source: "reddit",
-            id: post.id,
-            title: post.title,
-            body: post.selftext ?? "",
-            url: `https://www.reddit.com${post.permalink}`,
-            observedAt: now.toISOString(),
-            sourceDomain: "reddit.com",
-            sourcePublishedAt,
-          });
-        }
-      }
-    } catch (error) {
-      result.status = "partial";
-      result.errors.push(toErrorMessage(error, "reddit failed"));
-    }
-  } else {
-    result.skips.push("reddit_disabled");
-  }
-
   if (f.webSearch && budget.allowPaidSearch) {
     const startDate = currentPatch.publishedAt?.slice(0, 10) ?? null;
     // Wire slot: every few discovery TURNS, one general-search slot becomes the
@@ -1010,6 +1027,7 @@ async function prepareSignals(
   currentPatch: CurrentPatchContext,
   clusterOptions: ClusterOption[],
   feedbackRules: ScannerFeedbackRule[],
+  storedSourceDates: StoredObservationDates,
   now: Date,
   report?: () => Promise<void>,
 ): Promise<{ prepared: PreparedSignal[]; rejected: RejectedCandidate[]; observations: ObservationCandidate[] }> {
@@ -1021,6 +1039,33 @@ async function prepareSignals(
   const seenExternalIds = new Set<string>();
   let reconFetchesUsed = 0;
 
+  /**
+   * Every date decision in this function starts here. `asserted` is what the
+   * source itself claims (still format-, calendar- and skew-checked) and is
+   * what freshness screening judges — current-patch eligibility is the code
+   * that decides a pre-era source is stale, so it has to be able to see a
+   * pre-era date. `displayable` additionally clears the patch-era floor and is
+   * the only date that reaches the observation shelf.
+   *
+   * Judged at the candidate's own observedAt, not the wall clock, so a run is
+   * deterministic for a given input set.
+   */
+  const resolveDates = (signal: SourceInput, canonicalUrl: string, sourceText: string) => {
+    const observedMs = Date.parse(signal.observedAt);
+    const nowMs = Number.isFinite(observedMs) ? observedMs : now.getTime();
+    const input = {
+      title: signal.title,
+      sourceText,
+      canonicalUrl,
+      sourcePublishedAt: signal.sourcePublishedAt ?? null,
+      storedDatesByCanonicalUrl: storedSourceDates.byCanonicalUrl,
+    };
+    return {
+      asserted: resolveAssertedSourceDate(input, currentPatch, nowMs).value,
+      displayable: resolveSourceDate(input, currentPatch, nowMs).value,
+    };
+  };
+
   // Observation reroute: a genre-tagged pre-screen rejection from a trusted domain
   // is copied to the observation lane. The rejection itself is unchanged — the
   // candidate still lands in the rejected pile exactly as before.
@@ -1029,6 +1074,7 @@ async function prepareSignals(
     signal: SourceInput,
     canonicalUrl: string,
     snippet: string,
+    displayableDate: string | null,
   ) => {
     if (!decision.observationKind) return;
     appendUniqueObservation(observations, {
@@ -1037,7 +1083,7 @@ async function prepareSignals(
       url: canonicalUrl,
       sourceDomain: signal.sourceDomain,
       snippet: snippet.slice(0, 500),
-      sourcePublishedAt: signal.sourcePublishedAt ?? null,
+      sourcePublishedAt: displayableDate,
       observedAt: signal.observedAt,
     }, seenObservationHashes, currentPatch.publishedAt);
   };
@@ -1063,6 +1109,8 @@ async function prepareSignals(
       continue;
     }
 
+    const snippetDates = resolveDates(signal, canonicalUrl, signal.body);
+
     const externalId = signal.source === "web_search" ? canonicalUrl : signal.id;
     // Steam intake hashes the recommendation id at the provider boundary. Reuse
     // that opaque identifier so receipts and source-signal retries share one
@@ -1081,7 +1129,7 @@ async function prepareSignals(
         const donated = upgradeObservationDate(
           observations,
           canonicalUrl,
-          signal.sourcePublishedAt ?? null,
+          snippetDates.displayable,
           currentPatch.publishedAt,
         );
         // No row to donate to: if the page's undated incarnation was
@@ -1096,7 +1144,7 @@ async function prepareSignals(
         // all.
         if (
           !donated &&
-          signal.sourcePublishedAt &&
+          snippetDates.displayable &&
           !prepared.some((row) => row.canonicalUrl === canonicalUrl)
         ) {
           const duplicateRule = matchScannerFeedbackRule(
@@ -1111,12 +1159,12 @@ async function prepareSignals(
                 snippet: signal.body,
                 url: canonicalUrl,
                 sourceDomain: signal.sourceDomain,
-                sourcePublishedAt: signal.sourcePublishedAt ?? null,
+                sourcePublishedAt: snippetDates.asserted,
               },
               { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
             );
             if (!duplicateScreen.keep) {
-              collectObservation(duplicateScreen, signal, canonicalUrl, signal.body);
+              collectObservation(duplicateScreen, signal, canonicalUrl, signal.body, snippetDates.displayable);
             }
           }
         }
@@ -1145,7 +1193,7 @@ async function prepareSignals(
         title: signal.title,
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
-        sourcePublishedAt: signal.sourcePublishedAt ?? null,
+        sourcePublishedAt: snippetDates.asserted,
         snippet: signal.body.slice(0, 500),
         reason: operatorRule.rule.decision,
         feedbackRuleId: operatorRule.rule.id,
@@ -1169,12 +1217,15 @@ async function prepareSignals(
         snippet: signal.body,
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
-        sourcePublishedAt: signal.sourcePublishedAt ?? null,
+        sourcePublishedAt: snippetDates.asserted,
       },
       { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
     );
     if (!preScreen.keep) {
-      if (preScreen.reason === "source_not_issue_report" && isBorderlineRescueCandidate(signal, currentPatch)) {
+      if (
+        preScreen.reason === "source_not_issue_report" &&
+        isBorderlineRescueCandidate(signal, snippetDates.asserted, currentPatch)
+      ) {
         // Recon lane: read the real page ONCE before rejecting a promising
         // trusted current-patch candidate whose Tavily snippet is too thin. Bounded
         // by the per-run Tavily credit budget shared with search
@@ -1236,6 +1287,11 @@ async function prepareSignals(
         }
 
         const effectiveBody = reconText ?? signal.body;
+        // Recon fetched the real page, and the page can state a date the snippet
+        // never carried (a Reddit byline lives in the thread, not the search
+        // summary). Re-resolve against the fuller text before re-screening.
+        const effectiveDates =
+          reconText === null ? snippetDates : resolveDates(signal, canonicalUrl, effectiveBody);
 
         // Re-run the cheap gate on the FULL text. Recon may reveal the source is a
         // wrong-patch/stale/non-issue page after all — hard-reject on the real text.
@@ -1246,12 +1302,12 @@ async function prepareSignals(
               snippet: effectiveBody,
               url: canonicalUrl,
               sourceDomain: signal.sourceDomain,
-              sourcePublishedAt: signal.sourcePublishedAt ?? null,
+              sourcePublishedAt: effectiveDates.asserted,
             },
             { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
           );
           if (!reScreen.keep) {
-            collectObservation(reScreen, signal, canonicalUrl, effectiveBody);
+            collectObservation(reScreen, signal, canonicalUrl, effectiveBody, effectiveDates.displayable);
             result.skips.push(reScreen.reason);
             result.prefilterRejected += 1;
             rejected.push({
@@ -1259,7 +1315,7 @@ async function prepareSignals(
               title: signal.title,
               url: canonicalUrl,
               sourceDomain: signal.sourceDomain,
-              sourcePublishedAt: signal.sourcePublishedAt ?? null,
+              sourcePublishedAt: effectiveDates.asserted,
               snippet: effectiveBody.slice(0, 500),
               reason: reScreen.reason,
               steamRecommendationHash: signal.steam?.recommendationHash ?? null,
@@ -1290,6 +1346,7 @@ async function prepareSignals(
           prepared.push({
             ...signal,
             body: effectiveBody,
+            sourcePublishedAt: effectiveDates.asserted,
             canonicalUrl,
             externalHash,
             semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
@@ -1306,7 +1363,7 @@ async function prepareSignals(
           title: signal.title,
           url: canonicalUrl,
           sourceDomain: signal.sourceDomain,
-          sourcePublishedAt: signal.sourcePublishedAt ?? null,
+          sourcePublishedAt: effectiveDates.asserted,
           snippet: effectiveBody.slice(0, 500),
           reason: relevance.reason,
           steamRecommendationHash: signal.steam?.recommendationHash ?? null,
@@ -1315,7 +1372,7 @@ async function prepareSignals(
         continue;
       }
 
-      collectObservation(preScreen, signal, canonicalUrl, signal.body);
+      collectObservation(preScreen, signal, canonicalUrl, signal.body, snippetDates.displayable);
       result.skips.push(preScreen.reason);
       result.prefilterRejected += 1;
       rejected.push({
@@ -1323,7 +1380,7 @@ async function prepareSignals(
         title: signal.title,
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
-        sourcePublishedAt: signal.sourcePublishedAt ?? null,
+        sourcePublishedAt: snippetDates.asserted,
         snippet: signal.body.slice(0, 500),
         reason: preScreen.reason,
         steamRecommendationHash: signal.steam?.recommendationHash ?? null,
@@ -1356,7 +1413,7 @@ async function prepareSignals(
         title: signal.title,
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
-        sourcePublishedAt: signal.sourcePublishedAt ?? null,
+        sourcePublishedAt: snippetDates.asserted,
         snippet: signal.body.slice(0, 500),
         reason: relevance.reason,
         steamRecommendationHash: signal.steam?.recommendationHash ?? null,
@@ -1367,6 +1424,7 @@ async function prepareSignals(
 
     prepared.push({
       ...signal,
+      sourcePublishedAt: snippetDates.asserted,
       canonicalUrl,
       externalHash,
       semantic: semanticFingerprint(extraction.issueTitle, extraction.category),
@@ -2189,7 +2247,9 @@ async function finalizeRunLedger(
     finished_at: new Date().toISOString(),
     status: result.errors.length > 0 && result.status === "success" ? "partial" : result.status,
     estimated_cost_usd: result.estimatedCostUsd,
-    reddit_posts_seen: result.redditPostsSeen,
+    // Historical column, kept only so the ledger schema and its readers stay
+    // unchanged. The authenticated Reddit API is gone; nothing can raise it.
+    reddit_posts_seen: 0,
     search_queries_used: result.searchQueriesUsed,
     search_results_seen: result.searchResultsSeen,
     llm_calls_used: result.llmCallsUsed,
@@ -2449,7 +2509,6 @@ async function executeAutomationRun(
 ): Promise<AutomationResult> {
   const result: AutomationResult = {
     status: "success",
-    redditPostsSeen: 0,
     searchQueriesUsed: 0,
     searchResultsSeen: 0,
     llmCallsUsed: 0,
@@ -2538,6 +2597,7 @@ async function executeAutomationRun(
       () => report("searching"),
     );
     const inputs = [...(steamCollection?.inputs ?? []), ...webInputs];
+    const storedSourceDates = await loadStoredSourceDates(supabase, currentPatch.version);
     const prepared = await prepareSignals(
       inputs,
       result,
@@ -2545,6 +2605,7 @@ async function executeAutomationRun(
       currentPatch,
       clusterOptions,
       feedbackRules,
+      storedSourceDates,
       now,
       () => report("screening"),
     );
@@ -2568,7 +2629,14 @@ async function executeAutomationRun(
       }
       // Observation lane persists after signals and never affects them: it is
       // best-effort by design and reports failures into the ledger only.
-      await persistObservations(supabase, prepared.observations, currentPatch.version, result, currentPatch.publishedAt);
+      await persistObservations(
+        supabase,
+        prepared.observations,
+        currentPatch.version,
+        result,
+        currentPatch.publishedAt,
+        storedSourceDates.byUrlHash,
+      );
       if (steamCollection) {
         await persistSteamReviewCollection(
           supabase,
@@ -2670,7 +2738,6 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
   if (started.status === "already_running") {
     return {
       status: "skipped",
-      redditPostsSeen: 0,
       searchQueriesUsed: 0,
       searchResultsSeen: 0,
       llmCallsUsed: 0,
@@ -2795,7 +2862,6 @@ export async function rescueCandidateSignal(
   const runId = await createRunLedger(supabase, "manual", budget, now);
   const result: AutomationResult = {
     status: "success",
-    redditPostsSeen: 0,
     searchQueriesUsed: 0,
     searchResultsSeen: 0,
     llmCallsUsed: 0,

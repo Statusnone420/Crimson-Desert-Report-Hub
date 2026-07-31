@@ -1655,7 +1655,11 @@ describe("automation relevance", () => {
       ).toMatchObject({ keep: false, reason: "stale_source" });
     });
 
-    it("rejects dated old Steam discussions that only say today's update", () => {
+    it("never treats a stray prose date as the source's publication date", () => {
+      // "Apr 4 @ 1:45am" is a comment stamp inside a Steam thread, not a
+      // publication date. The old loose scan read it as one and rejected the
+      // whole thread as stale; a date must now be ASSERTED by the source
+      // (see lib/automation/sourceDate.ts) before it can decide anything.
       expect(
         preScreenCandidate(
           {
@@ -1663,6 +1667,20 @@ describe("automation relevance", () => {
             snippet: "Apr 4 @ 1:45am I keep crashing when closing the map after the update.",
             sourceDomain: "steamcommunity.com",
             sourcePublishedAt: null,
+          },
+          { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
+        ),
+      ).toMatchObject({ keep: true });
+    });
+
+    it("still rejects the same thread when a real pre-era publication date is attached", () => {
+      expect(
+        preScreenCandidate(
+          {
+            title: "Crash after todays update :: Crimson Desert General Discussions",
+            snippet: "Apr 4 @ 1:45am I keep crashing when closing the map after the update.",
+            sourceDomain: "steamcommunity.com",
+            sourcePublishedAt: "2026-04-04T01:45:00.000Z",
           },
           { currentPatchVersion: "1.13.01", currentPatchPublishedAt: "2026-07-08T05:51:00.000Z" },
         ),
