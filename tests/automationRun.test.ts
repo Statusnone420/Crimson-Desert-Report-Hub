@@ -684,7 +684,8 @@ describe("runAutomationMonitor", () => {
       description: `Auto description ${index}.`,
       last_signal_at: `2026-07-${String(25 - index).padStart(2, "0")}T12:00:00.000Z`,
       created_at: "2026-07-01T00:00:00.000Z",
-      admin_visibility_override: index === 0 ? "force_hidden" : null,
+      admin_visibility_override: index <= 1 ? "force_hidden" : null,
+      lifecycle_reason: index === 1 ? "Merged into auto-semantic-02 (duplicate)." : null,
     }));
 
     const options = selectSemanticClusterOptions([...named, ...auto]);
@@ -700,9 +701,10 @@ describe("runAutomationMonitor", () => {
     ]);
     expect(namedOptions.at(-1)?.slug).toBe("watch-created-newer");
     expect(namedOptions.map((option) => option.slug)).not.toContain("watch-oldest");
-    expect(autoOptions.map((option) => option.slug)).not.toContain("auto-semantic-00");
+    expect(autoOptions.map((option) => option.slug)).toContain("auto-semantic-00");
+    expect(autoOptions.map((option) => option.slug)).not.toContain("auto-semantic-01");
     expect(options[0]).toMatchObject({ slug: "watch-recent", description: "Recent named context." });
-    expect(autoOptions[0]).toMatchObject({ slug: "auto-semantic-01", description: "Auto description 1." });
+    expect(autoOptions[0]).toMatchObject({ slug: "auto-semantic-00", description: "Auto description 0." });
   });
 
   it("immediately restores automatic cluster and signal visibility after force-hidden is cleared", async () => {
@@ -4757,7 +4759,7 @@ describe("runAutomationMonitor", () => {
     expect(tables.issue_clusters).toHaveLength(2);
   });
 
-  it("keeps force-hidden merged auto-clusters out of semantic rescue routing", async () => {
+  it("keeps temporary force-hidden auto-clusters routable while excluding merged duplicates", async () => {
     resetDb({
       issue_clusters: [
         {
@@ -4769,6 +4771,7 @@ describe("runAutomationMonitor", () => {
           last_signal_at: "2026-07-30T12:00:00.000Z",
           created_at: "2026-07-20T12:00:00.000Z",
           admin_visibility_override: null,
+          lifecycle_reason: null,
           fix_status: "reported",
           confidence: "low",
           is_public: false,
@@ -4784,6 +4787,23 @@ describe("runAutomationMonitor", () => {
           last_signal_at: "2026-07-31T12:00:00.000Z",
           created_at: "2026-07-21T12:00:00.000Z",
           admin_visibility_override: "force_hidden",
+          lifecycle_reason: "Merged into auto-3504f3a93c0b (duplicate Xbox graphics-glitch lead)",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 1,
+        },
+        {
+          id: "cluster-temporary-hidden-xbox",
+          slug: "auto-temporary-hidden-xbox",
+          title: "Xbox texture corruption",
+          category: "graphics_visual",
+          description: "Temporarily hidden while the maintainer checks presentation.",
+          last_signal_at: "2026-07-29T12:00:00.000Z",
+          created_at: "2026-07-22T12:00:00.000Z",
+          admin_visibility_override: "force_hidden",
+          lifecycle_reason: null,
           fix_status: "reported",
           confidence: "low",
           is_public: false,
@@ -4801,8 +4821,8 @@ describe("runAutomationMonitor", () => {
       confidence: "high",
       summary: "Xbox players report corrupted textures after the current patch.",
       clusterAssignment: "sure",
-      clusterReason: "The report appears to match the retired duplicate.",
-      clusterSlug: "auto-b7e557a13e9d",
+      clusterReason: "The report matches the temporarily hidden active cluster.",
+      clusterSlug: "auto-temporary-hidden-xbox",
       extractionProvider: "openrouter",
       extractionModel: "openai/gpt-5.6-luna",
       llmCallsUsed: 1,
@@ -4821,15 +4841,18 @@ describe("runAutomationMonitor", () => {
       },
     );
 
-    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({
-        clusterOptions: expect.not.arrayContaining([
-          expect.objectContaining({ slug: "auto-b7e557a13e9d" }),
-        ]),
-      }),
+    const [, extractionOptions] = mocks.extractSignalWithOpenRouter.mock.calls[0] as unknown as [
+      unknown,
+      { clusterOptions: { slug: string }[] },
+    ];
+    expect(extractionOptions.clusterOptions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ slug: "auto-temporary-hidden-xbox" })]),
     );
-    expect(sourceSignalRows()[0]?.cluster_id).not.toBe("cluster-retired-xbox");
+    expect(extractionOptions.clusterOptions).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ slug: "auto-b7e557a13e9d" })]),
+    );
+    expect(sourceSignalRows()[0]?.cluster_id).toBe("cluster-temporary-hidden-xbox");
+    expect(tables.issue_clusters).toHaveLength(3);
   });
 
   it("rescues deterministically without spending when the monthly LLM budget is exhausted", async () => {

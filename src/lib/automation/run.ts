@@ -1517,7 +1517,7 @@ export type SemanticClusterCandidate = {
   description?: string | null;
   last_signal_at?: string | null;
   created_at?: string | null;
-  admin_visibility_override?: "force_public" | "force_hidden" | null;
+  lifecycle_reason?: string | null;
 };
 
 type RoutableClusterRow = SemanticClusterCandidate;
@@ -1526,14 +1526,15 @@ export const MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS = 24;
 export const MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS = 24;
 const ROUTABLE_CLUSTER_PAGE_SIZE = 1000;
 const ROUTABLE_CLUSTER_COLUMNS =
-  "id, slug, title, category, description, last_signal_at, created_at, admin_visibility_override";
+  "id, slug, title, category, description, last_signal_at, created_at, lifecycle_reason";
 
 function isAutoCluster(cluster: RoutableClusterRow): boolean {
   return cluster.slug.startsWith("auto-");
 }
 
+// Visibility overrides are temporary; only the persisted merge lifecycle retires a route.
 function isActiveAutoCluster(cluster: RoutableClusterRow): boolean {
-  return isAutoCluster(cluster) && cluster.admin_visibility_override !== "force_hidden";
+  return isAutoCluster(cluster) && !cluster.lifecycle_reason?.trimStart().startsWith("Merged into ");
 }
 
 function isRoutableClusterRow(value: unknown): value is RoutableClusterRow {
