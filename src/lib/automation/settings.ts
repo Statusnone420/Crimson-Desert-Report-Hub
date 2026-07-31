@@ -5,12 +5,13 @@ import { createServiceClient } from "@/lib/supabase";
 
 const MIN_INTERVAL_MINUTES = [60, 120, 360, 1440] as const;
 const SCHEDULED_SEARCH_CREDITS_PER_RUN = [1, 2, 3] as const;
-const MODEL_PRESET = "deepseek_v4_flash";
+const MODEL_PRESET = "gpt_5_6_luna";
+const LEGACY_MODEL_PRESET = "deepseek_v4_flash";
 const MAX_MONTHLY_TAVILY_CREDIT_CAP = 1000;
 
 type ScannerMinIntervalMinutes = (typeof MIN_INTERVAL_MINUTES)[number];
 type ScannerSearchCreditsPerRun = (typeof SCHEDULED_SEARCH_CREDITS_PER_RUN)[number];
-type ScannerModelPreset = typeof MODEL_PRESET;
+type ScannerModelPreset = typeof MODEL_PRESET | typeof LEGACY_MODEL_PRESET;
 
 export type ScannerPolicy = {
   paused: boolean;
@@ -107,7 +108,13 @@ export function normalizeScannerPolicy(value: unknown): ScannerPolicy {
     ),
     monthlyTavilyCreditCap: monthlyTavilyCreditCap(settings.monthlyTavilyCreditCap),
     monthlyLlmUsdCap: monthlyLlmUsdCap(settings.monthlyLlmUsdCap),
-    modelPreset: settings.modelPreset === MODEL_PRESET ? MODEL_PRESET : DEFAULT_SCANNER_POLICY.modelPreset,
+    // This hidden UI field never chose a provider. Normalize the old one-value
+    // DeepSeek setting to the new default without touching pause, cadence, or
+    // either budget field in a saved policy.
+    modelPreset:
+      settings.modelPreset === MODEL_PRESET || settings.modelPreset === LEGACY_MODEL_PRESET
+        ? MODEL_PRESET
+        : DEFAULT_SCANNER_POLICY.modelPreset,
   };
 }
 

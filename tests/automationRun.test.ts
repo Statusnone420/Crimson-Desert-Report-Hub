@@ -568,6 +568,9 @@ function configureProviders() {
       platform: isCrash ? "ps5" : "pc_steam",
       confidence: canUseOpenRouter ? "high" : "medium",
       summary: isCrash ? "Map crash on PS5." : "Players report FPS drops on Steam.",
+      clusterAssignment: "unsure",
+      clusterReason: "The default test extractor does not make a semantic assignment.",
+      clusterSlug: null,
       extractionProvider: canUseOpenRouter ? "openrouter" : "deterministic",
       extractionModel: canUseOpenRouter ? "deepseek/deepseek-v4-flash" : null,
       llmCallsUsed: canUseOpenRouter ? 1 : 0,
@@ -609,6 +612,92 @@ afterEach(() => {
 });
 
 describe("runAutomationMonitor", () => {
+  it("selects a deterministic bounded 24 named plus 24 active auto semantic options with descriptions", async () => {
+    const { selectSemanticClusterOptions } = await importRunner();
+    const named = [
+      {
+        id: "named-recent",
+        slug: "watch-recent",
+        title: "Recent named cluster",
+        category: "performance",
+        description: "Recent named context.",
+        last_signal_at: "2026-07-31T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      {
+        id: "named-zeta",
+        slug: "watch-zeta",
+        title: "Zeta named cluster",
+        category: "performance",
+        description: "Zeta context.",
+        last_signal_at: "2026-07-30T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      {
+        id: "named-alpha",
+        slug: "watch-alpha",
+        title: "Alpha named cluster",
+        category: "performance",
+        description: "Alpha context.",
+        last_signal_at: "2026-07-30T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        id: `named-middle-${index}`,
+        slug: `watch-middle-${String(index).padStart(2, "0")}`,
+        title: `Named middle ${index}`,
+        category: "performance",
+        description: `Named middle description ${index}.`,
+        last_signal_at: `2026-07-${String(29 - index).padStart(2, "0")}T12:00:00.000Z`,
+        created_at: "2026-07-01T00:00:00.000Z",
+      })),
+      {
+        id: "named-created-newer",
+        slug: "watch-created-newer",
+        title: "Created newer named cluster",
+        category: "performance",
+        description: "Used when no signal timestamp exists.",
+        last_signal_at: null,
+        created_at: "2026-07-05T00:00:00.000Z",
+      },
+      {
+        id: "named-oldest",
+        slug: "watch-oldest",
+        title: "Oldest named cluster",
+        category: "performance",
+        description: "Must be excluded by the named option cap.",
+        last_signal_at: null,
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+    ];
+    const auto = Array.from({ length: 25 }, (_, index) => ({
+      id: `auto-${index}`,
+      slug: `auto-semantic-${String(index).padStart(2, "0")}`,
+      title: `Auto semantic ${index}`,
+      category: "performance",
+      description: `Auto description ${index}.`,
+      last_signal_at: `2026-07-${String(25 - index).padStart(2, "0")}T12:00:00.000Z`,
+      created_at: "2026-07-01T00:00:00.000Z",
+    }));
+
+    const options = selectSemanticClusterOptions([...named, ...auto]);
+    const namedOptions = options.filter((option) => !option.slug.startsWith("auto-"));
+    const autoOptions = options.filter((option) => option.slug.startsWith("auto-"));
+
+    expect(namedOptions).toHaveLength(24);
+    expect(autoOptions).toHaveLength(24);
+    expect(namedOptions.slice(0, 3).map((option) => option.slug)).toEqual([
+      "watch-recent",
+      "watch-alpha",
+      "watch-zeta",
+    ]);
+    expect(namedOptions.at(-1)?.slug).toBe("watch-created-newer");
+    expect(namedOptions.map((option) => option.slug)).not.toContain("watch-oldest");
+    expect(autoOptions.map((option) => option.slug)).not.toContain("auto-semantic-24");
+    expect(options[0]).toMatchObject({ slug: "watch-recent", description: "Recent named context." });
+    expect(autoOptions[0]).toMatchObject({ slug: "auto-semantic-00", description: "Auto description 0." });
+  });
+
   it("immediately restores automatic cluster and signal visibility after force-hidden is cleared", async () => {
     resetDb({
       issue_clusters: [
@@ -4533,6 +4622,8 @@ describe("runAutomationMonitor", () => {
       platform: "pc_steam",
       confidence: "high",
       summary: "Traversal causes repeated frame-time spikes on Steam.",
+      clusterAssignment: "sure",
+      clusterReason: "The report clearly matches the seeded performance cluster.",
       clusterSlug: "performance_regression",
       extractionProvider: "openrouter",
       extractionModel: "deepseek/deepseek-v4-flash",
@@ -4557,7 +4648,14 @@ describe("runAutomationMonitor", () => {
       expect.objectContaining({
         llmCallsRemaining: 1,
         llmBudgetRemainingUsd: 2,
-        clusterOptions: [{ slug: "performance_regression", title: "Performance regression" }],
+        clusterOptions: [
+          {
+            slug: "performance_regression",
+            title: "Performance regression",
+            category: "performance",
+            description: "Seeded watchlist cluster.",
+          },
+        ],
       }),
     );
     expect(sourceSignalRows()).toHaveLength(1);

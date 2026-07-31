@@ -11,7 +11,12 @@ export type RoutingInput = {
   issueTitle: string;
   summary: string;
   category: Category;
-  /** clusterSlug proposed by the LLM, already validated against known slugs (or null). */
+  /**
+   * The extraction parser verifies this was a bounded, known, same-category
+   * option. An unsure proposal is deliberately indistinguishable from no LLM
+   * proposal here, so it continues through the deterministic fallback path.
+   */
+  llmClusterAssignment?: "sure" | "unsure";
   llmClusterSlug: string | null;
 };
 
@@ -32,7 +37,7 @@ const KEYWORD_ROUTES: { slug: string; category: Category; patterns: RegExp[] }[]
 export function routeToWatchlistCluster(input: RoutingInput, clusters: RoutableCluster[]): RoutableCluster | null {
   const bySlug = new Map(clusters.map((cluster) => [cluster.slug, cluster]));
 
-  if (input.llmClusterSlug) {
+  if (input.llmClusterAssignment === "sure" && input.llmClusterSlug) {
     const match = bySlug.get(input.llmClusterSlug);
     if (match?.category === input.category) return match;
   }

@@ -17,6 +17,7 @@ describe("routeToWatchlistCluster", () => {
         issueTitle: "FPS drops hard",
         summary: "stutter city",
         category: "performance",
+        llmClusterAssignment: "sure",
         llmClusterSlug: "boss_rematch_crash_persistent",
       },
       clusters,
@@ -35,6 +36,50 @@ describe("routeToWatchlistCluster", () => {
       clusters,
     );
     expect(result).toEqual(clusters.find((cluster) => cluster.slug === "map_open_crash_persistent"));
+  });
+
+  it("converges a differently worded signal into a parser-validated active auto-cluster", () => {
+    const autoCluster: RoutableCluster = {
+      id: "cluster-auto-hitch",
+      slug: "auto-hitching-between-areas",
+      title: "Hitching between areas",
+      category: "performance",
+    };
+
+    const result = routeToWatchlistCluster(
+      {
+        issueTitle: "The game pauses for a second whenever I cross into a new zone",
+        summary: "The slowdown occurs at area boundaries.",
+        category: "performance",
+        llmClusterAssignment: "sure",
+        llmClusterSlug: autoCluster.slug,
+      },
+      [...clusters, autoCluster],
+    );
+
+    expect(result).toEqual(autoCluster);
+  });
+
+  it("refuses an unsure auto-cluster proposal before deterministic keyword routing", () => {
+    const autoCluster: RoutableCluster = {
+      id: "cluster-auto-hitch",
+      slug: "auto-hitching-between-areas",
+      title: "Hitching between areas",
+      category: "performance",
+    };
+
+    const result = routeToWatchlistCluster(
+      {
+        issueTitle: "The game pauses for a second whenever I cross into a new zone",
+        summary: "The slowdown occurs at area boundaries.",
+        category: "performance",
+        llmClusterAssignment: "unsure",
+        llmClusterSlug: autoCluster.slug,
+      },
+      [...clusters, autoCluster],
+    );
+
+    expect(result).toBeNull();
   });
 
   it("routes boss rematch crash language to boss_rematch_crash_persistent", () => {

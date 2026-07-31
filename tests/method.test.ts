@@ -59,10 +59,22 @@ describe("method reference", () => {
     // that keeps the page from drifting back into an essay. Raised once, in
     // Phase 3b, to seat the number-word glossary: locking a public vocabulary
     // without a glossary would leave defined words with nowhere to look them
-    // up. The headroom stays deliberately thin so the next addition argues
-    // for itself too.
-    expect(proseLength(aboutSource)).toBeLessThan(3900);
+    // up. The required scanner privacy disclosure adds a small, factual second
+    // exception. The headroom stays deliberately thin so the next addition
+    // argues for itself too.
+    expect(proseLength(aboutSource)).toBeLessThan(4200);
     expect(aboutSource).toMatch(/docs\/wiki\//);
+  });
+
+  it("discloses the scanner model, OpenRouter path, and OpenAI retention boundary in privacy", () => {
+    const privacy = aboutSource.slice(aboutSource.indexOf('id="privacy"'), aboutSource.indexOf('id="quiet"'));
+
+    expect(privacy).toContain("Scanner intelligence is powered by");
+    expect(privacy).toContain("https://openrouter.ai/openai/gpt-5.6-luna");
+    expect(privacy).toContain("https://openrouter.ai/docs/guides/privacy/data-collection");
+    expect(privacy).toContain("https://developers.openai.com/api/docs/guides/your-data");
+    expect(privacy).toContain("OpenAI does not train on API data by default");
+    expect(privacy).toContain("abuse-monitoring logs may be retained for up to 30 days");
   });
 
   it("dates the official claim rather than starting anything that runs", () => {

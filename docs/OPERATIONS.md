@@ -71,7 +71,7 @@ Add the production hostname to the widget configuration. The report form remains
 
 - Official patch notes provide patch context and claimed-fix metadata.
 - Tavily provides bounded public-web discovery. Real scans stay within the persisted 1,000-credit monthly scan budget, including permitted context extraction. The protected no-write preview also consumes Tavily search credits but does not write the scan ledger; count every preview query against the provider-side 1,000-credit allocation when checking monthly usage.
-- High-value provider usage is approved, server-side, and capped at `$2` per UTC month. Exact model routing is maintainer configuration.
+- High-value provider usage is approved, server-side, and capped at `$2` per UTC month. `OPENROUTER_AUTOMATION_MODEL` defaults to `openai/gpt-5.6-luna`, which is restricted to the first-party OpenAI provider with no automatic provider or model fallback; `deepseek/deepseek-v4-flash` is the explicit manual rollback and retains its ZDR route. The request ceiling is model-specific, so a price above the configured Luna ceiling fails closed.
 - Routine moderation and dossier prose use approved low-cost or deterministic fallback paths configured by maintainers.
 - Reddit API access and direct subreddit monitoring are permanently off.
 - Scheduled scans are patch-aware and policy-controlled. The public contract is the budget and privacy boundary; the search and ranking strategy remains implementation detail.

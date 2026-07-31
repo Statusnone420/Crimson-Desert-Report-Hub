@@ -149,6 +149,36 @@ export default function AboutPage() {
                 the short note it writes — which you can edit or delete before sending — goes in with your
                 report.
               </p>
+              <p>
+                Scanner intelligence is powered by{" "}
+                <a
+                  href="https://openrouter.ai/openai/gpt-5.6-luna"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="dispatch-link"
+                >
+                  GPT‑5.6 Luna
+                </a>{" "}
+                through{" "}
+                <a
+                  href="https://openrouter.ai/docs/guides/privacy/data-collection"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="dispatch-link"
+                >
+                  OpenRouter
+                </a>
+                . OpenAI does not train on API data by default;{" "}
+                <a
+                  href="https://developers.openai.com/api/docs/guides/your-data"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="dispatch-link"
+                >
+                  abuse-monitoring logs may be retained for up to 30 days
+                </a>
+                .
+              </p>
             </div>
           </details>
 

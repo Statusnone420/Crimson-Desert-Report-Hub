@@ -1509,15 +1509,89 @@ async function loadApprovedExcerpts(supabase: ReturnType<typeof createServiceCli
   return (data ?? []) as ApprovedExcerptRow[];
 }
 
-type RoutableClusterRow = { id: string; slug: string; title: string; category: string };
+export type SemanticClusterCandidate = {
+  id: string;
+  slug: string;
+  title: string;
+  category: string;
+  description?: string | null;
+  last_signal_at?: string | null;
+  created_at?: string | null;
+};
 
-async function loadRoutableClusters(supabase: ReturnType<typeof createServiceClient>): Promise<RoutableClusterRow[]> {
+type RoutableClusterRow = SemanticClusterCandidate;
+
+export const MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS = 24;
+export const MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS = 24;
+
+function isAutoCluster(cluster: RoutableClusterRow): boolean {
+  return cluster.slug.startsWith("auto-");
+}
+
+function isRoutableClusterRow(value: unknown): value is RoutableClusterRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return ["id", "slug", "title", "category"].every((field) => typeof row[field] === "string" && row[field].trim() !== "");
+}
+
+/** Newest activity first, then creation, then slug: bounded and reproducible. */
+function compareSemanticClusterRecency(left: RoutableClusterRow, right: RoutableClusterRow): number {
+  const fields: (keyof Pick<RoutableClusterRow, "last_signal_at" | "created_at">)[] = ["last_signal_at", "created_at"];
+  for (const field of fields) {
+    const leftValue = left[field] ?? "";
+    const rightValue = right[field] ?? "";
+    if (leftValue === rightValue) continue;
+    return leftValue < rightValue ? 1 : -1;
+  }
+  if (left.slug === right.slug) return 0;
+  return left.slug < right.slug ? -1 : 1;
+}
+
+export function selectSemanticClusterOptions(clusters: SemanticClusterCandidate[]): ClusterOption[] {
+  const select = (predicate: (cluster: RoutableClusterRow) => boolean, limit: number) =>
+    clusters.filter(predicate).sort(compareSemanticClusterRecency).slice(0, limit);
+  const named = select((cluster) => !isAutoCluster(cluster), MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS);
+  const auto = select(isAutoCluster, MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS);
+  return [...named, ...auto].map((cluster) => ({
+    slug: cluster.slug,
+    title: cluster.title,
+    category: cluster.category,
+    description: cluster.description ?? null,
+  }));
+}
+
+type ClusterRoutingState = {
+  /** All explicitly named clusters preserve the existing keyword route path. */
+  keywordClusters: RoutableClusterRow[];
+  /** Bounded auto choices may be reached only by a parser-validated sure LLM assignment. */
+  semanticRoutingClusters: RoutableClusterRow[];
+  semanticOptions: ClusterOption[];
+};
+
+async function loadClusterRoutingState(
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<ClusterRoutingState> {
   const { data, error } = await supabase
     .from("issue_clusters")
-    .select("id, slug, title, category")
-    .not("slug", "like", "auto-%");
+    .select("id, slug, title, category, description, last_signal_at, created_at");
   if (error) throw new Error(`routable clusters read failed: ${error.message}`);
-  return (data ?? []) as RoutableClusterRow[];
+  // A complete database row always has these columns; retain the old
+  // non-routing behavior for any malformed compatibility fixture/row instead
+  // of throwing while constructing bounded semantic options.
+  const allClusters = (data ?? []).filter(isRoutableClusterRow);
+  const keywordClusters = allClusters.filter((cluster) => !isAutoCluster(cluster));
+  const semanticOptions = selectSemanticClusterOptions(allClusters);
+  const selectedAutoSlugs = new Set(
+    semanticOptions.filter((option) => option.slug.startsWith("auto-")).map((option) => option.slug),
+  );
+  return {
+    keywordClusters,
+    semanticRoutingClusters: [
+      ...keywordClusters,
+      ...allClusters.filter((cluster) => isAutoCluster(cluster) && selectedAutoSlugs.has(cluster.slug)),
+    ],
+    semanticOptions,
+  };
 }
 
 type LifecycleClusterRow = ClaimMappingCluster & {
@@ -1757,6 +1831,7 @@ async function resolveClusterId(
       issueTitle: signal.extraction.issueTitle,
       summary: signal.extraction.summary,
       category: signal.extraction.category,
+      llmClusterAssignment: signal.extraction.clusterAssignment,
       llmClusterSlug: signal.extraction.clusterSlug,
     },
     routableClusters,
@@ -2623,8 +2698,8 @@ async function executeAutomationRun(
       await quarantineStalePublicSignals(supabase, result, now, currentPatch);
     }
 
-    const routableClusters = await loadRoutableClusters(supabase);
-    const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+    const clusterRouting = await loadClusterRoutingState(supabase);
+    const clusterOptions = clusterRouting.semanticOptions;
     // Intake only. Re-canonicalizing an exact-URL scope widens what it matches,
     // which is right for "have I been taught about this page" and wrong for
     // re-evaluating stored evidence — refreshClusterStats keeps comparing scope
@@ -2665,7 +2740,7 @@ async function executeAutomationRun(
         prepared.prepared,
         result,
         now,
-        routableClusters,
+        clusterRouting.semanticRoutingClusters,
         runId,
       );
       if (signalPersistence.error !== null) {
@@ -2870,8 +2945,8 @@ export async function rescueCandidateSignal(
     sourcePublishedAt: candidate.sourcePublishedAt ?? null,
   };
 
-  const routableClusters = await loadRoutableClusters(supabase);
-  const clusterOptions: ClusterOption[] = routableClusters.map((cluster) => ({ slug: cluster.slug, title: cluster.title }));
+  const clusterRouting = await loadClusterRoutingState(supabase);
+  const clusterOptions = clusterRouting.semanticOptions;
 
   const monthlyBudgetUsd = automationBudgetUsd();
   let budgetReadError: string | null = null;
@@ -2919,7 +2994,7 @@ export async function rescueCandidateSignal(
     signalsDeduped: 0,
     clustersPromoted: 0,
     intent: "rescue_candidate",
-    targetClusterTitles: routableClusters.map((cluster) => cluster.title),
+    targetClusterTitles: clusterRouting.keywordClusters.map((cluster) => cluster.title),
     signalsReobserved: 0,
     staleSignalsHidden: 0,
     candidatesRescued: 0,
@@ -2969,7 +3044,7 @@ export async function rescueCandidateSignal(
       prepared,
       reports,
       clusterBySemantic,
-      routableClusters,
+      clusterRouting.semanticRoutingClusters,
       now,
       runId,
     );
