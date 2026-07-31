@@ -64,7 +64,11 @@ import {
   type ObservationCandidate,
   type StoredObservationDate,
 } from "@/lib/automation/observations";
-import { resolveAssertedSourceDate, resolveSourceDate } from "@/lib/automation/sourceDate";
+import {
+  classifyProviderSourceDate,
+  resolveAssertedSourceDate,
+  resolveSourceDate,
+} from "@/lib/automation/sourceDate";
 import {
   buildSteamPulseSnapshot,
   fetchSteamReviewBatch,
@@ -1084,6 +1088,7 @@ async function prepareSignals(
     return {
       asserted: resolveAssertedSourceDate(input, currentPatch, nowMs).value,
       displayable: resolveSourceDate(input, currentPatch, nowMs).value,
+      providerDateStatus: classifyProviderSourceDate(input, nowMs),
     };
   };
 
@@ -1195,6 +1200,27 @@ async function prepareSignals(
     }
     if (signal.source !== "steam_review") seenUrls.add(canonicalUrl);
     seenExternalIds.add(externalHash);
+
+    // A missing provider date is allowed to take the explicitly undated Ask
+    // path. A supplied date that failed format, calendar, or future-skew gates
+    // is different evidence: it cannot establish freshness and must not be
+    // laundered into "first seen by radar."
+    if (snippetDates.providerDateStatus === "invalid") {
+      result.skips.push("invalid_source_date");
+      result.prefilterRejected += 1;
+      rejected.push({
+        source: signal.source,
+        title: signal.title,
+        url: canonicalUrl,
+        sourceDomain: signal.sourceDomain,
+        sourcePublishedAt: null,
+        snippet: signal.body.slice(0, 500),
+        reason: "invalid_source_date",
+        steamRecommendationHash: signal.steam?.recommendationHash ?? null,
+      });
+      await report?.();
+      continue;
+    }
 
     // Steam reviews intentionally share one provider URL, so URL/path/domain
     // lessons cannot identify one review and must never filter this lane.

@@ -4012,6 +4012,51 @@ describe("runAutomationMonitor", () => {
     expect(result.status).toBe("success");
   });
 
+  it("rejects invalid provider dates before Community Asks can use the undated fallback", async () => {
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Day 40 of asking for armor dye in Crimson Desert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/bad_date/armor_dye/",
+        snippet: "The community keeps asking Pearl Abyss to add armor dye options.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T13:00:00.000Z",
+        sourcePublishedAt: "yesterday afternoon",
+      },
+      {
+        title: "Please add mount transmog to Crimson Desert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/future_date/mount_transmog/",
+        snippet: "A feature request asking Pearl Abyss for mount transmog.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T13:00:00.000Z",
+        sourcePublishedAt: "2026-07-08T14:00:00.000Z",
+      },
+    ]);
+    const defaultRpc = mocks.rpc.getMockImplementation()!;
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      return defaultRpc(name, args);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    expect(persistedObservations).toEqual([]);
+    expect(rejectedCandidateRows()).toHaveLength(2);
+    expect(rejectedCandidateRows().map((row) => row.reason)).toEqual([
+      "invalid_source_date",
+      "invalid_source_date",
+    ]);
+    expect(result.skips.filter((skip) => skip === "invalid_source_date")).toHaveLength(2);
+    expect(result.prefilterRejected).toBe(2);
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(result.status).toBe("success");
+  });
+
   it("stops before observation persistence when stored-date ownership cannot be read", async () => {
     selectFailure = {
       table: "patch_observations",

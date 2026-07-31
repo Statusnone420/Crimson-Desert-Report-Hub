@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveAssertedSourceDate, resolveSourceDate } from "@/lib/automation/sourceDate";
+import {
+  classifyProviderSourceDate,
+  resolveAssertedSourceDate,
+  resolveSourceDate,
+} from "@/lib/automation/sourceDate";
 
 const PATCH = { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" };
 const NOW = Date.parse("2026-07-20T12:00:00.000Z");
@@ -19,6 +23,15 @@ describe("resolveSourceDate precedence", () => {
     expect(
       resolveSourceDate(input({ sourcePublishedAt: "Fri, 17 Jul 2026 00:00:00 GMT" }), PATCH, NOW),
     ).toEqual({ value: "Fri, 17 Jul 2026 00:00:00 GMT", provenance: "provider" });
+  });
+
+  it.each([
+    [null, "absent"],
+    ["Fri, 17 Jul 2026 00:00:00 GMT", "valid"],
+    ["yesterday afternoon", "invalid"],
+    ["2026-07-25T00:00:00.000Z", "invalid"],
+  ] as const)("classifies provider date %s as %s", (sourcePublishedAt, status) => {
+    expect(classifyProviderSourceDate({ sourcePublishedAt }, NOW)).toBe(status);
   });
 
   it("resolves the anchored Reddit posted-on marker", () => {

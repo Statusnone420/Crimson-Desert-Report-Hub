@@ -114,6 +114,18 @@ describe("source monitor run display", () => {
     ]);
   });
 
+  it("explains invalid provider dates instead of presenting an unknown scanner code", () => {
+    const summary = summarizeRunMessages(["invalid_source_date"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({
+        code: "invalid_source_date",
+        label: "Invalid source date",
+        summaryLabel: "invalid source date",
+      }),
+    ]);
+  });
+
   it("names every recon outcome instead of calling any of them an unrecognized code", () => {
     // These land on the same operator line, so none may fall through to the
     // "Unrecognized scanner code" branch.

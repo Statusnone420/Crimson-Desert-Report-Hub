@@ -34,6 +34,8 @@ export type ResolvedSourceDate = {
   provenance: SourceDateProvenance;
 };
 
+export type ProviderSourceDateStatus = "absent" | "valid" | "invalid";
+
 export type SourceDateInput = {
   title: string;
   /** Snippet or full page text, exactly as received. Never editorialized. */
@@ -188,6 +190,21 @@ function passesGates(value: string, patchPublishedAt: string | null, nowMs: numb
     patchPublishedAt,
     nowMs,
   );
+}
+
+/**
+ * Keeps "the provider supplied no date" distinct from "the provider supplied
+ * a date that failed validation." Only the former may use the deliberately
+ * undated Community Ask path; malformed and future-skewed metadata must fail
+ * closed before freshness screening.
+ */
+export function classifyProviderSourceDate(
+  input: Pick<SourceDateInput, "sourcePublishedAt">,
+  nowMs: number = Date.now(),
+): ProviderSourceDateStatus {
+  if (input.sourcePublishedAt === null || input.sourcePublishedAt === undefined) return "absent";
+  const value = input.sourcePublishedAt.replace(ASCII_EDGE_BLANKS, "");
+  return value && passesGates(value, null, nowMs) ? "valid" : "invalid";
 }
 
 function resolveInPrecedenceOrder(
