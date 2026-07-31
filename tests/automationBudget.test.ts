@@ -10,6 +10,7 @@ import {
   OPENROUTER_AUTOMATION_MODEL,
   OPENROUTER_DEEPSEEK_ROLLBACK_MODEL,
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
+  readOpenRouterKeyBudget,
   resolveAutomationOpenRouterModel,
 } from "@/lib/automation/budget";
 
@@ -214,6 +215,7 @@ describe("automation budget", () => {
   });
 
   it("pins Luna to first-party OpenAI with no provider fallback or request ZDR", () => {
+    expect(automationModelSettings(OPENROUTER_AUTOMATION_MODEL).outputTokenParameter).toBe("max_tokens");
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.max_price).toEqual({
       prompt: 0.15,
       completion: 0.9,
@@ -223,11 +225,12 @@ describe("automation budget", () => {
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.only).toEqual(["OpenAI"]);
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.allow_fallbacks).toBe(false);
     expect("zdr" in OPENROUTER_AUTOMATION_PROVIDER_ROUTING).toBe(false);
-    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.data_collection).toBe("deny");
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.data_collection).toBe("allow");
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.require_parameters).toBe(true);
   });
 
   it("retains ZDR for the explicit DeepSeek rollback route", () => {
+    expect(automationModelSettings(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL).outputTokenParameter).toBe("max_tokens");
     expect(automationModelSettings(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL).provider).toEqual({
       require_parameters: true,
       data_collection: "deny",
@@ -250,6 +253,43 @@ describe("automation budget", () => {
         OPENROUTER_DEEPSEEK_ROLLBACK_MODEL,
       ),
     ).toBeCloseTo(0.001024);
+  });
+
+  describe("OpenRouter key budget", () => {
+    it("reads the provider-enforced monthly limit and actual key usage", async () => {
+      const budget = await readOpenRouterKeyBudget("test-key", async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            limit: 2,
+            limit_remaining: 1.75,
+            limit_reset: "monthly",
+            usage_monthly: 0.25,
+          },
+        }),
+      }));
+
+      expect(budget).toEqual({
+        limitUsd: 2,
+        limitRemainingUsd: 1.75,
+        limitReset: "monthly",
+        usageMonthlyUsd: 0.25,
+      });
+    });
+
+    it("fails closed when OpenRouter does not return a usable key budget", async () => {
+      await expect(
+        readOpenRouterKeyBudget("test-key", async () => ({ ok: false, status: 503, json: async () => ({}) })),
+      ).resolves.toBeNull();
+      await expect(
+        readOpenRouterKeyBudget("test-key", async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { limit: "unknown" } }),
+        })),
+      ).resolves.toBeNull();
+    });
   });
 
   describe("routing refusals", () => {

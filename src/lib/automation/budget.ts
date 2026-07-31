@@ -46,7 +46,7 @@ export type AutomationTask = "extraction" | "claim_mapping";
 
 type ProviderRouting = {
   require_parameters: true;
-  data_collection: "deny";
+  data_collection: "allow" | "deny";
   zdr?: true;
   only?: readonly ["OpenAI"];
   allow_fallbacks?: false;
@@ -58,6 +58,8 @@ type AutomationModelSettings = {
   provider: ProviderRouting;
   /** Luna can use gateway reasoning; the manual rollback keeps its prior route. */
   reasoning: { effort: "high"; exclude: true } | { effort: "none" };
+  /** OpenRouter provider catalogs currently advertise this output-limit key. */
+  outputTokenParameter: "max_tokens" | "max_completion_tokens";
   /** Sampling is model-specific; high-reasoning Luna does not accept temperature. */
   temperature?: 0;
 };
@@ -91,7 +93,9 @@ export const OPENROUTER_FREE_PROVIDER_ROUTING = {
 
 const OPENROUTER_LUNA_PROVIDER_ROUTING = {
   require_parameters: true,
-  data_collection: "deny",
+  // First-party OpenAI may retain requests for abuse monitoring. The owner has
+  // approved that policy; provider pinning keeps this from broadening the host.
+  data_collection: "allow",
   // First-party OpenAI only. `allow_fallbacks: false` means a routing miss
   // fails closed rather than silently sending scanner text to another host.
   only: ["OpenAI"],
@@ -115,10 +119,12 @@ const AUTOMATION_MODEL_SETTINGS: Record<(typeof APPROVED_AUTOMATION_MODELS)[numb
   [OPENROUTER_AUTOMATION_MODEL]: {
     provider: OPENROUTER_LUNA_PROVIDER_ROUTING,
     reasoning: { effort: "high", exclude: true },
+    outputTokenParameter: "max_tokens",
   },
   [OPENROUTER_DEEPSEEK_ROLLBACK_MODEL]: {
     provider: OPENROUTER_DEEPSEEK_ROLLBACK_PROVIDER_ROUTING,
     reasoning: { effort: "none" },
+    outputTokenParameter: "max_tokens",
     temperature: 0,
   },
 };
@@ -206,6 +212,56 @@ export function readOpenRouterUsageCostUsd(data: unknown): number | null {
     nonnegativeNumber((usage as { cost_usd?: unknown }).cost_usd) ??
     nonnegativeNumber((usage as { total_cost?: unknown }).total_cost)
   );
+}
+
+export type OpenRouterKeyBudget = {
+  limitUsd: number | null;
+  limitRemainingUsd: number | null;
+  limitReset: "daily" | "weekly" | "monthly" | null;
+  usageMonthlyUsd: number;
+};
+
+type OpenRouterKeyBudgetFetcher = (
+  url: string,
+  init: { method: "GET"; headers: Record<string, string> },
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
+const OPENROUTER_CURRENT_KEY_URL = "https://openrouter.ai/api/v1/key";
+
+/**
+ * Read OpenRouter's aggregate, provider-enforced key budget. This is the
+ * no-write authority for preview diagnostics: an application-local allowance
+ * cannot safely coordinate concurrent serverless requests.
+ */
+export async function readOpenRouterKeyBudget(
+  apiKey: string,
+  fetcher: OpenRouterKeyBudgetFetcher = fetch as unknown as OpenRouterKeyBudgetFetcher,
+): Promise<OpenRouterKeyBudget | null> {
+  try {
+    const response = await fetcher(OPENROUTER_CURRENT_KEY_URL, {
+      method: "GET",
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    const data = body && typeof body === "object" ? (body as { data?: unknown }).data : null;
+    if (!data || typeof data !== "object") return null;
+
+    const rawLimit = (data as { limit?: unknown }).limit;
+    const rawRemaining = (data as { limit_remaining?: unknown }).limit_remaining;
+    const rawReset = (data as { limit_reset?: unknown }).limit_reset;
+    const limitUsd = rawLimit === null ? null : nonnegativeNumber(rawLimit);
+    const limitRemainingUsd = rawRemaining === null ? null : nonnegativeNumber(rawRemaining);
+    const usageMonthlyUsd = nonnegativeNumber((data as { usage_monthly?: unknown }).usage_monthly);
+    const limitReset =
+      rawReset === "daily" || rawReset === "weekly" || rawReset === "monthly" || rawReset === null ? rawReset : undefined;
+    if (limitUsd === null && rawLimit !== null) return null;
+    if (limitRemainingUsd === null && rawRemaining !== null) return null;
+    if (usageMonthlyUsd === null || limitReset === undefined) return null;
+    return { limitUsd, limitRemainingUsd, limitReset, usageMonthlyUsd };
+  } catch {
+    return null;
+  }
 }
 
 export type OpenRouterGenerationFetcher = (

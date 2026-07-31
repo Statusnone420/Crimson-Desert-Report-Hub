@@ -134,7 +134,7 @@ const SKIP_META: Record<string, MessageMeta> = {
   openrouter_no_route: {
     label: "No provider matched the limits",
     detail:
-      "No OpenRouter provider met the scanner's price ceiling, zero-retention rule, and required parameters at once, so nothing was called and deterministic extraction was used. Nothing was spent and the safety circuit is unaffected.",
+      "No OpenRouter provider met the selected model's provider, privacy, price, and parameter requirements at once, so nothing was called and deterministic extraction was used. Nothing was spent and the safety circuit is unaffected.",
     summaryLabel: "no provider matched the limits",
   },
   openrouter_cost_unverified: {

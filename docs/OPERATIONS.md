@@ -76,7 +76,7 @@ Add the production hostname to the widget configuration. The report form remains
 - Reddit API access and direct subreddit monitoring are permanently off.
 - Scheduled scans are patch-aware and policy-controlled. The public contract is the budget and privacy boundary; the search and ranking strategy remains implementation detail.
 
-The protected no-write preview is useful for checking provider connectivity without publishing:
+The protected no-write source preview checks Tavily discovery without publishing:
 
 ```bash
 curl -H "Authorization: Bearer <CRON_SECRET>" \
@@ -84,6 +84,8 @@ curl -H "Authorization: Bearer <CRON_SECRET>" \
 ```
 
 It is bounded and deterministic, and it does not write public data or the persisted scan ledger.
+
+When a paid model or its provider routing changes, authenticate on the Vercel preview and use **Test AI provider route** on `/scanner`. That preview-only check sends synthetic text through the configured model with one LLM call and a `$0.005` ceiling. Before generation, it requires OpenRouter to report a provider-enforced monthly key limit no greater than the app's `$2` LLM cap and enough aggregate budget for the request ceiling. It does not use Tavily or the database, it treats deterministic fallback or unverifiable provider budgeting as failure, and its endpoint cannot call the provider outside Vercel preview. The displayed call cost comes from OpenRouter's usage or generation record; OpenRouter Activity remains the authoritative account ledger.
 
 Preview requests are capped at two Tavily search queries and are intended for occasional connectivity checks, not repeated quota-free probes.
 
@@ -105,7 +107,8 @@ After a deployment:
 1. Visit `/`, `/issues`, `/report`, `/scanner`, and `/about`.
 2. Confirm the Patch Brief shows official context and honest N=0 copy when appropriate.
 3. Check the public scanner view, then authenticate and check the operator view.
-4. Run the protected no-write preview before a real scan.
+4. Run the protected no-write source preview before a real scan.
+   If paid model or provider routing changed, also run **Test AI provider route** from the authenticated Vercel-preview scanner. Confirm that one generation reached the expected provider; a green deterministic fallback is not sufficient proof.
 5. If exercising intake, submit a controlled test report and moderate it deliberately.
 6. On a public issue, submit one confirmation and verify that the result refreshes from server totals.
 7. Confirm the hosting checks, migration list, and scheduled trigger are green before calling the release complete.

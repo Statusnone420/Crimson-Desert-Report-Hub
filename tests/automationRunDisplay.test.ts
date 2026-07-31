@@ -77,6 +77,16 @@ describe("source monitor run display", () => {
     ]);
   });
 
+  it("describes a routing refusal without claiming every approved model is ZDR", () => {
+    const summary = summarizeRunMessages(["openrouter_no_route"], []);
+
+    expect(summary.skipGroups[0]).toMatchObject({
+      code: "openrouter_no_route",
+      detail: expect.stringContaining("provider, privacy, price, and parameter requirements"),
+    });
+    expect(summary.skipGroups[0]?.detail).not.toMatch(/zero-retention/i);
+  });
+
   it("explains when a prior charge keeps the monthly OpenRouter circuit open", () => {
     const summary = summarizeRunMessages(["openrouter_circuit_open"], []);
 

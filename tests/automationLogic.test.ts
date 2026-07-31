@@ -134,7 +134,12 @@ describe("automation extraction", () => {
     });
 
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
-    expect(JSON.parse(init.body).model).toBe("openai/gpt-5.6-luna");
+    const request = JSON.parse(init.body) as Record<string, unknown>;
+    expect(request).toMatchObject({
+      model: "openai/gpt-5.6-luna",
+      max_tokens: 3200,
+    });
+    expect(request).not.toHaveProperty("max_completion_tokens");
     expect(result).toMatchObject({
       extractionProvider: "openrouter",
       extractionModel: "openai/gpt-5.6-luna",
@@ -414,10 +419,10 @@ describe("automation extraction", () => {
     expect(outboundRequest).toMatchObject({
       model: "openai/gpt-5.6-luna",
       reasoning: { effort: "high", exclude: true },
-      max_completion_tokens: 3200,
+      max_tokens: 3200,
       provider: {
         require_parameters: true,
-        data_collection: "deny",
+        data_collection: "allow",
         only: ["OpenAI"],
         allow_fallbacks: false,
         max_price: { prompt: 0.15, completion: 0.9, request: 0, image: 0 },
@@ -441,6 +446,7 @@ describe("automation extraction", () => {
         },
       },
     });
+    expect(outboundRequest).not.toHaveProperty("max_completion_tokens");
     expect(outboundRequest).not.toHaveProperty("temperature");
     const request = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
     expect(request.messages[0].content).toMatch(/untrusted data/i);
@@ -545,11 +551,12 @@ describe("automation extraction", () => {
     });
 
     const [, init] = fetcher.mock.calls[0] as unknown as [string, { body: string }];
-    expect(JSON.parse(init.body)).toMatchObject({
+    const request = JSON.parse(init.body) as Record<string, unknown>;
+    expect(request).toMatchObject({
       model: "deepseek/deepseek-v4-flash",
       temperature: 0,
       reasoning: { effort: "none" },
-      max_completion_tokens: 3200,
+      max_tokens: 3200,
       provider: {
         require_parameters: true,
         data_collection: "deny",
@@ -558,6 +565,7 @@ describe("automation extraction", () => {
         max_price: { prompt: 0.2, completion: 0.5, request: 0, image: 0 },
       },
     });
+    expect(request).not.toHaveProperty("max_completion_tokens");
     expect(result).toMatchObject({ extractionModel: "deepseek/deepseek-v4-flash", llmCostUsd: 0.00002 });
   });
 

@@ -20,6 +20,7 @@ import type {
 } from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
 import { isBriefRenderableObservation } from "@/lib/observationDisplay";
+import { isVercelPreview } from "@/lib/previewGuard";
 import { registerUnread, type ScannerReadRegister } from "@/lib/scannerRegisters";
 
 function cadenceLabel(minutes: number): string {
@@ -431,7 +432,7 @@ export function AdminScannerView({
           </p>
         </div>
         <div className="op-actions">
-          <ScanControls activeRunId={activeRun?.id ?? null} />
+          <ScanControls activeRunId={activeRun?.id ?? null} isPreview={isVercelPreview()} />
         </div>
       </header>
 
