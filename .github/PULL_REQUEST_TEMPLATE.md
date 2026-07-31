@@ -9,6 +9,7 @@ What changed and why?
 - [ ] `npm exec tsc -- --noEmit`
 - [ ] `npm run build`
 - [ ] `npm run test:e2e` if UI changed
+- [ ] If paid model or provider routing changed, a Vercel preview completed one real generation on the expected provider; deterministic fallback alone is not a pass.
 
 ## Safety
 

@@ -291,10 +291,10 @@ function extractionRequest(candidate: SourceCandidate, model: string, clusterOpt
     model,
     ...(modelSettings.temperature === undefined ? {} : { temperature: modelSettings.temperature }),
     reasoning: modelSettings.reasoning,
-    // `max_completion_tokens` covers both reasoning and the final strict JSON
-    // result. Do not lower it to the visible JSON size: high reasoning would
-    // consume the allowance before a schema-valid response can be emitted.
-    max_completion_tokens: AUTOMATION_TASK_SETTINGS.extraction.maxCompletionTokens,
+    // This ceiling covers both reasoning and the final strict JSON result. The
+    // request key is model-specific because `require_parameters` rejects a route
+    // before generation when its provider does not advertise that exact key.
+    [modelSettings.outputTokenParameter]: AUTOMATION_TASK_SETTINGS.extraction.maxCompletionTokens,
     provider: modelSettings.provider,
     response_format: {
       type: "json_schema",

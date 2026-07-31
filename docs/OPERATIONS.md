@@ -106,6 +106,7 @@ After a deployment:
 2. Confirm the Patch Brief shows official context and honest N=0 copy when appropriate.
 3. Check the public scanner view, then authenticate and check the operator view.
 4. Run the protected no-write preview before a real scan.
+   If paid model or provider routing changed, confirm that one generation reached the expected provider and that the run did not record `openrouter_no_route`; a green fallback-only run is not sufficient proof.
 5. If exercising intake, submit a controlled test report and moderate it deliberately.
 6. On a public issue, submit one confirmation and verify that the result refreshes from server totals.
 7. Confirm the hosting checks, migration list, and scheduled trigger are green before calling the release complete.

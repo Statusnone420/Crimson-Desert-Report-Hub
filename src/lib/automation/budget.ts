@@ -46,7 +46,7 @@ export type AutomationTask = "extraction" | "claim_mapping";
 
 type ProviderRouting = {
   require_parameters: true;
-  data_collection: "deny";
+  data_collection: "allow" | "deny";
   zdr?: true;
   only?: readonly ["OpenAI"];
   allow_fallbacks?: false;
@@ -58,6 +58,8 @@ type AutomationModelSettings = {
   provider: ProviderRouting;
   /** Luna can use gateway reasoning; the manual rollback keeps its prior route. */
   reasoning: { effort: "high"; exclude: true } | { effort: "none" };
+  /** OpenRouter provider catalogs currently advertise this output-limit key. */
+  outputTokenParameter: "max_tokens" | "max_completion_tokens";
   /** Sampling is model-specific; high-reasoning Luna does not accept temperature. */
   temperature?: 0;
 };
@@ -91,7 +93,9 @@ export const OPENROUTER_FREE_PROVIDER_ROUTING = {
 
 const OPENROUTER_LUNA_PROVIDER_ROUTING = {
   require_parameters: true,
-  data_collection: "deny",
+  // First-party OpenAI may retain requests for abuse monitoring. The owner has
+  // approved that policy; provider pinning keeps this from broadening the host.
+  data_collection: "allow",
   // First-party OpenAI only. `allow_fallbacks: false` means a routing miss
   // fails closed rather than silently sending scanner text to another host.
   only: ["OpenAI"],
@@ -115,10 +119,12 @@ const AUTOMATION_MODEL_SETTINGS: Record<(typeof APPROVED_AUTOMATION_MODELS)[numb
   [OPENROUTER_AUTOMATION_MODEL]: {
     provider: OPENROUTER_LUNA_PROVIDER_ROUTING,
     reasoning: { effort: "high", exclude: true },
+    outputTokenParameter: "max_tokens",
   },
   [OPENROUTER_DEEPSEEK_ROLLBACK_MODEL]: {
     provider: OPENROUTER_DEEPSEEK_ROLLBACK_PROVIDER_ROUTING,
     reasoning: { effort: "none" },
+    outputTokenParameter: "max_tokens",
     temperature: 0,
   },
 };

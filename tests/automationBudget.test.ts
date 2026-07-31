@@ -214,6 +214,7 @@ describe("automation budget", () => {
   });
 
   it("pins Luna to first-party OpenAI with no provider fallback or request ZDR", () => {
+    expect(automationModelSettings(OPENROUTER_AUTOMATION_MODEL).outputTokenParameter).toBe("max_tokens");
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.max_price).toEqual({
       prompt: 0.15,
       completion: 0.9,
@@ -223,11 +224,12 @@ describe("automation budget", () => {
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.only).toEqual(["OpenAI"]);
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.allow_fallbacks).toBe(false);
     expect("zdr" in OPENROUTER_AUTOMATION_PROVIDER_ROUTING).toBe(false);
-    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.data_collection).toBe("deny");
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.data_collection).toBe("allow");
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.require_parameters).toBe(true);
   });
 
   it("retains ZDR for the explicit DeepSeek rollback route", () => {
+    expect(automationModelSettings(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL).outputTokenParameter).toBe("max_tokens");
     expect(automationModelSettings(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL).provider).toEqual({
       require_parameters: true,
       data_collection: "deny",

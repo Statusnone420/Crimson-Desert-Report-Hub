@@ -80,6 +80,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     let requestedProvider: unknown = null;
     let requestedReasoning: unknown = null;
     let requestedMaxTokens: number | null = null;
+    let requestedLegacyMaxTokensPresent = false;
     let requestedSystemPrompt: string | null = null;
     let requestedTemperaturePresent = false;
     const fetcher = async (_url: string, init: { body: string }) => {
@@ -87,13 +88,15 @@ describe("mapClaimToClusterWithOpenRouter", () => {
         model?: string;
         provider?: unknown;
         reasoning?: unknown;
+        max_tokens?: number;
         max_completion_tokens?: number;
         messages?: { role?: string; content?: string }[];
       };
       requestedModel = body.model ?? null;
       requestedProvider = body.provider;
       requestedReasoning = body.reasoning;
-      requestedMaxTokens = body.max_completion_tokens ?? null;
+      requestedMaxTokens = body.max_tokens ?? null;
+      requestedLegacyMaxTokensPresent = "max_completion_tokens" in body;
       requestedSystemPrompt = body.messages?.find((message) => message.role === "system")?.content ?? null;
       requestedTemperaturePresent = "temperature" in body;
       return {
@@ -130,13 +133,14 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     expect(requestedModel).toBe("openai/gpt-5.6-luna");
     expect(requestedProvider).toEqual({
       require_parameters: true,
-      data_collection: "deny",
+      data_collection: "allow",
       only: ["OpenAI"],
       allow_fallbacks: false,
       max_price: { prompt: 0.15, completion: 0.9, request: 0, image: 0 },
     });
     expect(requestedReasoning).toEqual({ effort: "high", exclude: true });
     expect(requestedMaxTokens).toBe(2048);
+    expect(requestedLegacyMaxTokensPresent).toBe(false);
     expect(requestedTemperaturePresent).toBe(false);
     expect(requestedSystemPrompt).toMatch(/untrusted data/i);
     expect(requestedSystemPrompt).toMatch(/ignore .*instructions/i);
@@ -186,7 +190,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       model: "deepseek/deepseek-v4-flash",
       temperature: 0,
       reasoning: { effort: "none" },
-      max_completion_tokens: 2048,
+      max_tokens: 2048,
       provider: {
         require_parameters: true,
         data_collection: "deny",
@@ -195,6 +199,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
         max_price: { prompt: 0.2, completion: 0.5, request: 0, image: 0 },
       },
     });
+    expect(request).not.toHaveProperty("max_completion_tokens");
     expect(result).toMatchObject({ extractionModel: "deepseek/deepseek-v4-flash", matchKind: "llm_sure" });
   });
 

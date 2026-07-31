@@ -170,7 +170,7 @@ function claimMappingRequest(claim: ClaimMappingClaim, clusters: ClaimMappingClu
     model,
     ...(modelSettings.temperature === undefined ? {} : { temperature: modelSettings.temperature }),
     reasoning: modelSettings.reasoning,
-    max_completion_tokens: AUTOMATION_TASK_SETTINGS.claim_mapping.maxCompletionTokens,
+    [modelSettings.outputTokenParameter]: AUTOMATION_TASK_SETTINGS.claim_mapping.maxCompletionTokens,
     provider: modelSettings.provider,
     response_format: {
       type: "json_schema",
