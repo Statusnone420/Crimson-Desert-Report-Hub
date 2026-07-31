@@ -1074,6 +1074,192 @@ describe("persistObservations", () => {
     expect(report.errors).toEqual([]);
   });
 
+  describe("re-observing a page that already has a stored date", () => {
+    const PATCH_PUBLISHED_AT = "2026-07-08T00:00:00.000Z";
+    const page = candidate({
+      url: "https://www.dsogaming.com/articles/cd-11301-tested/",
+      sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+      observedAt: "2026-07-20T12:00:00.000Z",
+    });
+    const pageHash = observationConflictHash(page);
+
+    async function payloadFor(
+      stored: Map<string, { url: string; sourcePublishedAt: string | null }>,
+    ) {
+      const rpcCalls: RpcCall[] = [];
+      const report = { errors: [] as string[], observationsKept: 0 };
+      await persistObservations(
+        stubClient({ rpcCalls }),
+        [page],
+        "1.13.01",
+        report,
+        PATCH_PUBLISHED_AT,
+        stored,
+      );
+      expect(report.errors).toEqual([]);
+      return (rpcCalls[0].params.p_observations as { source_published_at: string | null }[])[0];
+    }
+
+    it("fills a stored null date", async () => {
+      expect(await payloadFor(new Map([[pageHash, { url: page.url, sourcePublishedAt: null }]]))).toMatchObject({
+        source_published_at: "2026-07-16T09:00:00.000Z",
+      });
+    });
+
+    it("heals a stored date the Brief could never render", async () => {
+      // Pre-era: stored, unrenderable, and previously stuck that way.
+      expect(
+        await payloadFor(
+          new Map([[pageHash, { url: page.url, sourcePublishedAt: "2026-01-02T00:00:00.000Z" }]]),
+        ),
+      ).toMatchObject({
+        source_published_at: "2026-07-16T09:00:00.000Z",
+      });
+    });
+
+    it("does not replace a stored date that is already valid", async () => {
+      // NULL in the payload is how the RPC is told to leave the stored value alone.
+      expect(
+        await payloadFor(
+          new Map([[pageHash, { url: page.url, sourcePublishedAt: "2026-07-14T09:00:00.000Z" }]]),
+        ),
+      ).toMatchObject({
+        source_published_at: null,
+      });
+    });
+
+    it("never lets an unrelated page's stored date decide this row", async () => {
+      expect(
+        await payloadFor(
+          new Map([
+            [
+              "some-other-page-hash",
+              {
+                url: "https://example.com/unrelated",
+                sourcePublishedAt: "2026-07-14T09:00:00.000Z",
+              },
+            ],
+          ]),
+        ),
+      ).toMatchObject({ source_published_at: "2026-07-16T09:00:00.000Z" });
+    });
+
+    it("does not preserve a prior campaign thread's date for a new URL", async () => {
+      const day21 = candidate({
+        kind: "community_ask",
+        title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-16T09:00:00.000Z",
+        observedAt: "2026-07-20T12:00:00.000Z",
+      });
+      const rpcCalls: RpcCall[] = [];
+      const report = { errors: [] as string[], observationsKept: 0 };
+
+      await persistObservations(
+        stubClient({ rpcCalls }),
+        [day21],
+        "1.13.01",
+        report,
+        PATCH_PUBLISHED_AT,
+        new Map([
+          [
+            observationConflictHash(day21),
+            {
+              url: "https://www.reddit.com/r/CrimsonDesert/comments/aaa/day_20/",
+              sourcePublishedAt: "2026-07-14T09:00:00.000Z",
+            },
+          ],
+        ]),
+      );
+
+      expect(report.errors).toEqual([]);
+      expect(rpcCalls[0].params.p_observations).toEqual([
+        expect.objectContaining({
+          url: day21.url,
+          source_published_at: day21.sourcePublishedAt,
+        }),
+      ]);
+    });
+
+    it("withholds every campaign row from the legacy RPC even when its stored snapshot looks safe", async () => {
+      const day21 = candidate({
+        kind: "community_ask",
+        title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: null,
+        observedAt: "2026-07-21T12:00:00.000Z",
+      });
+      const snapshotMatchedAsk = candidate({
+        kind: "community_ask",
+        title: "Day 20 of asking for mount transmog : r/CrimsonDesert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/ccc/transmog_day_20/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: null,
+        observedAt: "2026-07-21T12:00:00.000Z",
+      });
+      const safeNewPage = candidate({
+        url: "https://www.dsogaming.com/articles/crimson-desert-undated-followup/",
+        observedAt: "2026-07-21T12:00:00.000Z",
+      });
+      const rpcCalls: RpcCall[] = [];
+      const rpcResults = [
+        {
+          data: null,
+          error: {
+            code: "PGRST202",
+            message: "Could not find the function public.persist_patch_observations in the schema cache",
+          },
+        },
+        { data: 1, error: null },
+      ];
+      const client = {
+        rpc(name: string, params: Record<string, unknown>) {
+          rpcCalls.push({ name, params });
+          return Promise.resolve(rpcResults[rpcCalls.length - 1]);
+        },
+      } as unknown as Pick<SupabaseClient, "rpc">;
+      const report = { errors: [] as string[], observationsKept: 0 };
+
+      await persistObservations(
+        client,
+        [day21, snapshotMatchedAsk, safeNewPage],
+        "1.13.01",
+        report,
+        PATCH_PUBLISHED_AT,
+        new Map([
+          [
+            observationConflictHash(day21),
+            {
+              url: "https://www.reddit.com/r/CrimsonDesert/comments/aaa/day_20/",
+              sourcePublishedAt: "2026-07-20T08:00:00.000Z",
+            },
+          ],
+          [
+            observationConflictHash(snapshotMatchedAsk),
+            {
+              // This snapshot matches, but another run can advance the row
+              // before the legacy RPC executes. Campaign hashes are therefore
+              // never safe to authorize from this read alone.
+              url: snapshotMatchedAsk.url,
+              sourcePublishedAt: "2026-07-20T09:00:00.000Z",
+            },
+          ],
+        ]),
+      );
+
+      expect(report).toEqual({ errors: [], observationsKept: 1 });
+      expect(rpcCalls).toHaveLength(2);
+      expect(rpcCalls[0].params).toMatchObject({ p_date_contract_version: 2 });
+      expect(rpcCalls[0].params.p_observations).toHaveLength(3);
+      expect(rpcCalls[1].params).not.toHaveProperty("p_date_contract_version");
+      expect(rpcCalls[1].params.p_observations).toEqual([
+        expect.objectContaining({ url: safeNewPage.url }),
+      ]);
+    });
+  });
+
   it("keeps a repeated source scoped to the requested patch", async () => {
     const rpcCalls: RpcCall[] = [];
     const report = { errors: [] as string[], observationsKept: 0 };
@@ -1185,5 +1371,58 @@ describe("community ask genre", () => {
       PATCH_OPTIONS,
     );
     expect((decision as { observationKind?: string }).observationKind).toBeUndefined();
+  });
+
+  // The ask branch used to run BEFORE the patch gates, so any of these reached
+  // the live lane as current-patch context. Each one must now be rejected by the
+  // gate that owns it, with no observationKind attached.
+  it("cannot bypass the patch gates", () => {
+    const cases: { label: string; input: Parameters<typeof preScreenCandidate>[0]; reason: string }[] = [
+      {
+        label: "an ask tied to an older patch",
+        input: {
+          title: "Petition for caracals since patch 1.09.00 : r/CrimsonDesert",
+          snippet: "We asked on 1.09.00 and still nothing.",
+          sourceDomain: "reddit.com",
+        },
+        reason: "wrong_patch",
+      },
+      {
+        label: "an ask published before this patch shipped",
+        input: {
+          title: "Day 40 of asking to add caracals : r/CrimsonDesert",
+          snippet: "Still no caracals.",
+          sourceDomain: "reddit.com",
+          sourcePublishedAt: "2026-07-01T00:00:00.000Z",
+        },
+        reason: "stale_source",
+      },
+      {
+        label: "an ask from an unrelated subreddit",
+        input: {
+          title: "Day 40 of asking for a new map",
+          snippet: "Crimson Desert is great but we need a map.",
+          url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/new_map/",
+          sourceDomain: "reddit.com",
+        },
+        reason: "off_topic",
+      },
+      {
+        label: "an off-topic ask",
+        input: {
+          title: "Please add a dark mode to the launcher",
+          snippet: "Nothing to do with the game.",
+          url: "https://example.com/dark-mode-request",
+          sourceDomain: "example.com",
+        },
+        reason: "off_topic",
+      },
+    ];
+
+    for (const { label, input, reason } of cases) {
+      const decision = preScreenCandidate(input, PATCH_OPTIONS);
+      expect({ label, ...decision }).toMatchObject({ label, keep: false, reason });
+      expect((decision as { observationKind?: string }).observationKind).toBeUndefined();
+    }
   });
 });

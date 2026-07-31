@@ -1673,11 +1673,12 @@ server.listen(supabasePort, "127.0.0.1", () => {
       CRON_SECRET: "mock-cron-secret",
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
       TURNSTILE_SECRET_KEY: "",
-      REDDIT_CLIENT_ID: "",
-      REDDIT_CLIENT_SECRET: "",
-      REDDIT_USER_AGENT: "",
       GROQ_API_KEY: "",
       OPENROUTER_API_KEY: "",
+      // Blanked with the rest: a developer's real key in .env.local otherwise
+      // flips the Observatory's Tavily card from "Off" to "Connected" and the
+      // committed screenshots — taken with no keys — fail locally but not in CI.
+      TAVILY_API_KEY: "",
       XAI_API_KEY: "",
       PLAYWRIGHT_NOW: fixtureNowIso,
       NODE_OPTIONS: nodeOptions,

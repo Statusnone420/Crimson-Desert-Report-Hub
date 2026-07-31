@@ -4,7 +4,6 @@ type EnvLike = Record<string, string | undefined>;
 
 export type Features = {
   turnstile: boolean;
-  reddit: boolean;
   ai: boolean;
   xSearch: boolean;
   webSearch: boolean;
@@ -31,7 +30,6 @@ export function computeFeatures(env: EnvLike): Features {
 
   return {
     turnstile: hasEnvValue(env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) && hasEnvValue(env.TURNSTILE_SECRET_KEY),
-    reddit: false,
     ai,
     xSearch: hasEnvValue(env.XAI_API_KEY),
     webSearch,
@@ -125,14 +123,6 @@ export function automationBudgetUsd(env: EnvLike = process.env): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   return Math.min(parsed, MAX_MONTHLY_LLM_USD_CAP);
-}
-
-export function automationSubreddits(env: EnvLike = process.env): string[] {
-  return (env.AUTOMATION_SUBREDDITS ?? "CrimsonDesert")
-    .split(",")
-    .map((subreddit) => subreddit.trim().replace(/^r\//i, ""))
-    .filter(Boolean)
-    .slice(0, 5);
 }
 
 /** Explicit rollout switch for the keyless Steam review/pulse lane. */

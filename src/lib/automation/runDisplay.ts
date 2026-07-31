@@ -64,6 +64,12 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "A thin current-patch source was kept private for corroboration instead of being discarded or published.",
     summaryLabel: "candidate rescued",
   },
+  invalid_source_date: {
+    label: "Invalid source date",
+    detail:
+      "The provider supplied a malformed or implausibly future publication date, so the candidate was rejected instead of being treated as genuinely undated.",
+    summaryLabel: "invalid source date",
+  },
   off_topic: {
     label: "Off-topic",
     detail: "The page never mentions Crimson Desert, so it was dropped before any other screening.",
@@ -162,11 +168,6 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "The cron fired, but a real scan started inside the scanner policy window, so this attempt stood down. Dry runs never block it.",
     summaryLabel: "recent scan already ran",
   },
-  reddit_disabled: {
-    label: "Reddit disabled",
-    detail: "The Reddit API is permanently disabled, so this run used web search only.",
-    summaryLabel: "Reddit disabled",
-  },
   scan_already_running: {
     label: "Scan already running",
     detail: "Another scan was still in progress, so this one did not start.",
@@ -263,11 +264,11 @@ export function summarizeRunMessages(skips: string[], errors: string[]) {
 
 const DROP_SKIP_PLAIN: Record<string, string> = {
   wrong_patch: "about a different patch",
+  invalid_source_date: "carrying an invalid publication date",
   source_not_issue_report: "not a bug report",
   category_other: "not sortable into a bug area",
   off_topic: "not about Crimson Desert",
   duplicate: "a duplicate of something we already have",
-  reddit_disabled: "Reddit source is off",
   openrouter_invalid_json: "an AI read failed (used a fallback)",
   openrouter_provider_failure: "an AI provider failed (used a fallback)",
 };
@@ -297,7 +298,7 @@ export type PlainScan = {
   droppedBreakdown: { label: string; count: number }[];
 };
 
-const DROP_CODES = ["wrong_patch", "source_not_issue_report", "category_other", "off_topic"] as const;
+const DROP_CODES = ["wrong_patch", "invalid_source_date", "source_not_issue_report", "category_other", "off_topic"] as const;
 
 /** Turn a run row into plain-language counts for the "last scan, in plain English" panel. */
 export function describeScanPlain(run: PlainScanRun): PlainScan {

@@ -1143,19 +1143,13 @@ _18 controls · partition `inv:actions-compile-automation`_
 - **Tests:** —
 - **Quirks:** Label is a tri-state that doubles as the only error channel — a redesign that turns this into an icon-only button destroys the failure message. State resets on a fixed 2500ms setTimeout with no cleanup on unmount. Paired with the read-only <textarea> whose onFocus select-all is the documented fallback ("Focus the box to select all.", compile/page.tsx:79) — the two are coupled, do not drop one without the other.
 
-#### `reddit-monitor-action` — runRedditMonitor
+#### `reddit-monitor-action` — runRedditMonitor (REMOVED)
 
 - **Kind:** server-action · **Destructive:** none
-- **Reach:** UNREACHABLE FROM THE UI — no component in src/ imports or references it; the only reference outside its definition is tests/adminActions.test.ts:149-163. It remains addressable by direct POST to its Next server-action id.
-- **Does:** Nothing today: it throws immediately. Historically it fetched new posts from up to five subreddits, classified each, and upserted them as source_signals.
-- **Backing:** src/app/admin/actions.ts:398-444; the kill switch is features().reddit, hardcoded `reddit: false` at src/lib/env.ts:35
-- **Inputs:** subreddits — comma-separated string, each entry trimmed and stripped of a leading "r/", empties dropped, hard-capped to the first 5 (:403-408). Zero survivors throws "no subreddits given". Never evaluated in practice — the feature check at :401 throws first.
-- **Writes:** DEAD PATH (unreachable): source_signals.source ('reddit'), .source_url, .external_id_hash, .summary, .extracted_facts ({subreddit, classified}), .category, .confidence, .observed_at, .raw_text (first 8000 chars or null), .raw_expires_at (now + 48h). Upsert onConflict external_id_hash with ignoreDuplicates: true.; NOT written even on the dead path: source_signals.source_type (stays null) and .public_status (falls to the 'private' column default, supabase/migrations/20260705192942_automation_signals.sql:21)
-- **Guard:** requireAdmin() (:399) then assertProductionWriteAllowed() (:400), then the permanent feature kill at :401 — `if (!features().reddit) throw new Error("reddit monitor permanently disabled")`.
-- **Revalidates:** /scanner; /admin/source-monitor; revalidatePublicSurfaces() → tags PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG, CURRENT_PATCH_TAG and paths /, /issues, /report, /scanner (src/lib/revalidate.ts:10-22)
-- **On failure:** Always fails, with "reddit monitor permanently disabled". On the dead path it would be genuinely non-atomic: the upsert loop is nested subreddit→post and throws `reddit monitor insert failed: <message>` on the FIRST bad row, leaving every earlier post persisted, every later one skipped, and — because the three revalidate calls sit after the loop (:441-443) — no cache invalidation for the rows that did land.
-- **Tests:** tests/adminActions.test.ts:149-163 — asserts it stays disabled even when legacy REDDIT_CLIENT_ID/SECRET/USER_AGENT env vars are present, and that getRedditToken/fetchNewPosts are never called
-- **Quirks:** DEAD CODE with a live test pinning it dead — deleting the action means deleting that test, and the test exists specifically to stop the Reddit lane being revived by env vars. It is the only remaining consumer of getRedditToken/fetchNewPosts (src/lib/reddit.server.ts) and of classifySignal/summarize's reddit path; removing it orphans those. It also transitively keeps the `'reddit'` value alive in the source_signals source CHECK constraint (supabase/migrations/20260722170106_scanner_feedback_and_platform_pulse.sql:314). A redesign that deletes it should say so explicitly rather than let it vanish.
+- **Status:** DELETED. The action, `src/lib/reddit.server.ts` (getRedditToken/fetchNewPosts), the `reddit` feature flag and `automationSubreddits` are all gone; there is no longer a Next server-action id to POST to.
+- **Replacement tripwire:** tests/redditApiRetirement.test.ts reads the shipped `src/` tree and fails if any module imports `reddit.server`, reads `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`/`REDDIT_USER_AGENT`, or calls the OAuth/listing endpoints. The policy now lives in a structural assertion instead of a dead action.
+- **Still live:** Tavily `site:reddit.com` discovery, the old.reddit.com extraction rewrite, reddit.com domain trust, canonical Reddit URL normalization and every stored web-discovered Reddit row. `classifySignal`/`summarize` stay in `src/lib/reddit.ts` for extraction and patch-note parsing.
+- **Historical schema:** the `'reddit'` value stays in the source_signals source CHECK constraint (supabase/migrations/20260722170106_scanner_feedback_and_platform_pulse.sql:314) and `automation_runs.reddit_posts_seen` stays in the ledger, now always written as 0.
 
 #### `automation-pause-action` — setAutomationPaused
 
@@ -4600,19 +4594,12 @@ _32 controls · partition `inv:tests-and-docs`_
 - **Tests:** rejects a malformed patch version with no writes; writes the manual current patch through one atomic RPC and refreshes public surfaces; blocks the override in Vercel preview; surfaces an atomic write failure instead of claiming success. tests/e2e/operator-writes.spec.ts:220-250 submits the manual override through the real form, verifies public-board propagation, then restores the seed state.
 - **Quirks:** Pins the CONTRACT thoroughly — this is the best-covered admin control in the repo (4 tests including both guards and the failure path). The "one atomic RPC, never a direct official_patch_notes write" property is asserted twice by negative assertion; a redesign that re-implements this as a table update passes type-check and fails these tests. The control's blast radius is the whole public site (every patch-scoped readout), yet it lives behind a collapsed <details> at the bottom of /admin.
 
-#### `run-reddit-monitor-disabled` — runRedditMonitor (permanently disabled)
+#### `run-reddit-monitor-disabled` — runRedditMonitor (REMOVED)
 
 - **Kind:** server-action · **Destructive:** none
-- **Reach:** NO UI REACHES THIS. Grep of src/ finds no importer outside actions.ts.
-- **Does:** Nothing — it throws immediately. Kept as a tripwire proving Reddit API monitoring stays off even if credentials reappear in the environment.
-- **Backing:** tests/adminActions.test.ts:149 (describe "runRedditMonitor"); handler src/app/admin/actions.ts:398
-- **Inputs:** PINNED: a subreddits field is accepted and ignored; legacy REDDIT_CLIENT_ID/SECRET/USER_AGENT env vars do not re-enable it.
-- **Writes:** read-only — PINNED that getRedditToken and fetchNewPosts are never called (tests/adminActions.test.ts:161-162)
-- **Guard:** Unconditional refusal — throws "reddit monitor permanently disabled".
-- **Revalidates:** —
-- **On failure:** PINNED: always throws.
-- **Tests:** stays permanently disabled when legacy Reddit credentials remain
-- **Quirks:** Pins the CONTRACT of a POLICY, not a feature. docs/OPERATIONS.md:76 ("Reddit API access and direct subreddit monitoring are permanently off") and docs/NEXT-STEPS.md:52 both constrain this. A redesign that deletes the dead action also deletes the tripwire — if that happens, the policy should move into a lint rule or an env assertion, not vanish.
+- **Status:** DELETED along with the whole authenticated Reddit path. Nothing to call, disabled or otherwise.
+- **Where the policy lives now:** tests/redditApiRetirement.test.ts — a structural source scan, exactly the "lint rule or env assertion" this entry asked for. tests/adminActions.test.ts additionally asserts the admin action surface exports no Reddit action even with legacy credentials stubbed.
+- **Unchanged policy:** docs/OPERATIONS.md ("Reddit API access and direct subreddit monitoring are permanently off") still holds; Tavily-based Reddit discovery was never covered by it and is untouched.
 
 #### `api-admin-scan-post` — Run capped scan now / test-scan (POST /api/admin/scan)
 

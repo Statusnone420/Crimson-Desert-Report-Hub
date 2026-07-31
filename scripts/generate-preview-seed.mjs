@@ -234,7 +234,7 @@ for (let dayOffset = DAYS - 1; dayOffset >= 0; dayOffset -= 1) {
       candidates_rescued: 0,
       clusters_promoted: 0,
       intent: "broad_discovery",
-      skips: ["reddit_disabled"],
+      skips: [],
       errors: [],
       funnel: {
         searchResultsSeen: resultsSeen,
@@ -457,8 +457,10 @@ const seed = {
       is_public: true,
     },
     {
-      // Undated on purpose: the display gate must keep this off the public
-      // lanes while the admin desk still lists it.
+      // Undated on purpose: an ask the provider never dated. It renders in the
+      // Community Asks lane on its first-discovery time, labelled "first seen by
+      // radar" — never as a publication date. The same row in a coverage kind
+      // would stay off From the Wire entirely.
       id: "preview-observation-undated",
       created_at: iso(nowMs - 3 * 60 * 60 * 1000),
       patch_version: PATCH,

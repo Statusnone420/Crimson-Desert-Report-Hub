@@ -19,10 +19,8 @@ const AUTH_SENTINEL = "auth sentinel: admin session required";
 const mocks = vi.hoisted(() => ({
   cookieSet: vi.fn(),
   draftDossierWithAi: vi.fn(),
-  fetchNewPosts: vi.fn(),
   from: vi.fn(),
   getCurrentPatchMetadata: vi.fn(),
-  getRedditToken: vi.fn(),
   redirect: vi.fn(),
   refreshClusterVisibility: vi.fn(),
   requireAdmin: vi.fn(),
@@ -50,21 +48,15 @@ vi.mock("@/lib/automation/run", () => ({
   rescueCandidateSignal: mocks.rescueCandidateSignal,
 }));
 vi.mock("@/lib/officialPatch.server", () => ({ getCurrentPatchMetadata: mocks.getCurrentPatchMetadata }));
-vi.mock("@/lib/reddit.server", () => ({
-  fetchNewPosts: mocks.fetchNewPosts,
-  getRedditToken: mocks.getRedditToken,
-}));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 
 type Actions = typeof import("@/app/admin/actions");
 
 /**
  * Every write action, each with a payload valid enough to reach its first
- * tripwired boundary were the auth guard removed — except runRedditMonitor,
- * which features().reddit gates off permanently before any boundary, so only
- * the sentinel-message and call-count assertions do real work for that row.
- * Input validation happening before the guard would also be caught here: the
- * rejection message would be "bad input" instead of the sentinel.
+ * tripwired boundary were the auth guard removed. Input validation happening
+ * before the guard would also be caught here: the rejection message would be
+ * "bad input" instead of the sentinel.
  */
 const WRITE_ACTIONS: { name: keyof Actions; form: Record<string, string> }[] = [
   { name: "moderateReport", form: { id: "report-one", decision: "approved", cluster_id: "cluster-one" } },
@@ -81,7 +73,6 @@ const WRITE_ACTIONS: { name: keyof Actions; form: Record<string, string> }[] = [
   { name: "clearClusterFixStatusOverride", form: { cluster_id: "cluster-one" } },
   { name: "setCurrentPatchOverride", form: { patch_version: "1.13.02" } },
   { name: "compileDossier", form: {} },
-  { name: "runRedditMonitor", form: { subreddits: "CrimsonDesert" } },
   { name: "setAutomationPaused", form: { paused: "true" } },
   { name: "setScannerPolicy", form: { paused: "false", minIntervalMinutes: "120" } },
   {
@@ -132,12 +123,6 @@ beforeEach(() => {
   mocks.refreshClusterVisibility.mockImplementation(() => {
     throw new Error("cluster refresh reached without an admin session");
   });
-  mocks.getRedditToken.mockImplementation(() => {
-    throw new Error("Reddit API reached without an admin session");
-  });
-  mocks.fetchNewPosts.mockImplementation(() => {
-    throw new Error("Reddit fetch reached without an admin session");
-  });
   mocks.draftDossierWithAi.mockImplementation(() => {
     throw new Error("AI drafting reached without an admin session");
   });
@@ -162,8 +147,6 @@ describe("admin write actions require authentication before any work", () => {
       expect(mocks.rpc).not.toHaveBeenCalled();
       expect(mocks.rescueCandidateSignal).not.toHaveBeenCalled();
       expect(mocks.refreshClusterVisibility).not.toHaveBeenCalled();
-      expect(mocks.getRedditToken).not.toHaveBeenCalled();
-      expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
       expect(mocks.draftDossierWithAi).not.toHaveBeenCalled();
       expect(mocks.revalidatePath).not.toHaveBeenCalled();
       expect(mocks.revalidateTag).not.toHaveBeenCalled();

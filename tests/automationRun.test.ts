@@ -5,11 +5,9 @@ import { matchesOrExpression } from "./fixtures/postgrestOr";
 
 const mocks = vi.hoisted(() => ({
   extractSignalWithOpenRouter: vi.fn(),
-  fetchNewPosts: vi.fn(),
   from: vi.fn(),
   getClaimedFixesForCurrentPatch: vi.fn(),
   getCurrentPatchMetadata: vi.fn(),
-  getRedditToken: vi.fn(),
   mapClaimToClusterWithOpenRouter: vi.fn(),
   rpc: vi.fn(),
   getAutomationControlState: vi.fn(),
@@ -28,10 +26,6 @@ vi.mock("@/lib/supabase", () => ({
   createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }),
 }));
 
-vi.mock("@/lib/reddit.server", () => ({
-  fetchNewPosts: mocks.fetchNewPosts,
-  getRedditToken: mocks.getRedditToken,
-}));
 
 vi.mock("@/lib/automation/search", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/automation/search")>();
@@ -89,6 +83,7 @@ type TableName =
   | "steam_review_receipts"
   | "steam_pulse_snapshots"
   | "platform_context_snapshots"
+  | "patch_observations"
   | "signal_observation_events"
   | "issue_clusters"
   | "bug_reports"
@@ -114,6 +109,7 @@ const tables: Record<TableName, Row[]> = {
   steam_review_receipts: [],
   steam_pulse_snapshots: [],
   platform_context_snapshots: [],
+  patch_observations: [],
   signal_observation_events: [],
   issue_clusters: [],
   bug_reports: [],
@@ -123,7 +119,7 @@ const tables: Record<TableName, Row[]> = {
 const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters?: Filter[] }[] = [];
 let idSeq = 1;
 let openRouterAttempts = 0;
-let selectFailure: { table: TableName; message: string; columns?: string } | null = null;
+let selectFailure: { table: TableName; message: string; code?: string; columns?: string } | null = null;
 let insertFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
 let updateFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
@@ -435,7 +431,14 @@ class FakeQuery {
       selectFailure?.table === this.table &&
       (!selectFailure.columns || (this.selectedColumns ?? "").includes(selectFailure.columns))
     ) {
-      return { data: null, count: null, error: { message: selectFailure.message } };
+      return {
+        data: null,
+        count: null,
+        error: {
+          ...(selectFailure.code ? { code: selectFailure.code } : {}),
+          message: selectFailure.message,
+        },
+      };
     }
     let rows = this.filteredRows().map((row) => ({ ...row }));
     if (this.table === "source_signals" && honorSourceSignalProjection && this.selectedColumns) {
@@ -532,16 +535,6 @@ function configureProviders() {
     llmCostUsd: 0,
     extractionModel: null,
   });
-  mocks.getRedditToken.mockResolvedValue("reddit-token");
-  mocks.fetchNewPosts.mockResolvedValue([
-    {
-      id: "reddit-fps",
-      title: "FPS drops since 1.13",
-      selftext: "Steam users are seeing stutter.",
-      permalink: "/r/CrimsonDesert/comments/reddit-fps/fps/",
-      created_utc: 1783260000,
-    },
-  ]);
   mocks.tavilySearch.mockImplementation(async () => {
     const firstResult = mocks.tavilySearch.mock.calls.length === 1;
     return [
@@ -598,9 +591,6 @@ beforeEach(() => {
   configureProviders();
   process.env.SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service";
-  process.env.REDDIT_CLIENT_ID = "reddit-id";
-  process.env.REDDIT_CLIENT_SECRET = "reddit-secret";
-  process.env.REDDIT_USER_AGENT = "report-hub-test";
   process.env.TAVILY_API_KEY = "tavily-key";
   process.env.AUTOMATION_BUDGET_USD_MONTHLY = "2";
   process.env.OPENROUTER_API_KEY = "openrouter-key";
@@ -878,16 +868,28 @@ describe("runAutomationMonitor", () => {
     });
   });
 
-  it("never calls the Reddit API when legacy credentials remain", async () => {
+  it("scheduled scans no longer report a Reddit lane at all", async () => {
+    // The authenticated Reddit API is retired: a scan must not announce it as a
+    // skipped source every run, and the historical ledger column stays at zero.
+    process.env.REDDIT_CLIENT_ID = "legacy-id";
+    process.env.REDDIT_CLIENT_SECRET = "legacy-secret";
+    process.env.REDDIT_USER_AGENT = "legacy-agent";
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
+    try {
+      const result = await runAutomationMonitor({
+        mode: "scheduled",
+        now: new Date("2026-07-05T12:00:00.000Z"),
+      });
 
-    const result = await runAutomationMonitor({ mode: "dry_run", now: new Date("2026-07-05T12:00:00.000Z") });
-
-    expect(result.redditPostsSeen).toBe(0);
-    expect(result.skips).toContain("reddit_disabled");
-    expect(mocks.getRedditToken).not.toHaveBeenCalled();
-    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
+      expect(result.skips).not.toContain("reddit_disabled");
+      expect(result.skips.some((skip) => skip.includes("reddit"))).toBe(false);
+      expect(tables.automation_runs[0]).toMatchObject({ reddit_posts_seen: 0 });
+    } finally {
+      delete process.env.REDDIT_CLIENT_ID;
+      delete process.env.REDDIT_CLIENT_SECRET;
+      delete process.env.REDDIT_USER_AGENT;
+    }
   });
 
   it("continues high-value LLM work after a normal accounted DeepSeek charge", async () => {
@@ -1348,7 +1350,6 @@ describe("runAutomationMonitor", () => {
     const result = await runAutomationMonitor({ mode: "dry_run", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(result.status).toBe("success");
-    expect(result.redditPostsSeen).toBe(0);
     expect(result.searchResultsSeen).toBe(5);
     expect(tables.automation_runs).toHaveLength(1);
     expect(tables.automation_runs[0]).toMatchObject({
@@ -1377,9 +1378,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("rotates one-credit scheduled web search across adjacent hourly scans", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -1467,7 +1465,6 @@ describe("runAutomationMonitor", () => {
 
     expect(result.status).toBe("success");
     expect(result.skips).toContain("tavily_credit_cap");
-    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(openRouterAttempts).toBe(0);
     expect(tables.automation_runs).toHaveLength(2);
@@ -1509,7 +1506,6 @@ describe("runAutomationMonitor", () => {
 
     expect(result.status).toBe("success");
     expect(result.skips).toContain("llm_budget_capped");
-    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
     expect(mocks.tavilySearch).toHaveBeenCalledOnce();
     expect(openRouterAttempts).toBe(0);
     expect(tables.automation_runs[1]).toMatchObject({
@@ -1529,7 +1525,6 @@ describe("runAutomationMonitor", () => {
       "ledger unavailable",
     );
 
-    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(openRouterAttempts).toBe(0);
     expect(tables.automation_runs).toHaveLength(0);
@@ -1548,7 +1543,6 @@ describe("runAutomationMonitor", () => {
     expect(result.status).toBe("skipped");
     expect(result.skips).toContain("budget_read_failed");
     expect(result.errors[0]).toContain("spend ledger unavailable");
-    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(openRouterAttempts).toBe(0);
 
@@ -1567,15 +1561,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("non-dry runs cluster two independent trusted+unknown domains and promote them public", async () => {
-    mocks.fetchNewPosts.mockResolvedValue([
-      {
-        id: "reddit-fps",
-        title: "FPS drops since 1.13",
-        selftext: "Steam users are seeing stutter.",
-        permalink: "/r/CrimsonDesert/comments/reddit-fps/fps/",
-        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
-      },
-    ]);
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -1626,7 +1611,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "FPS drops since 1.13",
@@ -1676,7 +1660,6 @@ describe("runAutomationMonitor", () => {
       },
     };
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "FPS drops since 1.13",
@@ -1741,7 +1724,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "FPS drops since 1.13",
@@ -1770,7 +1752,6 @@ describe("runAutomationMonitor", () => {
   it("reports only successfully persisted signals after a partial batch failure", async () => {
     sourceSignalInsertFailure = { title: "FPS drops second", message: "source signal write failed" };
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "FPS drops first",
@@ -1892,7 +1873,6 @@ describe("runAutomationMonitor", () => {
     // No reddit posts: the only signal is a lone, untrusted (facebook.com),
     // single-domain web result. It is fresh (published after the current patch)
     // so it is publishable, and it clusters onto the approved-report cluster.
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Map crash on PS5",
@@ -2009,7 +1989,6 @@ describe("runAutomationMonitor", () => {
     // routed onto a cluster an admin has force-hidden. force_hidden must win at the
     // per-signal level too: the signal stays hidden rather than being downgraded to
     // private (which would leak it back into the private-signal targeting pool).
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Map crash on PS5",
@@ -2088,7 +2067,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("does not promote two fresh distinct canonical URLs on the same domain (not independent)", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
     delete process.env.OPENROUTER_API_KEY;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
@@ -2127,9 +2105,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("filters broad reviews and patch notes before writing source signals", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
@@ -2560,9 +2535,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("stores rejected candidates through the legacy schema when feedback columns are missing", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     insertFailure = {
       table: "automation_rejected_candidates",
       column: "feedback_rule_id",
@@ -2593,9 +2565,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("refreshes a legacy rejected candidate without the feedback column", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       automation_rejected_candidates: [
         {
@@ -2878,9 +2847,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("dry runs record zero rejected candidates even when candidates fail pre-screen", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
@@ -2931,9 +2897,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("makes zero LLM calls and records the run funnel when every candidate fails pre-screen", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
@@ -2977,9 +2940,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("rescues a borderline current-patch trusted source as a private candidate", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert patch 1.13 player discussion",
@@ -3011,9 +2971,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("reads full trusted-source content before rejecting and rescues on the recon text", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     // Thin snippet lacks symptom language (would be source_not_issue_report) but is a
     // borderline trusted current-patch candidate. The real thread text has the symptom.
     mocks.tavilySearch.mockImplementationOnce(async () => [
@@ -3063,9 +3020,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("never spends a recon fetch on an official page whose verdict is already fixed", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     // A publisher known-issues notice qualifies for the recon lane on every axis
     // the borderline check reads — trusted domain, current patch, "players" and
     // "issue" context cues — but rescue is impossible by construction: the
@@ -3124,9 +3078,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("caps recon fetches per run and falls back to snippet-only for the overflow", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     // Four borderline trusted current-patch candidates, each thin. MAX_RECON_FETCHES_PER_RUN is 2.
     mocks.tavilySearch.mockImplementationOnce(async () =>
       Array.from({ length: 4 }, (_, index) => ({
@@ -3163,9 +3114,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("does not recon-fetch a non-trusted borderline candidate", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert patch 1.13 player discussion",
@@ -3220,15 +3168,6 @@ describe("runAutomationMonitor", () => {
     delete process.env.TAVILY_API_KEY;
     // A trusted reddit.com borderline current-patch candidate arrives via Reddit
     // (web search can't run without the key, but Reddit still can).
-    mocks.fetchNewPosts.mockResolvedValue([
-      {
-        id: "reddit-borderline-nokey",
-        title: "Crimson Desert patch 1.13 player discussion",
-        selftext: "Body retained for moderator review.",
-        permalink: "/r/CrimsonDesert/comments/reddit-borderline-nokey/current_patch/",
-        created_utc: Math.floor(new Date("2026-07-05T11:00:00.000Z").getTime() / 1000),
-      },
-    ]);
     mocks.tavilyExtract.mockResolvedValue(
       "Players report constant stutter and fps drops on patch 1.13.00.",
     );
@@ -3254,9 +3193,6 @@ describe("runAutomationMonitor", () => {
     // credit before the call therefore charged the ledger and spent a search query on
     // page text that never arrived. reddit.com is the first trusted domain, so this
     // was the ordinary path, not an edge case.
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert patch 1.13 player discussion",
@@ -3287,9 +3223,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("books no recon credit when the extract call itself fails", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert patch 1.13 player discussion",
@@ -3325,9 +3258,6 @@ describe("runAutomationMonitor", () => {
     // Not booking a credit must not turn the per-run cap into a free-for-all: a
     // domain that always refuses is attempted MAX_RECON_FETCHES_PER_RUN times and
     // no more, however many borderline candidates it produces.
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () =>
       Array.from({ length: 4 }, (_, index) => ({
         title: "Crimson Desert patch 1.13 player discussion",
@@ -3352,9 +3282,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("hides existing public stale source links during a later scan even when no new mentions are kept", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       issue_clusters: [
         {
@@ -3391,9 +3318,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
@@ -3425,9 +3349,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("hides existing public bypass discussions during a later scan", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       issue_clusters: [
         {
@@ -3464,9 +3385,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -3485,9 +3403,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("hides legacy public rows that never mention Crimson Desert", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       issue_clusters: [
         {
@@ -3523,9 +3438,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -3537,9 +3449,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("quarantines stale public source links beyond the first audit page", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     const freshSignals = Array.from({ length: 501 }, (_, index) => ({
       id: `signal-current-${index}`,
       source: "web_search",
@@ -3592,9 +3501,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -3609,9 +3515,6 @@ describe("runAutomationMonitor", () => {
 
   it("keeps stale source links hidden when a direct report makes the cluster visible", async () => {
     delete process.env.TAVILY_API_KEY;
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       issue_clusters: [
         {
@@ -3659,9 +3562,6 @@ describe("runAutomationMonitor", () => {
     });
     configureProviders();
     delete process.env.TAVILY_API_KEY;
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -3680,9 +3580,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("increments seen_count for the same canonical URL instead of duplicating evidence", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementation(async () => [
       {
         title: "Crimson Desert patch 1.13 FPS regression",
@@ -3712,9 +3609,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("refreshes observed_at when a rescued signal is re-observed as a reject", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       source_signals: [
         {
@@ -3749,9 +3643,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("refreshes a rescued signal's cluster when re-observation makes its sources current", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       issue_clusters: [
         {
@@ -3814,9 +3705,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("records a re-observation event in the ledger when the table exists", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementation(async () => [
       {
         title: "Crimson Desert patch 1.13 FPS regression",
@@ -3843,9 +3731,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("degrades the observation ledger to a no-op without failing the scan", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     observationEventInsertFailure = 'relation "signal_observation_events" does not exist';
     mocks.tavilySearch.mockImplementation(async () => [
       {
@@ -3872,9 +3757,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("surfaces non-schema observation ledger failures instead of hiding them", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     observationEventInsertFailure = "permission denied for table signal_observation_events";
     mocks.tavilySearch.mockImplementation(async () => [
       {
@@ -3898,9 +3780,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("spends one discovery slot on the wire's news-topic press query on eligible turns", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -3921,9 +3800,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("keeps the wire's dated observations when the general queries fill the shelf first", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     // The defect this pins: collectInputs appends the wire results AFTER the
     // general queries, so a productive general turn filled every observation
     // slot with undated rows the Brief can never render — and the only dated
@@ -4026,9 +3902,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("never attaches an observation to a URL already kept as a signal", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     // The side door this pins shut: a general query keeps a page as a source
     // signal, then the wire re-returns the same URL with a different excerpt —
     // one that pre-screens as observation material — plus the publication date
@@ -4082,10 +3955,156 @@ describe("runAutomationMonitor", () => {
     expect(result.status).toBe("success");
   });
 
+  it("persists a direct provider date and never substitutes scanner time for it", async () => {
+    mocks.tavilySearch.mockImplementation(async (_query: string, options?: { topic?: string }) => {
+      if (options?.topic === "news") {
+        return [
+          {
+            // Dated by the provider: this one must persist verbatim.
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.polygon.com/crimson-desert-1-13-notes",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "polygon.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 09:00:00 GMT",
+          },
+        ];
+      }
+      return [
+        {
+          // Undated, and its snippet is full of dates that are NOT publication
+          // dates. Neither those nor the scan's own clock may fill the column.
+          title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+          url: "https://www.dsogaming.com/articles/cd-1-13-undated",
+          snippet: "Pearl Abyss detailed the update for all platforms. Apr 4 @ 1:45am. See the July 14, 2026 recap.",
+          sourceDomain: "dsogaming.com",
+          observedAt: "2026-07-05T12:00:00.000Z",
+        },
+      ];
+    });
+    const defaultRpc = mocks.rpc.getMockImplementation()!;
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      return defaultRpc(name, args);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z -> the wire slot fires, so both the dated and undated copies arrive.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const dated = persistedObservations.find(
+      (row) => row.url === "https://www.polygon.com/crimson-desert-1-13-notes",
+    );
+    expect(dated?.source_published_at).toBe("Sun, 05 Jul 2026 09:00:00 GMT");
+    const undated = persistedObservations.find(
+      (row) => row.url === "https://www.dsogaming.com/articles/cd-1-13-undated",
+    );
+    expect(undated).toBeDefined();
+    expect(undated?.source_published_at).toBeNull();
+    // Belt and braces: no persisted date may equal a scanner timestamp.
+    const scannerTimes = new Set(["2026-07-05T12:00:00.000Z", ...persistedObservations.map((row) => String(row.observed_at))]);
+    expect(persistedObservations.some((row) => scannerTimes.has(String(row.source_published_at)))).toBe(false);
+    expect(result.status).toBe("success");
+  });
+
+  it("rejects invalid provider dates before Community Asks can use the undated fallback", async () => {
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Day 40 of asking for armor dye in Crimson Desert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/bad_date/armor_dye/",
+        snippet: "The community keeps asking Pearl Abyss to add armor dye options.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T13:00:00.000Z",
+        sourcePublishedAt: "yesterday afternoon",
+      },
+      {
+        title: "Please add mount transmog to Crimson Desert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/future_date/mount_transmog/",
+        snippet: "A feature request asking Pearl Abyss for mount transmog.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T13:00:00.000Z",
+        sourcePublishedAt: "2026-07-08T14:00:00.000Z",
+      },
+    ]);
+    const defaultRpc = mocks.rpc.getMockImplementation()!;
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      return defaultRpc(name, args);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    expect(persistedObservations).toEqual([]);
+    expect(rejectedCandidateRows()).toHaveLength(2);
+    expect(rejectedCandidateRows().map((row) => row.reason)).toEqual([
+      "invalid_source_date",
+      "invalid_source_date",
+    ]);
+    expect(result.skips.filter((skip) => skip === "invalid_source_date")).toHaveLength(2);
+    expect(result.prefilterRejected).toBe(2);
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(result.status).toBe("success");
+  });
+
+  it("stops before observation persistence when stored-date ownership cannot be read", async () => {
+    selectFailure = {
+      table: "patch_observations",
+      code: "42501",
+      message: "permission denied for table patch_observations",
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.errors).toContain(
+      "stored observation dates read failed: permission denied for table patch_observations",
+    );
+    expect(mocks.rpc).not.toHaveBeenCalledWith("persist_patch_observations", expect.anything());
+  });
+
+  it("keeps the rolling-deploy fallback narrow to a missing observations relation", async () => {
+    selectFailure = {
+      table: "patch_observations",
+      code: "PGRST205",
+      message: "Could not find the table patch_observations in the schema cache",
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.errors).toEqual([]);
+  });
+
+  it("surfaces a thrown stored-date timeout instead of treating it as no rows", async () => {
+    beforeSelect = (table) => {
+      if (table === "patch_observations") throw new Error("database request timed out");
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.errors).toContain("stored observation dates read failed: database request timed out");
+    expect(mocks.rpc).not.toHaveBeenCalledWith("persist_patch_observations", expect.anything());
+  });
+
   it("keeps every search slot on general (dated-less) search on non-wire turns", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -4098,9 +4117,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("changes the next scheduled intent after a zero-kept scan", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       automation_runs: [
         {
@@ -4115,9 +4131,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -4153,9 +4166,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("uses the patch burst budget and records the active window in the run ledger", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     const burstPatch = {
       ...officialPatchFixture,
       observedAt: "2026-07-05T11:00:00.000Z",
@@ -4184,9 +4194,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("reserves a Tavily credit for candidate recon in a normal scheduled run", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockImplementationOnce(async () => [
       {
         title: "Crimson Desert patch 1.13 player discussion",
@@ -4278,9 +4285,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("targets corroboration when private weak source signals exist", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       issue_clusters: [
         {
@@ -4307,9 +4311,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -4342,9 +4343,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("hunts zero-evidence public seed clusters by name", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       issue_clusters: [
         {
@@ -4363,9 +4361,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -4391,9 +4386,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("targets rescue when live rejected candidates exist", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       automation_rejected_candidates: [
         {
@@ -4408,9 +4400,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -4434,9 +4423,6 @@ describe("runAutomationMonitor", () => {
   });
 
   it("ignores stale, rescued, and non-rescuable rejected candidates when planning rescue", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       automation_rejected_candidates: [
         {
@@ -4482,9 +4468,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -4722,9 +4705,6 @@ describe("runAutomationMonitor", () => {
 
   it("keeps an auto-public cluster visible when its public signal goes stale but a live current-patch candidate remains", async () => {
     delete process.env.TAVILY_API_KEY;
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     resetDb({
       issue_clusters: [
         {
@@ -4779,9 +4759,6 @@ describe("runAutomationMonitor", () => {
     });
     configureProviders();
     delete process.env.TAVILY_API_KEY;
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -4944,7 +4921,6 @@ describe("runAutomationMonitor", () => {
     const started = await startAutomationScan({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     expect(started).toEqual({ status: "already_running", runId: null });
-    expect(mocks.fetchNewPosts).not.toHaveBeenCalled();
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
   });
 
@@ -4979,7 +4955,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockResolvedValue([]);
     mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
       { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
@@ -5041,7 +5016,6 @@ describe("runAutomationMonitor", () => {
       });
     };
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockResolvedValue([]);
     mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
       { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
@@ -5084,7 +5058,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockResolvedValue([]);
     mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
       { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
@@ -5128,7 +5101,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -5170,7 +5142,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockResolvedValue([]);
     const { runAutomationMonitor } = await importRunner();
 
@@ -5200,7 +5171,6 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
-    mocks.fetchNewPosts.mockResolvedValue([]);
     mocks.tavilySearch.mockResolvedValue([]);
     mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
       { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
@@ -5655,9 +5625,6 @@ describe("cron source preview route", () => {
 
 describe("Steam Pulse intake", () => {
   it("keeps legacy scanning active when the Steam Pulse snapshot table is not migrated yet", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -5677,9 +5644,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("keeps legacy scanning active when the Steam review receipt table is not migrated yet", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -5712,9 +5676,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("marks unexpected Steam Pulse read failures partial and records the error", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -5735,9 +5696,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("uses an edited Steam review's update time for freshness while retaining its creation time", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -5775,9 +5733,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("follows Steam's review cursor so changes beyond the first page are not skipped", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -5844,9 +5799,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("caps a long Steam cursor walk and records that the page window was incomplete", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -6026,9 +5978,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("keeps identities out of storage, retains only issue leads, and writes aggregate context", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -6105,9 +6054,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("does not apply shared URL feedback rules to individual Steam reviews", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -6156,9 +6102,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("acknowledges only classified or successfully persisted reviews after a partial write", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -6210,9 +6153,6 @@ describe("Steam Pulse intake", () => {
   });
 
   it("keeps the daily review delta anchored to the prior day across same-day refreshes", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     process.env.STEAM_PULSE_ENABLED = "true";
@@ -6286,9 +6226,6 @@ describe("Steam Pulse intake", () => {
 
 describe("Platform Pulse intake", () => {
   it("persists public metadata and live aggregates without provider credentials or channel identity", async () => {
-    delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-    delete process.env.REDDIT_USER_AGENT;
     delete process.env.TAVILY_API_KEY;
     process.env.TWITCH_CLIENT_ID = "fixture-client-id";
     process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
