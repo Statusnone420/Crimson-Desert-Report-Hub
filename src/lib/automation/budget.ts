@@ -48,7 +48,7 @@ type ProviderRouting = {
   require_parameters: true;
   data_collection: "deny";
   zdr?: true;
-  only?: readonly ["openai"];
+  only?: readonly ["OpenAI"];
   allow_fallbacks?: false;
   sort?: "price";
   max_price: { prompt: number; completion: number; request: 0; image: 0 };
@@ -94,7 +94,7 @@ const OPENROUTER_LUNA_PROVIDER_ROUTING = {
   data_collection: "deny",
   // First-party OpenAI only. `allow_fallbacks: false` means a routing miss
   // fails closed rather than silently sending scanner text to another host.
-  only: ["openai"],
+  only: ["OpenAI"],
   allow_fallbacks: false,
   // Luna's promotional list price is $0.10/$0.60 per million input/output
   // tokens. These finite ceilings leave a modest operational margin but reject

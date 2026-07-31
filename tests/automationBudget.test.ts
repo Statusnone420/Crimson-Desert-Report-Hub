@@ -220,7 +220,7 @@ describe("automation budget", () => {
       request: 0,
       image: 0,
     });
-    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.only).toEqual(["openai"]);
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.only).toEqual(["OpenAI"]);
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.allow_fallbacks).toBe(false);
     expect("zdr" in OPENROUTER_AUTOMATION_PROVIDER_ROUTING).toBe(false);
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.data_collection).toBe("deny");

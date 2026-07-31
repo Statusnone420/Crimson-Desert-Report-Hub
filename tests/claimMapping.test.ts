@@ -131,7 +131,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
     expect(requestedProvider).toEqual({
       require_parameters: true,
       data_collection: "deny",
-      only: ["openai"],
+      only: ["OpenAI"],
       allow_fallbacks: false,
       max_price: { prompt: 0.15, completion: 0.9, request: 0, image: 0 },
     });
