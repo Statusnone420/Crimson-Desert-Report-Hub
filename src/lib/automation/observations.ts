@@ -381,6 +381,11 @@ export async function persistObservations(
 
     if (result.error && isMissingSupabaseRpc(result.error, "persist_patch_observations")) {
       const legacySafeRows = rows.filter((row) => {
+        // Community Ask hashes identify a campaign, not one URL. Even a stored
+        // URL that matches this snapshot can become stale if another scan
+        // advances the campaign before the legacy RPC executes. Withhold every
+        // campaign-keyed row until the versioned, URL-bound RPC is available.
+        if (row.kind === "community_ask") return false;
         const stored = storedDatesByUrlHash.get(row.url_hash);
         return !stored || stored.url === row.url || row.source_published_at !== null;
       });

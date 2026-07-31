@@ -1182,11 +1182,19 @@ describe("persistObservations", () => {
       ]);
     });
 
-    it("withholds an undated URL rollover from the legacy RPC while persisting safe rows", async () => {
+    it("withholds every campaign row from the legacy RPC even when its stored snapshot looks safe", async () => {
       const day21 = candidate({
         kind: "community_ask",
         title: "Day 21 of asking to add caracals to the desert : r/CrimsonDesert",
         url: "https://www.reddit.com/r/CrimsonDesert/comments/bbb/day_21/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: null,
+        observedAt: "2026-07-21T12:00:00.000Z",
+      });
+      const snapshotMatchedAsk = candidate({
+        kind: "community_ask",
+        title: "Day 20 of asking for mount transmog : r/CrimsonDesert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/ccc/transmog_day_20/",
         sourceDomain: "reddit.com",
         sourcePublishedAt: null,
         observedAt: "2026-07-21T12:00:00.000Z",
@@ -1216,7 +1224,7 @@ describe("persistObservations", () => {
 
       await persistObservations(
         client,
-        [day21, safeNewPage],
+        [day21, snapshotMatchedAsk, safeNewPage],
         "1.13.01",
         report,
         PATCH_PUBLISHED_AT,
@@ -1228,13 +1236,23 @@ describe("persistObservations", () => {
               sourcePublishedAt: "2026-07-20T08:00:00.000Z",
             },
           ],
+          [
+            observationConflictHash(snapshotMatchedAsk),
+            {
+              // This snapshot matches, but another run can advance the row
+              // before the legacy RPC executes. Campaign hashes are therefore
+              // never safe to authorize from this read alone.
+              url: snapshotMatchedAsk.url,
+              sourcePublishedAt: "2026-07-20T09:00:00.000Z",
+            },
+          ],
         ]),
       );
 
       expect(report).toEqual({ errors: [], observationsKept: 1 });
       expect(rpcCalls).toHaveLength(2);
       expect(rpcCalls[0].params).toMatchObject({ p_date_contract_version: 2 });
-      expect(rpcCalls[0].params.p_observations).toHaveLength(2);
+      expect(rpcCalls[0].params.p_observations).toHaveLength(3);
       expect(rpcCalls[1].params).not.toHaveProperty("p_date_contract_version");
       expect(rpcCalls[1].params.p_observations).toEqual([
         expect.objectContaining({ url: safeNewPage.url }),
