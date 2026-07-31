@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   APPROVED_AUTOMATION_MODELS,
+  AUTOMATION_TASK_SETTINGS,
+  automationModelSettings,
   computeAutomationBudget,
   countRemainingRunsThisMonth,
   isOpenRouterRoutingRefusal,
+  maxOpenRouterRequestCostUsd,
   OPENROUTER_AUTOMATION_MODEL,
+  OPENROUTER_DEEPSEEK_ROLLBACK_MODEL,
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
   resolveAutomationOpenRouterModel,
 } from "@/lib/automation/budget";
@@ -200,30 +204,52 @@ describe("automation budget", () => {
     expect(() => resolveAutomationOpenRouterModel("openai/gpt-oss-20b")).toThrow(/Automation model/);
   });
 
-  it("keeps the three approved models the only approved models", () => {
+  it("keeps Luna and the explicit DeepSeek rollback as the only approved paid models", () => {
     // Adding one is a spending and privacy decision, so it should fail here
     // first rather than pass silently on the strength of the routing filters.
     expect([...APPROVED_AUTOMATION_MODELS]).toEqual([
+      "openai/gpt-5.6-luna",
       "deepseek/deepseek-v4-flash",
-      "openai/gpt-oss-120b",
-      "google/gemini-2.5-flash-lite",
     ]);
   });
 
-  it("holds the routing ceiling above the approved models' listed prices", () => {
-    // USD per million tokens. The cheapest DeepSeek V4 Flash endpoint sat at
-    // 0.090/0.180 when this was set, so the ceiling leaves real headroom
-    // instead of tripping on an ordinary provider price move.
+  it("pins Luna to first-party OpenAI with no provider fallback or request ZDR", () => {
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.max_price).toEqual({
-      prompt: 0.2,
-      completion: 0.5,
+      prompt: 0.15,
+      completion: 0.9,
       request: 0,
       image: 0,
     });
-    // Privacy filters are not negotiable when the ceiling moves.
-    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.zdr).toBe(true);
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.only).toEqual(["OpenAI"]);
+    expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.allow_fallbacks).toBe(false);
+    expect("zdr" in OPENROUTER_AUTOMATION_PROVIDER_ROUTING).toBe(false);
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.data_collection).toBe("deny");
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.require_parameters).toBe(true);
+  });
+
+  it("retains ZDR for the explicit DeepSeek rollback route", () => {
+    expect(automationModelSettings(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL).provider).toEqual({
+      require_parameters: true,
+      data_collection: "deny",
+      zdr: true,
+      sort: "price",
+      max_price: { prompt: 0.2, completion: 0.5, request: 0, image: 0 },
+    });
+  });
+
+  it("reserves full high-reasoning completion allowances at each model's price ceiling", () => {
+    expect(AUTOMATION_TASK_SETTINGS).toEqual({
+      extraction: { maxCompletionTokens: 3_200 },
+      claim_mapping: { maxCompletionTokens: 2_048 },
+    });
+    expect(maxOpenRouterRequestCostUsd("", AUTOMATION_TASK_SETTINGS.extraction.maxCompletionTokens)).toBeCloseTo(0.00288);
+    expect(
+      maxOpenRouterRequestCostUsd(
+        "",
+        AUTOMATION_TASK_SETTINGS.claim_mapping.maxCompletionTokens,
+        OPENROUTER_DEEPSEEK_ROLLBACK_MODEL,
+      ),
+    ).toBeCloseTo(0.001024);
   });
 
   describe("routing refusals", () => {

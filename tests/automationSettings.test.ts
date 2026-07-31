@@ -70,12 +70,16 @@ describe("automation scanner settings", () => {
     expect(scannerPolicyFromFormData(formData)).toMatchObject({ monthlyLlmUsdCap: 2 });
   });
 
-  it("normalizes the legacy route to the single approved DeepSeek preset", async () => {
+  it("normalizes legacy and unknown routes to the single approved Luna preset", async () => {
     const { getAutomationControlState } = await import("@/lib/automation/settings");
 
     await expect(
       getAutomationControlState(fakeSupabase([{ key: "scanner", value: { modelPreset: "deepseek_qwen_pro" } }])),
-    ).resolves.toMatchObject({ modelPreset: "deepseek_v4_flash" });
+    ).resolves.toMatchObject({ modelPreset: "gpt_5_6_luna" });
+
+    await expect(
+      getAutomationControlState(fakeSupabase([{ key: "scanner", value: { modelPreset: "deepseek_v4_flash" } }])),
+    ).resolves.toMatchObject({ modelPreset: "gpt_5_6_luna" });
   });
 
   it("defaults to the safe scanner policy when no scanner setting exists", async () => {
@@ -87,7 +91,7 @@ describe("automation scanner settings", () => {
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
       monthlyLlmUsdCap: 2,
-      modelPreset: "deepseek_v4_flash",
+      modelPreset: "gpt_5_6_luna",
       updatedAt: null,
     });
   });
@@ -105,7 +109,7 @@ describe("automation scanner settings", () => {
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
       monthlyLlmUsdCap: 2,
-      modelPreset: "deepseek_v4_flash",
+      modelPreset: "gpt_5_6_luna",
       updatedAt: "2026-07-06T12:00:00.000Z",
     });
   });
@@ -135,7 +139,7 @@ describe("automation scanner settings", () => {
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
       monthlyLlmUsdCap: 2,
-      modelPreset: "deepseek_v4_flash",
+      modelPreset: "gpt_5_6_luna",
     });
   });
 
@@ -178,7 +182,7 @@ describe("automation scanner settings", () => {
         scheduledSearchCreditsPerRun: 3,
         monthlyTavilyCreditCap: 100,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
     await expect(getAutomationControlState(supabase)).resolves.toMatchObject({ paused: true });
@@ -200,7 +204,7 @@ describe("automation scanner settings", () => {
       scheduledSearchCreditsPerRun: 2,
       monthlyTavilyCreditCap: 900,
       monthlyLlmUsdCap: 2,
-      modelPreset: "deepseek_v4_flash",
+      modelPreset: "gpt_5_6_luna",
     });
 
     formData.set("cadence", "120");

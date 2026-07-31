@@ -106,7 +106,7 @@ The scanner may read public Pearl Abyss patch-note metadata and public web-searc
 
 Scanner links remain leads. The app may store structured summaries and source URLs; raw source text retained for maintainer review is temporary and is purged by scheduled maintenance.
 
-High-value scanner enrichment and official fix-claim mapping use bounded server-side provider calls with a hard $2 UTC-month software cap and per-request price ceilings. Exact model routing and fallback recipes are maintainer configuration. Confirmations do not call Tavily, an LLM, or a captcha service on the happy path.
+High-value scanner enrichment and official fix-claim mapping use bounded server-side provider calls with a hard $2 UTC-month software cap and model-specific per-request price ceilings. The default scanner lane is [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna) through [OpenRouter](https://openrouter.ai/docs/guides/privacy/data-collection), pinned to the first-party OpenAI provider with no automatic provider or model fallback. DeepSeek V4 Flash is an explicit maintainer rollback only. [OpenAI does not train on API data by default; abuse-monitoring logs may be retained for up to 30 days.](https://developers.openai.com/api/docs/guides/your-data) Confirmations do not call Tavily, an LLM, or a captcha service on the happy path.
 
 The deployment should use a dedicated OpenRouter key with a provider-side monthly limit of $2 or lower that resets monthly. That dashboard setting is a maintainer setup and verification step; the repository cannot inspect it and does not claim it is already configured.
 

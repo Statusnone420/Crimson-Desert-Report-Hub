@@ -131,6 +131,7 @@ let issueClusterInsertRace: { slug: string; row: Row } | null = null;
 let sourceSignalInsertFailure: { title?: string; externalHash?: string; message: string } | null = null;
 let observationEventInsertFailure: string | null = null;
 let honorSourceSignalProjection = false;
+let honorIssueClusterProjection = false;
 /**
  * Stands in for the hosted PostgREST row cap: the API can return fewer rows
  * than the requested limit, so a reader that stops on a short page silently
@@ -166,6 +167,7 @@ function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
   sourceSignalInsertFailure = null;
   observationEventInsertFailure = null;
   honorSourceSignalProjection = false;
+  honorIssueClusterProjection = false;
   hostedRowCap = null;
 }
 
@@ -441,7 +443,11 @@ class FakeQuery {
       };
     }
     let rows = this.filteredRows().map((row) => ({ ...row }));
-    if (this.table === "source_signals" && honorSourceSignalProjection && this.selectedColumns) {
+    if (
+      this.selectedColumns &&
+      ((this.table === "source_signals" && honorSourceSignalProjection) ||
+        (this.table === "issue_clusters" && honorIssueClusterProjection))
+    ) {
       const selected = this.selectedColumns.split(",").map((column) => column.trim());
       rows = rows.map((row) => Object.fromEntries(selected.map((column) => [column, row[column]])));
     }
@@ -568,6 +574,9 @@ function configureProviders() {
       platform: isCrash ? "ps5" : "pc_steam",
       confidence: canUseOpenRouter ? "high" : "medium",
       summary: isCrash ? "Map crash on PS5." : "Players report FPS drops on Steam.",
+      clusterAssignment: "unsure",
+      clusterReason: "The default test extractor does not make a semantic assignment.",
+      clusterSlug: null,
       extractionProvider: canUseOpenRouter ? "openrouter" : "deterministic",
       extractionModel: canUseOpenRouter ? "deepseek/deepseek-v4-flash" : null,
       llmCallsUsed: canUseOpenRouter ? 1 : 0,
@@ -609,6 +618,95 @@ afterEach(() => {
 });
 
 describe("runAutomationMonitor", () => {
+  it("selects a deterministic bounded 24 named plus 24 active auto semantic options with descriptions", async () => {
+    const { selectSemanticClusterOptions } = await importRunner();
+    const named = [
+      {
+        id: "named-recent",
+        slug: "watch-recent",
+        title: "Recent named cluster",
+        category: "performance",
+        description: "Recent named context.",
+        last_signal_at: "2026-07-31T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      {
+        id: "named-zeta",
+        slug: "watch-zeta",
+        title: "Zeta named cluster",
+        category: "performance",
+        description: "Zeta context.",
+        last_signal_at: "2026-07-30T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      {
+        id: "named-alpha",
+        slug: "watch-alpha",
+        title: "Alpha named cluster",
+        category: "performance",
+        description: "Alpha context.",
+        last_signal_at: "2026-07-30T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        id: `named-middle-${index}`,
+        slug: `watch-middle-${String(index).padStart(2, "0")}`,
+        title: `Named middle ${index}`,
+        category: "performance",
+        description: `Named middle description ${index}.`,
+        last_signal_at: `2026-07-${String(29 - index).padStart(2, "0")}T12:00:00.000Z`,
+        created_at: "2026-07-01T00:00:00.000Z",
+      })),
+      {
+        id: "named-created-newer",
+        slug: "watch-created-newer",
+        title: "Created newer named cluster",
+        category: "performance",
+        description: "Used when no signal timestamp exists.",
+        last_signal_at: null,
+        created_at: "2026-07-05T00:00:00.000Z",
+      },
+      {
+        id: "named-oldest",
+        slug: "watch-oldest",
+        title: "Oldest named cluster",
+        category: "performance",
+        description: "Must be excluded by the named option cap.",
+        last_signal_at: null,
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+    ];
+    const auto = Array.from({ length: 25 }, (_, index) => ({
+      id: `auto-${index}`,
+      slug: `auto-semantic-${String(index).padStart(2, "0")}`,
+      title: `Auto semantic ${index}`,
+      category: "performance",
+      description: `Auto description ${index}.`,
+      last_signal_at: `2026-07-${String(25 - index).padStart(2, "0")}T12:00:00.000Z`,
+      created_at: "2026-07-01T00:00:00.000Z",
+      admin_visibility_override: index <= 1 ? "force_hidden" : null,
+      lifecycle_reason: index === 1 ? "Merged into auto-semantic-02 (duplicate)." : null,
+    }));
+
+    const options = selectSemanticClusterOptions([...named, ...auto]);
+    const namedOptions = options.filter((option) => !option.slug.startsWith("auto-"));
+    const autoOptions = options.filter((option) => option.slug.startsWith("auto-"));
+
+    expect(namedOptions).toHaveLength(24);
+    expect(autoOptions).toHaveLength(24);
+    expect(namedOptions.slice(0, 3).map((option) => option.slug)).toEqual([
+      "watch-recent",
+      "watch-alpha",
+      "watch-zeta",
+    ]);
+    expect(namedOptions.at(-1)?.slug).toBe("watch-created-newer");
+    expect(namedOptions.map((option) => option.slug)).not.toContain("watch-oldest");
+    expect(autoOptions.map((option) => option.slug)).toContain("auto-semantic-00");
+    expect(autoOptions.map((option) => option.slug)).not.toContain("auto-semantic-01");
+    expect(options[0]).toMatchObject({ slug: "watch-recent", description: "Recent named context." });
+    expect(autoOptions[0]).toMatchObject({ slug: "auto-semantic-00", description: "Auto description 0." });
+  });
+
   it("immediately restores automatic cluster and signal visibility after force-hidden is cleared", async () => {
     resetDb({
       issue_clusters: [
@@ -4533,6 +4631,8 @@ describe("runAutomationMonitor", () => {
       platform: "pc_steam",
       confidence: "high",
       summary: "Traversal causes repeated frame-time spikes on Steam.",
+      clusterAssignment: "sure",
+      clusterReason: "The report clearly matches the seeded performance cluster.",
       clusterSlug: "performance_regression",
       extractionProvider: "openrouter",
       extractionModel: "deepseek/deepseek-v4-flash",
@@ -4557,7 +4657,14 @@ describe("runAutomationMonitor", () => {
       expect.objectContaining({
         llmCallsRemaining: 1,
         llmBudgetRemainingUsd: 2,
-        clusterOptions: [{ slug: "performance_regression", title: "Performance regression" }],
+        clusterOptions: [
+          {
+            slug: "performance_regression",
+            title: "Performance regression",
+            category: "performance",
+            description: "Seeded watchlist cluster.",
+          },
+        ],
       }),
     );
     expect(sourceSignalRows()).toHaveLength(1);
@@ -4575,6 +4682,177 @@ describe("runAutomationMonitor", () => {
       candidates_rescued: 1,
       estimated_cost_usd: 0.0002,
     });
+  });
+
+  it("pages past the hosted row cap before semantic rescue routing", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-a-controls",
+          slug: "uncomfortable_controls",
+          title: "Uncomfortable controls",
+          category: "controls_gameplay",
+          description: "Controller layout discomfort.",
+          last_signal_at: "2026-07-04T12:00:00.000Z",
+          created_at: "2026-07-01T12:00:00.000Z",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+        {
+          id: "cluster-z-performance",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Post-patch frame-time spikes and stuttering.",
+          last_signal_at: "2026-07-05T12:00:00.000Z",
+          created_at: "2026-07-02T12:00:00.000Z",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+      ],
+    });
+    hostedRowCap = { table: "issue_clusters", rows: 1 };
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Heavy traversal stutter",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: "Traversal causes repeated frame-time spikes on Steam.",
+      clusterAssignment: "sure",
+      clusterReason: "The report matches the established performance cluster.",
+      clusterSlug: "performance_regression",
+      extractionProvider: "openrouter",
+      extractionModel: "openai/gpt-5.6-luna",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Latest patch introduced stuttering",
+        url: "https://steamcommunity.com/app/example/discussions/stuttering/",
+        sourceDomain: "steamcommunity.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Nvidia players report frame-time spikes after the current patch.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        clusterOptions: expect.arrayContaining([
+          expect.objectContaining({ slug: "uncomfortable_controls" }),
+          expect.objectContaining({ slug: "performance_regression" }),
+        ]),
+      }),
+    );
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-z-performance" });
+    expect(tables.issue_clusters).toHaveLength(2);
+  });
+
+  it("keeps temporary force-hidden auto-clusters routable while excluding merged duplicates", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-active-xbox",
+          slug: "auto-3504f3a93c0b",
+          title: "Xbox graphics glitches",
+          category: "graphics_visual",
+          description: "Active aggregate for Xbox graphics reports.",
+          last_signal_at: "2026-07-30T12:00:00.000Z",
+          created_at: "2026-07-20T12:00:00.000Z",
+          admin_visibility_override: null,
+          lifecycle_reason: null,
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+        {
+          id: "cluster-retired-xbox",
+          slug: "auto-b7e557a13e9d",
+          title: "Xbox graphics glitch duplicate",
+          category: "graphics_visual",
+          description: "Merged duplicate that must never receive new signals.",
+          last_signal_at: "2026-07-31T12:00:00.000Z",
+          created_at: "2026-07-21T12:00:00.000Z",
+          admin_visibility_override: "force_hidden",
+          lifecycle_reason: "Merged into auto-3504f3a93c0b (duplicate Xbox graphics-glitch lead)",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 1,
+        },
+        {
+          id: "cluster-temporary-hidden-xbox",
+          slug: "auto-temporary-hidden-xbox",
+          title: "Xbox texture corruption",
+          category: "graphics_visual",
+          description: "Temporarily hidden while the maintainer checks presentation.",
+          last_signal_at: "2026-07-29T12:00:00.000Z",
+          created_at: "2026-07-22T12:00:00.000Z",
+          admin_visibility_override: "force_hidden",
+          lifecycle_reason: null,
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 1,
+        },
+      ],
+    });
+    honorIssueClusterProjection = true;
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Xbox texture corruption",
+      category: "graphics_visual",
+      platform: "xbox_series",
+      confidence: "high",
+      summary: "Xbox players report corrupted textures after the current patch.",
+      clusterAssignment: "sure",
+      clusterReason: "The report matches the temporarily hidden active cluster.",
+      clusterSlug: "auto-temporary-hidden-xbox",
+      extractionProvider: "openrouter",
+      extractionModel: "openai/gpt-5.6-luna",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Xbox texture corruption after patch",
+        url: "https://reddit.com/r/CrimsonDesert/comments/xbox/texture-corruption/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-31T11:00:00.000Z",
+        snippet: "Xbox players report corrupted textures after the current patch.",
+      },
+    );
+
+    const [, extractionOptions] = mocks.extractSignalWithOpenRouter.mock.calls[0] as unknown as [
+      unknown,
+      { clusterOptions: { slug: string }[] },
+    ];
+    expect(extractionOptions.clusterOptions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ slug: "auto-temporary-hidden-xbox" })]),
+    );
+    expect(extractionOptions.clusterOptions).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ slug: "auto-b7e557a13e9d" })]),
+    );
+    expect(sourceSignalRows()[0]?.cluster_id).toBe("cluster-temporary-hidden-xbox");
+    expect(tables.issue_clusters).toHaveLength(3);
   });
 
   it("rescues deterministically without spending when the monthly LLM budget is exhausted", async () => {

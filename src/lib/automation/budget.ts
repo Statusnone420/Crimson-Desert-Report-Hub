@@ -39,22 +39,48 @@ export const MAX_MONTHLY_LLM_USD_CAP = 2;
 const SEARCH_QUERY_COST_USD = 0.008;
 const SCHEDULED_RECON_CREDIT_RESERVE = 1;
 const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
-export const OPENROUTER_AUTOMATION_MODEL = "deepseek/deepseek-v4-flash";
+export const OPENROUTER_AUTOMATION_MODEL = "openai/gpt-5.6-luna";
+export const OPENROUTER_DEEPSEEK_ROLLBACK_MODEL = "deepseek/deepseek-v4-flash";
+
+export type AutomationTask = "extraction" | "claim_mapping";
+
+type ProviderRouting = {
+  require_parameters: true;
+  data_collection: "deny";
+  zdr?: true;
+  only?: readonly ["OpenAI"];
+  allow_fallbacks?: false;
+  sort?: "price";
+  max_price: { prompt: number; completion: number; request: 0; image: 0 };
+};
+
+type AutomationModelSettings = {
+  provider: ProviderRouting;
+  /** Luna can use gateway reasoning; the manual rollback keeps its prior route. */
+  reasoning: { effort: "high"; exclude: true } | { effort: "none" };
+  /** Sampling is model-specific; high-reasoning Luna does not accept temperature. */
+  temperature?: 0;
+};
+
+/**
+ * These are total completion ceilings: OpenRouter bills reasoning tokens as
+ * output tokens, so the Luna reserve deliberately includes both hidden reasoning
+ * and the strict JSON object instead of budgeting only for visible JSON.
+ */
+export const AUTOMATION_TASK_SETTINGS: Record<AutomationTask, { maxCompletionTokens: number }> = {
+  extraction: { maxCompletionTokens: 3_200 },
+  claim_mapping: { maxCompletionTokens: 2_048 },
+};
 
 /**
  * The models I have approved for the paid automation lane, default first. Every
- * entry must clear OPENROUTER_AUTOMATION_PROVIDER_ROUTING on its own — zero data
- * retention, no training, structured outputs, and a price under the ceiling — or
- * OpenRouter refuses to route it.
+ * entry must clear its own provider and data-collection policy, support structured
+ * outputs, and stay under its price ceiling — or OpenRouter refuses to route it.
  *
  * This stays an allowlist rather than free text: an unrecognised value falls back
  * to deterministic extraction instead of spending on an unvetted model.
  */
-export const APPROVED_AUTOMATION_MODELS = [
-  OPENROUTER_AUTOMATION_MODEL,
-  "openai/gpt-oss-120b",
-  "google/gemini-2.5-flash-lite",
-] as const;
+export const APPROVED_AUTOMATION_MODELS = [OPENROUTER_AUTOMATION_MODEL, OPENROUTER_DEEPSEEK_ROLLBACK_MODEL] as const;
 
 export const OPENROUTER_FREE_PROVIDER_ROUTING = {
   require_parameters: true,
@@ -63,16 +89,42 @@ export const OPENROUTER_FREE_PROVIDER_ROUTING = {
   max_price: { prompt: 0, completion: 0, request: 0, image: 0 },
 } as const;
 
-export const OPENROUTER_AUTOMATION_PROVIDER_ROUTING = {
+const OPENROUTER_LUNA_PROVIDER_ROUTING = {
+  require_parameters: true,
+  data_collection: "deny",
+  // First-party OpenAI only. `allow_fallbacks: false` means a routing miss
+  // fails closed rather than silently sending scanner text to another host.
+  only: ["OpenAI"],
+  allow_fallbacks: false,
+  // Luna's promotional list price is $0.10/$0.60 per million input/output
+  // tokens. These finite ceilings leave a modest operational margin but reject
+  // a post-promotion price before it can increase the scanner's spend.
+  max_price: { prompt: 0.15, completion: 0.9, request: 0, image: 0 },
+} as const;
+
+/** The explicit manual rollback retains the previous ZDR routing posture. */
+export const OPENROUTER_DEEPSEEK_ROLLBACK_PROVIDER_ROUTING = {
   require_parameters: true,
   data_collection: "deny",
   zdr: true,
   sort: "price",
-  // USD per million tokens. Wide enough that the approved models keep a real
-  // margin above the ceiling, so a routine provider price move degrades to
-  // deterministic extraction only when a model genuinely gets expensive.
   max_price: { prompt: 0.2, completion: 0.5, request: 0, image: 0 },
 } as const;
+
+const AUTOMATION_MODEL_SETTINGS: Record<(typeof APPROVED_AUTOMATION_MODELS)[number], AutomationModelSettings> = {
+  [OPENROUTER_AUTOMATION_MODEL]: {
+    provider: OPENROUTER_LUNA_PROVIDER_ROUTING,
+    reasoning: { effort: "high", exclude: true },
+  },
+  [OPENROUTER_DEEPSEEK_ROLLBACK_MODEL]: {
+    provider: OPENROUTER_DEEPSEEK_ROLLBACK_PROVIDER_ROUTING,
+    reasoning: { effort: "none" },
+    temperature: 0,
+  },
+};
+
+/** Default-only alias retained for callers that need the active Luna route. */
+export const OPENROUTER_AUTOMATION_PROVIDER_ROUTING = OPENROUTER_LUNA_PROVIDER_ROUTING;
 
 function positiveNumber(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
@@ -99,6 +151,12 @@ export function resolveAutomationOpenRouterModel(model: string | undefined): str
   return resolved;
 }
 
+export function automationModelSettings(model: string): AutomationModelSettings {
+  const settings = (AUTOMATION_MODEL_SETTINGS as Record<string, AutomationModelSettings | undefined>)[model];
+  if (!settings) throw new Error(`Automation model must be one of: ${APPROVED_AUTOMATION_MODELS.join(", ")}`);
+  return settings;
+}
+
 /**
  * OpenRouter answers a request no provider can serve with 404 and a message
  * naming the filter that excluded everything — the price ceiling, zero data
@@ -123,11 +181,16 @@ function readOpenRouterErrorMessage(body: unknown): string | null {
   return typeof message === "string" && message.trim() ? message : null;
 }
 
-export function maxOpenRouterRequestCostUsd(prompt: string, maxCompletionTokens: number): number {
+export function maxOpenRouterRequestCostUsd(
+  prompt: string,
+  maxCompletionTokens: number,
+  model = OPENROUTER_AUTOMATION_MODEL,
+): number {
+  const { provider } = automationModelSettings(model);
   const inputTokenCeiling = new TextEncoder().encode(prompt).byteLength;
   return (
-    inputTokenCeiling * OPENROUTER_AUTOMATION_PROVIDER_ROUTING.max_price.prompt +
-    Math.max(0, maxCompletionTokens) * OPENROUTER_AUTOMATION_PROVIDER_ROUTING.max_price.completion
+    inputTokenCeiling * provider.max_price.prompt +
+    Math.max(0, maxCompletionTokens) * provider.max_price.completion
   ) / 1_000_000;
 }
 

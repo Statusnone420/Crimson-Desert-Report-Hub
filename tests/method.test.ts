@@ -59,10 +59,24 @@ describe("method reference", () => {
     // that keeps the page from drifting back into an essay. Raised once, in
     // Phase 3b, to seat the number-word glossary: locking a public vocabulary
     // without a glossary would leave defined words with nowhere to look them
-    // up. The headroom stays deliberately thin so the next addition argues
-    // for itself too.
-    expect(proseLength(aboutSource)).toBeLessThan(3900);
+    // up. The required scanner privacy disclosure adds a small, factual second
+    // exception. The headroom stays deliberately thin so the next addition
+    // argues for itself too.
+    expect(proseLength(aboutSource)).toBeLessThan(4200);
     expect(aboutSource).toMatch(/docs\/wiki\//);
+  });
+
+  it("qualifies the default scanner model, manual rollback, and Luna-only retention boundary", () => {
+    const privacy = aboutSource.slice(aboutSource.indexOf('id="privacy"'), aboutSource.indexOf('id="quiet"'));
+
+    expect(privacy).toContain("Scanner intelligence defaults to");
+    expect(privacy).toContain("https://openrouter.ai/openai/gpt-5.6-luna");
+    expect(privacy).toContain("https://openrouter.ai/docs/guides/privacy/data-collection");
+    expect(privacy).toContain("https://developers.openai.com/api/docs/guides/your-data");
+    expect(privacy).toContain("DeepSeek V4 Flash remains an approved manual rollback");
+    expect(privacy).toContain("When Luna is used, OpenAI does not train");
+    expect(privacy).toContain("abuse-monitoring logs may be retained for up to 30 days");
+    expect(privacy).not.toContain("Scanner intelligence is powered by");
   });
 
   it("dates the official claim rather than starting anything that runs", () => {

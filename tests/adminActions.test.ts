@@ -551,7 +551,7 @@ describe("setScannerPolicy", () => {
           scheduledSearchCreditsPerRun: 3,
           monthlyTavilyCreditCap: 1000,
           monthlyLlmUsdCap: 2,
-          modelPreset: "deepseek_v4_flash",
+          modelPreset: "gpt_5_6_luna",
         },
       }),
     });
