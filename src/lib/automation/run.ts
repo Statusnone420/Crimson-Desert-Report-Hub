@@ -1523,6 +1523,8 @@ type RoutableClusterRow = SemanticClusterCandidate;
 
 export const MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS = 24;
 export const MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS = 24;
+const ROUTABLE_CLUSTER_PAGE_SIZE = 1000;
+const ROUTABLE_CLUSTER_COLUMNS = "id, slug, title, category, description, last_signal_at, created_at";
 
 function isAutoCluster(cluster: RoutableClusterRow): boolean {
   return cluster.slug.startsWith("auto-");
@@ -1568,17 +1570,36 @@ type ClusterRoutingState = {
   semanticOptions: ClusterOption[];
 };
 
+/**
+ * Read every cluster with an immutable `id` cursor. The hosted PostgREST cap may
+ * return fewer rows than requested, so only an empty page ends the walk.
+ */
+async function readAllRoutableClusterRows(
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<RoutableClusterRow[]> {
+  const rows: RoutableClusterRow[] = [];
+  let after: string | null = null;
+  for (;;) {
+    const filtered = supabase.from("issue_clusters").select(ROUTABLE_CLUSTER_COLUMNS);
+    const result = await (after === null ? filtered : filtered.gt("id", after))
+      .order("id")
+      .limit(ROUTABLE_CLUSTER_PAGE_SIZE);
+    if (result.error) throw new Error(`routable clusters read failed: ${result.error.message}`);
+    const pageRows = (result.data ?? []) as RoutableClusterRow[];
+    if (pageRows.length === 0) return rows;
+    rows.push(...pageRows);
+    after = pageRows[pageRows.length - 1].id;
+  }
+}
+
 async function loadClusterRoutingState(
   supabase: ReturnType<typeof createServiceClient>,
 ): Promise<ClusterRoutingState> {
-  const { data, error } = await supabase
-    .from("issue_clusters")
-    .select("id, slug, title, category, description, last_signal_at, created_at");
-  if (error) throw new Error(`routable clusters read failed: ${error.message}`);
+  const rows = await readAllRoutableClusterRows(supabase);
   // A complete database row always has these columns; retain the old
   // non-routing behavior for any malformed compatibility fixture/row instead
   // of throwing while constructing bounded semantic options.
-  const allClusters = (data ?? []).filter(isRoutableClusterRow);
+  const allClusters = rows.filter(isRoutableClusterRow);
   const keywordClusters = allClusters.filter((cluster) => !isAutoCluster(cluster));
   const semanticOptions = selectSemanticClusterOptions(allClusters);
   const selectedAutoSlugs = new Set(

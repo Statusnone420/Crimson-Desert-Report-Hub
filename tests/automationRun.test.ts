@@ -4675,6 +4675,81 @@ describe("runAutomationMonitor", () => {
     });
   });
 
+  it("pages past the hosted row cap before semantic rescue routing", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-a-controls",
+          slug: "uncomfortable_controls",
+          title: "Uncomfortable controls",
+          category: "controls_gameplay",
+          description: "Controller layout discomfort.",
+          last_signal_at: "2026-07-04T12:00:00.000Z",
+          created_at: "2026-07-01T12:00:00.000Z",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+        {
+          id: "cluster-z-performance",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Post-patch frame-time spikes and stuttering.",
+          last_signal_at: "2026-07-05T12:00:00.000Z",
+          created_at: "2026-07-02T12:00:00.000Z",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+      ],
+    });
+    hostedRowCap = { table: "issue_clusters", rows: 1 };
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Heavy traversal stutter",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: "Traversal causes repeated frame-time spikes on Steam.",
+      clusterAssignment: "sure",
+      clusterReason: "The report matches the established performance cluster.",
+      clusterSlug: "performance_regression",
+      extractionProvider: "openrouter",
+      extractionModel: "openai/gpt-5.6-luna",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Latest patch introduced stuttering",
+        url: "https://steamcommunity.com/app/example/discussions/stuttering/",
+        sourceDomain: "steamcommunity.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Nvidia players report frame-time spikes after the current patch.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        clusterOptions: expect.arrayContaining([
+          expect.objectContaining({ slug: "uncomfortable_controls" }),
+          expect.objectContaining({ slug: "performance_regression" }),
+        ]),
+      }),
+    );
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-z-performance" });
+    expect(tables.issue_clusters).toHaveLength(2);
+  });
+
   it("rescues deterministically without spending when the monthly LLM budget is exhausted", async () => {
     resetDb({
       automation_runs: [
