@@ -22,6 +22,16 @@ type RunStatus = {
   errors: string[];
 };
 
+type ProviderSmokeResult = {
+  ok: boolean;
+  error?: string;
+  model?: string;
+  providerRoute?: string;
+  llmCallsUsed?: number;
+  llmCostUsd?: number;
+  fallbackReason?: string;
+};
+
 const STAGE_LABELS: Record<string, string> = {
   starting: "Warming up",
   searching: "Searching public sources",
@@ -40,13 +50,15 @@ const RUN_STATUS_LABELS: Record<string, string> = {
 const POLL_MS = 2500;
 const MAX_POLL_FAILURES = 4;
 
-export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
+export function ScanControls({ activeRunId, isPreview }: { activeRunId: string | null; isPreview: boolean }) {
   const router = useRouter();
   // runId seeds from activeRunId only at mount, by design (post-refresh prop changes must not restart polling).
   const [runId, setRunId] = useState<string | null>(activeRunId);
   const [run, setRun] = useState<RunStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState<"manual" | "dry_run" | null>(null);
+  const [smokeRunning, setSmokeRunning] = useState(false);
+  const [smokeResult, setSmokeResult] = useState<ProviderSmokeResult | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -130,6 +142,22 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
     }
   };
 
+  const testProviderRoute = async () => {
+    setError(null);
+    setSmokeResult(null);
+    setSmokeRunning(true);
+    try {
+      const res = await fetch("/api/admin/scan/provider-smoke", { method: "POST" });
+      const data = (await res.json()) as ProviderSmokeResult;
+      setSmokeResult(data);
+      if (!res.ok || !data.ok) setError(`AI route check failed: ${data.fallbackReason ?? data.error ?? "unknown error"}.`);
+    } catch {
+      setError("Could not reach the AI route check. Try again.");
+    } finally {
+      setSmokeRunning(false);
+    }
+  };
+
   const scanning = runId !== null;
   const progress = run?.progress ?? null;
   const finished = run !== null && run.status !== "running";
@@ -137,10 +165,20 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
+        {isPreview ? (
+          <button
+            type="button"
+            className="dispatch-btn dispatch-btn--secondary"
+            disabled={smokeRunning || scanning || starting !== null}
+            onClick={testProviderRoute}
+          >
+            {smokeRunning ? "Testing AI route…" : "Test AI provider route"}
+          </button>
+        ) : null}
         <button
           type="button"
           className="dispatch-btn dispatch-btn--secondary"
-          disabled={scanning || starting !== null}
+          disabled={isPreview || scanning || starting !== null || smokeRunning}
           onClick={() => start("dry_run")}
         >
           {starting === "dry_run" ? "Starting…" : "Test scan without publishing"}
@@ -148,12 +186,25 @@ export function ScanControls({ activeRunId }: { activeRunId: string | null }) {
         <button
           type="button"
           className="dispatch-btn"
-          disabled={scanning || starting !== null}
+          disabled={isPreview || scanning || starting !== null || smokeRunning}
           onClick={() => start("manual")}
         >
           {starting === "manual" ? "Starting…" : "Run capped scan now"}
         </button>
       </div>
+
+      {isPreview ? (
+        <p className="text-xs" style={{ color: "var(--dispatch-faint)" }}>
+          Preview keeps full scans disabled. The provider check uses synthetic text, one AI call, and no database writes.
+        </p>
+      ) : null}
+
+      {smokeResult?.ok ? (
+        <p className="text-xs" style={{ color: "var(--green)" }} role="status">
+          AI route verified · {smokeResult.model} through {smokeResult.providerRoute} · {"$"}
+          {(smokeResult.llmCostUsd ?? 0).toFixed(6)}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="text-xs" style={{ color: "var(--crimson)" }} role="alert">
