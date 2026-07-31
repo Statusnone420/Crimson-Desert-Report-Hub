@@ -150,7 +150,7 @@ export default function AboutPage() {
                 report.
               </p>
               <p>
-                Scanner intelligence is powered by{" "}
+                Scanner intelligence defaults to{" "}
                 <a
                   href="https://openrouter.ai/openai/gpt-5.6-luna"
                   target="_blank"
@@ -168,7 +168,8 @@ export default function AboutPage() {
                 >
                   OpenRouter
                 </a>
-                . OpenAI does not train on API data by default;{" "}
+                . DeepSeek V4 Flash remains an approved manual rollback. When Luna is used, OpenAI does not train
+                on API data by default;{" "}
                 <a
                   href="https://developers.openai.com/api/docs/guides/your-data"
                   target="_blank"
