@@ -4,7 +4,12 @@ import { PublicShell } from "@/components/dispatch/Chrome";
 import { routeMetadata, SOURCE_URL } from "@/lib/site";
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
-  return routeMetadata("Method", "/about", parent);
+  return routeMetadata(
+    "Method",
+    "/about",
+    "How the Report Hub thinks: what separates player reports, source leads, and official fix claims — and why quiet never counts as fixed.",
+    parent,
+  );
 }
 
 const WIKI = {
