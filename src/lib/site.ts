@@ -4,7 +4,7 @@ export const SITE_NAME = "Crimson Desert Report Hub";
 export const SITE_SEARCH_TITLE = `${SITE_NAME} — Patch Issues & Player Reports`;
 /** Search-snippet description. Keep ≤160 chars. */
 export const SITE_DESCRIPTION =
-  "An unofficial field report on Crimson Desert — what changed in the current patch, what players are reporting, and whether claimed fixes hold up.";
+  "Crimson Desert Report Hub is the unofficial brief on each patch — charting what players report, what sources pick up, and which claimed fixes haven't settled.";
 /** Share-card text for surfaces that show text without the image. */
 export const SITE_OG_DESCRIPTION =
   "What changed. What players are reporting. What matters now. An unofficial, fan-run field report on the current state of the game.";
@@ -27,7 +27,8 @@ export function routeOpenGraph(path: "/" | `/${string}`) {
 }
 
 /**
- * Per-route metadata: distinct title, matching canonical + og:url. Built on
+ * Per-route metadata: distinct title + search description, plus matching
+ * canonical and og:url. Built on
  * generateMetadata parent resolution because a plain route-level `openGraph`
  * object shallow-replaces the root's RESOLVED block — silently dropping the
  * share-card images the file convention attached there. Spreading the
@@ -37,6 +38,7 @@ export function routeOpenGraph(path: "/" | `/${string}`) {
 export async function routeMetadata(
   title: string,
   path: `/${string}`,
+  description: string,
   parent: import("next").ResolvingMetadata,
 ): Promise<import("next").Metadata> {
   const parentOpenGraph = (await parent).openGraph as
@@ -44,6 +46,7 @@ export async function routeMetadata(
     | null;
   return {
     title,
+    description,
     alternates: { canonical: path },
     openGraph: { ...parentOpenGraph, url: path },
   };

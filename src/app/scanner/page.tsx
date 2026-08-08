@@ -9,7 +9,12 @@ import { getAutomationAdminData, getIssuesData, getPublicScannerData } from "@/l
 import { routeMetadata } from "@/lib/site";
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
-  return routeMetadata("The Observatory", "/scanner", parent);
+  return routeMetadata(
+    "The Observatory",
+    "/scanner",
+    "The Observatory scans the public web for Crimson Desert trouble: fresh leads, repeat sightings, and the questions they raise.",
+    parent,
+  );
 }
 
 export const dynamic = "force-dynamic";

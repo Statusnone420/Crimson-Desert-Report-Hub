@@ -11,7 +11,12 @@ import { getIssuesData, getLatestPublicScanMeta } from "@/lib/queries";
 import { routeMetadata } from "@/lib/site";
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
-  return routeMetadata("Issue Board", "/issues", parent);
+  return routeMetadata(
+    "Issue Board",
+    "/issues",
+    "The Issue Board lays out Crimson Desert player reports and source leads, showing how much backing reports have and where the claimed fixes stand.",
+    parent,
+  );
 }
 
 export const revalidate = 300;
