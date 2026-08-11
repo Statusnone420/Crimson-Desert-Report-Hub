@@ -46,6 +46,12 @@ describe("method reference", () => {
     expect(aboutSource).toContain('id="privacy"');
   });
 
+  it("renders the dateline at request time instead of freezing the deployment day", () => {
+    expect(aboutSource).toContain('import { connection } from "next/server";');
+    expect(aboutSource).toContain("export default async function AboutPage()");
+    expect(aboutSource).toContain("await connection();");
+  });
+
   it("answers in the summary so a deep link reads while collapsed", () => {
     // Each collapsible row must carry a visible answer, not just a question.
     const rows = aboutSource.match(/className="method-row__ask"/g) ?? [];

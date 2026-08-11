@@ -1,4 +1,5 @@
 import type { ResolvingMetadata } from "next";
+import { connection } from "next/server";
 import Link from "next/link";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { routeMetadata, SOURCE_URL } from "@/lib/site";
@@ -27,7 +28,10 @@ const WIKI = {
  * collapsed row still reads without opening it. `id="privacy"` is load-bearing:
  * the site footer links to /about#privacy from every page.
  */
-export default function AboutPage() {
+export default async function AboutPage() {
+  // Keep PublicShell's dateline tied to the request instead of the deployment day.
+  await connection();
+
   return (
     <PublicShell active="method">
       <div className="dispatch-container">
