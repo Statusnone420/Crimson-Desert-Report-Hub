@@ -3,6 +3,7 @@ import { isAdmin } from "@/lib/adminGuard";
 import { sweepStaleRuns } from "@/lib/automation/run";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
 import { createServiceClient } from "@/lib/supabase";
+import { isVercelPreview } from "@/lib/previewGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
   if (!id) return NextResponse.json({ error: "missing_id" }, { status: 400 });
 
   const supabase = createServiceClient();
-  await sweepStaleRuns(supabase, new Date());
+  if (!isVercelPreview()) await sweepStaleRuns(supabase, new Date());
 
   const { data, error } = await supabase
     .from("automation_runs")
@@ -41,6 +42,7 @@ export async function GET(req: Request) {
 
   // Belt-and-suspenders: if a manual run just finished, refresh public pages now.
   if (
+    !isVercelPreview() &&
     row.mode === "manual" &&
     row.status !== "running" &&
     row.finished_at &&

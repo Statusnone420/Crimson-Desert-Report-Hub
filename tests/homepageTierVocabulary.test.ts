@@ -1,21 +1,15 @@
 import { createElement, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDashboardData: vi.fn(async (): Promise<unknown> => ({})),
-  getDailySignalRollup: vi.fn(async (): Promise<unknown> => null),
   getPublicScannerData: vi.fn(async (): Promise<unknown> => ({})),
   getPatchRadarData: vi.fn(async (): Promise<unknown> => ({})),
-  getTrackedPatchEditionCount: vi.fn(async () => 1),
 }));
 
 vi.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: Omit<ComponentProps<"a">, "href"> & { href: string; children?: ReactNode }) =>
+  default: ({ href, children, ...props }: Omit<ComponentProps<"a">, "href"> & { href: string; children?: ReactNode }) =>
     createElement("a", { ...props, href }, children),
 }));
 vi.mock("@/components/dispatch/Chrome", () => ({
@@ -23,26 +17,20 @@ vi.mock("@/components/dispatch/Chrome", () => ({
 }));
 vi.mock("@/lib/queries", () => ({
   getDashboardData: mocks.getDashboardData,
-  getDailySignalRollup: mocks.getDailySignalRollup,
   getPublicScannerData: mocks.getPublicScannerData,
 }));
-vi.mock("@/lib/radar.server", () => ({
-  getPatchRadarData: mocks.getPatchRadarData,
-}));
-vi.mock("@/lib/officialPatch.server", () => ({
-  getTrackedPatchEditionCount: mocks.getTrackedPatchEditionCount,
-}));
+vi.mock("@/lib/radar.server", () => ({ getPatchRadarData: mocks.getPatchRadarData }));
 
-import DispatchHomePage from "@/app/page";
+import HomePage from "@/app/page";
 
 const currentPatch = {
   version: "1.13.01",
   publishedAt: "2026-07-08T05:51:00.000Z",
   officialUrl: "https://example.com/patch-notes",
+  source: "official",
 };
 
-/** A cluster carrying evidence, so the published gate accepts it. */
-function publishedCluster() {
+function publishedCluster(overrides: Record<string, unknown> = {}) {
   return {
     id: "cluster-published",
     slug: "fps-regression",
@@ -57,44 +45,14 @@ function publishedCluster() {
     fix_claimed_patch_version: null,
     reportPlatformCounts: {},
     confirmations: { totalCount: 1, byPlatform: {}, byKind: { have_it: { count: 1 } }, pollFixedCount: 0, pollStillCount: 0 },
-    readout: {
-      state: "confirmed",
-      label: "Player-reported",
-      tone: "crimson",
-      sentence: "2 player reports on this patch.",
-      ask: null,
-      poll: null,
-    },
+    readout: { state: "confirmed", label: "Player-reported", tone: "crimson", sentence: "2 player reports on this patch.", ask: null, poll: null },
+    ...overrides,
   };
 }
 
-/**
- * The same cluster after a patch-family rollover: it is still public, so the
- * cluster read returns it, but every per-patch count has reset to zero, so the
- * published gate rejects it. This is an ordinary state, not an outage — no
- * unavailable flag is set anywhere.
- */
-function rolledOverCluster() {
+function dashboardData(topClusters: unknown[], overrides: Record<string, unknown> = {}) {
   return {
-    ...publishedCluster(),
-    id: "cluster-rolled-over",
-    strengthScore: 0,
-    directReportCount: 0,
-    confirmations: { totalCount: 0, byPlatform: {}, byKind: { have_it: { count: 0 } }, pollFixedCount: 0, pollStillCount: 0 },
-    readout: {
-      state: "watching",
-      label: "Open",
-      tone: "dim",
-      sentence: "The scanner checks public sources every run. Nothing's turned up this patch.",
-      ask: null,
-      poll: null,
-    },
-  };
-}
-
-function dashboardData(topClusters: unknown[]) {
-  return {
-    total: topClusters.length,
+    total: topClusters.reduce<number>((count, cluster) => count + ((cluster as { directReportCount?: number }).directReportCount ?? 0), 0),
     topClusters,
     currentPatch,
     claimedFixes: [],
@@ -103,58 +61,76 @@ function dashboardData(topClusters: unknown[]) {
     evidenceUnavailable: false,
     sourceLeadsUnavailable: false,
     publicLeadsUnavailable: false,
-    latestReportAt: null,
     observations: { coverage: [], asks: [] },
+    ...overrides,
   };
 }
 
-/**
- * "Published" and "watchlist" are two different tiers in the locked public
- * vocabulary, and the hero headline names whichever tier its subject is
- * actually in. The entry it points at is NOT always published: when no cluster
- * passes the published gate, the headline falls back to the top public cluster,
- * which by definition sits on the watchlist.
- */
-describe("homepage hero names the tier its subject belongs to", () => {
+describe("homepage keeps issue publication separate from headline selection", () => {
   beforeEach(() => {
-    mocks.getDailySignalRollup.mockResolvedValue(null);
-    mocks.getPublicScannerData.mockResolvedValue({
-      reviewedThisWeek: 9,
-      keptThisWeek: 3,
-      published: 1,
-      steamPulse: [],
-      platformContext: null,
-      readFailures: [],
-      pulseReadFailures: [],
-    });
-    mocks.getPatchRadarData.mockResolvedValue({
-      connected: false,
-      daily: [],
-      categories: [],
-      weekly: [],
-      recurrence: [],
-      recurring: { trackedLeads: 0 },
-    });
+    // The expansion article intentionally takes over on September 5. These
+    // assertions exercise the still-supported current-patch fallback.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
+    mocks.getPublicScannerData.mockResolvedValue({ steamPulse: [], pulseReadFailures: [] });
+    mocks.getPatchRadarData.mockResolvedValue({ connected: false });
   });
 
-  it("calls a published subject the board leader", async () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps a published issue title on the board instead of promoting it", async () => {
     mocks.getDashboardData.mockResolvedValue(dashboardData([publishedCluster()]));
-
-    const markup = renderToStaticMarkup(await DispatchHomePage());
-
-    expect(markup).toContain("FPS regression since 1.13 leads the 1.13.01 board.");
-    expect(markup).not.toContain("leads the 1.13.01 watchlist.");
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("Patch 1.13.01: the official fixes and player record.");
+    expect(markup).toContain("All 1 published issue →");
+    expect(markup).not.toContain("FPS regression since 1.13");
   });
 
-  it("calls an unpublished subject the watchlist leader instead of contradicting the dek", async () => {
-    mocks.getDashboardData.mockResolvedValue(dashboardData([rolledOverCluster()]));
+  it("does not promote a watchlist title after a patch rollover", async () => {
+    const rolledOver = publishedCluster({ id: "cluster-rolled-over", strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0, byPlatform: {}, byKind: { have_it: { count: 0 } }, pollFixedCount: 0, pollStillCount: 0 }, readout: { state: "watching", label: "Open", tone: "dim", sentence: "The scanner checks public sources every run. Nothing's turned up this patch.", ask: null, poll: null } });
+    mocks.getDashboardData.mockResolvedValue(dashboardData([rolledOver]));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("All 0 published issues →");
+    expect(markup).not.toContain("FPS regression since 1.13");
+  });
 
-    const markup = renderToStaticMarkup(await DispatchHomePage());
+  it("never promotes a lone vague report or invents a stronger title", async () => {
+    const vagueTitle = "Real bad mechanic issue got bugged in recent update";
+    mocks.getDashboardData.mockResolvedValue(dashboardData([publishedCluster({ title: vagueTitle, directReportCount: 1 })]));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("All 1 published issue →");
+    expect(markup).not.toContain(vagueTitle);
+    expect(markup).not.toContain("board-lead");
+  });
 
-    // The dek one line below reports zero published issues, so the headline
-    // must not claim the same entry leads the board.
-    expect(markup).toContain("The board is watching 0 published issues");
-    expect(markup).toContain("leads the 1.13.01 watchlist.");
-    expect(markup).not.toContain("leads the 1.13.01 board.");
+  it("keeps the issue count separate from the report count", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([publishedCluster({ directReportCount: 6 })]));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("6 reports this patch");
+    expect(markup).toContain("All 1 published issue →");
+    expect(markup).not.toContain("All 6 published issues");
+  });
+
+  it("keeps the fallback patch state when the current patch cannot be verified", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([], { currentPatch: { ...currentPatch, source: "fallback" } }));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("The current patch could not be verified.");
+    expect(markup).toContain('href="/patches"');
+    expect(markup).not.toContain("Beyond Pywel’s");
+  });
+
+  it("renders the public observation lanes without exposing unrelated signal registers", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([], {
+      publicFindings: [{ title: "Private scanner lead", sourceUrl: "https://internal.example/private" }],
+      observations: {
+        coverage: [{ id: "coverage-1", title: "Published patch coverage", snippet: "A dated public article.", sourceDomain: "example.com", url: "https://example.com/coverage", timestamp: { value: "2026-09-03T00:00:00.000Z" } }],
+        asks: [{ id: "ask-1", title: "A public community request", snippet: "Players are asking for a change.", sourceDomain: "community.example", url: "https://community.example/ask", timestamp: { value: "2026-09-02T00:00:00.000Z" } }],
+      },
+    }));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("Published patch coverage");
+    expect(markup).toContain("A public community request");
+    expect(markup).not.toContain("Private scanner lead");
+    expect(markup).not.toContain("internal.example/private");
   });
 });

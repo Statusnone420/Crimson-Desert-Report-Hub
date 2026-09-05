@@ -65,7 +65,9 @@ describe("search and share metadata", () => {
     expect(entries).toEqual([
       { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
       { url: `${SITE_URL}/issues`, changeFrequency: "hourly", priority: 0.9 },
-      { url: `${SITE_URL}/scanner`, changeFrequency: "hourly", priority: 0.5 },
+      { url: `${SITE_URL}/observatory`, changeFrequency: "hourly", priority: 0.5 },
+      { url: `${SITE_URL}/patches`, changeFrequency: "hourly", priority: 0.9 },
+      { url: `${SITE_URL}/articles/charting-the-unknown`, changeFrequency: "monthly", priority: 0.7 },
       { url: `${SITE_URL}/report`, changeFrequency: "monthly", priority: 0.7 },
       { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.6 },
     ]);

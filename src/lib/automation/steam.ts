@@ -6,6 +6,29 @@ export const STEAM_REVIEW_SOURCE_URL =
 const STEAM_REVIEW_API_URL = `https://store.steampowered.com/appreviews/${CRIMSON_DESERT_STEAM_APP_ID}`;
 const MAX_REVIEWS_PER_FETCH = 100;
 
+export type SteamPlayerReading = { capturedAt: string; playerCount: number };
+
+export async function fetchSteamCurrentPlayers({
+  fetchImpl = fetch,
+  clock = () => new Date(),
+}: { fetchImpl?: FetchLike; clock?: () => Date } = {}): Promise<SteamPlayerReading> {
+  const url = new URL("https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/");
+  url.searchParams.set("appid", CRIMSON_DESERT_STEAM_APP_ID);
+  const response = await fetchImpl(url, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`Steam player count request failed (${response.status})`);
+  const payload = await response.json() as { response?: { result?: unknown; player_count?: unknown } } | null;
+  const count = payload?.response?.player_count;
+  if (payload?.response?.result !== 1 || typeof count !== "number" || !Number.isSafeInteger(count) || count < 0 || count > 2_147_483_647) {
+    throw new Error("Steam player count response was malformed");
+  }
+  // Stamp the completed reading, not the start time of a potentially long scan.
+  return { capturedAt: clock().toISOString(), playerCount: count };
+}
+
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export type SteamReviewCandidate = {

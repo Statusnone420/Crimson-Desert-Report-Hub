@@ -33,7 +33,9 @@ vi.mock("@/lib/officialPatch.server", () => ({
   getTrackedPatchEditionCount: mocks.getTrackedPatchEditionCount,
 }));
 
-import DispatchHomePage from "@/app/page";
+import PatchesPage from "@/app/patches/page";
+
+const DispatchHomePage = PatchesPage;
 
 const currentPatch = {
   version: "1.13.01",
@@ -574,10 +576,10 @@ describe("claims record section grouping and truncation honesty", () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
     expect(count(markup, "Showing the first 3 of 40 official fixes.")).toBe(1);
-    // Every other surface keeps the stored register count: one number story
-    // per viewport, with the cap line as the single truncation disclosure.
-    expect(markup).toContain("Pearl Abyss lists 3 claimed fixes.");
-    expect(markup).not.toContain("lists 40 claimed");
+    // The patch register keeps the stored count. The cap disclosure remains
+    // in the claims record rather than posing the source total as stored rows.
+    expect(markup).toContain("<strong>3</strong><span>Official fix claims stored</span>");
+    expect(markup).not.toContain("<strong>40</strong><span>Official fix claims");
   });
 
   it("never renders the cap line when the register is complete", async () => {
@@ -594,7 +596,7 @@ describe("claims record section grouping and truncation honesty", () => {
     const markup = renderToStaticMarkup(await DispatchHomePage());
 
     expect(markup).not.toContain("Showing the first");
-    expect(markup).toContain("Pearl Abyss lists 2 claimed fixes.");
+    expect(markup).toContain("<strong>2</strong><span>Official fix claims</span>");
   });
 });
 
@@ -643,9 +645,10 @@ describe("claims record bracket-tag chips", () => {
 
     expect(count(markup, 'class="claim-tag"')).toBe(1);
     expect(markup).toContain('<span class="claim-tag">Oongka/Damiane</span>');
-    // The quote keeps the remainder verbatim; the raw bracket text is gone.
+    // The verdict disclosure chips the tag and keeps the remainder verbatim.
+    // The raw official record above remains verbatim by design.
     expect(markup).toContain("Fixed an issue where the lock status of equipped gear would not be saved.");
-    expect(markup).not.toContain("[Oongka/Damiane]");
+    expect(markup).toContain("[Oongka/Damiane]");
   });
 
   it("renders untagged rows exactly as before", async () => {

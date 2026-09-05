@@ -1,0 +1,84 @@
+{
+  "checked": "2026-09-05",
+  "copyright": "Pearl Abyss Corp. All Rights Reserved.",
+  "terms": "https://crimsondesert.pearlabyss.com/en-US/Policy?_policyNo=130",
+  "assets": [
+    {
+      "file": "/official/coast.jpg",
+      "source": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2025/03/19/9cbf291adb320250319045031861.jpg",
+      "downloadOriginal": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2025/03/19/372ad62f16320250319045034575.jpg",
+      "sourcePage": "https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1",
+      "width": 1920,
+      "height": 1180,
+      "sha256": "ac97c6d8f9f155c701250904e3cc4406bd0d95f6d4e38173d160cb784e588bb9",
+      "bytes": 2505422,
+      "context": "Official base-game promotional screenshot; category illustration, not evidence of a specific fix."
+    },
+    {
+      "file": "/official/content.jpg",
+      "source": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2026/04/02/d9139f1dd9320260402102900592.jpg",
+      "downloadOriginal": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2026/04/02/c0bebd9da2420260402102123538.png",
+      "sourcePage": "https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1",
+      "width": 3840,
+      "height": 2160,
+      "sha256": "e4f08a01d73606899b7b557716a9a698a496011cd6f34b4c93f508025dc84d42",
+      "bytes": 11141995,
+      "context": "Official base-game promotional screenshot; category illustration, not evidence of a specific fix."
+    },
+    {
+      "file": "/official/combat.jpg",
+      "source": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2025/09/29/bf4ee01984720250929120732661.jpg",
+      "downloadOriginal": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2025/09/29/ba0e71ee0e720250929120737538.jpg",
+      "sourcePage": "https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "ed357ac673dcbd1fb809e7f4b3bc1b8af2472e4bfb92ab8d76990e62a8680921",
+      "bytes": 2247567,
+      "context": "Official base-game promotional screenshot; category illustration, not evidence of a specific fix."
+    },
+    {
+      "file": "/official/interface.png",
+      "source": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2026/04/02/ad9164e6de320260402101042834.png",
+      "downloadOriginal": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2026/04/02/6f5640d588920260402101044024.png",
+      "sourcePage": "https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1",
+      "width": 3840,
+      "height": 2160,
+      "sha256": "1457bf76abdfb1e07ce5ecafc7c2fcf3a0dbf7a5a568da9e8539c68e7a667b10",
+      "bytes": 16305292,
+      "context": "Official base-game promotional screenshot; category illustration, not evidence of a specific fix."
+    },
+    {
+      "file": "/official/graphics.jpg",
+      "source": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2025/09/29/48c1419941720250929125211382.jpg",
+      "downloadOriginal": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2025/09/29/5f005da6af720250929125213526.jpg",
+      "sourcePage": "https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "ca3b4e6d36ec9ed5a8b91b6b915c19359c5b2e48b6432f93ed86fd7ffbb5545b",
+      "bytes": 1089544,
+      "context": "Official base-game promotional screenshot; category illustration, not evidence of a specific fix."
+    },
+    {
+      "file": "/official/localization.jpg",
+      "source": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2026/04/02/18e6685f63b20260402102610577.jpg",
+      "downloadOriginal": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2026/04/02/73d611db2b220260402102346882.png",
+      "sourcePage": "https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1",
+      "width": 3840,
+      "height": 2160,
+      "sha256": "bf3547ff1e77a71311fa4a7077f3b3025278e409e4c7209e5f7ba825a8b548f0",
+      "bytes": 5043927,
+      "context": "Official base-game promotional screenshot; category illustration, not evidence of a specific fix."
+    },
+    {
+      "file": "/official/other.jpg",
+      "source": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2026/04/02/29fe32e472720260402104456818.jpg",
+      "downloadOriginal": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2026/04/02/b80a8d8d69c20260402101251715.png",
+      "sourcePage": "https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1",
+      "width": 3840,
+      "height": 2160,
+      "sha256": "3020469361b385cdada4d5cf97c4137354ee0d800dd0c9cad7e00336fc2ab323",
+      "bytes": 12629748,
+      "context": "Official base-game promotional screenshot; category illustration, not evidence of a specific fix."
+    }
+  ]
+}

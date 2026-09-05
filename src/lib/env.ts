@@ -130,6 +130,11 @@ export function steamPulseEnabled(env: EnvLike = process.env): boolean {
   return env.STEAM_PULSE_ENABLED?.trim().toLowerCase() === "true";
 }
 
+/** Separate, default-off rollout switch for aggregate Steam player readings. */
+export function steamPlayerCountsEnabled(env: EnvLike = process.env): boolean {
+  return env.STEAM_PLAYER_COUNTS_ENABLED?.trim().toLowerCase() === "true";
+}
+
 /** Server-only Twitch application credentials power both IGDB and live context. */
 export function platformContextConfigured(env: EnvLike = process.env): boolean {
   return hasEnvValue(env.TWITCH_CLIENT_ID) && hasEnvValue(env.TWITCH_CLIENT_SECRET);

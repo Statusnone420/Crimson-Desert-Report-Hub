@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, Instrument_Sans, Instrument_Serif } from "next/font/google";
 import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL } from "@/lib/site";
 import "./globals.css";
+import "@/components/newspaper/newspaper.css";
+import "@/components/newspaper/operator.css";
 
 // The share images come from the opengraph-image.png / twitter-image.png file
 // convention. Never set openGraph.images / twitter.images here: Next only
@@ -26,7 +28,9 @@ export const metadata: Metadata = {
     title: SITE_NAME,
     description: SITE_OG_DESCRIPTION,
   },
-  robots: { index: true, follow: true, googleBot: { index: true, follow: true } },
+  robots: process.env.VERCEL_ENV === "preview"
+    ? { index: false, follow: false }
+    : { index: true, follow: true, googleBot: { index: true, follow: true } },
 };
 
 const instrumentSans = Instrument_Sans({
@@ -52,10 +56,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
+      data-theme="dark"
+      suppressHydrationWarning
       data-scroll-behavior="smooth"
       className={`${instrumentSans.variable} ${instrumentSerif.variable} ${plexMono.variable}`}
     >
       <body>
+        <script dangerouslySetInnerHTML={{ __html: `try{document.documentElement.dataset.theme=localStorage.getItem('newspaper-theme')||'dark'}catch{}` }}/>
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[var(--z-toast)] focus:border focus:bg-[var(--dispatch-inset)] focus:px-3 focus:py-2 focus:text-sm"

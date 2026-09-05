@@ -6,6 +6,7 @@ import {
   computeFeatures,
   integrationStatuses,
   platformContextConfigured,
+  steamPlayerCountsEnabled,
   steamPulseEnabled,
   requiredEnv,
 } from "@/lib/env";
@@ -81,6 +82,15 @@ describe("steamPulseEnabled", () => {
     expect(steamPulseEnabled({ STEAM_PULSE_ENABLED: "true" })).toBe(true);
     expect(steamPulseEnabled({ STEAM_PULSE_ENABLED: " TRUE " })).toBe(true);
     expect(steamPulseEnabled({ STEAM_PULSE_ENABLED: "false" })).toBe(false);
+  });
+});
+
+describe("steamPlayerCountsEnabled", () => {
+  it("requires its own explicit switch, independently of reviews", () => {
+    expect(steamPlayerCountsEnabled({})).toBe(false);
+    expect(steamPlayerCountsEnabled({ STEAM_PULSE_ENABLED: "true" })).toBe(false);
+    expect(steamPlayerCountsEnabled({ STEAM_PLAYER_COUNTS_ENABLED: " TRUE " })).toBe(true);
+    expect(steamPlayerCountsEnabled({ STEAM_PLAYER_COUNTS_ENABLED: "false" })).toBe(false);
   });
 });
 

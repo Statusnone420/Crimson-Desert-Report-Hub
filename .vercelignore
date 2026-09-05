@@ -1,0 +1,11 @@
+output/
+preview-data/
+prototypes/
+.next-review/
+.next-snapshot/
+.worktrees/
+.planning/
+playwright-report/
+test-results/
+.env*
+!.env.local.example

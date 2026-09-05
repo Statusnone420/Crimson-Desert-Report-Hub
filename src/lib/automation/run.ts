@@ -48,6 +48,7 @@ import {
   automationBudgetUsd,
   features,
   platformContextConfigured,
+  steamPlayerCountsEnabled,
   steamPulseEnabled,
 } from "@/lib/env";
 import { computeClusterLifecycle, type LifecycleClaimDecision } from "@/lib/lifecycle";
@@ -71,6 +72,7 @@ import {
 } from "@/lib/automation/sourceDate";
 import {
   buildSteamPulseSnapshot,
+  fetchSteamCurrentPlayers,
   fetchSteamReviewBatch,
   filterNewOrUpdatedSteamReviews,
   STEAM_REVIEW_SOURCE_URL,
@@ -725,6 +727,7 @@ const STEAM_PULSE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STEAM_REVIEW_MAX_PAGES = 10;
 const STEAM_REVIEW_RECEIPT_CHUNK_SIZE = 100;
 const PLATFORM_CONTEXT_INTERVAL_MS = 60 * 60 * 1000;
+const STEAM_PLAYER_INTERVAL_MS = 60 * 60 * 1000;
 
 type SteamReviewCollection = {
   batch: SteamReviewBatch;
@@ -909,6 +912,50 @@ async function persistSteamReviewCollection(
   } catch (error) {
     result.status = result.status === "success" ? "partial" : result.status;
     result.errors.push(toErrorMessage(error, "Steam Pulse persistence failed"));
+  }
+}
+
+async function persistSteamPlayerSnapshot(
+  supabase: ReturnType<typeof createServiceClient>,
+  result: AutomationResult,
+  now: Date,
+): Promise<void> {
+  if (!steamPlayerCountsEnabled()) return;
+  try {
+    const { data, error } = await supabase.from("steam_player_snapshots")
+      .select("captured_at").order("captured_at", { ascending: false }).limit(1);
+    if (error) {
+      if (isMissingSupabaseRelation(error, "steam_player_snapshots")) {
+        result.skips.push("steam_players_schema_unavailable");
+        return;
+      }
+      throw new Error(`Steam player recency read failed: ${error.message}`);
+    }
+    const recent = (data ?? [])[0] as { captured_at: string } | undefined;
+    if (recent && now.getTime() - Date.parse(recent.captured_at) < STEAM_PLAYER_INTERVAL_MS) {
+      result.skips.push("steam_players_recent");
+      return;
+    }
+    const reading = await fetchSteamCurrentPlayers();
+    const hour = new Date(reading.capturedAt);
+    hour.setUTCMinutes(0, 0, 0);
+    // Keep the first successful reading in an hour if overlapping runs race.
+    const { error: writeError } = await supabase.from("steam_player_snapshots").upsert({
+      sample_hour: hour.toISOString(),
+      captured_at: reading.capturedAt,
+      player_count: reading.playerCount,
+    }, { onConflict: "sample_hour", ignoreDuplicates: true });
+    if (writeError) {
+      if (isMissingSupabaseRelation(writeError, "steam_player_snapshots")) {
+        result.skips.push("steam_players_schema_unavailable");
+        return;
+      }
+      throw new Error(`Steam player snapshot write failed: ${writeError.message}`);
+    }
+  } catch (error) {
+    result.status = result.status === "success" ? "partial" : result.status;
+    result.errors.push(toErrorMessage(error, "Steam player collection failed"));
+    result.skips.push("steam_players_failed");
   }
 }
 
@@ -2799,6 +2846,7 @@ async function executeAutomationRun(
         );
       }
       await persistPlatformContextSnapshot(supabase, result, now);
+      await persistSteamPlayerSnapshot(supabase, result, now);
     }
 
     if (result.errors.length > 0 && result.status === "success") result.status = "partial";

@@ -1,11 +1,11 @@
 import type { ResolvingMetadata } from "next";
-import { OperatorShell, PublicShell } from "@/components/dispatch/Chrome";
+import ObservatoryPage from "@/app/observatory/page";
+import { OperatorShell } from "@/components/dispatch/Chrome";
 import { AdminScannerView } from "@/components/scanner/AdminScannerView";
-import { PublicScannerView } from "@/components/scanner/PublicScannerView";
 import { isAdmin } from "@/lib/adminGuard";
 import { applyLlmCircuitToStatuses, integrationStatuses } from "@/lib/env";
 import { getPatchRadarData } from "@/lib/radar.server";
-import { getAutomationAdminData, getIssuesData, getPublicScannerData } from "@/lib/queries";
+import { getAutomationAdminData, getPublicScannerData } from "@/lib/queries";
 import { routeMetadata } from "@/lib/site";
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
@@ -24,26 +24,9 @@ export const dynamic = "force-dynamic";
 // transparency view instead of being bounced to the login page.
 export default async function ScannerPage() {
   const admin = await isAdmin();
+  if (!admin) return <ObservatoryPage />;
   const [scoreboard, radar] = await Promise.all([getPublicScannerData(), getPatchRadarData()]);
   const integrations = applyLlmCircuitToStatuses(integrationStatuses(), scoreboard.llmPaused);
-
-  if (!admin) {
-    const { clusters, currentPatch } = await getIssuesData();
-    const leadQuestions = clusters
-      .filter((cluster) => cluster.candidateSignalCount > 0)
-      .sort((a, b) => b.candidateSignalCount - a.candidateSignalCount);
-    return (
-      <PublicShell active="observatory">
-        <PublicScannerView
-          data={scoreboard}
-          radar={radar}
-          integrations={integrations}
-          patchVersion={currentPatch.version}
-          leadQuestions={leadQuestions}
-        />
-      </PublicShell>
-    );
-  }
 
   const adminData = await getAutomationAdminData();
   const nowIso = new Date().toISOString();

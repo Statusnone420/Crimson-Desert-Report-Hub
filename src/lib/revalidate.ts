@@ -16,6 +16,8 @@ export function revalidatePublicSurfaces(): void {
     revalidatePath("/issues");
     revalidatePath("/report");
     revalidatePath("/scanner");
+    revalidatePath("/patches");
+    revalidatePath("/observatory");
   } catch {
     // pages self-revalidate within 5 minutes regardless
   }

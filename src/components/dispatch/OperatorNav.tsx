@@ -6,9 +6,10 @@ import { signOutAdmin } from "@/app/admin/actions";
 import type { OperatorNavKey } from "@/components/dispatch/Chrome";
 
 const OPERATOR_PAGES: Array<{ key: OperatorNavKey; href: string; label: string }> = [
-  { key: "review", href: "/admin", label: "REPORT REVIEW" },
-  { key: "scanner", href: "/scanner", label: "SCANNER MONITOR" },
-  { key: "compile", href: "/admin/compile", label: "DOSSIERS" },
+  { key: "overview", href: "/operator", label: "Overview" },
+  { key: "review", href: "/admin", label: "Report review" },
+  { key: "scanner", href: "/scanner", label: "Scanner monitor" },
+  { key: "compile", href: "/admin/compile", label: "Dossiers" },
 ];
 
 /**
