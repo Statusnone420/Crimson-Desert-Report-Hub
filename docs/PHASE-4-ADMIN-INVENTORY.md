@@ -4014,7 +4014,9 @@ _32 controls · partition `inv:write-path-libs`_
 - **Tests:** tests/adminClusters.test.ts; tests/queriesAdminCompatibility.test.ts
 - **Quirks:** The legacy fallback makes admin_visibility_reason/admin_visibility_changed_at null, and the UI then renders "Existing override created before reason tracking." and "Change time unavailable" (page.tsx:263,267) — text that means 'migration not applied here', not 'old row'. A redesign that drops those fallback strings loses the only signal that a preview environment is running pre-migration. Also: three separate /admin sections are derived from this ONE read by client-side filtering (page.tsx:46-52) — forcedRows, autoRows and exceptionRows all share the same potentially truncated array. A forced row omitted after the service cap loses the only rendered Reset to automatic; an omitted engine-owned exception can undercount Needs you and render false green. Both current and legacy projections need stable title/id pagination.
 
-#### `lib-analyze-save-import` — analyzeSaveImport / sanitizeSavePath
+#### `lib-analyze-save-import` — retired September 5, 2026
+
+The owner removed this feature, its UI, parser and tests. The following entry is retained as historical inventory, not current behavior.
 
 - **Kind:** automatic · **Destructive:** none
 - **Reach:** NOT an admin control. Runs in the player's browser on /report > local save helper rail. Reaches the operator only through the data it puts into two report fields.
