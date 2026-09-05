@@ -216,7 +216,9 @@ test.describe("integrated newspaper public UI", () => {
     await admin.click();
     await page.getByLabel("Admin password").fill("admin-password");
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page).toHaveURL(/\/admin$/);
+    // CI compiles this client navigation on demand; wait for its document
+    // transition before asserting the authenticated page and its controls.
+    await page.waitForURL(/\/admin$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
     const operator = page.getByRole("navigation", { name: "Operator" });
     await expect(operator.getByRole("link", { name: "Overview" })).toHaveAttribute("href", "/operator");
