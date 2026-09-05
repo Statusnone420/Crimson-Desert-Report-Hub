@@ -227,6 +227,15 @@ describe("GET /api/admin/scan/status", () => {
     expect(mocks.revalidateTag).not.toHaveBeenCalled();
   });
 
+  it("reads status in preview without updating stale rows or revalidating", async () => {
+    mocks.isVercelPreview.mockReturnValue(true);
+    state.statusRow = { id: "run-1", status: "success", mode: "manual", progress: null, skips: [], errors: [], started_at: "2026-07-06T00:00:00Z", finished_at: new Date().toISOString() };
+    const res = await GET(statusRequest("run-1"));
+    expect(res.status).toBe(200);
+    expect(mocks.sweepStaleRuns).not.toHaveBeenCalled();
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
+  });
+
   it("revalidates public surfaces for a manual row finished 30s ago", async () => {
     state.statusRow = {
       id: "run-1",

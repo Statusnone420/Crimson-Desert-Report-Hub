@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   tavilySearch: vi.fn(),
   tavilyExtract: vi.fn(),
   fetchSteamReviewBatch: vi.fn(),
+  fetchSteamCurrentPlayers: vi.fn(),
   fetchCrimsonDesertPlatformContext: vi.fn(),
 }));
 
@@ -57,6 +58,7 @@ vi.mock("@/lib/automation/steam", async (importOriginal) => {
   return {
     ...actual,
     fetchSteamReviewBatch: mocks.fetchSteamReviewBatch,
+    fetchSteamCurrentPlayers: mocks.fetchSteamCurrentPlayers,
   };
 });
 
@@ -82,6 +84,7 @@ type TableName =
   | "source_signals"
   | "steam_review_receipts"
   | "steam_pulse_snapshots"
+  | "steam_player_snapshots"
   | "platform_context_snapshots"
   | "patch_observations"
   | "signal_observation_events"
@@ -108,6 +111,7 @@ const tables: Record<TableName, Row[]> = {
   source_signals: [],
   steam_review_receipts: [],
   steam_pulse_snapshots: [],
+  steam_player_snapshots: [],
   platform_context_snapshots: [],
   patch_observations: [],
   signal_observation_events: [],
@@ -212,6 +216,7 @@ class FakeQuery {
   private singleResult = false;
   private upsertRows: Row[] | null = null;
   private upsertConflict = "id";
+  private ignoreDuplicates = false;
 
   constructor(private readonly table: TableName) {}
 
@@ -236,9 +241,10 @@ class FakeQuery {
     return this;
   }
 
-  upsert(row: Row | Row[], options?: { onConflict?: string }) {
+  upsert(row: Row | Row[], options?: { onConflict?: string; ignoreDuplicates?: boolean }) {
     this.upsertRows = Array.isArray(row) ? row : [row];
     this.upsertConflict = options?.onConflict ?? "id";
+    this.ignoreDuplicates = options?.ignoreDuplicates ?? false;
     return this;
   }
 
@@ -392,9 +398,13 @@ class FakeQuery {
   }
 
   private executeUpsert() {
+    if (insertFailure?.table === this.table && (!insertFailure.column || this.upsertRows!.some(row => insertFailure!.column! in row))) {
+      return { data: null, error: { code: insertFailure.code, message: insertFailure.message } };
+    }
     const rows = this.upsertRows!.map((row) => {
       const existing = tables[this.table].find((item) => item[this.upsertConflict] === row[this.upsertConflict]);
       if (existing) {
+        if (this.ignoreDuplicates) return existing;
         Object.assign(existing, row);
         mutations.push({ table: this.table, type: "upsert", row: { ...existing } });
         return existing;
@@ -607,6 +617,7 @@ beforeEach(() => {
   process.env.OPENROUTER_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
   delete process.env.CRON_SECRET;
   delete process.env.STEAM_PULSE_ENABLED;
+  delete process.env.STEAM_PLAYER_COUNTS_ENABLED;
   delete process.env.TWITCH_CLIENT_ID;
   delete process.env.TWITCH_CLIENT_SECRET;
   delete process.env.VERCEL_ENV;
@@ -6578,5 +6589,83 @@ describe("Platform Pulse intake", () => {
     expect(result.status).toBe("partial");
     expect(result.skips).toContain("platform_context_failed");
     expect(result.errors).toContain("platform context recency read failed: permission denied");
+  });
+});
+
+
+describe("Steam player snapshot collection", () => {
+  const now = new Date("2026-07-05T12:00:00.000Z");
+  beforeEach(() => {
+    delete process.env.TAVILY_API_KEY;
+    process.env.STEAM_PLAYER_COUNTS_ENABLED = "true";
+    mocks.fetchSteamCurrentPlayers.mockReset();
+    mocks.fetchSteamCurrentPlayers.mockResolvedValue({ capturedAt: "2026-07-05T12:02:03.000Z", playerCount: 12345 });
+  });
+
+  it("records only timestamped counts without creating player evidence or using paid providers", async () => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(result.status).toBe("success");
+    expect(tables.steam_player_snapshots).toHaveLength(1);
+    expect(tables.steam_player_snapshots[0]).toMatchObject({ sample_hour: "2026-07-05T12:00:00.000Z", captured_at: "2026-07-05T12:02:03.000Z", player_count: 12345 });
+    expect(result.signalsInserted).toBe(0);
+    expect(result.clustersPromoted).toBe(0);
+    expect(tables.steam_review_receipts).toHaveLength(0);
+    expect(tables.source_signals).toHaveLength(0);
+    expect(mocks.fetchSteamReviewBatch).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(result.llmCallsUsed).toBe(0);
+  });
+
+  it.each(["disabled", "dry_run"])("does not read, fetch or write when %s", async condition => {
+    if (condition === "disabled") delete process.env.STEAM_PLAYER_COUNTS_ENABLED;
+    const { runAutomationMonitor } = await importRunner();
+    await runAutomationMonitor({ mode: condition === "dry_run" ? "dry_run" : "manual", now });
+    expect(mocks.from).not.toHaveBeenCalledWith("steam_player_snapshots");
+    expect(mocks.fetchSteamCurrentPlayers).not.toHaveBeenCalled();
+    expect(tables.steam_player_snapshots).toHaveLength(0);
+  });
+
+  it("safely skips the new lane before migration, without a provider call", async () => {
+    selectFailure = { table: "steam_player_snapshots", code: "42P01", message: "relation steam_player_snapshots does not exist" };
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("steam_players_schema_unavailable");
+    expect(mocks.fetchSteamCurrentPlayers).not.toHaveBeenCalled();
+  });
+
+  it.each(["read", "write", "provider"])("keeps a %s failure visible without a false zero reading", async kind => {
+    if (kind === "read") selectFailure = { table: "steam_player_snapshots", code: "42501", message: "permission denied" };
+    if (kind === "write") insertFailure = { table: "steam_player_snapshots", code: "42501", message: "permission denied" };
+    if (kind === "provider") mocks.fetchSteamCurrentPlayers.mockRejectedValue(new Error("Steam player count response was malformed"));
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(result.status).toBe("partial");
+    expect(result.skips).toContain("steam_players_failed");
+    expect(result.errors.join(" ")).toContain(kind === "provider" ? "malformed" : "permission denied");
+    expect(tables.steam_player_snapshots).toHaveLength(0);
+  });
+
+  it.each([["2026-07-05T11:00:00.001Z", false], ["2026-07-05T11:00:00.000Z", true]] as const)("applies the one-hour recency boundary to %s", async (captured_at, shouldFetch) => {
+    tables.steam_player_snapshots.push({ sample_hour: "2026-07-05T11:00:00.000Z", captured_at, player_count: 9000 });
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(mocks.fetchSteamCurrentPlayers).toHaveBeenCalledTimes(shouldFetch ? 1 : 0);
+    expect(tables.steam_player_snapshots).toHaveLength(shouldFetch ? 2 : 1);
+    if (!shouldFetch) expect(result.skips).toContain("steam_players_recent");
+  });
+
+  it("preserves the first reading if another run wins the hourly insert race", async () => {
+    mocks.fetchSteamCurrentPlayers.mockImplementation(async () => {
+      tables.steam_player_snapshots.push({ sample_hour: "2026-07-05T12:00:00.000Z", captured_at: "2026-07-05T12:01:00.000Z", player_count: 10000 });
+      return { capturedAt: "2026-07-05T12:02:03.000Z", playerCount: 12345 };
+    });
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(result.status).toBe("success");
+    expect(tables.steam_player_snapshots).toHaveLength(1);
+    expect(tables.steam_player_snapshots[0].player_count).toBe(10000);
   });
 });

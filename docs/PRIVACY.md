@@ -76,20 +76,9 @@ The attempt ledger stores only the network hash and timestamp. Entries older tha
 
 Network hashes are an abuse-control approximation, not identity. Shared carrier or household networks can undercount, while network changes can count separately. This is why confirmation tallies never become verdicts.
 
-## Local Save/Config Helper
+## Evidence links
 
-The report page can optionally inspect selected Crimson Desert save/config files in the visitor's browser.
-
-This helper is designed to improve report quality without uploading raw save files:
-
-- Raw files are not uploaded by the helper.
-- Small XML/log/text files may be read locally in the browser.
-- Binary save files are treated as file metadata only.
-- Local folder/account-looking path segments are stripped before generated text is inserted.
-- The helper writes only visible sanitized text into normal report fields.
-- Visitors can edit or delete that generated text before submitting.
-
-The server receives only the final form submission text.
+The report form accepts typed details and an optional HTTP(S) evidence link. It does not inspect local files or offer save/config file uploads.
 
 ## Since-Your-Last-Visit Note
 

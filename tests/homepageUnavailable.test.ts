@@ -1,21 +1,15 @@
 import { createElement, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDashboardData: vi.fn(async (): Promise<unknown> => ({})),
-  getDailySignalRollup: vi.fn(async (): Promise<unknown> => null),
   getPublicScannerData: vi.fn(async (): Promise<unknown> => ({})),
   getPatchRadarData: vi.fn(async (): Promise<unknown> => ({})),
-  getTrackedPatchEditionCount: vi.fn(async () => 1),
 }));
 
 vi.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: Omit<ComponentProps<"a">, "href"> & { href: string; children?: ReactNode }) =>
+  default: ({ href, children, ...props }: Omit<ComponentProps<"a">, "href"> & { href: string; children?: ReactNode }) =>
     createElement("a", { ...props, href }, children),
 }));
 vi.mock("@/components/dispatch/Chrome", () => ({
@@ -23,162 +17,86 @@ vi.mock("@/components/dispatch/Chrome", () => ({
 }));
 vi.mock("@/lib/queries", () => ({
   getDashboardData: mocks.getDashboardData,
-  getDailySignalRollup: mocks.getDailySignalRollup,
   getPublicScannerData: mocks.getPublicScannerData,
 }));
-vi.mock("@/lib/radar.server", () => ({
-  getPatchRadarData: mocks.getPatchRadarData,
-}));
-vi.mock("@/lib/officialPatch.server", () => ({
-  getTrackedPatchEditionCount: mocks.getTrackedPatchEditionCount,
-}));
+vi.mock("@/lib/radar.server", () => ({ getPatchRadarData: mocks.getPatchRadarData }));
 
-import DispatchHomePage from "@/app/page";
+import HomePage from "@/app/page";
 
-const emptyClaimEvidenceOutage = {
+const evidenceOutage = {
   total: 0,
   topClusters: [],
-  currentPatch: {
-    version: "1.13.01",
-    publishedAt: "2026-07-08T05:51:00.000Z",
-    officialUrl: "https://example.com/patch-notes",
-  },
+  currentPatch: { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z", officialUrl: "https://example.com/patch-notes", source: "official" },
   claimedFixes: [],
+  claimedFixTotal: null,
   claimsUnavailable: false,
   evidenceUnavailable: true,
   sourceLeadsUnavailable: true,
   publicLeadsUnavailable: true,
-  latestReportAt: null,
   observations: { coverage: [], asks: [] },
 };
 
 describe("homepage independent-register outages", () => {
   beforeEach(() => {
-    mocks.getDashboardData.mockResolvedValue(emptyClaimEvidenceOutage);
-    mocks.getDailySignalRollup.mockResolvedValue(null);
-    mocks.getPublicScannerData.mockResolvedValue({
-      reviewedThisWeek: 9,
-      keptThisWeek: 3,
-      published: 1,
-      // Every scoreboard read succeeded. Without this the numbers below would be
-      // placeholders, and the page would correctly refuse to print them.
-      scannerConnected: true,
-      readFailures: [],
-      steamPulse: [],
-      platformContext: null,
-      pulseReadFailures: [],
-    });
-    mocks.getPatchRadarData.mockResolvedValue({
-      connected: false,
-      daily: [],
-      categories: [],
-      weekly: [],
-      recurrence: [],
-      recurring: { trackedLeads: 0 },
-    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
+    mocks.getDashboardData.mockResolvedValue(evidenceOutage);
+    mocks.getPublicScannerData.mockResolvedValue({ steamPulse: [], pulseReadFailures: [] });
+    mocks.getPatchRadarData.mockResolvedValue({ connected: false });
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it("shows a successful zero claims read as zero during an evidence outage", async () => {
-    const markup = renderToStaticMarkup(await DispatchHomePage());
-
-    expect(markup).toContain(
-      '<span>Claimed fixes</span><span class="record-block__value">0</span>',
-    );
-    expect(markup).not.toContain(
-      '<span>Claimed fixes</span><span class="record-block__value">unreadable</span>',
-    );
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("<dt>Claimed fixes</dt><dd>0</dd>");
+    expect(markup).toContain("The official record.");
+    expect(markup).toContain("Report counts unavailable");
+    expect(markup).toContain("<dt>Published issues</dt><dd>Unavailable</dd>");
+    expect(markup).not.toContain("Official claims are unavailable.");
   });
 
-  it("shows claims as unreadable only when the claims read itself failed", async () => {
-    mocks.getDashboardData.mockResolvedValue({
-      ...emptyClaimEvidenceOutage,
-      claimsUnavailable: true,
+  it("shows claims as unavailable only when the claims read itself failed", async () => {
+    mocks.getDashboardData.mockResolvedValue({ ...evidenceOutage, claimsUnavailable: true });
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("Official claims are unavailable.");
+    expect(markup).toContain("The claims read did not complete. No count is assumed to be zero.");
+    expect(markup).toContain("<dt>Claimed fixes</dt><dd>Unavailable</dd>");
+    expect(markup).not.toContain("<dt>Claimed fixes</dt><dd>0</dd>");
+  });
+
+  it("does not turn a claims read failure into invented claim cards or zero", async () => {
+    mocks.getDashboardData.mockResolvedValue({ ...evidenceOutage, claimsUnavailable: true, evidenceUnavailable: false, publicLeadsUnavailable: false });
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).not.toContain("No claimed fixes are recorded for this patch yet.");
+    expect(markup).not.toContain("Browse the fix record →");
+    expect(markup).toContain("Official claims are unavailable.");
+  });
+
+  it("keeps an independently read radar total visible during an evidence outage", async () => {
+    mocks.getPatchRadarData.mockResolvedValue({
+      connected: true,
+      recurring: { trackedLeads: 3 },
+      categories: [{ category: "performance", tracked: 3 }],
     });
-
-    const markup = renderToStaticMarkup(await DispatchHomePage());
-
-    expect(markup).toContain(
-      '<span>Claimed fixes</span><span class="record-block__value">unreadable</span>',
-    );
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("<dt>Tracked leads</dt><dd>3</dd>");
+    expect(markup).toContain("3 scanner leads · not confirmed bugs");
+    expect(markup).not.toContain("The scanner record could not be read.");
   });
 
-  it("never renders fallback claim counts when claims are unavailable", async () => {
-    for (const publicLeadsUnavailable of [false, true]) {
-      mocks.getDashboardData.mockResolvedValue({
-        ...emptyClaimEvidenceOutage,
-        claimsUnavailable: true,
-        evidenceUnavailable: false,
-        sourceLeadsUnavailable: publicLeadsUnavailable,
-        publicLeadsUnavailable,
-      });
-
-      const markup = renderToStaticMarkup(await DispatchHomePage());
-
-      expect(markup).toContain("official claims unavailable");
-      expect(markup).toContain(">claims unavailable</span>");
-      expect(markup).not.toContain("Pearl Abyss lists 0 claimed fixes");
-      expect(markup).not.toContain(">0 official claims</li>");
-      expect(markup).not.toContain(">0 claims</span>");
-      expect(markup).toContain("Claimed-fix verdicts are unavailable right now.");
-      expect(markup).not.toContain("No claimed fix is contested by player taps right now.");
-      if (!publicLeadsUnavailable) {
-        expect(markup).toContain("The official claimed-fix register is unavailable right now.");
-      }
-    }
+  it("renders unread radar data as unavailable instead of zero", async () => {
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("<dt>Tracked leads</dt><dd>Unavailable</dd>");
+    expect(markup).toContain("The scanner record could not be read. Counts are unavailable.");
+    expect(markup).not.toContain("0 scanner leads · not confirmed bugs");
   });
 
-  it("keeps independently read radar totals visible during an evidence outage", async () => {
-    const markup = renderToStaticMarkup(await DispatchHomePage());
-
-    expect(markup).toContain('<div class="pulse-stat__value">3</div>');
-    expect(markup).toContain(
-      "Public leads kept by the radar this week, out of 9 candidates reviewed in the same week.",
-    );
-  });
-
-  it("prints no weekly radar count when the weekly read failed", async () => {
-    // The weekly register is zero-filled when its read failed, so publishing
-    // these numbers would announce a very quiet week that nobody measured.
-    mocks.getPublicScannerData.mockResolvedValue({
-      reviewedThisWeek: 0,
-      keptThisWeek: 0,
-      published: 4,
-      scannerConnected: false,
-      readFailures: ["week"],
-      steamPulse: [],
-      platformContext: null,
-      pulseReadFailures: [],
-    });
-
-    const markup = renderToStaticMarkup(await DispatchHomePage());
-
-    expect(markup).not.toContain('<div class="pulse-stat__value">0</div>');
-    expect(markup).not.toContain("Public leads kept by the radar this week");
-    expect(markup).not.toContain("The radar reviewed");
-    expect(markup).toContain("The weekly scanner read failed, so this week&#x27;s kept and reviewed counts");
-    expect(markup).toContain("The radar&#x27;s weekly figures are unavailable right now.");
-    // The board count came from a read that worked, so it survives.
-    expect(markup).toContain("The board currently shows");
-    expect(markup).toContain('<span class="num-ink">4</span> published issue');
-  });
-
-  it("keeps the weekly figures when only the published read failed", async () => {
-    mocks.getPublicScannerData.mockResolvedValue({
-      reviewedThisWeek: 9,
-      keptThisWeek: 3,
-      published: 0,
-      scannerConnected: false,
-      readFailures: ["published"],
-      steamPulse: [],
-      platformContext: null,
-      pulseReadFailures: [],
-    });
-
-    const markup = renderToStaticMarkup(await DispatchHomePage());
-
-    expect(markup).toContain("The radar reviewed");
-    expect(markup).toContain("Public leads kept by the radar this week, out of 9 candidates reviewed");
-    expect(markup).toContain("The published-issue count is unavailable right now.");
-    expect(markup).not.toContain("published issue.");
+  it("renders an unread Steam history as unavailable instead of a fabricated capture", async () => {
+    mocks.getPublicScannerData.mockResolvedValue({ steamPulse: [], pulseReadFailures: ["steam"] });
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("Steam review history could not be read.");
+    expect(markup).not.toContain("No Steam review captures are available yet.");
+    expect(markup).not.toContain("Total reviews</span>");
   });
 });

@@ -47,6 +47,16 @@ Optional or provider-backed variables are documented in [`.env.local.example`](.
 
 Public pages may render a safe empty state when server credentials are absent during a build. Protected admin and cron routes fail closed instead.
 
+### Steam player counts
+
+The optional player-count collector uses Steam's public, keyless [GetNumberOfCurrentPlayers endpoint](https://partner.steamgames.com/doc/webapi/ISteamUserStats#GetNumberOfCurrentPlayers). It records only a capture timestamp, UTC hour bucket and concurrent-player count for Crimson Desert. These counts cover Steam-connected play; they exclude disconnected play and other platforms. They are context, not issue evidence.
+
+`STEAM_PLAYER_COUNTS_ENABLED` defaults to false and is independent of `STEAM_PULSE_ENABLED`, which controls review intake. The collector runs inside an existing manual/scheduled scan, checks for a reading less than one hour old, and keeps the first successful reading per UTC hour. It does not create another schedule or add Tavily/LLM calls. Actual intervals depend on scanner policy and run health; chart peaks must be labeled observed peaks. Dry runs do not read, fetch or persist this lane.
+
+The `steam_player_snapshots` table is introduced by `20260905183834_steam_player_snapshots.sql`. Browser roles have no table privileges; the server has select/insert access only. A missing table produces a named compatibility skip before any provider request. Other read, provider and write failures remain visible in run health and do not create zero readings. Existing review and Twitch collection continue independently.
+
+Before an authorized rollout, validate the migration using the local stack and `npx supabase test db --local`. Hosted migration, deployment and enabling the switch are separate release actions. After approval, apply the migration, deploy with the switch still off, verify access and compatibility, then enable collection and verify timestamped rows from the normal schedule. Disable the switch to stop this lane while preserving its history. Public player charts require a separate aggregate read/display integration; this collection change does not add one or backfill invented history.
+
 ### Cloudflare
 
 The Worker in [`cloudflare/scanner-cron`](../cloudflare/scanner-cron) is a scheduled-only wake-up trigger for `/api/cron/keepalive`. It has no public fetch endpoint and stores only `CRON_SECRET`.

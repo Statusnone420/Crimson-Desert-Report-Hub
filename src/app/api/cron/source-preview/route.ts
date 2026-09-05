@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { previewAutomationSearch } from "@/lib/automation/preview";
+import { isVercelPreview } from "@/lib/previewGuard";
 
 const MAX_PREVIEW_QUERIES = 2;
 
@@ -18,6 +19,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  if (isVercelPreview()) return NextResponse.json({ error: "preview_search_disabled" }, { status: 403 });
   const preview = await previewAutomationSearch({ maxQueries: requestedQueries(req) });
   return NextResponse.json({ ok: true, preview });
 }

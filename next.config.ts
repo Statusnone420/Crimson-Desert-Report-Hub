@@ -30,6 +30,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Keep real-data local review separate from the fixture-backed browser suite.
+  distDir: process.env.CD_LOCAL_SNAPSHOT === "true" ? ".next-snapshot" : process.env.CD_REVIEW_BUILD === "true" ? ".next-review" : ".next",
   allowedDevOrigins: ["127.0.0.1"],
   poweredByHeader: false,
   async headers() {

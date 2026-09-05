@@ -2,50 +2,55 @@
 
 import Link from "next/link";
 import Script from "next/script";
-import {
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ChangeEvent,
-  type FormEvent,
-  type InputHTMLAttributes,
-} from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
   FREQUENCIES,
-  PLATFORMS,
   PLATFORM_LABELS,
+  PLATFORMS,
   SEVERITIES,
 } from "@/lib/constants";
-import { categoryChartColor } from "@/lib/categoryColors";
-import { analyzeSaveImport, type SaveImportAnalysis, type SaveImportFile } from "@/lib/saveImport";
+import { reportSchema, type ReportInput } from "@/lib/reportSchema";
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-const MAX_IMPORT_FILES = 18;
-const MAX_TEXT_FILE_BYTES = 250_000;
 
-const SEVERITY_LABELS: Record<(typeof SEVERITIES)[number], string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  blocking: "Blocking",
+const CATEGORY_ART: Record<(typeof CATEGORIES)[number], { icon?: string; tone: string }> = {
+  performance: { icon: "gauge", tone: "blue" },
+  crash_startup: { icon: "triangle-alert", tone: "gold" },
+  controls_gameplay: { icon: "gamepad-2", tone: "red" },
+  graphics_visual: { icon: "aperture", tone: "green" },
+  audio: { tone: "violet" },
+  quest_progression: { icon: "scroll-text", tone: "gold" },
+  other: { icon: "wrench", tone: "slate" },
+};
+
+const SEVERITY_LABELS: Record<(typeof SEVERITIES)[number], [string, string]> = {
+  low: ["Minor", "A small annoyance"],
+  medium: ["Disruptive", "Gets in the way"],
+  high: ["Serious", "Hard to keep playing"],
+  blocking: ["Blocking", "Cannot continue"],
 };
 
 const FREQUENCY_LABELS: Record<(typeof FREQUENCIES)[number], string> = {
   once: "Once",
   sometimes: "Sometimes",
   often: "Often",
-  always: "Always",
+  always: "Every time",
 };
 
-const DIRECTORY_INPUT_PROPS: InputHTMLAttributes<HTMLInputElement> & {
-  webkitdirectory?: string;
-  directory?: string;
-} = {
-  webkitdirectory: "",
-  directory: "",
-};
+const DETAIL_FIELDS = [
+  ["repro_steps", "Steps to reproduce", 2000, 3],
+  ["expected_behavior", "What you expected", 1000, 2],
+  ["actual_behavior", "What happened instead", 1000, 2],
+  ["location_quest", "Location or quest", 200, 1],
+  ["hardware_specs", "Hardware", 500, 2],
+  ["graphics_mode", "Graphics mode or FPS setting", 200, 1],
+  ["driver_os", "Driver and OS version", 200, 1],
+  ["troubleshooting_tried", "What you already tried", 1000, 3],
+  ["evidence_url", "Evidence link", 500, 1],
+  ["pers_id", "Pearl Abyss PERS ID", 50, 1],
+] as const;
 
 type ReportPatchMetadata = {
   version: string;
@@ -53,26 +58,112 @@ type ReportPatchMetadata = {
   officialUrl: string;
 };
 
-// Viewport as an external store: below 900px the assistant rail starts
-// collapsed behind its disclosure; the desktop rail renders expanded.
-const MOBILE_QUERY = "(max-width: 899px)";
+type Draft = {
+  patch_version: string;
+  platform: string;
+  category: string;
+  severity: string;
+  frequency: string;
+  issue_title: string;
+  description: string;
+  repro_steps: string;
+  expected_behavior: string;
+  actual_behavior: string;
+  location_quest: string;
+  hardware_specs: string;
+  graphics_mode: string;
+  driver_os: string;
+  troubleshooting_tried: string;
+  pers_id: string;
+  evidence_url: string;
+  official_report_submitted: boolean;
+};
 
-function subscribeToViewport(listener: () => void): () => void {
-  const media = window.matchMedia(MOBILE_QUERY);
-  media.addEventListener("change", listener);
-  return () => media.removeEventListener("change", listener);
+type DetailFieldName = (typeof DETAIL_FIELDS)[number][0];
+type FormErrorMap = Record<string, string>;
+
+function blankDraft(currentPatch: ReportPatchMetadata): Draft {
+  return {
+    patch_version: currentPatch.version,
+    platform: "",
+    category: "",
+    severity: "medium",
+    frequency: "sometimes",
+    issue_title: "",
+    description: "",
+    repro_steps: "",
+    expected_behavior: "",
+    actual_behavior: "",
+    location_quest: "",
+    hardware_specs: "",
+    graphics_mode: "",
+    driver_os: "",
+    troubleshooting_tried: "",
+    pers_id: "",
+    evidence_url: "",
+    official_report_submitted: false,
+  };
 }
 
-function isMobileViewport(): boolean {
-  return window.matchMedia(MOBILE_QUERY).matches;
+function validationErrors(draft: Draft): { data: ReportInput | null; errors: FormErrorMap } {
+  const parsed = reportSchema.safeParse(draft);
+  if (parsed.success) return { data: parsed.data, errors: {} };
+  return {
+    data: null,
+    errors: Object.fromEntries(parsed.error.issues.map((issue) => [String(issue.path[0]), issue.message])),
+  };
 }
 
-function FieldError({ messages }: { messages?: string[] }) {
-  if (!messages?.length) return null;
+function FieldError({ name, error }: { name: string; error?: string }) {
+  return error ? <p className="filing-error" id={`${name}-error`} role="alert">{error}</p> : null;
+}
+
+function TextField({
+  draft,
+  errors,
+  change,
+  name,
+  label,
+  limit,
+  rows = 1,
+  required = false,
+  hint,
+  placeholder,
+}: {
+  draft: Draft;
+  errors: FormErrorMap;
+  change: (name: keyof Draft, value: string) => void;
+  name: DetailFieldName | "issue_title" | "description";
+  label: string;
+  limit: number;
+  rows?: number;
+  required?: boolean;
+  hint?: string;
+  placeholder?: string;
+}) {
+  const error = errors[name];
+  const inputProps = {
+    id: name,
+    name,
+    value: draft[name],
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => change(name, event.target.value),
+    maxLength: limit,
+    required,
+    "aria-invalid": Boolean(error),
+    "aria-describedby": `${name}-hint${error ? ` ${name}-error` : ""}`,
+    placeholder,
+  };
+
   return (
-    <p className="mt-1 text-xs" style={{ color: "var(--crimson)" }} role="alert">
-      {messages[0]}
-    </p>
+    <div className="filing-field">
+      <label htmlFor={name}>{label}{!required ? <span>Optional</span> : null}</label>
+      {rows > 1 ? <textarea {...inputProps} rows={rows} /> : <input {...inputProps} type={name === "evidence_url" ? "url" : "text"} />}
+      <div className="filing-field-note" id={`${name}-hint`}>
+        <span>{hint}</span>
+        {rows > 1 ? <span>{draft[name].length.toLocaleString()} / {limit.toLocaleString()}</span> : null}
+      </div>
+      <FieldError name={name} error={error} />
+    </div>
   );
 }
 
@@ -83,488 +174,237 @@ export function ReportForm({
   currentPatch: ReportPatchMetadata;
   patchVersions: string[];
 }) {
+  const [draft, setDraft] = useState<Draft>(() => blankDraft(currentPatch));
+  const [errors, setErrors] = useState<FormErrorMap>({});
+  const [review, setReview] = useState<ReportInput | null>(null);
+  const [stage, setStage] = useState<"write" | "review">("write");
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [message, setMessage] = useState("");
-  const [saveImport, setSaveImport] = useState<SaveImportAnalysis | null>(null);
-  const [pendingImport, setPendingImport] = useState<SaveImportAnalysis | null>(null);
-  const [saveImportMessage, setSaveImportMessage] = useState("");
-  const [category, setCategory] = useState("");
-  // Desktop shows the assistant rail expanded; below 900px it starts collapsed
-  // behind the disclosure summary. A user toggle wins over the derived default.
-  const [assistantToggled, setAssistantToggled] = useState<boolean | null>(null);
-  const mobileViewport = useSyncExternalStore(subscribeToViewport, isMobileViewport, () => false);
-  const assistantOpen = assistantToggled ?? !mobileViewport;
-  const graphicsModeRef = useRef<HTMLTextAreaElement>(null);
-  const troubleshootingRef = useRef<HTMLTextAreaElement>(null);
-  const saveImportFileInputRef = useRef<HTMLInputElement>(null);
-  const saveImportFolderInputRef = useRef<HTMLInputElement>(null);
+  const reviewRef = useRef<HTMLHeadingElement>(null);
 
-  async function onSaveImport(event: ChangeEvent<HTMLInputElement>) {
-    const selectedFiles = Array.from(event.currentTarget.files ?? []).slice(0, MAX_IMPORT_FILES);
-    if (selectedFiles.length === 0) return;
+  useEffect(() => {
+    if (stage === "review") reviewRef.current?.focus();
+  }, [stage]);
 
-    setSaveImportMessage("Reading selected files locally...");
-    const files: SaveImportFile[] = await Promise.all(
-      selectedFiles.map(async (file) => {
-        const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-        const shouldReadText = /\.(xml|log|txt)$/i.test(file.name) && file.size <= MAX_TEXT_FILE_BYTES;
-        const text = shouldReadText ? await file.text().catch(() => "") : "";
-
-        return {
-          name: file.name,
-          relativePath,
-          size: file.size,
-          lastModified: file.lastModified,
-          text,
-        };
-      }),
-    );
-    const analysis = analyzeSaveImport(files);
-    setPendingImport(analysis);
-    setSaveImportMessage(`${files.length} local file${files.length === 1 ? "" : "s"} inspected in this browser.`);
+  function change(name: keyof Draft, value: string | boolean) {
+    setDraft((current) => ({ ...current, [name]: value }));
+    setErrors((current) => ({ ...current, [name]: "" }));
+    setMessage("");
+    setStatus("idle");
   }
 
-  function onAddSaveImport() {
-    if (!pendingImport) return;
-
-    if (pendingImport.graphicsMode && graphicsModeRef.current && !graphicsModeRef.current.value.trim()) {
-      graphicsModeRef.current.value = pendingImport.graphicsMode;
+  function focusField(name: string) {
+    const target = document.getElementById(name);
+    target?.closest("details")?.setAttribute("open", "");
+    if (target instanceof HTMLFieldSetElement) {
+      target.querySelector<HTMLInputElement>("input")?.focus();
+      return;
     }
-    if (troubleshootingRef.current && !troubleshootingRef.current.value.includes(pendingImport.evidenceNote)) {
-      troubleshootingRef.current.value = troubleshootingRef.current.value.trim()
-        ? `${troubleshootingRef.current.value.trim()}\n\n${pendingImport.evidenceNote}`
-        : pendingImport.evidenceNote;
-    }
-
-    setSaveImport(pendingImport);
-    setPendingImport(null);
+    target?.focus();
   }
 
-  function onDiscardSaveImport() {
-    setPendingImport(null);
-    setSaveImportMessage("");
-    if (saveImportFileInputRef.current) {
-      saveImportFileInputRef.current.value = "";
+  function prepareReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const result = validationErrors(draft);
+    setErrors(result.errors);
+    setMessage("");
+    setStatus("idle");
+    if (!result.data) {
+      focusField(Object.keys(result.errors)[0] ?? "issue_title");
+      return;
     }
-    if (saveImportFolderInputRef.current) {
-      saveImportFolderInputRef.current.value = "";
-    }
+    setReview(result.data);
+    setStage("review");
   }
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function submitReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatus("sending");
     setErrors({});
     setMessage("");
+    const formData = new FormData(event.currentTarget);
+    const payload = { ...draft, turnstile_token: String(formData.get("cf-turnstile-response") ?? "") };
 
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const payload: Record<string, unknown> = {};
+    try {
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 201) {
+        setStatus("done");
+        return;
+      }
 
-    formData.forEach((value, key) => {
-      if (key === "cf-turnstile-response") payload.turnstile_token = String(value);
-      else payload[key] = String(value);
-    });
-    payload.official_report_submitted = formData.get("official_report_submitted") === "on";
-
-    const res = await fetch("/api/reports", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (res.status === 201) {
-      setStatus("done");
-      form.reset();
-      setCategory("");
-      return;
+      const nextErrors = Object.fromEntries(
+        Object.entries(data.issues ?? {}).map(([name, messages]) => [
+          name,
+          Array.isArray(messages) ? messages[0] : messages,
+        ]),
+      ) as FormErrorMap;
+      setErrors(nextErrors);
+      if (Object.keys(nextErrors).length > 0) {
+        setStage("write");
+        setMessage("Something in the form needs fixing. Check the marked fields.");
+      } else if (res.status === 429) {
+        setMessage("Rate limit reached. The limit is 5 reports per hour from the same network.");
+      } else if (data.error === "preview_writes_disabled") {
+        setMessage("This preview cannot accept reports. Your draft is still here; send it from the live Report Hub.");
+      } else if (res.status === 403) {
+        setMessage("Spam check failed. Refresh the page and try again.");
+      } else {
+        setMessage("Could not send your report. Your details are still here. Check your connection and try again.");
+      }
+      setStatus("error");
+    } catch {
+      setStatus("error");
+      setMessage("Could not send your report. Your details are still here. Check your connection and try again.");
     }
+  }
 
-    const data = await res.json().catch(() => ({}));
-    setErrors(data.issues ?? {});
-    setMessage(
-      res.status === 429
-        ? "Rate limit reached. The limit is 5 reports per hour from the same network."
-        : res.status === 403
-          ? "Spam check failed. Refresh the page and try again."
-          : "Something in the form needs fixing. Check the fields above.",
-    );
-    setStatus("error");
+  function resetForAnotherReport() {
+    setDraft(blankDraft(currentPatch));
+    setErrors({});
+    setReview(null);
+    setMessage("");
+    setStatus("idle");
+    setStage("write");
   }
 
   if (status === "done") {
     return (
-      <div className="report-success">
-        <p className="report-success__mark">✓ Report received</p>
-        <h1 className="report-success__title">Filed.</h1>
-        <p className="report-success__copy">
-          It&rsquo;s checked and sorted into the right issue automatically — no queue, no waiting. Your raw words
-          stay private; only counts and a neutral summary ever go public. Crash logs? File through Pearl Abyss
-          support too.
-        </p>
-        <div className="report-success__actions">
-          <button className="dispatch-btn dispatch-btn--secondary" type="button" onClick={() => setStatus("idle")}>
-            File another report
-          </button>
-          <Link href="/issues" className="dispatch-link" style={{ fontSize: 13.5 }}>
-            See the Issue Board →
-          </Link>
+      <section className="filing-success" aria-labelledby="filing-success-title">
+        <p className="kicker">Report received</p>
+        <h1 id="filing-success-title">Filed.</h1>
+        <p>Your report is checked and sorted before it can affect the public record. Raw words stay private; public pages show counts and neutral summaries only.</p>
+        <div className="filing-review-actions">
+          <button type="button" onClick={resetForAnotherReport}>File another report</button>
+          <Link href="/issues">See the Issue Board →</Link>
         </div>
-      </div>
+      </section>
     );
   }
 
+  const errorEntries = Object.entries(errors).filter(([, error]) => Boolean(error));
+  const fieldProps = { draft, errors, change };
+
   return (
-    <form onSubmit={onSubmit}>
-      <header className="dispatch-pagehead">
-        <div className="dispatch-pagehead__copy">
-          <p className="dispatch-kicker">Anonymous structured report</p>
-          <h1 className="dispatch-pagehead__title">File a report</h1>
-          <p className="dispatch-pagehead__dek">
-            No account, no email. Your report helps separate isolated bugs from patch-wide patterns. Add only what
-            you know; the board sorts it into public issue counts after checks.
-          </p>
-        </div>
-        <div className="dispatch-pagehead__status">
-          FILING AGAINST{" "}
-          <a
-            href={currentPatch.officialUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="dispatch-link"
-            aria-label={`Open official Patch ${currentPatch.version} notes`}
-          >
-            PATCH {currentPatch.version} ↗
-          </a>
-        </div>
-      </header>
-
-      <div className="report-grid">
-        <div className="report-form-col">
-          <div className="report-section-label">The basics</div>
-          <div className="report-row-3">
-            <div className="dispatch-field">
-              <label htmlFor="patch_version">Patch you&apos;re playing on</label>
-              <select id="patch_version" name="patch_version" defaultValue={currentPatch.version}>
-                {patchVersions.map((patch) => (
-                  <option key={patch} value={patch}>
-                    {patch === "other" ? "Other" : patch}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="dispatch-field">
-              <label htmlFor="platform">Platform</label>
-              <select id="platform" name="platform" required defaultValue="">
-                <option value="" disabled>
-                  Choose platform
-                </option>
-                {PLATFORMS.map((platform) => (
-                  <option key={platform} value={platform}>
-                    {PLATFORM_LABELS[platform]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="dispatch-field">
-              <label htmlFor="category">
-                Category
-                {category ? (
-                  <i
-                    className="cat-swatch cat-swatch--label"
-                    style={{ background: categoryChartColor(category) }}
-                    aria-hidden="true"
-                  />
-                ) : null}
-              </label>
-              <select
-                id="category"
-                name="category"
-                required
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
-              >
-                <option value="" disabled>
-                  Choose category
-                </option>
-                {CATEGORIES.map((option) => (
-                  <option key={option} value={option}>
-                    {CATEGORY_LABELS[option]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="report-row-3">
-            <div className="dispatch-field">
-              <label htmlFor="severity">Severity</label>
-              <select id="severity" name="severity" required defaultValue="medium">
-                {SEVERITIES.map((severity) => (
-                  <option key={severity} value={severity}>
-                    {SEVERITY_LABELS[severity]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="dispatch-field">
-              <label htmlFor="frequency">How often?</label>
-              <select id="frequency" name="frequency" required defaultValue="sometimes">
-                {FREQUENCIES.map((frequency) => (
-                  <option key={frequency} value={frequency}>
-                    {FREQUENCY_LABELS[frequency]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="dispatch-field">
-            <label htmlFor="issue_title">One-line summary</label>
-            <input
-              id="issue_title"
-              name="issue_title"
-              required
-              minLength={5}
-              maxLength={120}
-              placeholder="FPS drops to ~20 in open-field combat since 1.13"
-            />
-            <FieldError messages={errors.issue_title} />
-          </div>
-
-          <div className="dispatch-field">
-            <label htmlFor="description">What happened?</label>
-            <textarea
-              id="description"
-              name="description"
-              required
-              minLength={20}
-              maxLength={4000}
-              rows={4}
-              placeholder="Describe the problem in your own words — raw text stays private."
-            />
-            <FieldError messages={errors.description} />
-          </div>
-
-          <div className="report-section-rule">
-            <div className="report-section-label">Technical detail Pearl Abyss can use</div>
-            <div className="report-section-rule__note">optional · stronger evidence</div>
-          </div>
-
-          <div className="dispatch-field">
-            <label htmlFor="repro_steps">Steps to reproduce</label>
-            <textarea
-              id="repro_steps"
-              name="repro_steps"
-              rows={3}
-              placeholder={"1. Open world map during combat\n2. ..."}
-            />
-            <FieldError messages={errors.repro_steps} />
-          </div>
-          <div className="report-row-2">
-            <div className="dispatch-field">
-              <label htmlFor="expected_behavior">Expected behavior</label>
-              <input id="expected_behavior" name="expected_behavior" />
-              <FieldError messages={errors.expected_behavior} />
-            </div>
-            <div className="dispatch-field">
-              <label htmlFor="actual_behavior">Actual behavior</label>
-              <input id="actual_behavior" name="actual_behavior" />
-              <FieldError messages={errors.actual_behavior} />
-            </div>
-          </div>
-          <div className="report-row-2">
-            <div className="dispatch-field">
-              <label htmlFor="location_quest">Location / quest</label>
-              <input id="location_quest" name="location_quest" />
-              <FieldError messages={errors.location_quest} />
-            </div>
-            <div className="dispatch-field">
-              <label htmlFor="hardware_specs">Hardware (GPU, CPU, RAM)</label>
-              <input id="hardware_specs" name="hardware_specs" placeholder="RTX 4060 8GB, i5-13600K, 32GB" />
-              <FieldError messages={errors.hardware_specs} />
-            </div>
-          </div>
-          <div className="report-row-2">
-            <div className="dispatch-field">
-              <label htmlFor="graphics_mode">Graphics mode / FPS setting</label>
-              <textarea
-                id="graphics_mode"
-                name="graphics_mode"
-                rows={2}
-                placeholder="Performance mode / FSR on"
-                ref={graphicsModeRef}
-              />
-              <FieldError messages={errors.graphics_mode} />
-            </div>
-            <div className="dispatch-field">
-              <label htmlFor="driver_os">Driver / OS version</label>
-              <input id="driver_os" name="driver_os" placeholder="NVIDIA 566.14, Windows 11 24H2" />
-              <FieldError messages={errors.driver_os} />
-            </div>
-          </div>
-          <div className="dispatch-field">
-            <label htmlFor="troubleshooting_tried">Troubleshooting you tried</label>
-            <textarea id="troubleshooting_tried" name="troubleshooting_tried" rows={3} ref={troubleshootingRef} />
-            <FieldError messages={errors.troubleshooting_tried} />
-          </div>
-          <div className="report-row-2">
-            <div className="dispatch-field">
-              <label htmlFor="pers_id">Pearl Abyss PERS ID (if you filed one)</label>
-              <input id="pers_id" name="pers_id" />
-              <FieldError messages={errors.pers_id} />
-            </div>
-            <div className="dispatch-field">
-              <label htmlFor="evidence_url">Evidence link (YouTube, Reddit, X, etc.)</label>
-              <input id="evidence_url" name="evidence_url" placeholder="https://..." />
-              <FieldError messages={errors.evidence_url} />
-            </div>
-          </div>
-
-          <label className="report-check">
-            <input type="checkbox" name="official_report_submitted" className="w-auto" />
-            I also filed this through Pearl Abyss&apos;s official report tool
-          </label>
-
-          {status === "error" ? (
-            <p className="text-sm" style={{ color: "var(--crimson)" }} role="alert">
-              {message}
-            </p>
-          ) : null}
-
-          <div className="report-submit-row">
-            <button className="dispatch-btn" type="submit" disabled={status === "sending"}>
-              {status === "sending" ? "Submitting…" : "Submit report"}
-            </button>
-            <p className="report-submit-row__caption">Public pages show sorted counts and neutral summaries only.</p>
-          </div>
-        </div>
-
-        <details
-          className="assistant-rail"
-          open={assistantOpen}
-          onToggle={(event) => setAssistantToggled((event.currentTarget as HTMLDetailsElement).open)}
-        >
-          <summary>
-            <span>Auto-fill from local PC files</span>
-            <span aria-hidden="true">▾</span>
-          </summary>
-          <div className="assistant-rail__header">Evidence assistant</div>
-          <div className="assistant-rail__block">
-            <div className="assistant-rail__title">Auto-fill from local PC files</div>
-            <p className="assistant-rail__copy">
-              Your browser cannot scan your PC. It can only read files or folders you choose here. Raw files are
-              not uploaded; you review the generated note before it touches your report.
-            </p>
-          </div>
-          <div className="assistant-rail__block">
-            <div className="assistant-rail__title assistant-rail__title--sm">Best file to choose</div>
-            <p className="assistant-rail__copy">
-              <span className="mono-ink">user_engine_option_save.xml</span> can fill graphics settings like upscale
-              mode, frame generation, VSync, and HDR.
-            </p>
-            <div className="assistant-rail__buttons">
-              <button
-                type="button"
-                className="tap-btn"
-                onClick={() => saveImportFileInputRef.current?.click()}
-              >
-                Choose settings file
-              </button>
-              <button
-                type="button"
-                className="tap-btn"
-                onClick={() => saveImportFolderInputRef.current?.click()}
-              >
-                Choose folder
-              </button>
-            </div>
-            <p className="assistant-rail__status" aria-live="polite">
-              {saveImportMessage || "Nothing selected yet"}
-            </p>
-            <input
-              id="save_import"
-              type="file"
-              multiple
-              accept=".xml,.save,.log,.txt"
-              onChange={onSaveImport}
-              ref={saveImportFileInputRef}
-              className="sr-only"
-              tabIndex={-1}
-              aria-hidden="true"
-            />
-            <input
-              id="save_import_folder"
-              type="file"
-              multiple
-              accept=".xml,.save,.log,.txt"
-              onChange={onSaveImport}
-              ref={saveImportFolderInputRef}
-              className="sr-only"
-              tabIndex={-1}
-              aria-hidden="true"
-              {...DIRECTORY_INPUT_PROPS}
-            />
-          </div>
-          <div className="assistant-rail__block">
-            <div className="assistant-rail__title assistant-rail__title--sm">Find it on Windows</div>
-            <ol className="assistant-rail__copy" style={{ display: "grid", gap: 4 }}>
-              <li>1. Open File Explorer and search This PC for user_engine_option_save.xml.</li>
-              <li>2. Right-click the result and choose Open file location.</li>
-              <li>3. Select that file here, or select the folder that contains it.</li>
-              <li>4. If search finds nothing, skip this helper.</li>
-            </ol>
-            <p className="assistant-rail__copy" style={{ marginTop: 8 }}>
-              Inspects at most {MAX_IMPORT_FILES} selected files, reads only small XML/log/text files.
-            </p>
-          </div>
-          {pendingImport ? (
-            <div className="assistant-rail__block">
-              <div className="report-section-label">Preview — nothing added yet</div>
-              <div className="assistant-rail__preview">{pendingImport.evidenceNote}</div>
-              {pendingImport.graphicsMode ? (
-                <div className="assistant-rail__preview">{pendingImport.graphicsMode}</div>
-              ) : null}
-              <div className="assistant-rail__buttons">
-                <button className="dispatch-btn" type="button" onClick={onAddSaveImport}>
-                  Add to report
-                </button>
-                <button className="tap-btn" type="button" onClick={onDiscardSaveImport}>
-                  Discard
-                </button>
-              </div>
-            </div>
-          ) : null}
-          <div className="assistant-rail__block">
-            <p className="assistant-rail__copy">Only the sanitized summary can be included with the report.</p>
-            {saveImport ? (
-              <>
-                <p className="assistant-rail__copy" style={{ marginTop: 8 }}>
-                  {saveImport.privacyNote}
-                </p>
-                <p className="assistant-rail__copy" style={{ marginTop: 8 }}>
-                  {saveImport.evidenceNote}
-                </p>
-                <p className="assistant-rail__confirm">✓ Added to Troubleshooting field</p>
-              </>
-            ) : null}
-          </div>
-          <div className="assistant-rail__next">
-            <span className="report-section-label">What happens next</span>
-            <p className="assistant-rail__copy">
-              Checked, merged with any duplicates, and sorted into the right issue automatically. Raw words stay
-              private — only counts and a neutral summary go public.
-            </p>
-          </div>
-        </details>
+    <section id="report-form" className="filing-workspace" aria-label="Report form">
+      <div className="filing-stages" aria-label="Report progress">
+        <span aria-current={stage === "write" ? "step" : undefined}>Write your report</span>
+        <span aria-hidden="true">→</span>
+        <span aria-current={stage === "review" ? "step" : undefined}>Review and send</span>
       </div>
+      <form onSubmit={stage === "write" ? prepareReview : submitReport} noValidate>
+        {stage === "write" ? (
+          <>
+            {errorEntries.length > 0 ? (
+              <div className="filing-errors" role="alert">
+                <strong>A few details need your attention.</strong>
+                <ul>{errorEntries.map(([name, error]) => <li key={name}><a href={`#${name}`} onClick={(event) => { event.preventDefault(); focusField(name); }}>{error}</a></li>)}</ul>
+              </div>
+            ) : null}
+            {status === "error" && message ? <p className="filing-errors" role="alert">{message}</p> : null}
 
-      {SITE_KEY ? (
-        <>
-          <div className="cf-turnstile" data-sitekey={SITE_KEY} data-theme="dark" />
-          <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="lazyOnload" />
-        </>
-      ) : null}
-    </form>
+            <fieldset className="filing-section">
+              <legend>Your game</legend>
+              <div className="filing-row">
+                <div className="filing-field">
+                  <label htmlFor="platform">Platform</label>
+                  <select id="platform" name="platform" value={draft.platform} required onChange={(event) => change("platform", event.target.value)} aria-invalid={Boolean(errors.platform)} aria-describedby={errors.platform ? "platform-error" : undefined}>
+                    <option value="">Choose your platform</option>
+                    {PLATFORMS.map((platform) => <option key={platform} value={platform}>{PLATFORM_LABELS[platform]}</option>)}
+                  </select>
+                  <FieldError name="platform" error={errors.platform} />
+                </div>
+                <div className="filing-field">
+                  <label htmlFor="patch_version">Patch version</label>
+                  <select id="patch_version" name="patch_version" value={draft.patch_version} required onChange={(event) => change("patch_version", event.target.value)} aria-invalid={Boolean(errors.patch_version)} aria-describedby={errors.patch_version ? "patch_version-error" : undefined}>
+                    {patchVersions.map((patch) => <option key={patch} value={patch}>{patch === "other" ? "Other" : patch}</option>)}
+                  </select>
+                  <div className="filing-field-note" id="patch_version-hint">
+                    <span>Filing against <a href={currentPatch.officialUrl} target="_blank" rel="noreferrer noopener">current patch {currentPatch.version} ↗</a>.</span>
+                  </div>
+                  <FieldError name="patch_version" error={errors.patch_version} />
+                </div>
+              </div>
+              <fieldset className="filing-categories" id="category" aria-invalid={Boolean(errors.category)} aria-describedby={errors.category ? "category-error" : undefined}>
+                <legend>What kind of issue?</legend>
+                <div className="filing-category-grid">
+                  {CATEGORIES.map((category) => {
+                    const art = CATEGORY_ART[category];
+                    return (
+                      <label key={category} className={`filing-category filing-tone-${art.tone} ${draft.category === category ? "is-selected" : ""}`}>
+                        <input type="radio" name="category" value={category} checked={draft.category === category} onChange={() => change("category", category)} required />
+                        {art.icon ? <span className="filing-category-icon" aria-hidden="true" style={{ maskImage: `url(/icons/${art.icon}.svg)` }} /> : <span className="filing-audio" aria-hidden="true">♪</span>}
+                        <span>{CATEGORY_LABELS[category]}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <FieldError name="category" error={errors.category} />
+              </fieldset>
+            </fieldset>
+
+            <fieldset className="filing-section">
+              <legend>What happened?</legend>
+              <TextField {...fieldProps} name="issue_title" label="A short, specific summary" limit={120} required placeholder="Opening the map freezes the game during combat" hint="Name the action and the problem it causes." />
+              <TextField {...fieldProps} name="description" label="Describe the problem" limit={4000} rows={5} required placeholder="Where were you, what were you doing, and what happened?" hint="Use your own words. Leave out personal information." />
+              <fieldset className="filing-choices" id="severity" aria-invalid={Boolean(errors.severity)} aria-describedby={errors.severity ? "severity-error" : undefined}>
+                <legend>How much does it affect play?</legend>
+                <div>{SEVERITIES.map((severity) => <label key={severity} className={draft.severity === severity ? "is-selected" : ""}><input type="radio" name="severity" value={severity} checked={draft.severity === severity} onChange={() => change("severity", severity)} required /><span>{SEVERITY_LABELS[severity][0]}<small>{SEVERITY_LABELS[severity][1]}</small></span></label>)}</div>
+                <FieldError name="severity" error={errors.severity} />
+              </fieldset>
+              <fieldset className="filing-choices" id="frequency" aria-invalid={Boolean(errors.frequency)} aria-describedby={errors.frequency ? "frequency-error" : undefined}>
+                <legend>How often has it happened?</legend>
+                <div>{FREQUENCIES.map((frequency) => <label key={frequency} className={draft.frequency === frequency ? "is-selected" : ""}><input type="radio" name="frequency" value={frequency} checked={draft.frequency === frequency} onChange={() => change("frequency", frequency)} required /><span>{FREQUENCY_LABELS[frequency]}</span></label>)}</div>
+                <FieldError name="frequency" error={errors.frequency} />
+              </fieldset>
+            </fieldset>
+
+            <div className="filing-optional-heading"><h2>Add useful detail</h2><p>Optional. Include what you know.</p></div>
+            {([
+              ["Reproduce the issue", ["repro_steps", "expected_behavior", "actual_behavior", "location_quest"]],
+              ["Your system and settings", ["hardware_specs", "graphics_mode", "driver_os", "troubleshooting_tried"]],
+              ["Evidence and official report", ["evidence_url", "pers_id"]],
+            ] as [string, string[]][]).map(([title, names]) => (
+              <details className="filing-extra" key={title}>
+                <summary>{title}<span aria-hidden="true">+</span></summary>
+                <div>
+                  {names.map((name) => {
+                    const field = DETAIL_FIELDS.find(([fieldName]) => fieldName === name);
+                    if (!field) return null;
+                    const [fieldName, label, limit, rows] = field;
+                    return <TextField key={fieldName} {...fieldProps} name={fieldName} label={label} limit={limit} rows={rows} hint={fieldName === "evidence_url" ? "A screenshot, video, or public post. Use an http:// or https:// link." : undefined} />;
+                  })}
+                  {names.includes("pers_id") ? <label className="filing-checkbox"><input type="checkbox" name="official_report_submitted" checked={draft.official_report_submitted} onChange={(event) => change("official_report_submitted", event.target.checked)} />I also reported this to Pearl Abyss</label> : null}
+                </div>
+              </details>
+            ))}
+            <div className="filing-submit">
+              <button type="submit" className="filing-primary">Review report <span aria-hidden="true">→</span></button>
+              <p>Review your words before sharing. The hub checks submissions before they contribute to the public record.</p>
+            </div>
+          </>
+        ) : review ? (
+          <section className="filing-review" aria-labelledby="review-title">
+            <p className="kicker">Review your draft</p>
+            <h2 id="review-title" tabIndex={-1} ref={reviewRef}>{review.issue_title}</h2>
+            <div className="filing-review-meta"><span>{PLATFORM_LABELS[review.platform]}</span><span>Patch {review.patch_version}</span><span>{CATEGORY_LABELS[review.category]}</span><span>{SEVERITY_LABELS[review.severity][0]}</span><span>{FREQUENCY_LABELS[review.frequency]}</span></div>
+            <p className="filing-review-description">{review.description}</p>
+            {DETAIL_FIELDS.filter(([name]) => review[name]).map(([name, label]) => <div className="filing-review-detail" key={name}><h3>{label}</h3><p>{review[name]}</p></div>)}
+            {review.official_report_submitted ? <p className="filing-review-detail">Also reported to Pearl Abyss.</p> : null}
+            {status === "error" && message ? <p className="filing-errors" role="alert">{message}</p> : null}
+            <div className="filing-review-actions">
+              <button type="button" onClick={() => { setStage("write"); setStatus("idle"); setMessage(""); }}>← Edit draft</button>
+              <button type="submit" className="filing-primary" disabled={status === "sending"}>{status === "sending" ? "Sending…" : "Send report"} <span aria-hidden="true">→</span></button>
+            </div>
+            <p className="filing-copy-status" role="status">Nothing has been sent until you choose Send report.</p>
+          </section>
+        ) : null}
+        {SITE_KEY ? <><div className="cf-turnstile" data-sitekey={SITE_KEY} data-theme="dark" /><Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="lazyOnload" /></> : null}
+      </form>
+    </section>
   );
 }

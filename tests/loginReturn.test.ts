@@ -7,6 +7,7 @@ describe("resolveLoginReturn", () => {
     expect(resolveLoginReturn("/admin")).toBe("/admin");
     expect(resolveLoginReturn("/admin/compile")).toBe("/admin/compile");
     expect(resolveLoginReturn("/scanner")).toBe("/scanner");
+    expect(resolveLoginReturn("/operator")).toBe("/operator");
   });
 
   it("falls back to the console home when nothing was carried through", () => {

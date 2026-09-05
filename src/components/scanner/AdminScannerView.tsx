@@ -1,11 +1,13 @@
 import { recordScannerDecision, rejectObservationAndTeach, setScannerPolicy, undoScannerDecision } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
+import { CollectionHealth } from "@/components/scanner/CollectionHealth";
 import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
 import { FeedbackRulesPanel, ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { SubmitButton } from "@/components/SubmitButton";
 import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS } from "@/lib/constants";
-import type { IntegrationStatus } from "@/lib/env";
+import { platformContextConfigured, steamPulseEnabled, type IntegrationStatus } from "@/lib/env";
+import { collectionHealth } from "@/lib/collectionHealth";
 import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import type { AutomationControlState } from "@/lib/automation/settings";
@@ -377,6 +379,15 @@ export function AdminScannerView({
   const olderSignals = signals.slice(6);
   const pausedIntegrations = integrations.filter((integration) => integration.paused);
   const unknownCircuitIntegrations = integrations.filter((integration) => integration.circuitUnknown);
+  const collectionInput = {
+    steamPulse: scoreboard.steamPulse,
+    platformContext: scoreboard.platformContext,
+    pulseReadFailures: scoreboard.pulseReadFailures,
+    steamPulseEnabled: steamPulseEnabled(),
+    platformContextConfigured: platformContextConfigured(),
+    scheduledCadenceMinutes: control.minIntervalMinutes,
+  };
+  const collections = collectionHealth({ ...collectionInput, now });
   const unreadRegister = (register: ScannerReadRegister) => registerUnread(scoreboard.readFailures, register);
   // A disconnected radar or scoreboard means the reads behind these numbers
   // failed, so their zeros are placeholders rather than counts. Nothing on this
@@ -390,10 +401,11 @@ export function AdminScannerView({
   // The scoreboard's counters are not health inputs — a failed published count
   // says nothing about whether a run failed — so they gate their own cells
   // rather than this headline.
-  const healthKnown = radar.connected && unknownCircuitIntegrations.length === 0;
-  const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length;
-  // Name the parts. With no provider paused this total equals the failed-runs
-  // cell beside it, and an unexplained duplicate reads as a second problem.
+  const scannerHealthKnown = radar.connected && unknownCircuitIntegrations.length === 0;
+  const healthKnown = scannerHealthKnown && collections.status !== "unknown";
+  // Counts are checks to review, not distinct incidents: one run may affect a provider too.
+  const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length + collections.attentionCount;
+  // Name the affected checks so a repeated count does not imply a new incident.
   const attentionParts = [
     radar.health.runs7d.failed > 0
       ? `${radar.health.runs7d.failed} failed run${radar.health.runs7d.failed === 1 ? "" : "s"} · 7d`
@@ -401,6 +413,7 @@ export function AdminScannerView({
     pausedIntegrations.length > 0
       ? `${pausedIntegrations.length} provider${pausedIntegrations.length === 1 ? "" : "s"} paused`
       : null,
+    collections.attentionCount > 0 ? `${collections.attentionCount} collection check${collections.attentionCount === 1 ? "" : "s"}` : null,
   ].filter(Boolean);
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
   // What can reach the Brief decides how this section reads, so it says it once
@@ -500,7 +513,7 @@ export function AdminScannerView({
             </div>
           </div>
           <div className="stat-band__cell">
-            <div className="stat-band__label">Needs attention</div>
+            <div className="stat-band__label">Checks to review</div>
             <div
               className={
                 !healthKnown || attentionCount > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value"
@@ -510,7 +523,7 @@ export function AdminScannerView({
             </div>
             <div className="stat-band__caption">
               {!healthKnown
-                ? "A scanner health read failed, so this count is unavailable"
+                ? "A health read failed, so this count is unavailable"
                 : attentionParts.length > 0
                   ? attentionParts.join(" · ")
                   : "No scanner intervention required"}
@@ -672,11 +685,13 @@ export function AdminScannerView({
         <div>
           <p className="operator-inbox__eyebrow">Action inbox</p>
           <h2>
-            {!healthKnown
+            {!scannerHealthKnown
               ? "Scanner health is unavailable, so this page cannot tell you whether anything needs you."
+              : collections.status === "unknown"
+                ? "Collection health is unavailable. Check the affected service below."
               : attentionCount === 0
                 ? "Nothing requires intervention."
-                : `${attentionCount} scanner health item${attentionCount === 1 ? "" : "s"} need a look.`}
+                : `${attentionCount} health check${attentionCount === 1 ? " needs" : "s need"} a look.`}
           </h2>
           <p>
             {feedbackLearningAvailable
@@ -694,6 +709,8 @@ export function AdminScannerView({
           </span>
         </div>
       </section>
+
+      <CollectionHealth {...collectionInput} nowIso={nowIso} />
 
       <div className="operator-workbench">
         <section className="operator-workbench__main" id="teach" aria-label="Teach the scanner">

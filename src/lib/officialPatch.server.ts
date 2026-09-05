@@ -134,26 +134,26 @@ async function readPreviousPatchVersionUncached(
 
 export type ReportPatchContext = { currentPatch: CurrentPatchMetadata; patchVersions: string[] };
 
-function fallbackReportPatchContext(): ReportPatchContext {
-  const currentPatch = fallbackCurrentPatchMetadata();
-  return { currentPatch, patchVersions: patchVersionOptions(currentPatch.version, null) };
-}
-
 async function readReportPatchContextUncached(supabase: SupabaseClient): Promise<ReportPatchContext> {
   const currentPatch = await readCurrentPatchUncached(supabase);
   const previousVersion = await readPreviousPatchVersionUncached(supabase, currentPatch.version);
   return { currentPatch, patchVersions: patchVersionOptions(currentPatch.version, previousVersion) };
 }
 
-const getCachedReportPatchContext = unstable_cache(
-  async () =>
-    hasSupabaseServiceConfig() ? readReportPatchContextUncached(createServiceClient()) : fallbackReportPatchContext(),
-  ["report-patch-context"],
+const getCachedPreviousPatchVersion = unstable_cache(
+  async (currentVersion: string) =>
+    hasSupabaseServiceConfig() ? readPreviousPatchVersionUncached(createServiceClient(), currentVersion) : null,
+  ["previous-patch-version"],
   { revalidate: 300, tags: [CURRENT_PATCH_TAG] },
 );
 
-export function getReportPatchContext(supabase?: SupabaseClient): Promise<ReportPatchContext> {
-  return supabase ? readReportPatchContextUncached(supabase) : getCachedReportPatchContext();
+export async function getReportPatchContext(supabase?: SupabaseClient): Promise<ReportPatchContext> {
+  if (supabase) return readReportPatchContextUncached(supabase);
+  // The report form and masthead share the current-patch cache. The previous
+  // option is cached separately, keyed by that same current version.
+  const currentPatch = await getCurrentPatchMetadata();
+  const previousVersion = await getCachedPreviousPatchVersion(currentPatch.version);
+  return { currentPatch, patchVersions: patchVersionOptions(currentPatch.version, previousVersion) };
 }
 
 /**

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const aboutSource = readFileSync(path.join(process.cwd(), "src", "app", "about", "page.tsx"), "utf8");
 const chromeSource = readFileSync(
-  path.join(process.cwd(), "src", "components", "dispatch", "Chrome.tsx"),
+  path.join(process.cwd(), "src", "components", "newspaper", "NewspaperShell.tsx"),
   "utf8",
 );
 

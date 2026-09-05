@@ -153,10 +153,8 @@ export default async function AboutPage() {
               </p>
               <p>
                 What can show up publicly: a count, a summary built from the options you picked, or a short
-                excerpt a moderator approved — never your raw words by default. The save-file helper on the
-                report page reads files in your browser, and the files themselves never leave your machine. Only
-                the short note it writes — which you can edit or delete before sending — goes in with your
-                report.
+                excerpt a moderator approved — never your raw words by default. You can add an evidence link; the
+                report form does not read or upload files from your device.
               </p>
               <p>
                 Scanner intelligence defaults to{" "}

@@ -380,6 +380,9 @@ describe("AdminScannerView", () => {
       weekReviewed?: number;
       integrations?: IntegrationStatus[];
       failedRuns7d?: number;
+      pulseReadFailures?: PublicScannerData["pulseReadFailures"];
+      platformContext?: PublicScannerData["platformContext"];
+      steamPulse?: PublicScannerData["steamPulse"];
     }) {
       const radar = emptyPatchRadarData(patch);
       return renderToStaticMarkup(createElement(AdminScannerView, {
@@ -407,6 +410,9 @@ describe("AdminScannerView", () => {
           ...connectedScoreboard,
           scannerConnected: (overrides.readFailures ?? []).length === 0,
           readFailures: overrides.readFailures ?? [],
+          pulseReadFailures: overrides.pulseReadFailures ?? [],
+          platformContext: overrides.platformContext ?? null,
+          steamPulse: overrides.steamPulse ?? [],
         },
         radar: {
           ...radar,
@@ -449,6 +455,32 @@ describe("AdminScannerView", () => {
       expect(markup).toContain('<div class="stat-band__value stat-band__value--amber">Unavailable</div>');
       expect(markup).toContain("Reviewed · 7d");
       expect(markup).not.toContain("The weekly read failed");
+    });
+
+    it("does not declare all clear when a collection read fails", () => {
+      const markup = render({ radarConnected: true, pulseReadFailures: ["steam"] });
+      expect(markup).not.toContain("Nothing requires intervention.");
+      expect(markup).toContain("Collection health is unavailable");
+      expect(markup).toContain("Unknown");
+    });
+
+    it("surfaces a failed Twitch collection even when scanner runs succeeded", () => {
+      vi.stubEnv("STEAM_PULSE_ENABLED", "true");
+      vi.stubEnv("TWITCH_CLIENT_ID", "fixture-client");
+      vi.stubEnv("TWITCH_CLIENT_SECRET", "fixture-secret");
+      try {
+        const markup = render({
+          radarConnected: true,
+          steamPulse: [{ snapshotDay: "2026-07-22", collectedAt: "2026-07-22T14:00:00Z", totalReviews: 100, positivePercentage: 80, reviewCountDelta: 1, reviewsScanned: 1, issueLanguageCount: 0, leadsRetained: 0 }],
+          platformContext: { capturedAt: "2026-07-22T17:00:00Z", igdbStatus: "ok", twitchStatus: "error", twitchComplete: null, releaseAt: null, platforms: [], igdbUrl: null, liveStreams: null, liveViewers: null, twitchHistory: [{ capturedAt: "2026-07-22T16:00:00Z", liveStreams: 10, liveViewers: 100 }] },
+        });
+        expect(markup).not.toContain("Nothing requires intervention.");
+        expect(markup).toContain("1 health check needs a look.");
+        expect(markup).toContain("Provider unavailable");
+        expect(markup).toContain("Steam reviews");
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
 
     it("cannot claim the operator is clear while the cost circuit is unreadable", () => {
@@ -494,7 +526,7 @@ describe("AdminScannerView", () => {
 
       expect(markup).toContain("1 failed run · 7d");
       expect(markup).not.toContain("Run or provider health needs a look");
-      expect(markup).toContain("1 scanner health item need");
+      expect(markup).toContain("1 health check needs a look.");
     });
 
     it("counts a paused provider alongside failed runs in the same caption", () => {

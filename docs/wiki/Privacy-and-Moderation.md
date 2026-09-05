@@ -26,7 +26,7 @@ Reports are evidence. One-tap responses are player signals. Scanner links are le
 
 The report form does not require an account or email address. It accepts structured issue details such as patch, platform, category, severity, frequency, reproduction, hardware, and optional evidence. A moderator decides whether a short excerpt is useful and safe to publish.
 
-The browser-side save/config helper reads selected local files without uploading the raw file. It produces editable text in the normal form; only the final submitted fields leave the browser.
+Evidence is supplied through an optional link. The form does not inspect local files or offer save/config uploads.
 
 ## Confirmation and abuse controls
 

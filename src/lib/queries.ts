@@ -869,7 +869,7 @@ async function dashboardFallbackData(evidenceUnavailable: boolean) {
 }
 
 async function getDashboardDataUncached() {
-  if (!hasSupabaseServiceConfig()) return dashboardFallbackData(false);
+  if (!hasSupabaseServiceConfig()) return { ...(await dashboardFallbackData(true)), claimsUnavailable: true };
   try {
     return await readDashboardData();
   } catch (error) {
@@ -1059,6 +1059,7 @@ async function getIssuesDataUncached() {
       excerptsByCluster: {} as Record<string, { text: string; platform: string }[]>,
       signalsByCluster: {} as Record<string, SignalRow[]>,
       currentPatch: await getCurrentPatchMetadata(),
+      boardReadFailed: true,
     };
   }
 
@@ -1433,6 +1434,8 @@ export type SteamPulsePoint = {
   snapshotDay: string;
   collectedAt: string;
   totalReviews: number;
+  totalPositive?: number | null;
+  totalNegative?: number | null;
   positivePercentage: number;
   reviewCountDelta: number | null;
   reviewsScanned: number;
@@ -1459,7 +1462,7 @@ export async function readSteamPulse(
   const { data, error } = await supabase
     .from("steam_pulse_snapshots")
     .select(
-      "snapshot_day, collected_at, total_reviews, positive_percentage, review_count_delta, reviews_scanned, issue_language_count, leads_retained",
+      "snapshot_day, collected_at, total_reviews, total_positive, total_negative, positive_percentage, review_count_delta, reviews_scanned, issue_language_count, leads_retained",
     )
     .order("snapshot_day", { ascending: false })
     .limit(14);
@@ -1472,6 +1475,8 @@ export async function readSteamPulse(
       snapshotDay: String(row.snapshot_day ?? ""),
       collectedAt: String(row.collected_at ?? ""),
       totalReviews: Number(row.total_reviews ?? 0),
+      totalPositive: typeof row.total_positive === "number" ? row.total_positive : null,
+      totalNegative: typeof row.total_negative === "number" ? row.total_negative : null,
       positivePercentage: Number(row.positive_percentage ?? 0),
       reviewCountDelta: row.review_count_delta === null || row.review_count_delta === undefined
         ? null
@@ -1594,7 +1599,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     llmPaused: circuitOpen,
     steamPulse: [],
     platformContext: null,
-    pulseReadFailures: [],
+    pulseReadFailures: ["steam", "platform"],
   });
   // No Supabase in this environment is a known state rather than a failed read:
   // no automation runs here, so there is no cost circuit to report open.

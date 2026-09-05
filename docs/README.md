@@ -17,8 +17,8 @@ Public documentation explains the promises people need to evaluate: what the hub
 | --- | --- |
 | [Architecture](ARCHITECTURE.md) | A code-oriented map of the public surfaces, data lanes, scheduler, and provider boundaries. |
 | [Launch Checklist](LAUNCH_CHECKLIST.md) | First-time provider setup, authorized migration workflow, production smoke test, and release checks. |
-| [Operations Guide](OPERATIONS.md) | Environment variables, scan controls, budgets, admin actions, and safe live operations. |
-| [Privacy](PRIVACY.md) | Public/private data boundaries, network hashes, confirmations, local file handling, and third parties. |
+| [Operations Guide](OPERATIONS.md) | Environment variables, scan controls, budgets, admin actions, optional Steam player collection, and safe live operations. |
+| [Privacy](PRIVACY.md) | Public/private data boundaries, network hashes, confirmations, evidence links, and third parties. |
 | [Discussion Guide](DISCUSSIONS.md) | Where questions, bug reports, and sensitive material belong on GitHub. |
 | [State of Play](NEXT-STEPS.md) | A living maintainer handoff for the current release posture and next decisions. |
 | [Patch Intelligence ADR](ADR-001-patch-intelligence.md) | The historical decision record behind patch-aware intelligence and the observation lane. |
