@@ -70,11 +70,12 @@ test.describe("integrated newspaper public UI", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Main navigation" });
-    await expect(nav.getByRole("link", { name: "News" })).toHaveAttribute("href", "/news");
+    await expect(nav.getByRole("link", { name: "News" })).toHaveAttribute("href", "/");
     await expect(nav.getByRole("link", { name: "Patches" })).toHaveAttribute("href", "/patches");
-    await expect(nav.getByRole("link", { name: "Expansion" })).toHaveAttribute("href", "/topics/charting-the-unknown");
-    await expect(nav.getByRole("link", { name: "Watch" })).toHaveAttribute("href", "/watch");
-    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Player reports" })).toHaveAttribute("href", "/issues");
+    await expect(nav.getByRole("link", { name: "Player reports" })).toHaveAttribute("href", "/issues");
+    await expect(nav.getByRole("link", { name: "Expansion" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Watch", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "More from the news desk →" })).toHaveAttribute("href", "/news");
     await expect(nav.getByRole("link", { name: "Observatory" })).toHaveAttribute("href", "/observatory");
     if (testInfo.project.name === "mobile-chromium") {
       await expect(page.getByRole("contentinfo").getByRole("link", { name: /File a report/ })).toHaveAttribute("href", "/report");

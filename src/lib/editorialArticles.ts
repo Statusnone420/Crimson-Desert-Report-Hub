@@ -6,7 +6,6 @@ export type EditorialSource = {
 export type EditorialArticle = {
   slug: string;
   path: `/articles/${string}`;
-  topicPath: `/topics/${string}`;
   section: string;
   title: string;
   searchTitle: string;
@@ -25,7 +24,6 @@ export type EditorialArticle = {
 export const chartingTheUnknown = {
   slug: "charting-the-unknown",
   path: "/articles/charting-the-unknown",
-  topicPath: "/topics/charting-the-unknown",
   section: "Expansion report",
   title: "Beyond Pywel’s familiar shores",
   searchTitle: "Charting the Unknown: Release date and features",

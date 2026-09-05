@@ -46,7 +46,7 @@ export default function NewsPage() {
           <p className="kicker">The record</p>
           <h2 id="news-sourcing">Sources stay with the story</h2>
           <p className="small">This desk publishes original reports with their source links. Public scanner results remain separate source context, not articles by the Report Hub.</p>
-          <Link className="action" href={chartingTheUnknown.topicPath}>Explore the expansion topic →</Link>
+          <Link className="action" href={chartingTheUnknown.path}>Read the full expansion article →</Link>
         </section>
       </div>
     </PublicShell>

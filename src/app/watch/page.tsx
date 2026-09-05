@@ -23,7 +23,7 @@ export default function WatchPage() {
       <h2>Charting the Unknown</h2>
       <p className="small">The reveal introduces the expansion’s offshore adventure and life on land. Start with Pearl Abyss’s trailer, then explore an independent creator’s commentary below.</p>
       <a className="action" href="https://www.youtube.com/watch?v=HaCtG1F_hfE" target="_blank" rel="noreferrer noopener">Watch the official reveal ↗</a>
-      <Link className="chart-link" href="/topics/charting-the-unknown">Read the confirmed expansion details →</Link>
+      <Link className="chart-link" href="/articles/charting-the-unknown">Read the confirmed expansion details →</Link>
     </section>
     <PublicationFeed type="video" />
     <p className="np-capture-note">Videos open on their original channels. Creator commentary reflects the creator’s perspective; confirmed release information comes from Pearl Abyss.</p>

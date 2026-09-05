@@ -15,8 +15,6 @@ const expectedDescriptions = {
     "Crimson Desert Report Hub is an unofficial newspaper for Crimson Desert news, expansion reports, official updates, and player records.",
   "/news":
     "Source-backed Crimson Desert news and expansion reports from the Crimson Desert Report Hub.",
-  "/topics/charting-the-unknown":
-    "The source-backed Crimson Desert topic page for the Charting the Unknown expansion and its October 15 release.",
   "/watch":
     "The Crimson Desert reveal trailer and selected creator coverage of Charting the Unknown, with links to the original videos.",
   "/issues":
@@ -72,7 +70,6 @@ describe("search and share metadata", () => {
     expect(entries).toEqual([
       { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
       { url: `${SITE_URL}/news`, changeFrequency: "weekly", priority: 0.9 },
-      { url: `${SITE_URL}/topics/charting-the-unknown`, changeFrequency: "weekly", priority: 0.8 },
       {
         url: `${SITE_URL}/articles/charting-the-unknown`,
         lastModified: "2026-09-05T00:00:00Z",
@@ -137,13 +134,12 @@ describe("search and share metadata", () => {
   });
 
   it("gives each route a distinct title, matching canonical and og:url, and keeps the parent's share images", async () => {
-    const [issues, report, about, scanner, news, topic, watch] = await Promise.all([
+    const [issues, report, about, scanner, news, watch] = await Promise.all([
       import("@/app/issues/page"),
       import("@/app/report/page"),
       import("@/app/about/page"),
       import("@/app/scanner/page"),
       import("@/app/news/page"),
-      import("@/app/topics/charting-the-unknown/page"),
       import("@/app/watch/page"),
     ]);
     // The resolved root openGraph as Next hands it to generateMetadata: it
@@ -172,7 +168,6 @@ describe("search and share metadata", () => {
       [about, "Method", "/about", expectedDescriptions["/about"]],
       [scanner, "The Observatory", "/observatory", expectedDescriptions["/scanner"]],
       [news, "News", "/news", expectedDescriptions["/news"]],
-      [topic, "Charting the Unknown", "/topics/charting-the-unknown", expectedDescriptions["/topics/charting-the-unknown"]],
       [watch, "Crimson Desert videos", "/watch", expectedDescriptions["/watch"]],
     ] as const;
     const descriptions: string[] = [SITE_DESCRIPTION];
