@@ -84,6 +84,19 @@ test.describe("integrated newspaper public UI", () => {
     await expect(page.getByRole("link", { name: /All \d+ published issues/ })).toHaveAttribute("href", "/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toHaveCount(0);
     await expect(page.getByText("The game in numbers")).toBeVisible();
+    const storyImages = page.locator(".stories .story-image img");
+    await expect(storyImages).toHaveCount(2);
+    for (const image of await storyImages.all()) {
+      await image.scrollIntoViewIfNeeded();
+      await expect.poll(() => image.evaluate((element) => {
+        const image = element as HTMLImageElement;
+        if (!image.complete || !image.naturalWidth) return false;
+        const width = Number(new URL(image.currentSrc).searchParams.get("w"));
+        const frame = image.getBoundingClientRect();
+        const sourceRatio = Number(image.getAttribute("width")) / Number(image.getAttribute("height"));
+        return width >= Math.max(frame.width, frame.height * sourceRatio) * window.devicePixelRatio;
+      })).toBe(true);
+    }
     await expectNoPrivateMarkers(page);
     await expectAccessibleLandmarks(page);
     await expectHealthyPage(page, problems);
