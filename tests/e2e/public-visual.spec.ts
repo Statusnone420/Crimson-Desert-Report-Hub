@@ -62,7 +62,8 @@ async function fillValidReport(page: Page) {
 
 test.describe("integrated newspaper public UI", () => {
   test.beforeEach(async ({ page }) => {
-    await page.clock.install({ time: E2E_NOW });
+    // Freeze fixture dates while leaving navigation and animation timers native.
+    await page.clock.setFixedTime(E2E_NOW);
   });
 
   test("home keeps patch records, player counts, and private scanner material separate", async ({ page }, testInfo) => {
