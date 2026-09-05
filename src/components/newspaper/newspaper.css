@@ -160,7 +160,7 @@ html[data-theme=dark] .newspaper .category-other{--category-ink:#b3bfcc}
 .newspaper .lead figure:hover img{transform:none}
 .newspaper .article-hero img{aspect-ratio:1920/1180;object-position:center}
 .newspaper .quest img{object-position:20% center}
-.newspaper .stories .combat img{object-position:88% center}.newspaper .related-stories img{object-position:65% center}
+.newspaper .stories .combat img{object-position:33% center}.newspaper .related-stories img{object-position:65% center}
 .newspaper .media-notice,.newspaper .patch-image-note{font-size:11px;color:var(--muted);line-height:1.7;padding:0 0 22px}
 .newspaper .media-notice a{color:var(--blue);white-space:nowrap}
 
