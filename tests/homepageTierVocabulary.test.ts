@@ -119,7 +119,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
     expect(markup).not.toContain("Beyond Pywel’s");
   });
 
-  it("renders the public observation lanes without exposing unrelated signal registers", async () => {
+  it("keeps legacy raw observations and unrelated signal registers off the newspaper", async () => {
     mocks.getDashboardData.mockResolvedValue(dashboardData([], {
       publicFindings: [{ title: "Private scanner lead", sourceUrl: "https://internal.example/private" }],
       observations: {
@@ -128,8 +128,8 @@ describe("homepage keeps issue publication separate from headline selection", ()
       },
     }));
     const markup = renderToStaticMarkup(await HomePage());
-    expect(markup).toContain("Published patch coverage");
-    expect(markup).toContain("A public community request");
+    expect(markup).not.toContain("Published patch coverage");
+    expect(markup).not.toContain("A public community request");
     expect(markup).not.toContain("Private scanner lead");
     expect(markup).not.toContain("internal.example/private");
   });

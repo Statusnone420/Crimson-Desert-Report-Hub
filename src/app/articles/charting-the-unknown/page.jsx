@@ -1,27 +1,56 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { PublicShell } from '@/components/dispatch/Chrome';
+import { chartingTheUnknown } from '@/lib/editorialArticles';
+import { SITE_NAME } from '@/lib/site';
+import { newsArticleJsonLd, serializeJsonLd } from '@/lib/structuredData';
 import ReadingMotion from './reading-motion';
 
-const notice = 'https://crimsondesert.pearlabyss.com/en-us/News/Notice/Detail?_boardNo=129';
-const dlc = 'https://crimsondesert.pearlabyss.com/en-us/Game/DLC/charting-the-unknown';
-export const metadata = {title:'Charting the Unknown arrives October 15 — Report Hub'};
+const [releaseNotice, expansionOverview] = chartingTheUnknown.sources;
+const notice = releaseNotice.url;
+const dlc = expansionOverview.url;
+
+export const metadata = {
+  title: chartingTheUnknown.searchTitle,
+  description: chartingTheUnknown.description,
+  alternates: { canonical: chartingTheUnknown.path },
+  openGraph: {
+    type: 'article',
+    url: chartingTheUnknown.path,
+    siteName: SITE_NAME,
+    title: chartingTheUnknown.searchTitle,
+    description: chartingTheUnknown.description,
+    publishedTime: chartingTheUnknown.publishedAt,
+    images: [{
+      url: chartingTheUnknown.heroImage.src,
+      width: chartingTheUnknown.heroImage.width,
+      height: chartingTheUnknown.heroImage.height,
+      alt: chartingTheUnknown.heroImage.alt,
+    }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: chartingTheUnknown.searchTitle,
+    description: chartingTheUnknown.description,
+    images: [chartingTheUnknown.heroImage.src],
+  },
+};
 
 export default function ExpansionArticle() {
   return (
-    <PublicShell active="brief"><div id="main-top">
+    <PublicShell active="brief"><script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(newsArticleJsonLd(chartingTheUnknown))}}/><div id="main-top">
       <a className="skip" href="#article-body">Skip to article</a>
       <ReadingMotion />
       <article>
         <div className="article-heading">
           <Link className="back-link" href="/">← Back to the front page</Link>
           <p className="kicker">The expansion · News</p>
-          <h1>Beyond Pywel’s familiar shores</h1>
+          <h1>{chartingTheUnknown.title}</h1>
           <p className="article-deck"><span className="desktop-deck">Charting the Unknown arrives October 15, bringing ships, underwater exploration and new ways to make a home in Crimson Desert.</span><span className="mobile-deck">Ships, sunken ruins and a new life in Pywel. The expansion arrives October 15.</span></p>
-          <div className="article-meta"><time dateTime="2026-09-05">September 5, 2026</time><span>Sources: Pearl Abyss</span><a href="#sources">View sources ↓</a></div>
+          <div className="article-meta"><time dateTime={chartingTheUnknown.publishedAt}>September 5, 2026</time><span>Sources: Pearl Abyss</span><a href="#sources">View sources ↓</a></div>
         </div>
         <figure className="article-hero">
-          <Image src="/official/coast.jpg" width={1920} height={1180} priority sizes="(max-width:1440px) 100vw, 1384px" alt="A rider overlooking the sea, rocky islands and a sailing ship" />
+          <Image src={chartingTheUnknown.heroImage.src} width={chartingTheUnknown.heroImage.width} height={chartingTheUnknown.heroImage.height} priority sizes="(max-width:1440px) 100vw, 1384px" alt={chartingTheUnknown.heroImage.alt} />
           <figcaption>Pywel coastline · Official base-game image, courtesy of Pearl Abyss.</figcaption>
         </figure>
         <section className="mobile-brief" aria-label="Three key facts">
@@ -54,7 +83,7 @@ export default function ExpansionArticle() {
               <a className="video-link" href="https://www.youtube.com/watch?v=HaCtG1F_hfE" target="_blank" rel="noreferrer"><span className="video-category">Official · Crimson Desert</span><strong>Charting the Unknown — reveal trailer</strong><span>Watch on YouTube ↗</span></a>
               <a className="video-link" href="https://www.youtube.com/watch?v=Mhl-PhkWPEw" target="_blank" rel="noreferrer"><span className="video-category">Creator spotlight · jayvee</span><strong>Crimson Desert’s New DLC Looks Insane</strong><span>Video by jayvee · Watch on YouTube ↗</span></a>
             </section>
-            <section id="sources" className="article-sources"><h2>Sources &amp; updates</h2><p>Based on Pearl Abyss’s September 3 announcement and official DLC overview. Checked September 5, 2026. This report retains its original publication date.</p><ol><li><a href={notice} target="_blank" rel="noreferrer">Pearl Abyss — pre-orders and release times ↗</a></li><li><a href={dlc} target="_blank" rel="noreferrer">Pearl Abyss — Charting the Unknown overview ↗</a></li></ol></section>
+            <section id="sources" className="article-sources"><h2>Sources &amp; updates</h2><p>{chartingTheUnknown.sourceNote} Checked September 5, 2026. This report retains its original publication date.</p><ol>{chartingTheUnknown.sources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.label} ↗</a></li>)}</ol></section>
           </div>
         </div>
       </article>

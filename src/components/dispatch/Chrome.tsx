@@ -7,7 +7,7 @@ import { OperatorNav } from "@/components/dispatch/OperatorNav";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { patchFamilyKey } from "@/lib/patchWatch";
 
-export type PublicNavKey = "brief" | "issues" | "patches" | "observatory" | "method" | "report";
+export type PublicNavKey = "brief" | "news" | "expansion" | "watch" | "issues" | "patches" | "observatory" | "method" | "report";
 export type OperatorNavKey = "overview" | "review" | "scanner" | "compile";
 
 /** Deterministic dateline: UTC so server rendering never depends on host locale. */

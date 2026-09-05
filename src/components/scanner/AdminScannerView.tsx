@@ -249,12 +249,12 @@ function observationRow(
   patch: { version: string; publishedAt: string | null },
   nowMs: number,
 ) {
-  const laneLabel = observation.kind === "community_ask" ? "ASKS LANE" : "WIRE LANE";
+  const laneLabel = observation.kind === "community_ask" ? "COMMUNITY ASK" : "SOURCE CONTEXT";
   return (
     <article key={observation.id} className="lead-item">
       <div className="lead-item__status">
         <span className={observation.is_public ? "is-green" : "is-amber"}>
-          {observation.is_public ? "PUBLIC" : "HIDDEN"}
+          {observation.is_public ? "RETAINED" : "HIDDEN"}
         </span>{" "}
         · {laneLabel} · {OBSERVATION_KIND_LABELS[observation.kind]} ·{" "}
         {observationDateLabel(observation, patch, nowMs)}
@@ -301,7 +301,7 @@ function observationRow(
                 required
                 minLength={3}
                 maxLength={500}
-                placeholder="What made this item wrong for the public lanes?"
+                placeholder="What made this item unsuitable for scanner context?"
               />
             </label>
             <label>
@@ -316,7 +316,7 @@ function observationRow(
               <span>Confirm whole-domain rule (required only for domain scope)</span>
             </label>
             <p className="decision-form__scope">
-              Hides the item from the public lane immediately and records an undoable lesson so future runs skip
+              Hides this archived item and records an undoable lesson so future runs skip
               the same source. Two records, one Undo.
             </p>
             <SubmitButton className="dispatch-btn tap-btn--danger" pendingText="Rejecting…">
@@ -832,11 +832,11 @@ export function AdminScannerView({
         </details>
       </section>
 
-      <section className="operator-records" id="lanes" aria-label="Public context lanes">
+      <section className="operator-records" id="lanes" aria-label="Scanner context archive">
         <details className="operator-section">
           <summary className="operator-section__summary">
             <span className="dispatch-kicker">Context lanes</span>
-            <h2 className="operator-section__title">Wire and Asks on the Brief</h2>
+            <h2 className="operator-section__title">Scanner context archive</h2>
             <span
               className={
                 publishableObservations === 0 ? "operator-section__count is-amber" : "operator-section__count"
@@ -847,7 +847,7 @@ export function AdminScannerView({
                   is inside it. Matches how the neighbouring record sections
                   label their own capped reads. */}
               <span>newest {observations.length} this patch</span>{" "}
-              <span>· {publishableObservations} publishable</span>
+              <span>· {publishableObservations} eligible under legacy rules</span>
               {reversibleObservations > 0 ? <> <span>· {reversibleObservations} undoable</span></> : null}
             </span>
           </summary>
@@ -856,11 +856,7 @@ export function AdminScannerView({
                 carries its own state chip; what it no longer carries is a repeat
                 of the same sentence ten times over. */}
             <p className="section-heading__note">
-              {observations.length === 0
-                ? "Wire requires a source date; eligible undated Asks use their first-seen-by-radar clock. Rejecting an item hides it immediately and records an undoable lesson."
-                : publishableObservations === 0
-                  ? `None of these ${observations.length} can appear on the Brief — they are rejected, off this patch, or lack a usable lane clock. Rejecting an item hides it immediately and records an undoable lesson.`
-                  : `${publishableObservations} of these ${observations.length} can appear on the Brief; the rest are rejected, off this patch, or lack a usable lane clock. Rejecting an item hides it immediately and records an undoable lesson.`}
+              These search records no longer supply homepage articles. Keep them for optional scanner diagnostics. Reject and teach changes future discovery; Undo restores the record and revokes the rule.
             </p>
             <div className="lead-record-grid">
               {observations.length > 0

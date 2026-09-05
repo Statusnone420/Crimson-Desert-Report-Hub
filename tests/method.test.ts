@@ -91,7 +91,7 @@ describe("method reference", () => {
       aboutSource.indexOf('id="radar"'),
     );
 
-    expect(verdicts).toContain("When this tracker records an official fix claim, it notes the date.");
+    expect(verdicts).toContain("When the patch desk records an official fix claim, it notes the date.");
     // The property that matters survives the rename: silence is never a fix.
     expect(verdicts).toContain("No amount of silence turns a claimed fix into a confirmed one");
     // Nothing elapses, so no wording may suggest it does.
