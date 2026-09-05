@@ -11,7 +11,13 @@ import {
   PLATFORMS,
   SEVERITIES,
 } from "@/lib/constants";
-import { reportSchema, type ReportInput } from "@/lib/reportSchema";
+import {
+  blankReportDraft,
+  type ReportDraft,
+  type ReportDraftErrors,
+  type ReportPatchMetadata,
+  validateReportDraft,
+} from "@/lib/reportDraft";
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
@@ -52,67 +58,7 @@ const DETAIL_FIELDS = [
   ["pers_id", "Pearl Abyss PERS ID", 50, 1],
 ] as const;
 
-type ReportPatchMetadata = {
-  version: string;
-  title: string;
-  officialUrl: string;
-};
-
-type Draft = {
-  patch_version: string;
-  platform: string;
-  category: string;
-  severity: string;
-  frequency: string;
-  issue_title: string;
-  description: string;
-  repro_steps: string;
-  expected_behavior: string;
-  actual_behavior: string;
-  location_quest: string;
-  hardware_specs: string;
-  graphics_mode: string;
-  driver_os: string;
-  troubleshooting_tried: string;
-  pers_id: string;
-  evidence_url: string;
-  official_report_submitted: boolean;
-};
-
 type DetailFieldName = (typeof DETAIL_FIELDS)[number][0];
-type FormErrorMap = Record<string, string>;
-
-function blankDraft(currentPatch: ReportPatchMetadata): Draft {
-  return {
-    patch_version: currentPatch.version,
-    platform: "",
-    category: "",
-    severity: "medium",
-    frequency: "sometimes",
-    issue_title: "",
-    description: "",
-    repro_steps: "",
-    expected_behavior: "",
-    actual_behavior: "",
-    location_quest: "",
-    hardware_specs: "",
-    graphics_mode: "",
-    driver_os: "",
-    troubleshooting_tried: "",
-    pers_id: "",
-    evidence_url: "",
-    official_report_submitted: false,
-  };
-}
-
-function validationErrors(draft: Draft): { data: ReportInput | null; errors: FormErrorMap } {
-  const parsed = reportSchema.safeParse(draft);
-  if (parsed.success) return { data: parsed.data, errors: {} };
-  return {
-    data: null,
-    errors: Object.fromEntries(parsed.error.issues.map((issue) => [String(issue.path[0]), issue.message])),
-  };
-}
 
 function FieldError({ name, error }: { name: string; error?: string }) {
   return error ? <p className="filing-error" id={`${name}-error`} role="alert">{error}</p> : null;
@@ -130,9 +76,9 @@ function TextField({
   hint,
   placeholder,
 }: {
-  draft: Draft;
-  errors: FormErrorMap;
-  change: (name: keyof Draft, value: string) => void;
+  draft: ReportDraft;
+  errors: ReportDraftErrors;
+  change: (name: keyof ReportDraft, value: string) => void;
   name: DetailFieldName | "issue_title" | "description";
   label: string;
   limit: number;
@@ -174,9 +120,9 @@ export function ReportForm({
   currentPatch: ReportPatchMetadata;
   patchVersions: string[];
 }) {
-  const [draft, setDraft] = useState<Draft>(() => blankDraft(currentPatch));
-  const [errors, setErrors] = useState<FormErrorMap>({});
-  const [review, setReview] = useState<ReportInput | null>(null);
+  const [draft, setDraft] = useState<ReportDraft>(() => blankReportDraft(currentPatch));
+  const [errors, setErrors] = useState<ReportDraftErrors>({});
+  const [review, setReview] = useState<ReturnType<typeof validateReportDraft>["data"]>(null);
   const [stage, setStage] = useState<"write" | "review">("write");
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -186,7 +132,7 @@ export function ReportForm({
     if (stage === "review") reviewRef.current?.focus();
   }, [stage]);
 
-  function change(name: keyof Draft, value: string | boolean) {
+  function change(name: keyof ReportDraft, value: string | boolean) {
     setDraft((current) => ({ ...current, [name]: value }));
     setErrors((current) => ({ ...current, [name]: "" }));
     setMessage("");
@@ -205,7 +151,7 @@ export function ReportForm({
 
   function prepareReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = validationErrors(draft);
+    const result = validateReportDraft(draft);
     setErrors(result.errors);
     setMessage("");
     setStatus("idle");
@@ -242,7 +188,7 @@ export function ReportForm({
           name,
           Array.isArray(messages) ? messages[0] : messages,
         ]),
-      ) as FormErrorMap;
+      ) as ReportDraftErrors;
       setErrors(nextErrors);
       if (Object.keys(nextErrors).length > 0) {
         setStage("write");
@@ -264,7 +210,7 @@ export function ReportForm({
   }
 
   function resetForAnotherReport() {
-    setDraft(blankDraft(currentPatch));
+    setDraft(blankReportDraft(currentPatch));
     setErrors({});
     setReview(null);
     setMessage("");
