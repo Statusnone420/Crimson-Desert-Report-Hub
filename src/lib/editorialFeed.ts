@@ -106,7 +106,6 @@ function rssItemXml(article: EditorialArticle): string {
     `      <description>${escapeXml(article.description)}</description>`,
     `      <pubDate>${escapeXml(new Date(article.publishedAt).toUTCString())}</pubDate>`,
     `      <category>${escapeXml(article.section)}</category>`,
-    `      <author>${escapeXml(SITE_NAME)}</author>`,
     "    </item>",
   ].join("\n");
 }

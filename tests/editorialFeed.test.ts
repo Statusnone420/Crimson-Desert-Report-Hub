@@ -84,7 +84,8 @@ describe("editorial Atom/RSS of original Hub reports", () => {
     expect(xml).toContain(`<description>${escapeXml(chartingTheUnknown.description)}</description>`);
     expect(xml).toContain(`<pubDate>${new Date(chartingTheUnknown.publishedAt).toUTCString()}</pubDate>`);
     expect(xml).toContain(`<category>${chartingTheUnknown.section}</category>`);
-    expect(xml).toContain(`<author>${SITE_NAME}</author>`);
+    // RSS author requires an email address; the Hub name belongs in Atom.
+    expect(xml).not.toContain("<author>");
   });
 
   it("keeps outbound wire coverage, Watch videos, and scanner leads out of the feed", () => {
