@@ -68,6 +68,47 @@ test.describe("public catch-up journey", () => {
     await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: NOW.toISOString(), caughtUpThrough: null });
   });
 
+  test("login and signed-in scanner work preserve the public visit through reload and client navigation", async ({ page }) => {
+    const previous = { remember: true, lastVisit: PREVIOUS_VISIT, caughtUpThrough: CAUGHT_UP_THROUGH };
+    await page.addInitScript(({ key, value }) => {
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value));
+    }, { key: CATCH_UP_STORAGE_KEY, value: previous });
+    await page.goto("/admin/login?from=%2Fscanner");
+    await expect(page.getByRole("button", { name: "Catch me up", exact: true })).toBeEnabled();
+    await expect.poll(() => storedPreferences(page)).toEqual(previous);
+    await page.getByLabel("Password", { exact: true }).fill("admin-password");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL((url) => url.pathname === "/scanner");
+    await expect(page.locator(".operator-newspaper")).toBeVisible();
+    await expect.poll(() => storedPreferences(page)).toEqual(previous);
+    await page.reload();
+    await expect(page.locator(".operator-newspaper")).toBeVisible();
+    await expect.poll(() => storedPreferences(page)).toEqual(previous);
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await expect.poll(() => storedPreferences(page)).toEqual(previous);
+
+    await page.locator(".nameplate__title a").click();
+    await expect(page).toHaveURL((url) => url.pathname === "/");
+    await expect.poll(() => storedPreferences(page)).toEqual({ ...previous, lastVisit: NOW.toISOString() });
+    await page.goBack();
+    await expect(page.locator(".operator-newspaper")).toBeVisible();
+    await page.clock.setFixedTime(new Date("2026-09-06T13:00:00.000Z"));
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await expect.poll(() => storedPreferences(page)).toEqual({ ...previous, lastVisit: NOW.toISOString() });
+  });
+
+  test("anonymous scanner visits still record the public Observatory visit", async ({ page }) => {
+    await page.goto("/scanner");
+    await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
+    await expect(page.locator(".operator-newspaper")).toHaveCount(0);
+    await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: NOW.toISOString(), caughtUpThrough: null });
+
+    const departed = "2026-09-06T13:00:00.000Z";
+    await page.clock.setFixedTime(new Date(departed));
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: departed, caughtUpThrough: null });
+  });
+
   test("a new visit can build a catch-up from a patch", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/catch-up");

@@ -9,7 +9,9 @@ const initial: CatchUpState = { ready: false, available: true, previousVisit: nu
 let snapshot = initial;
 let initialized = false;
 let visitStarted = false;
+let publicSurface: { pathname: string } | null = null;
 const isPublicPath = (pathname: string) => !/^\/(admin|operator)(\/|$)/.test(pathname);
+const canRecordVisit = () => publicSurface?.pathname === window.location.pathname;
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 const getSnapshot = () => snapshot;
@@ -42,7 +44,7 @@ function startVisit() {
 
 function setRemember(remember: boolean) {
   save(remember
-    ? { ...snapshot.preferences, remember: true, lastVisit: isPublicPath(window.location.pathname) ? new Date().toISOString() : snapshot.preferences.lastVisit }
+    ? { ...snapshot.preferences, remember: true, lastVisit: canRecordVisit() ? new Date().toISOString() : snapshot.preferences.lastVisit }
     : { remember: false, lastVisit: null, caughtUpThrough: null }, remember ? snapshot.previousVisit : null);
 }
 
@@ -62,16 +64,29 @@ const markCaughtUp = () => updateTimestamp("caughtUpThrough");
 
 const CatchUpContext = createContext({ ...initial, setRemember, markCaughtUp });
 
-export function CatchUpProvider({ children }: { children: ReactNode }) {
-  const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+// Only the committed public shell registers a visit. A shared URL such as
+// /scanner cannot determine whether the server rendered private operator work.
+export function CatchUpPublicVisit() {
   const pathname = usePathname();
   useEffect(() => {
+    if (!isPublicPath(pathname)) return;
+    const surface = { pathname };
+    publicSurface = surface;
     initializePreferences();
-    if (isPublicPath(pathname)) startVisit();
+    startVisit();
+    return () => { if (publicSurface === surface) publicSurface = null; };
   }, [pathname]);
+  return null;
+}
+
+export function CatchUpProvider({ children }: { children: ReactNode }) {
+  const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  useEffect(() => {
+    initializePreferences();
+  }, []);
   useEffect(() => {
     const finishVisit = () => {
-      if (visitStarted && isPublicPath(window.location.pathname) && snapshot.preferences.remember && snapshot.available) updateTimestamp("lastVisit");
+      if (visitStarted && canRecordVisit() && snapshot.preferences.remember && snapshot.available) updateTimestamp("lastVisit");
     };
     const synchronize = (event: StorageEvent) => {
       if (event.key !== CATCH_UP_STORAGE_KEY && event.key !== null) return;
