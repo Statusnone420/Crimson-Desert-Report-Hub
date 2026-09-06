@@ -223,6 +223,7 @@ test.describe("public newspaper readability", () => {
 
     const readout = chart.locator(".chart-readout");
     await expect(readout).toBeVisible();
+    await expect(readout.locator("strong")).toHaveText("+31 reviews");
     const keyboardText = await readout.innerText();
     await point.press("Enter");
     await expect(readout).toHaveText(keyboardText, { useInnerText: true });
