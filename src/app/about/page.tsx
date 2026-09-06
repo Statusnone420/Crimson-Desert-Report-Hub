@@ -25,8 +25,8 @@ const WIKI = {
  * them rather than restating them.
  *
  * Each row's answer lives in the summary, so a deep link that lands on a
- * collapsed row still reads without opening it. `id="privacy"` is load-bearing:
- * the site footer links to /about#privacy from every page.
+ * collapsed row still reads without opening it. `id="privacy"` stays as the
+ * Method-page answer; the site footer links to /privacy.
  */
 export default async function AboutPage() {
   // Keep PublicShell's dateline tied to the request instead of the deployment day.
@@ -258,6 +258,10 @@ export default async function AboutPage() {
             run, and every rule a moderator follows.
           </p>
           <p className="method-outro__copy">
+            <Link href="/privacy" className="dispatch-link">
+              Privacy
+            </Link>
+            {" · "}
             <a href={WIKI.privacy} target="_blank" rel="noreferrer noopener" className="dispatch-link">
               Privacy &amp; moderation
             </a>

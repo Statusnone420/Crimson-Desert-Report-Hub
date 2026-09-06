@@ -41,9 +41,16 @@ describe("method reference", () => {
     }
   });
 
-  it("keeps the privacy anchor the site footer links to from every page", () => {
-    expect(chromeSource).toContain("/about#privacy");
+  it("keeps a dedicated privacy page while the method privacy anchor still exists", () => {
+    expect(chromeSource).toContain('href="/privacy"');
     expect(aboutSource).toContain('id="privacy"');
+  });
+
+  it("prints a calm footer trust line with the public source", () => {
+    expect(chromeSource).toContain("No ads");
+    expect(chromeSource).toContain("No trackers");
+    expect(chromeSource).toContain("Open source");
+    expect(chromeSource).toContain("SOURCE_URL");
   });
 
   it("renders the dateline at request time instead of freezing the deployment day", () => {
