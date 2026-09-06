@@ -10,8 +10,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: "#0b0c0a",
-    theme_color: "#0b0c0a",
+    background_color: "#f6f4ee",
+    theme_color: "#f6f4ee",
     icons: [
       {
         src: "/brand/warrior-app-icon-192.png",

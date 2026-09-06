@@ -22,7 +22,7 @@ export function ThemeToggle() {
     try { localStorage.setItem("newspaper-theme", next); } catch { /* Theme still works for this visit. */ }
     window.dispatchEvent(new Event("newspaper-theme"));
   }
-  return <button className="theme-toggle" type="button" onClick={toggle} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}><span className="theme-icon"><Image loading="eager" src={theme === "dark" ? "/icons/sun.svg" : "/icons/moon.svg"} alt="" width={21} height={21}/></span></button>;
+  return <><meta name="theme-color" content={theme === "dark" ? "#000000" : "#f6f4ee"}/><button className="theme-toggle" type="button" onClick={toggle} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}><span className="theme-icon"><Image loading="eager" src={theme === "dark" ? "/icons/sun.svg" : "/icons/moon.svg"} alt="" width={21} height={21}/></span></button></>;
 }
 
 export function NewspaperHeader({ active, home = false }: { active?: string; home?: boolean }) {

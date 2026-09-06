@@ -196,15 +196,21 @@ test.describe("public newspaper readability", () => {
   test("light is the first-visit theme and a saved dark choice persists", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#f6f4ee");
+    const manifest = await (await page.request.get("/manifest.webmanifest")).json();
+    expect(manifest).toMatchObject({ background_color: "#f6f4ee", theme_color: "#f6f4ee" });
 
     await page.getByRole("button", { name: "Switch to dark mode" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#000000");
     await expect.poll(() => page.evaluate(() => localStorage.getItem("newspaper-theme"))).toBe("dark");
 
-    await page.goto("/privacy");
+    await page.getByRole("link", { name: "Privacy", exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#000000");
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#000000");
     await expect(page.getByRole("button", { name: "Switch to light mode" })).toBeVisible();
   });
 
