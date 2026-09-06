@@ -1,4 +1,4 @@
-import { CATCH_UP_MILESTONES, type CatchUpMilestone } from "./catchUpContent";
+import { CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES, type CatchUpMilestone } from "./catchUpContent";
 
 export type CatchUpSelection = { kind: "highlights" } | { kind: "since"; value: string } | { kind: "patch"; value: string };
 
@@ -22,7 +22,7 @@ export function catchUpHash(selection: CatchUpSelection) {
 }
 
 export function selectCatchUpMilestones(selection: CatchUpSelection, milestones: readonly CatchUpMilestone[] = CATCH_UP_MILESTONES) {
-  if (selection.kind === "highlights") return [...milestones];
+  if (selection.kind === "highlights") return milestones.filter((item) => Date.parse(item.publishedAt) >= Date.parse(CATCH_UP_HIGHLIGHTS_START));
   if (selection.kind === "patch") {
     const index = milestones.findIndex((item) => item.patch === selection.value);
     return index < 0 ? [...milestones] : milestones.slice(index + 1);

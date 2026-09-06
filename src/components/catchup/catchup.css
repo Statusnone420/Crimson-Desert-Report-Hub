@@ -62,9 +62,9 @@ html[data-theme=dark] .catch-up-popover{--paper:#111;--ink:#edeae3;--muted:#b8bb
 .newspaper .cu-text-link{display:inline-flex;align-items:center;gap:15px;min-height:44px;margin-top:12px;font-size:13px;color:var(--blue)}
 .newspaper .cu-journey{display:grid;grid-template-columns:210px minmax(0,1fr);gap:55px;border-top:5px double var(--ink);padding-top:36px}
 .newspaper .cu-journey:empty{border:0;padding:0}
-.newspaper .cu-rail{position:sticky;top:35px;align-self:start}
+.newspaper .cu-rail{position:sticky;top:35px;align-self:start;display:flex;flex-direction:column;max-height:calc(100dvh - 70px)}
 .newspaper .cu-rail-title{font:38px/1.05 var(--serif),serif;margin:14px 0 28px;letter-spacing:-.02em}
-.newspaper .cu-rail-links{position:relative;border-left:1px solid var(--line)}
+.newspaper .cu-rail-links{position:relative;border-left:1px solid var(--line);overflow-y:auto;min-height:0;overscroll-behavior:contain}
 .newspaper .cu-progress{position:absolute;left:-1px;top:0;width:2px;height:100%;background:var(--red);transform-origin:top}
 .newspaper .cu-rail-links a{display:flex;align-items:start;gap:18px;padding:13px 0 13px 20px;font-size:13px;color:var(--muted)}
 .newspaper .cu-rail-links a>span:first-child{font:19px var(--serif),serif}

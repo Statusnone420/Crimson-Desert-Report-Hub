@@ -83,6 +83,34 @@ test.describe("public catch-up journey", () => {
     });
   });
 
+  test("an early date and patch expose the full history while keeping the brief short", async ({ page }) => {
+    await page.goto("/catch-up");
+    await expect(page.locator(".cu-edition")).toContainText("History: July 3 – September 4, 2026");
+
+    let dialog = await openCatchUpMenu(page);
+    await expect(dialog.getByRole("button", { name: /Since I last played/ })).toContainText("From July 3");
+    await dialog.getByRole("button", { name: /Since I last played/ }).click();
+    await dialog.getByLabel("When did you last play?").fill("2026-07-03");
+    await dialog.getByRole("button", { name: /Build my catch-up/ }).click();
+    await expect(page).toHaveURL(/#since=2026-07-03T00%3A00%3A00\.000Z$/);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+    await expect(page.locator(".cu-coverage")).toHaveCount(0);
+
+    dialog = await openCatchUpMenu(page);
+    const customChoice = dialog.getByRole("button", { name: /Since I last played/ });
+    if (await customChoice.getAttribute("aria-expanded") === "false") await customChoice.click();
+    await dialog.getByRole("button", { name: "By patch" }).click();
+    await expect(dialog.getByLabel("The last patch you played").locator('option[value="1.13.00"]')).toHaveCount(1);
+    await dialog.getByLabel("The last patch you played").selectOption("1.13.00");
+    await dialog.getByRole("button", { name: /Build my catch-up/ }).click();
+
+    await expect(page).toHaveURL(/#patch=1\.13\.00$/);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(17);
+    await expect(page.locator(".cu-brief-grid > li")).toHaveCount(3);
+    await expect(page.locator("article.cu-milestone").first()).toContainText("Patch 1.13.01");
+    await expect(page.locator(".cu-chapter-meta").getByText("Patch 1.13.00", { exact: true })).toHaveCount(0);
+  });
+
   test("opting out clears saved dates and remains off after reload", async ({ page }) => {
     await page.addInitScript(({ key, previousVisit, caughtUpThrough }) => {
       if (sessionStorage.getItem("catch-up-seeded")) return;

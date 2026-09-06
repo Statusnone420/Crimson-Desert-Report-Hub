@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { motion, useReducedMotion } from "motion/react";
-import { CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
+import { CATCH_UP_COVERAGE_START, CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
 import { catchUpDate, catchUpHash, type CatchUpSelection } from "@/lib/catchUp";
 import { useCatchUp } from "./CatchUpContext";
 
@@ -55,8 +55,8 @@ export function CatchUpMenu({ label = "Catch me up", compact = false }: { label?
         <div className="catch-up-choices">
           {ready && resume && <button type="button" onClick={() => navigate({ kind: "since", value: resume })}><strong>Where I left off</strong><span>You caught up on {catchUpDate(resume)}</span></button>}
           {ready && previousVisit && <button type="button" onClick={() => navigate({ kind: "since", value: previousVisit })}><strong>Since my last visit</strong><span>Since {catchUpDate(previousVisit)}</span></button>}
-          <button type="button" onClick={() => { setCustom(!custom); setError(""); }} aria-expanded={custom} aria-controls={`${id}-custom`}><strong>Since I last played</strong><span>Choose a date or a patch</span></button>
-          <button type="button" onClick={() => navigate({ kind: "highlights" })}><strong>Show me the highlights</strong><span>August 25 – September 4</span></button>
+          <button type="button" onClick={() => { setCustom(!custom); setError(""); }} aria-expanded={custom} aria-controls={`${id}-custom`}><strong>Since I last played</strong><span>Date or patch · From {catchUpDate(CATCH_UP_COVERAGE_START)}</span></button>
+          <button type="button" onClick={() => navigate({ kind: "highlights" })}><strong>Show me the highlights</strong><span>{catchUpDate(CATCH_UP_HIGHLIGHTS_START)} – {catchUpDate(CATCH_UP_MILESTONES.at(-1)!.publishedAt)}</span></button>
         </div>
         {custom && <form id={`${id}-custom`} className="catch-up-custom" onSubmit={choose}>
           <div className="catch-up-method" role="group" aria-label="Choose a starting point"><button type="button" aria-pressed={method === "date"} onClick={() => { setMethod("date"); setError(""); }}>By date</button><button type="button" aria-pressed={method === "patch"} onClick={() => { setMethod("patch"); setError(""); }}>By patch</button></div>

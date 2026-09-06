@@ -7,7 +7,7 @@ import {
   selectCatchUpMilestones,
   type CatchUpSelection,
 } from "@/lib/catchUp";
-import { CATCH_UP_MILESTONES, type CatchUpMilestone } from "@/lib/catchUpContent";
+import { CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES, type CatchUpMilestone } from "@/lib/catchUpContent";
 
 const NOW = new Date("2026-09-06T12:00:00.000Z");
 
@@ -39,9 +39,28 @@ describe("catch-up selection URLs", () => {
 });
 
 describe("catch-up milestone selection", () => {
-  it("shows the curated edition for highlights and unknown patch fallbacks", () => {
-    expect(selectCatchUpMilestones({ kind: "highlights" })).toEqual(CATCH_UP_MILESTONES);
+  it("retains the full history when a direct caller supplies an unknown patch", () => {
     expect(selectCatchUpMilestones({ kind: "patch", value: "1.00.00" })).toEqual(CATCH_UP_MILESTONES);
+  });
+
+  it("keeps the default highlights at the five entries from patch 2.00.00 onward", () => {
+    const highlights = CATCH_UP_MILESTONES.filter((item) => Date.parse(item.publishedAt) >= Date.parse(CATCH_UP_HIGHLIGHTS_START));
+    expect(CATCH_UP_HIGHLIGHTS_START).toBe(CATCH_UP_MILESTONES.find((item) => item.patch === "2.00.00")?.publishedAt);
+    expect(highlights).toHaveLength(5);
+    expect(selectCatchUpMilestones({ kind: "highlights" })).toEqual(highlights);
+  });
+
+  it("includes the full July history for an explicit early date", () => {
+    const selected = selectCatchUpMilestones({ kind: "since", value: "2026-07-03T00:00:00.000Z" });
+    expect(selected).toHaveLength(18);
+    expect(selected[0].patch).toBe("1.13.00");
+  });
+
+  it("starts after patch 1.13.00 and keeps every later milestone", () => {
+    const selected = selectCatchUpMilestones({ kind: "patch", value: "1.13.00" });
+    expect(selected).toHaveLength(17);
+    expect(selected[0].patch).toBe("1.13.01");
+    expect(selected.some((item) => item.patch === "1.13.00")).toBe(false);
   });
 
   it("starts strictly after the selected patch, including a later same-day patch", () => {
@@ -51,7 +70,9 @@ describe("catch-up milestone selection", () => {
       "charting-the-unknown-announcement",
       "2.01.00",
     ]);
-    expect(selected[0].publishedAt).toBe(CATCH_UP_MILESTONES[1].publishedAt);
+    const selectedPatch = CATCH_UP_MILESTONES.find((item) => item.patch === "2.00.01");
+    expect(selectedPatch).toBeDefined();
+    expect(selected[0].publishedAt).toBe(selectedPatch?.publishedAt);
   });
 
   it("uses exact instants for date selections", () => {
