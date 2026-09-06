@@ -20,5 +20,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${SITE_URL}/observatory`, changeFrequency: "hourly", priority: 0.5 },
     { url: `${SITE_URL}/report`, changeFrequency: "monthly", priority: 0.4 },
     { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.3 },
+    { url: `${SITE_URL}/privacy`, changeFrequency: "monthly", priority: 0.3 },
   ];
 }

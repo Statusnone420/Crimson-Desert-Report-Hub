@@ -23,6 +23,7 @@ The current product is organized as a short reading path:
 - **Report**: anonymous structured intake for a detailed player account.
 - **Scanner**: public source-radar health and mapped questions, with authenticated operator controls.
 - **About**: method, privacy posture, and official-support guidance.
+- **Privacy**: short public note (no accounts, no email, no ads or trackers); full policy in the repository.
 
 The public brief may show reviewed patch observations such as press reception, fix announcements, and community asks. Those observations add context; they do not replace a player report or confirmation signal.
 
