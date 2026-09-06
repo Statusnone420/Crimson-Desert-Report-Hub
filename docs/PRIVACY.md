@@ -19,9 +19,12 @@ Public pages may show:
 - Aggregate confirmation counts by stance and platform.
 - Count-backed labels such as `Player-reported` (one counted voice), `Confirmed by players` (two or more counted voices), `Fix claimed — unverified`, or `Players say fixed` when their documented thresholds are met.
 - Public scanner lead links and mapped lead questions.
+- Original Report Hub articles with their cited source links.
+- Manually reviewed official, press, and creator coverage with a reviewed headline, excerpt, source date, and outbound link.
+- Aggregate Steam review sentiment, aggregate Twitch audience, and public IGDB game metadata when those lanes are configured and current.
 - Moderator-approved excerpts from direct reports.
 
-Public pages never intentionally show raw unmoderated report text, IP addresses, IP hashes, confirmation rows, or the confirmation-attempt ledger.
+Public pages never intentionally show raw unmoderated report text, Steam review text retained for classification, hashed provider identifiers, connected-player snapshots, rejected scanner candidates, IP addresses, IP hashes, confirmation rows, or the confirmation-attempt ledger.
 
 ## Structured Reports
 
@@ -44,7 +47,7 @@ Submissions are anonymous. There is no player account system and no email field.
 
 The issue board and mapped source-radar questions can accept three enum-only responses:
 
-- `I have this too`
+- `Happening to me`
 - `Still happening`
 - `Fixed for me`
 
@@ -80,14 +83,9 @@ Network hashes are an abuse-control approximation, not identity. Shared carrier 
 
 The report form accepts typed details and an optional HTTP(S) evidence link. It does not inspect local files or offer save/config file uploads.
 
-## Since-Your-Last-Visit Note
+## Browser-Local Theme
 
-The Patch Brief can show a line such as "Since your last visit (Jul 15) — +3 new leads". It works like this, and only like this:
-
-- The browser stores one timestamp (`cdReportHub.lastVisitAt`) in its own localStorage when the Brief loads.
-- That timestamp never leaves the browser: it is not sent to the server, not written to any cookie, and not readable by any other site.
-- The deltas shown are computed in the browser from the same public aggregate series every visitor sees — there is no personalized data behind them.
-- The note always announces itself ("Remembered by this browser only"); clearing site data removes the memory, and blocked storage simply means the note never appears.
+The theme button can store the chosen light or dark theme in the browser's localStorage. The setting is not sent to the server. If browser storage is unavailable, the theme still works for the current visit.
 
 ## Source Radar And AI Providers
 
@@ -98,6 +96,14 @@ Scanner links remain leads. The app may store structured summaries and source UR
 High-value scanner enrichment and official fix-claim mapping use bounded server-side provider calls with a hard $2 UTC-month software cap and model-specific per-request price ceilings. The default scanner lane is [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna) through [OpenRouter](https://openrouter.ai/docs/guides/privacy/data-collection), pinned to the first-party OpenAI provider with no automatic provider or model fallback. DeepSeek V4 Flash is an explicit maintainer rollback only. [OpenAI does not train on API data by default; abuse-monitoring logs may be retained for up to 30 days.](https://developers.openai.com/api/docs/guides/your-data) Confirmations do not call Tavily, an LLM, or a captcha service on the happy path.
 
 The deployment should use a dedicated OpenRouter key with a provider-side monthly limit of $2 or lower that resets monthly. That dashboard setting is a maintainer setup and verification step; the repository cannot inspect it and does not claim it is already configured.
+
+## Editorial And Platform Sources
+
+Original Report Hub articles are first-party publications and keep their source links with the story. The separate public Atom and RSS 2.0 feeds contain only those original articles. Reviewed external coverage is a separate maintained register. Its official, press, and creator links appear only after source, host, creator-video, date, headline, and excerpt checks. They do not become player evidence or scanner leads, and they do not enter the original-article feeds.
+
+Optional Steam collection reads public review aggregates, bounded review text for private classification, and the public connected-player count. Public pages receive aggregate review history and reviewed leads, not raw review text or provider identifiers. Connected-player snapshots remain service-role records and are not currently rendered publicly. They cover Steam-connected play at the capture time and exclude offline play and other platforms.
+
+Optional Twitch and IGDB collection uses server-side application credentials. Public output is limited to aggregate live-stream/viewer context and public game metadata. These snapshots describe provider activity and release/platform context. They do not identify players or prove that an issue exists.
 
 ## Admin Data
 
@@ -114,6 +120,9 @@ Depending on configured environment variables, the deployment may use:
 - Cloudflare for DNS, the scheduled Worker, and optional Turnstile protection on the full report form.
 - Tavily within its 1,000-credit monthly ceiling for public discovery and bounded context extraction.
 - Server-side provider calls for the bounded enrichment lane and low-cost/deterministic routine paths described above.
+- Steam for public review aggregates, bounded private review classification, and connected-player snapshots when enabled.
+- Twitch and IGDB for aggregate audience context and public game metadata when configured.
+- The original publishers and creator channels linked from the manually reviewed newspaper register.
 
 Provider keys are server-side only. The confirmation endpoint does not use Turnstile; it accepts enum-only input and relies on same-origin checks, network-hash deduplication, the atomic rate ledger, and display thresholds.
 

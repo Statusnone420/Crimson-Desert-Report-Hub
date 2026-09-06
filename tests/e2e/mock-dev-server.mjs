@@ -3,10 +3,16 @@ import { readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
-// A previous `next dev` session against different (or blank) Supabase env can
-// leave stale unstable_cache entries in .next; the mock run must start clean.
-rmSync(path.join(process.cwd(), ".next", "cache"), { recursive: true, force: true });
-rmSync(path.join(process.cwd(), ".next", "dev", "cache"), { recursive: true, force: true });
+// A previous `next dev` session against different Supabase data can leave stale
+// unstable_cache entries. Match next.config.ts so each isolated test build
+// clears only its own cache under this repository.
+const distDir = process.env.CD_LOCAL_SNAPSHOT === "true"
+  ? ".next-snapshot"
+  : process.env.CD_REVIEW_BUILD === "true"
+    ? ".next-review"
+    : ".next";
+rmSync(path.join(process.cwd(), distDir, "cache"), { recursive: true, force: true });
+rmSync(path.join(process.cwd(), distDir, "dev", "cache"), { recursive: true, force: true });
 
 const appPort = Number(process.env.PLAYWRIGHT_PORT ?? 3100);
 const supabasePort = Number(process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765);
@@ -638,7 +644,8 @@ const scannerFeedbackRules = [];
  * repo-ignored "what would the site look like with X data" harness — the seed
  * file uses the exact production row shapes (see scripts/generate-preview-seed.mjs),
  * so anything previewed here reproduces once the live scanner writes the same
- * shapes. Playwright never sets PREVIEW_SEED_FILE, so tests are unaffected.
+ * shapes. The regular visual suite uses the built-in seed; the N=0 project
+ * supplies empty tables through this same override.
  */
 const previewSeedFile = process.env.PREVIEW_SEED_FILE;
 if (previewSeedFile) {

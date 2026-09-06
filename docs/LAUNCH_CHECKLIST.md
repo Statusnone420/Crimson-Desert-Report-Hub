@@ -15,17 +15,26 @@ This checklist gets a new or refreshed deployment online without turning provide
 - [ ] From the repository, authenticate and link the CLI:
 
   ~~~powershell
-  npx --yes supabase login
-  npx --yes supabase link --project-ref <project-ref>
-  npx --yes supabase migration list
+  npm exec supabase -- login
+  npm exec supabase -- link --project-ref <project-ref>
+  npm exec supabase -- migration list --linked
   ~~~
 
 - [ ] Review the ordered files under [supabase/migrations](../supabase/migrations).
+- [ ] With Docker running, validate all migrations locally before a hosted release:
+
+  ~~~powershell
+  npm run db:start
+  npm run db:reset
+  npm exec supabase -- test db --local
+  npm exec supabase -- migration list --local
+  ~~~
+
 - [ ] Compare the local migration list with the target project before deploying code that reads new tables or columns.
 - [ ] Obtain explicit owner authorization in the release conversation before applying migrations.
-- [ ] Apply through the linked Supabase migration workflow, not an ad-hoc SQL editor query.
-- [ ] Run npx --yes supabase migration list again and record the result.
-- [ ] If history is already applied but versions drift, use the supported supabase migration repair workflow. Do not add empty duplicate files or edit the migration-history table directly.
+- [ ] Use the exact owner-approved release mechanism. This repository prohibits `supabase db push`; this checklist does not authorize another hosted write.
+- [ ] Run `npm exec supabase -- migration list --linked` again and record the result.
+- [ ] If applied migration history and local versions drift, stop and obtain separate explicit owner approval before using `supabase migration repair`. Do not add empty duplicate files or edit the migration-history table directly.
 - [ ] Verify the required tables, constraints, and server-only grants with a read-only check.
 
 ## 2. Vercel
@@ -42,6 +51,7 @@ This checklist gets a new or refreshed deployment online without turning provide
   ~~~
 
 - [ ] Add the optional Turnstile, Tavily, and OpenRouter variables only when the corresponding provider is intentionally enabled.
+- [ ] Add `STEAM_PULSE_ENABLED`, `STEAM_PLAYER_COUNTS_ENABLED`, and the `TWITCH_CLIENT_ID` plus `TWITCH_CLIENT_SECRET` pair only when their collection lanes and migrations are approved.
 - [ ] Confirm the custom domain crimsonreporthub.com and redirect behavior in the Vercel dashboard.
 - [ ] Do not copy provider secrets into GitHub, issue comments, screenshots, or local handoffs.
 
@@ -68,9 +78,9 @@ This checklist gets a new or refreshed deployment online without turning provide
 
 ## 5. First production smoke test
 
-- [ ] Open /, /issues, /report, /scanner, and /about.
+- [ ] Open /, /news, /watch, /patches, /issues, /observatory, /report, /about, and /privacy.
 - [ ] Confirm the current official patch link and N=0 states are honest.
-- [ ] Open /scanner anonymously, then authenticate and verify the operator view.
+- [ ] Confirm anonymous `/scanner` shows the public Observatory. Then authenticate and check `/operator`, `/admin`, `/scanner`, and `/admin/compile`.
 - [ ] Run the protected no-write preview before a real scan:
 
   ~~~bash
@@ -82,11 +92,12 @@ This checklist gets a new or refreshed deployment online without turning provide
 - [ ] Run a capped scan only after the preview and provider checks are acceptable.
 - [ ] If exercising report intake, use test data and moderate it intentionally.
 - [ ] Confirm a player confirmation refreshes from server totals.
+- [ ] If a collection lane is enabled, confirm its status and timestamp in `/operator`; do not treat a missing or failed read as a zero.
 
 ## 6. Merge and release gate
 
 - [ ] Narrow tests pass.
-- [ ] Lint, typecheck, unit tests, build, E2E, and N=0 E2E pass.
+- [ ] `npm run lint`, `npm test`, `npm exec tsc -- --noEmit`, `npm run build`, `npm run test:e2e`, and `npm run test:e2e:n0` pass.
 - [ ] Visual checks are reviewed when UI changes.
 - [ ] git diff --check is clean.
 - [ ] The target Supabase migration list matches the repository.

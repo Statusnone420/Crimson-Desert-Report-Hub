@@ -8,6 +8,7 @@ Use GitHub Discussions for questions, ideas, setup help, and community coordinat
 - Questions about Supabase, Vercel, Cloudflare Turnstile, capped public-web discovery, bounded server-side enrichment, routine fallback behavior, or the source radar.
 - Ideas for improving report quality or moderation flow.
 - Public Crimson Desert source suggestions.
+- Corrections to original reporting, source attribution, or selected press and creator coverage.
 - Confirmation-board wording, privacy, or patch-family behavior.
 - Community triage notes that need conversation before becoming issues.
 
@@ -51,7 +52,7 @@ Links:
 ```markdown
 Welcome to Crimson Desert Report Hub Discussions.
 
-Use this space for setup help, public source suggestions, and broader ideas for making Crimson Desert bug reports easier to organize. Keep secrets, credentials, private support tickets, and raw personal logs out of public posts.
+Use this space for setup help, public source suggestions, reporting corrections, and broader ideas for the newspaper and player record. Keep secrets, credentials, private support tickets, and raw personal logs out of public posts.
 
 For concrete app bugs or scoped feature requests, open an issue instead.
 ```

@@ -1,5 +1,7 @@
 # Phase 4 — Admin control inventory (read-only)
 
+> Historical audit snapshot. Counts, findings, and source line numbers describe the original sweep and may have changed. This is not a live backlog or current design authority. Recheck code and tests before acting; start with [Architecture](ARCHITECTURE.md) and [Design Notes](../DESIGN.md) for the current system.
+
 Generated from a 14-agent read-only sweep. **327 controls** across 11 partitions.
 No file in the repository was modified to produce this.
 

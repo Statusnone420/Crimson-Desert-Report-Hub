@@ -2,7 +2,9 @@
 
 ## For players
 
-Open the [issue board](https://crimsonreporthub.com/issues) to inspect current-patch issues and answer a question with *I have this too*, *Still happening*, or *Fixed for me*. Choose a platform. One network has one current stance per issue and patch family, so answering again changes your current response instead of creating another voter.
+Start with the [newspaper](https://crimsonreporthub.com/) for original reporting and selected coverage, or the [patch desk](https://crimsonreporthub.com/patches) for official fixes and player responses. [Atom](https://crimsonreporthub.com/feed.xml) and [RSS](https://crimsonreporthub.com/rss.xml) subscriptions contain original Hub articles only.
+
+Open the [issue board](https://crimsonreporthub.com/issues) to inspect current-patch issues and answer a question with *Happening to me*, *Still happening*, or *Fixed for me*. Choose a platform. One network has one current stance per issue and patch family, so answering again changes your current response instead of creating another voter.
 
 Use the [report form](https://crimsonreporthub.com/report) when you have a specific problem to document. A useful report includes the platform, patch, category, severity, frequency, short title, what happened, and reproduction steps when available. Evidence links and hardware details are optional.
 
@@ -17,17 +19,15 @@ Start with:
 - [Architecture](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/ARCHITECTURE.md)
 - [Contributing](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/CONTRIBUTING.md)
 
-From the repository root:
+Use Node.js 22 and npm. For a local UI preview with invented data, run from the repository root:
 
 ~~~powershell
-npm install
-npm run lint
-npm test
-npm exec tsc -- --noEmit
-npm run build
-npm run test:e2e
-npm run test:e2e:n0
+npm ci
+npm run preview:seed
+npm run dev:preview
 ~~~
+
+Open `http://127.0.0.1:3130`. This preview uses an in-memory database fixture and does not prove hosted data or provider health. For configured services, `npm run dev` uses `.env.local` and is not inherently isolated from production. Follow [Contributing](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/CONTRIBUTING.md#development) for setup and required checks.
 
 Public docs explain product guarantees and privacy boundaries. They intentionally do not try to teach private discovery, ranking, prompt, or moderation recipes.
 

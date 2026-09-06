@@ -1,28 +1,36 @@
 # State of Play and Next Steps
 
-This is the maintainer's resume-cold note. It records the current product shape and the next operational decisions without pretending that a historical PR number is a permanent project status page.
+This is the maintainer handoff. It describes the repository's current product shape and remaining decisions. Deployment health, provider configuration, and applied migrations require a fresh check of the target environment.
 
 ## Current posture
 
-- The live product is the **Patch Brief**: a patch-aware public readout with a right-now rail, literal metric cards, a claimed-fix scoreboard, community pulse, source coverage, and links to the issue board.
+- The front page is a **fan newspaper**: an original lead article, selected external coverage, official fix excerpts, player report totals, aggregate charts, and a creator spotlight.
+- `/news` lists original reporting and selected external coverage; `/watch` links to original video sources. `/feed.xml` and `/rss.xml` contain original Hub articles only.
+- `/patches` holds the official patch record and claimed fixes. `/observatory` holds review and audience context plus the source radar.
 - `/issues` is the evidence surface: structured reports, confirmation signals, reviewed source links, and exact-patch fix-claim polls remain visibly separate.
-- `/scanner` is a public source radar with authenticated maintainer controls. It maps public links into questions; it does not publish raw candidates or turn links into evidence.
-- `/report` is anonymous structured intake. `/about` explains the method and privacy posture.
+- `/operator` is the signed-in overview. `/scanner` shows scanner controls to the maintainer and the Observatory to anonymous readers. Discovery cannot publish newspaper selections automatically.
+- `/report` is anonymous structured intake. `/about` explains the method and `/privacy` summarizes the privacy policy.
 - The app is designed for N=0. Empty reports, empty confirmations, and a quiet radar must render as honest states, not marketing failure states.
-- The production schema includes the patch observation lane and patch-scoped observation identity. Keep local migration filenames aligned with the remote history.
+- Migration files include the observation lane and patch-scoped identity. Compare them with the target environment's applied history before a release; a committed migration is not proof it has run there.
 - The hourly wake-up is the Cloudflare Worker in `cloudflare/scanner-cron`; the application owns scheduling decisions, budget accounting, and publishing rules.
 
 ## First checks after a release
 
-1. Open `/`, `/issues`, `/report`, `/scanner`, and `/about` on the production domain.
-2. Confirm the Patch Brief identifies the current official patch and links to the official source.
-3. Confirm N=0 copy remains honest when there are no public reports or observations.
-4. Open `/scanner` anonymously and authenticated; verify the public and operator views show the same integration truth.
-5. Review the latest scheduled run and confirm Tavily credits, extraction work, and any skips are accounted for.
-6. Submit one controlled test report only when you intend to exercise production intake; moderate or remove it according to the current owner workflow.
-7. Check that a confirmation refreshes from server totals and does not claim an optimistic count.
+1. Bind the production deployment to the intended commit and confirm CI and deployment readiness.
+2. Open `/`, `/news`, the linked article, `/watch`, `/patches`, `/issues`, `/observatory`, `/report`, `/about`, and `/privacy`. Confirm the feeds return Atom and RSS XML.
+3. Compare the shared masthead date after hydration on direct loads and navigation. It uses the current New York day; initial HTML intentionally says `Eastern Time`.
+4. Confirm the patch desk links to the current official patch. Check source dates and attribution on editorial coverage separately from the masthead date.
+5. Confirm empty states remain honest and unavailable reads are not presented as zero. The separate N=0 browser suite checks both empty fixture data and missing service configuration without creating production data.
+6. With the required access, inspect `/operator` and `/scanner`; check collection health, the latest scheduled run, and budget accounting. Do not infer private health from a successful public page load.
+7. Exercise report submission, check-ins, or moderation only with authorization for those production writes. Check that confirmations refresh from server totals.
 
 ## Ranked follow-up
+
+### Product and design context
+
+- Use the refreshed [Product Notes](../PRODUCT.md) and [Design Notes](../DESIGN.md) as the starting point for the next product-language review. New design decisions still require owner direction.
+- Keep original articles, reviewed external selections, and scanner leads separate when adding coverage. Automated creator discovery remains separate future work, not an active publishing path.
+- For further desk-date verification, exercise New York midnight and returning to a suspended tab in the deployed browser. Automated date tests are not proof of every live browser/CDN condition.
 
 ### Keep observing
 
@@ -38,7 +46,7 @@ This is the maintainer's resume-cold note. It records the current product shape 
 
 ### 2026-07-20 audit P3s — resolved
 
-All parked P3s from the July 20 full-site audit were closed the same day. What remains below is the record, not a to-do list.
+The July 20 audit recorded these P3s as resolved. The details below describe that audit's code and hosted observations; they are not a current health check or a new to-do list.
 
 - **Unindexed foreign keys**: covering indexes added for `automation_rejected_candidates.run_id` and `signal_observation_events.run_id` (`20260720202450_fk_covering_indexes_run_id.sql`, applied to production).
 - **Unused indexes** flagged by the advisor: reviewed and deliberately retained — every flagged table is tiny (hundreds of rows at most), several indexes serve brand-new features (`signal_observation_events` shipped the same week), and dropping them saves nothing measurable. Re-check the advisor after a month of traffic before removing any.

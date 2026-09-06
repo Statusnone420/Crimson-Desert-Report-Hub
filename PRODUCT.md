@@ -2,30 +2,41 @@
 
 ## Audience
 
-Crimson Desert players, moderators, and technically minded volunteers who want a calm, current readout of patch issues without turning scattered complaints into verdicts.
+Crimson Desert readers and players following news, expansions, official updates, and player-reported issues; moderators and contributors maintaining that record.
 
 ## Purpose
 
-Crimson Desert Report Hub is an unofficial confirmation board and source radar. It keeps three input registers deliberately separate:
+Crimson Desert Report Hub is an unofficial fan newspaper with a patch desk, player-report board, and source radar. Original articles and selected external coverage form the editorial layer. It keeps the player record separate:
 
 1. **Reports are evidence.** Structured anonymous player reports are the strongest input. Raw submissions stay private; only counts, neutral summaries, and moderator-approved excerpts may become public.
-2. **Confirmations are signals.** One-tap *I have this too*, *Still happening*, and *Fixed for me* responses count what players say for an issue, platform, and patch family. They never become a verdict.
+2. **Confirmations are signals.** One-tap *Happening to me*, *Still happening*, and *Fixed for me* responses count what players say for an issue, platform, and patch family. They never certify a game-wide outcome.
 3. **Scanner links are leads.** Tavily-discovered public links keep the radar alive and generate questions players can answer. A link remains a lead, not evidence or authority chrome.
 
-Official Pearl Abyss patch notes provide canonical patch context and fix claims, while the hub remains independent and unofficial.
+Official Pearl Abyss patch notes provide canonical patch context and fix claims, while the hub remains independent and unofficial. A published player report does not automatically become a front-page story.
 
 ## Public Surfaces
 
-The current product is organized as a short reading path:
+| Surface | Purpose |
+| --- | --- |
+| Front page (`/`) | Newspaper lead, selected external coverage, official fix excerpts, player report totals, aggregate charts, and creator spotlight. |
+| News (`/news`) and articles (`/articles/...`) | Original Hub reporting with source links, alongside clearly attributed external coverage. |
+| Watch (`/watch`) | Official trailer and selected creator commentary; videos open at their original source. |
+| Patches (`/patches`) | Current official patch, claimed fixes, player responses, and patch context. |
+| Issues (`/issues`) | Current-patch reports, check-ins, reviewed leads, and fix-claim questions. |
+| Observatory (`/observatory`) | Aggregate review and audience context, collection health, and source radar. |
+| Report (`/report`) | Anonymous structured player intake with a review step before sending. |
+| About (`/about`) and Privacy (`/privacy`) | Method, source boundaries, privacy, and official-support guidance. |
+| Atom (`/feed.xml`) and RSS (`/rss.xml`) | Original Hub articles only; no external coverage, videos, scanner leads, or player submissions. |
 
-- **Patch Brief**: a right-now readout, current patch facts, literal metric cards, the claimed-fix scoreboard, community pulse, and reviewed source observations.
-- **Issues**: the evidence board for current-patch issue readouts, reports, player responses, reviewed links, and fix-claim questions.
-- **Report**: anonymous structured intake for a detailed player account.
-- **Scanner**: public source-radar health and mapped questions, with authenticated operator controls.
-- **About**: method, privacy posture, and official-support guidance.
-- **Privacy**: short public note (no accounts, no email, no ads or trackers); full policy in the repository.
+`/scanner` remains the authenticated scanner workspace; anonymous visitors see the Observatory. `/operator` is the signed-in overview. These operational routes do not define the public newspaper's reading order.
 
-The public brief may show reviewed patch observations such as press reception, fix announcements, and community asks. Those observations add context; they do not replace a player report or confirmation signal.
+## Editorial Boundary
+
+- Original articles are maintained in the repository with publication dates and source references.
+- External press and creator selections require a reviewed headline and excerpt, an allowed source, and a source publication date. They remain attributed outbound links.
+- Scanner trust and editorial selection are separate. Discovery does not automatically publish newspaper coverage or add an article to the feeds.
+- The creator source register supports reviewed videos; automatic YouTube discovery is not part of the current publication flow.
+- Game imagery carries Pearl Abyss attribution and the site retains its unofficial disclaimer. The code license does not grant rights to third-party imagery.
 
 ## N=0 First
 
@@ -42,12 +53,12 @@ The site must work and feel complete with zero visitors and zero community input
 
 ## Product Principles
 
-- Show counts and evidence before opinion.
-- Keep reports, confirmations, scanner leads, and official claims visibly distinct.
+- Keep sources and publication dates with editorial reporting; show counts and evidence with player readouts.
+- Keep original articles, external coverage, player reports, confirmations, scanner leads, and official claims visibly distinct.
 - Never infer “fixed” from quiet.
 - Make privacy and network-hash limitations obvious.
 - Keep admin review focused on real exceptions.
-- Prefer dense, scannable operational UI over marketing pages.
+- Use the newspaper for reading and discovery; keep issue and operator workflows clear and scannable.
 - Stay useful at N=0.
 - Keep Reddit API permanently off. Reddit pages may appear only through Tavily public-web discovery; promising thin results may receive bounded basic extraction after normalization to `old.reddit.com`.
 - Keep public-web discovery at or below 1,000 monthly credits. Restrict higher-cost scanner enrichment and official fix-claim mapping to approved server-side automation under a hard $2 UTC-month software cap and per-request price ceilings.
@@ -58,7 +69,7 @@ Public documentation should explain these guarantees and boundaries without trea
 
 ## Non-Goals
 
-- No official branding or implication of Pearl Abyss affiliation.
+- No claim of official status or Pearl Abyss affiliation.
 - No verdict machine or official-verifier claim.
 - No public unreviewed complaint feed.
 - No accounts, ads, or analytics trackers.
@@ -68,8 +79,8 @@ Public documentation should explain these guarantees and boundaries without trea
 
 ## Success Criteria
 
-- The dashboard, issues page, and source radar remain complete and informative with no visitors.
-- A visitor can distinguish evidence, player signals, scanner leads, and official claims at a glance.
+- The newspaper, issues page, and source radar remain complete and informative with no visitors.
+- A visitor can distinguish Hub reporting, external coverage, evidence, player signals, scanner leads, and official claims.
 - The active patch label and official source link update without code changes.
 - Players can report or confirm an issue without creating an account.
 - Counts remain honest at one response. Confirmation-driven labels and meters escalate only when the driving tally reaches at least two distinct network hashes; a structured report is evidence immediately and does not need a second network.

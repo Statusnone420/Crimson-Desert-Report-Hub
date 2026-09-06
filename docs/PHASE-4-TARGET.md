@@ -1,5 +1,7 @@
 # Phase 4 target contract — operator console
 
+> Historical planning reference. This records the Phase 4 target, not a current implementation inventory or a new redesign instruction. Use [Design Notes](../DESIGN.md), [Architecture](ARCHITECTURE.md), and current code for today's interface. Unresolved items below require revalidation before becoming new work.
+
 Stage 1 deliverable. The mockup under `mockups/phase4/` renders this contract; the
 inventory (`docs/PHASE-4-ADMIN-INVENTORY.md`, 327 entries) is the
 behavior-preservation manifest behind it — its risk-register and gap numbers are

@@ -2,7 +2,9 @@
 
 ## Master Coding Agent Document
 
-[AGENTS.md](AGENTS.md) at the repo root is the master coding-agent operating document. Read it and follow its rules (think before coding, simplicity first, surgical changes, goal-driven execution) for ALL coding work in this repo. This file adds project-specific rules on top; per AGENTS.md's own terms, project instructions here win on conflict.
+[AGENTS.md](AGENTS.md) contains the repository's coding rules. Follow it and the host's instruction precedence. This file adds the database-safety guidance below; it does not grant authority to change the product or design.
+
+For current project context, start at [docs/README.md](docs/README.md), [PRODUCT.md](PRODUCT.md), and [DESIGN.md](DESIGN.md). Historical plans and inventories describe earlier work, not the current interface.
 
 ## Database Safety
 

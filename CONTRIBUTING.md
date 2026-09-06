@@ -11,19 +11,28 @@ The project is public for transparency and review. Contributions should make the
 - Privacy/security hardening.
 - Clearer documentation.
 - Safer automation heuristics.
-- UI polish that keeps the tracker operational and readable.
+- UI polish that preserves the newspaper's identity and keeps player and operator workflows readable.
 
-Avoid adding official Crimson Desert artwork, logos, scraped private content, ad/analytics scripts, or features that publish unreviewed raw report text.
+The site already uses attributed Pearl Abyss imagery. Preserve source attribution and the unofficial disclaimer; do not assume the code's Apache license covers third-party assets. Do not add scraped private content, ad/analytics scripts, or features that publish unreviewed raw report text.
 
 ## Development
 
+Use Node.js 22 and npm, matching CI. From the repository root:
+
 ```bash
-npm install
-npm run build
-npm test
+npm ci
 ```
 
-For app work, copy `.env.local.example` to `.env.local` and fill local-only values. Never commit `.env.local`.
+For UI work with invented data and no hosted database writes:
+
+```bash
+npm run preview:seed
+npm run dev:preview
+```
+
+Open `http://127.0.0.1:3130`. The seed is local and ignored by Git. This preview exercises the app with fixture data; it does not prove production data or provider health.
+
+For a configured development database, copy `.env.local.example` to `.env.local`, fill the required values, and run `npm run dev` (normally port 3000). This uses the configured services; it is not automatically isolated from production. Never commit `.env.local`. See [Operations](docs/OPERATIONS.md) for environment options and [Design Notes](DESIGN.md) for the current visual system.
 
 ## Verification Before Pull Request
 
@@ -32,18 +41,25 @@ npm run lint
 npm test
 npm exec tsc -- --noEmit
 npm run build
-npm run test:e2e:n0
 ```
 
 If the UI changes, also run:
 
 ```bash
 npm run test:e2e
-
-The N=0 suite protects the empty public experience. Run it whenever a public card, chart, observation lane, or empty state changes.
-
-For migration work, review the SQL file and its ordering in supabase/migrations. Applying it to a hosted project is a separate owner-authorized release action; do not use a pull request as implicit database permission.
 ```
+
+Install Chromium once with `npx playwright install chromium`. Browser tests start their own fixture server; Windows CI runs the desktop and mobile projects. They do not replace a production smoke test.
+
+The separate N=0 suite checks the public experience with empty fixture data and with unavailable services. CI runs it after the regular browser suite. Run it locally when a public card, chart, observation lane, or empty state changes:
+
+```bash
+npm run test:e2e:n0
+```
+
+For migration work, test the ordered SQL locally with `npm run db:start` and `npm run db:reset`; Docker Engine must be running. Applying migrations to a hosted project is a separate owner-authorized release action. Do not run `supabase db push`. See the [Launch Checklist](docs/LAUNCH_CHECKLIST.md).
+
+For documentation-only changes, check the affected claims against code and verify local links, anchors, and referenced commands. The [documentation index](docs/README.md) identifies maintained guidance and historical records. Run application checks when the change also affects code or executable examples.
 
 ## Secrets
 
