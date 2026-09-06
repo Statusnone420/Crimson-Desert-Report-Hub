@@ -2,7 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { PublicShell } from '@/components/dispatch/Chrome';
 import { chartingTheUnknown } from '@/lib/editorialArticles';
-import { SITE_NAME } from '@/lib/site';
+import { SITE_NAME, siteFeedAlternateTypes } from '@/lib/site';
 import { newsArticleJsonLd, serializeJsonLd } from '@/lib/structuredData';
 import ReadingMotion from './reading-motion';
 
@@ -13,7 +13,7 @@ const dlc = expansionOverview.url;
 export const metadata = {
   title: chartingTheUnknown.searchTitle,
   description: chartingTheUnknown.description,
-  alternates: { canonical: chartingTheUnknown.path },
+  alternates: { canonical: chartingTheUnknown.path, types: siteFeedAlternateTypes },
   openGraph: {
     type: 'article',
     url: chartingTheUnknown.path,

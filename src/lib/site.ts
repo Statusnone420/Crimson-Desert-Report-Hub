@@ -1,4 +1,5 @@
 export const SITE_URL = "https://crimsonreporthub.com";
+export const SITE_FEED_PATH = "/rss.xml";
 export const SITE_NAME = "Crimson Desert Report Hub";
 /** Search-result title: brand phrase first, then what the site is. Keep ≤60 chars. */
 export const SITE_SEARCH_TITLE = `${SITE_NAME} — News & Expansion Reports`;
@@ -10,6 +11,15 @@ export const SITE_OG_DESCRIPTION =
   "Crimson Desert news, Charting the Unknown coverage, creator videos, and official updates from an unofficial fan newspaper.";
 export const SOURCE_URL = "https://github.com/Statusnone420/Crimson-Desert-Report-Hub";
 export const PEARL_ABYSS_SUPPORT_URL = "https://support.pearlabyss.com/";
+
+/**
+ * RSS discovery for original Hub reports. Nested routes that set `alternates`
+ * must re-state this; a child canonical-only block would replace the root feed
+ * link the same way a route-level openGraph object drops parent share images.
+ */
+export const siteFeedAlternateTypes = {
+  "application/rss+xml": [{ url: SITE_FEED_PATH, title: SITE_NAME }],
+} satisfies NonNullable<NonNullable<import("next").Metadata["alternates"]>["types"]>;
 
 /**
  * Root Open Graph block. Never add `images`: the opengraph-image.png file
@@ -51,7 +61,7 @@ export async function routeMetadata(
   return {
     title,
     description,
-    alternates: { canonical: path },
+    alternates: { canonical: path, types: siteFeedAlternateTypes },
     openGraph: { ...parentOpenGraph, url: path, title, description },
     twitter: { ...parentTwitter, title, description },
   };
