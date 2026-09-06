@@ -32,7 +32,7 @@ Every public surface remains complete at N=0. Empty and unavailable states state
 - The public light palette uses paper `#f6f4ee`, ink `#11130f`, muted ink `#535550`, rule `#777971`, crimson `#a51e23`, blue `#2457a1`, and green `#346f60`.
 - The public dark palette uses black `#000`, ink `#edeae3`, muted ink `#b8bbc0`, rule `#565a60`, crimson `#e15b62`, blue `#82aaf0`, and green `#98c2ac`.
 - The operator edition uses the same paper, ink, muted, rule, red, and green values, plus amber `#946316` in light mode and `#dcad57` in dark mode.
-- Dark mode is the server and first-visit default. The theme control switches the document between dark and light palettes and stores the choice locally.
+- Light mode is the primary newspaper edition and the server and first-visit default. The theme control switches the document between dark and light palettes and stores the choice locally.
 - Crimson identifies the public edition, primary report actions, and issue emphasis. Blue identifies links and public charts. Green is reserved for positive recorded states; silence and zero counts remain neutral. Category colors identify data categories only and do not double as status colors.
 - Rules and open space carry most hierarchy. Buttons and form fields use a modest 4px radius. Raised or tinted containment remains limited to decision, provenance, alert, and grouped-intelligence surfaces. The interface does not use a general card grid, decorative gradient, glass treatment, or decorative shadow system.
 
@@ -47,6 +47,7 @@ Every public surface remains complete at N=0. Empty and unavailable states state
 
 - Pages use one main landmark, semantic headings, labeled navigation, field labels and legends, tables or definition lists for records, and `aria-current`, `aria-pressed`, and expanded-state attributes where applicable.
 - A skip link reaches the main content. Long record pages add local skip links or section navigation. Keyboard focus uses a visible blue outline on the public edition and amber on the operator edition.
+- Shared public navigation uses 16px text on desktop and 14px on phones. Standalone reading actions use at least 14px text, and adjacent report-board actions have an explicit gap.
 - Controls target at least 44px where practical, including navigation and coarse-pointer actions. Forms expose validation and submission failures as text and preserve reviewed report drafts after recoverable failures.
 - Color always has a text, count, shape, or position cue. Public contrast checks require at least 4.5:1 for representative labels and footer links in the tested theme.
 - Motion is brief and functional: navigation indication, reading progress, chart entry, image hover, and small directional cues. `prefers-reduced-motion` removes animation, transition, smooth scrolling, and hover zoom.

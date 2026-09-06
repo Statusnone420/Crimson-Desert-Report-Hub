@@ -11,8 +11,8 @@ const subscribeTheme = (callback: () => void) => {
   window.addEventListener("storage", callback);
   return () => { window.removeEventListener("newspaper-theme", callback); window.removeEventListener("storage", callback); };
 };
-const themeSnapshot = () => document.documentElement.dataset.theme || "dark";
-const serverTheme = () => "dark";
+const themeSnapshot = () => document.documentElement.dataset.theme || "light";
+const serverTheme = () => "light";
 
 export function ThemeToggle() {
   const theme = useSyncExternalStore(subscribeTheme, themeSnapshot, serverTheme);
