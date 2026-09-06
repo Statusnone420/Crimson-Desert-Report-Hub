@@ -185,6 +185,23 @@ test.describe("public catch-up journey", () => {
     await expect(page.locator(`#${targetId}`)).toHaveAttribute("tabindex", "-1");
   });
 
+  test("a visible filter explains a patch selection and opens the full history", async ({ page }) => {
+    await page.goto("/catch-up#patch=1.18.02");
+    const milestones = page.locator("article.cu-milestone");
+    await expect(milestones).toHaveCount(5);
+    await expect(page.locator(".cu-journey-filter p, .cu-rail-selection").filter({ visible: true }).first()).toContainText("After patch 1.18.02");
+
+    const showAll = page.getByRole("link", { name: "Show all history →" }).filter({ visible: true }).first();
+    await expect(showAll).toBeVisible();
+    await showAll.click();
+
+    await expect(page).toHaveURL(/\/catch-up#history=all$/);
+    await expect(milestones).toHaveCount(18);
+    await expect(milestones.first()).toContainText("Patch 1.13.00");
+    await expect(milestones.first()).toBeFocused();
+    await expect(milestones.first()).toHaveAttribute("tabindex", "-1");
+  });
+
   test("Escape closes the menu and the phone layout does not scroll sideways", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "mobile-chromium", "Phone layout coverage runs in the mobile project.");
     await page.setViewportSize({ width: 320, height: 844 });

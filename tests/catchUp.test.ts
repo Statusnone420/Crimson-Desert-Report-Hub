@@ -14,6 +14,7 @@ const NOW = new Date("2026-09-06T12:00:00.000Z");
 describe("catch-up selection URLs", () => {
   it.each<[CatchUpSelection, string]>([
     [{ kind: "highlights" }, ""],
+    [{ kind: "all" }, "#history=all"],
     [{ kind: "patch", value: "2.00.01" }, "#patch=2.00.01"],
     [{ kind: "since", value: "2026-08-28T00:00:00.000Z" }, "#since=2026-08-28T00%3A00%3A00.000Z"],
   ])("round-trips %j", (selection, hash) => {
@@ -39,6 +40,11 @@ describe("catch-up selection URLs", () => {
 });
 
 describe("catch-up milestone selection", () => {
+  it("returns all 18 milestones for full history", () => {
+    expect(selectCatchUpMilestones({ kind: "all" })).toEqual(CATCH_UP_MILESTONES);
+    expect(selectCatchUpMilestones({ kind: "all" })).toHaveLength(18);
+  });
+
   it("retains the full history when a direct caller supplies an unknown patch", () => {
     expect(selectCatchUpMilestones({ kind: "patch", value: "1.00.00" })).toEqual(CATCH_UP_MILESTONES);
   });
@@ -89,7 +95,8 @@ describe("catch-up labels", () => {
     expect(catchUpDate("2026-09-03T23:30:00-04:00")).toBe("September 4");
     expect(catchUpDate("2026-09-03T23:30:00-04:00", true)).toBe("September 4, 2026");
     expect(catchUpSelectionLabel({ kind: "highlights" })).toBe("The recent highlights");
-    expect(catchUpSelectionLabel({ kind: "patch", value: "2.00.01" })).toBe("Since patch 2.00.01");
+    expect(catchUpSelectionLabel({ kind: "all" })).toBe("Full history");
+    expect(catchUpSelectionLabel({ kind: "patch", value: "2.00.01" })).toBe("After patch 2.00.01");
     expect(catchUpSelectionLabel({ kind: "since", value: "2026-09-03T23:30:00-04:00" })).toBe("Since September 4");
   });
 });

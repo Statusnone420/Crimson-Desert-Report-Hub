@@ -64,6 +64,9 @@ html[data-theme=dark] .catch-up-popover{--paper:#111;--ink:#edeae3;--muted:#b8bb
 .newspaper .cu-journey:empty{border:0;padding:0}
 .newspaper .cu-rail{position:sticky;top:35px;align-self:start;display:flex;flex-direction:column;max-height:calc(100dvh - 70px)}
 .newspaper .cu-rail-title{font:38px/1.05 var(--serif),serif;margin:14px 0 28px;letter-spacing:-.02em}
+.newspaper .cu-journey-filter{display:none}
+.newspaper .cu-rail-selection{font-size:13px;color:var(--muted);line-height:1.5;margin-top:-12px}
+.newspaper .cu-show-all{display:inline-flex;align-items:center;min-height:44px;color:var(--blue);margin:6px 0 12px}
 .newspaper .cu-rail-links{position:relative;border-left:1px solid var(--line);overflow-y:auto;min-height:0;overscroll-behavior:contain}
 .newspaper .cu-progress{position:absolute;left:-1px;top:0;width:2px;height:100%;background:var(--red);transform-origin:top}
 .newspaper .cu-rail-links a{display:flex;align-items:start;gap:18px;padding:13px 0 13px 20px;font-size:13px;color:var(--muted)}
@@ -115,3 +118,4 @@ html[data-theme=dark] .catch-up-popover{--paper:#111;--ink:#edeae3;--muted:#b8bb
 .newspaper .cu-share{margin-left:auto}
 .newspaper .cu-brief-grid h3 a{font:inherit}
 .newspaper .catch-up-trigger--compact,.newspaper .cu-chapter-copy summary{min-height:44px}
+@media(max-width:750px){.newspaper .cu-journey-filter{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding-bottom:15px;margin-bottom:22px;font-size:13px;color:var(--muted)}.newspaper .cu-journey-filter a{display:inline-flex;align-items:center;min-height:44px;color:var(--blue)}}

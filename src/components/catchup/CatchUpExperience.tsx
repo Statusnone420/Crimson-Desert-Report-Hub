@@ -36,6 +36,17 @@ export function CatchUpExperience() {
     target.scrollIntoView({ behavior: reduced ? "instant" : "smooth", block: "start" });
     target.focus({ preventScroll: true });
   }
+  function showAllHistory(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    window.history.replaceState(null, "", "#history=all");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    requestAnimationFrame(() => {
+      const first = journey.current?.querySelector<HTMLElement>("article");
+      first?.scrollIntoView({ behavior: reduced ? "instant" : "smooth", block: "start" });
+      first?.focus({ preventScroll: true });
+    });
+  }
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) if (entry.isIntersecting) setActive(entry.target.id);
@@ -64,8 +75,9 @@ export function CatchUpExperience() {
       {milestones.length ? <ol className="cu-brief-grid">{briefItems.map((item, index) => <li key={item.id}><span className="cu-brief-number">{String(index + 1).padStart(2, "0")}</span><h3><a href={`#${item.id}`}>{item.title}</a></h3><p>{item.summary}</p><a className="cu-text-link" href={`#${item.id}`}>In the journey <span aria-hidden="true">↘</span></a></li>)}</ol> : <div className="cu-empty"><p>No newer entries in this edition. Choose an earlier date or view the highlights.</p><CatchUpMenu label="Change starting point"/></div>}
     </section>
     <div className="cu-journey" ref={journey}>
+      <div className="cu-journey-filter"><p>{catchUpSelectionLabel(selection)} · {milestones.length} entries</p>{selection.kind !== "all" && <a href="#history=all" onClick={showAllHistory}>Show all history →</a>}</div>
       {milestones.length > 0 && <>
-        <aside className="cu-rail" aria-label="Journey chapters"><p className="cu-rail-title">The journey</p><div className="cu-rail-links"><motion.div className="cu-progress" style={{ scaleY: reduced ? 1 : scrollYProgress }} aria-hidden="true"/>{milestones.map((item, index) => <a key={item.id} href={`#${item.id}`} aria-current={active === item.id ? "step" : undefined}><span>{String(index + 1).padStart(2, "0")}</span><span>{catchUpDate(item.publishedAt)}<small>{item.patch ? `Patch ${item.patch}` : "What’s ahead"}</small></span></a>)}</div><p className="cu-rail-footnote">Oldest to newest.<br/>Official sources at every stop.</p></aside>
+        <aside className="cu-rail" aria-label="Journey chapters"><p className="cu-rail-title">The journey</p><p className="cu-rail-selection">{catchUpSelectionLabel(selection)}</p>{selection.kind !== "all" && <a className="cu-show-all" href="#history=all" onClick={showAllHistory}>Show all history →</a>}<div className="cu-rail-links"><motion.div className="cu-progress" style={{ scaleY: reduced ? 1 : scrollYProgress }} aria-hidden="true"/>{milestones.map((item, index) => <a key={item.id} href={`#${item.id}`} aria-current={active === item.id ? "step" : undefined}><span>{String(index + 1).padStart(2, "0")}</span><span>{catchUpDate(item.publishedAt)}<small>{item.patch ? `Patch ${item.patch}` : "What’s ahead"}</small></span></a>)}</div><p className="cu-rail-footnote">Oldest to newest.<br/>Official sources at every stop.</p></aside>
         <div className="cu-chapters">{milestones.map((item, index) => <article key={item.id} id={item.id} tabIndex={-1} className={`cu-milestone cu-milestone--${item.kind}`}>
           <div className="cu-chapter-meta"><span className="cu-chapter-number">{String(index + 1).padStart(2, "0")}</span><time dateTime={item.publishedAt}>{catchUpDate(item.publishedAt, true)}</time><span>{item.patch ? `Patch ${item.patch}` : "On the horizon"}</span></div>
           <h2>{item.title}</h2>

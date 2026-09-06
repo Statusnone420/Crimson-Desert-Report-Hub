@@ -1,9 +1,10 @@
 import { CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES, type CatchUpMilestone } from "./catchUpContent";
 
-export type CatchUpSelection = { kind: "highlights" } | { kind: "since"; value: string } | { kind: "patch"; value: string };
+export type CatchUpSelection = { kind: "highlights" } | { kind: "all" } | { kind: "since"; value: string } | { kind: "patch"; value: string };
 
 export function parseCatchUpHash(hash: string, now = new Date()): CatchUpSelection {
   const params = new URLSearchParams(hash.replace(/^#/, ""));
+  if (params.get("history") === "all") return { kind: "all" };
   const patch = params.get("patch");
   if (patch && CATCH_UP_MILESTONES.some((item) => item.patch === patch)) return { kind: "patch", value: patch };
   const since = params.get("since");
@@ -18,10 +19,12 @@ export function parseCatchUpHash(hash: string, now = new Date()): CatchUpSelecti
 
 export function catchUpHash(selection: CatchUpSelection) {
   if (selection.kind === "highlights") return "";
+  if (selection.kind === "all") return "#history=all";
   return `#${new URLSearchParams({ [selection.kind]: selection.value })}`;
 }
 
 export function selectCatchUpMilestones(selection: CatchUpSelection, milestones: readonly CatchUpMilestone[] = CATCH_UP_MILESTONES) {
+  if (selection.kind === "all") return [...milestones];
   if (selection.kind === "highlights") return milestones.filter((item) => Date.parse(item.publishedAt) >= Date.parse(CATCH_UP_HIGHLIGHTS_START));
   if (selection.kind === "patch") {
     const index = milestones.findIndex((item) => item.patch === selection.value);
@@ -35,7 +38,8 @@ export function catchUpDate(value: string, year = false) {
 }
 
 export function catchUpSelectionLabel(selection: CatchUpSelection) {
-  if (selection.kind === "patch") return `Since patch ${selection.value}`;
+  if (selection.kind === "all") return "Full history";
+  if (selection.kind === "patch") return `After patch ${selection.value}`;
   if (selection.kind === "since") return `Since ${catchUpDate(selection.value)}`;
   return "The recent highlights";
 }

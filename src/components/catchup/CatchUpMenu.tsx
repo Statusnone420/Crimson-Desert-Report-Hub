@@ -57,6 +57,7 @@ export function CatchUpMenu({ label = "Catch me up", compact = false }: { label?
           {ready && previousVisit && <button type="button" onClick={() => navigate({ kind: "since", value: previousVisit })}><strong>Since my last visit</strong><span>Since {catchUpDate(previousVisit)}</span></button>}
           <button type="button" onClick={() => { setCustom(!custom); setError(""); }} aria-expanded={custom} aria-controls={`${id}-custom`}><strong>Since I last played</strong><span>Date or patch · From {catchUpDate(CATCH_UP_COVERAGE_START)}</span></button>
           <button type="button" onClick={() => navigate({ kind: "highlights" })}><strong>Show me the highlights</strong><span>{catchUpDate(CATCH_UP_HIGHLIGHTS_START)} – {catchUpDate(CATCH_UP_MILESTONES.at(-1)!.publishedAt)}</span></button>
+          <button type="button" onClick={() => navigate({ kind: "all" })}><strong>Show all history</strong><span>From patch {CATCH_UP_MILESTONES[0].patch}</span></button>
         </div>
         {custom && <form id={`${id}-custom`} className="catch-up-custom" onSubmit={choose}>
           <div className="catch-up-method" role="group" aria-label="Choose a starting point"><button type="button" aria-pressed={method === "date"} onClick={() => { setMethod("date"); setError(""); }}>By date</button><button type="button" aria-pressed={method === "patch"} onClick={() => { setMethod("patch"); setError(""); }}>By patch</button></div>
