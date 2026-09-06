@@ -40,7 +40,7 @@ test("newspaper editorial routes retain the brand and separate coverage from sca
     const fixture = document.createElement("section");
     fixture.className = "np-wire";
     fixture.setAttribute("aria-hidden", "true");
-    fixture.innerHTML = `<div class="np-wire-feature"><article><div><p class="np-date">Byline</p><a href="#"><h3>Headline</h3></a></div><div><p>Excerpt</p><a class="action" href="#">Watch on YouTube ↗</a></div></article></div>`;
+    fixture.innerHTML = `<div class="np-wire-feature"><article><div><p class="kicker">Creator spotlight</p><h2>A creator’s view of Pywel</h2><p class="np-date">Byline</p><a href="#"><h3>Headline</h3></a></div><div><p>Excerpt that should sit beside the heading instead of leaving a vacant column.</p><a class="action" href="#">Watch on YouTube ↗</a></div></article></div>`;
     newspaper.appendChild(fixture);
     const grid = fixture.querySelector(":scope > div");
     const article = fixture.querySelector("article");

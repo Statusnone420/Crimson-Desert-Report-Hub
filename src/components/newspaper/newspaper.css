@@ -400,8 +400,11 @@ body:has(.newspaper) > .dispatch-grain{display:none}
 .newspaper .np-wire .action{margin-top:18px;color:var(--blue)}.newspaper .np-wire .chart-link{display:block;margin-top:16px}.newspaper .np-wire .small{max-width:75ch;line-height:1.7}
 /* A lone wire item is a split feature, not a vacant second column. */
 .newspaper .np-wire>div.np-wire-feature{grid-template-columns:minmax(0,1fr)}
-.newspaper .np-wire-feature>article{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:38px;align-items:start}
-.newspaper .np-wire-feature>article>div:last-child{border-left:1px solid var(--line);padding:4px 0 4px 38px;display:flex;flex-direction:column;min-width:0}
+.newspaper .np-wire-feature>article{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:38px}
+.newspaper .np-wire-feature>article>div:last-child{border-left:1px solid var(--line);padding:8px 0 8px 38px;display:flex;flex-direction:column;min-width:0}
+.newspaper .np-wire-feature h2{margin:8px 0 18px}
+.newspaper .np-wire-feature .np-date{margin-top:0}
 .newspaper .np-wire-feature h3{font-size:clamp(32px,3.2vw,44px);line-height:1.12;margin:0}
+.newspaper .np-wire-feature>article>div:last-child>p{font:24px/1.55 var(--serif),serif}
 .newspaper .np-wire-feature .action{margin-top:auto;padding-top:18px}
-@media(max-width:650px){.newspaper .np-wire>div{grid-template-columns:1fr}.newspaper .np-footer{flex-wrap:wrap}.newspaper .stories:has(>article:only-of-type){grid-template-columns:1fr}.newspaper .np-wire-feature>article{grid-template-columns:minmax(0,1fr);gap:8px}.newspaper .np-wire-feature>article>div:last-child{border-left:0;padding:0}.newspaper .np-wire-feature h3{font-size:31px}}
+@media(max-width:650px){.newspaper .np-wire>div{grid-template-columns:1fr}.newspaper .np-footer{flex-wrap:wrap}.newspaper .stories:has(>article:only-of-type){grid-template-columns:1fr}.newspaper .np-wire-feature>article{grid-template-columns:minmax(0,1fr);gap:10px}.newspaper .np-wire-feature>article>div:last-child{border-left:0;padding:0}.newspaper .np-wire-feature h3{font-size:31px}.newspaper .np-wire-feature>article>div:last-child>p{font-size:21px}}
