@@ -4,6 +4,8 @@
 **Date:** 2026-07-16<br>
 **Deciders:** Anthony (owner)
 
+> Historical decision record from July 2026. The evidence boundaries remain relevant, but the route descriptions and follow-up list below are not a current product map or backlog. See [Product Notes](../PRODUCT.md), [Architecture](ARCHITECTURE.md), and [State of Play](NEXT-STEPS.md) for maintained guidance.
+
 > This is the public architecture record. It explains the evidence contract,
 > product direction, and shipped public behavior without publishing private
 > query packs, prompt templates, ranking weights, or moderation recipes.

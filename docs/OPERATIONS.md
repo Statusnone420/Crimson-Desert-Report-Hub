@@ -26,12 +26,12 @@ The service-role key is server-only. It must never reach browser code or a publi
 Migrations live in [`supabase/migrations`](../supabase/migrations). Their filenames are the local history contract. Use the Supabase CLI from the repository:
 
 ```powershell
-npx --yes supabase login
-npx --yes supabase link --project-ref <project-ref>
-npx --yes supabase migration list
+npm exec supabase -- login
+npm exec supabase -- link --project-ref <project-ref>
+npm exec supabase -- migration list --linked
 ```
 
-Applying a migration is an owner-authorized release action, not a consequence of reviewing a pull request. After explicit authorization, use the linked CLI workflow, inspect the resulting migration list, and record the verification in the release handoff. If history drifts, use `supabase migration repair`; do not create empty alias migrations or edit `supabase_migrations.schema_migrations` by hand.
+Applying a migration is an owner-authorized release action, not a consequence of reviewing a pull request. After explicit authorization, use the exact owner-approved release mechanism, inspect the resulting migration list, and record the verification in the release handoff. This repository prohibits `supabase db push`; this guide does not authorize a substitute hosted write. If migration history appears to drift, stop and obtain separate explicit approval before using `supabase migration repair`. Do not create empty alias migrations or edit `supabase_migrations.schema_migrations` by hand.
 
 ### Vercel
 
@@ -43,7 +43,15 @@ Vercel serves the Next.js application and protected API routes. Required product
 - `SESSION_SECRET`
 - `CRON_SECRET`
 
-Optional or provider-backed variables are documented in [`.env.local.example`](../.env.local.example). The public domain is `https://crimsonreporthub.com`; use the Vercel project dashboard for the current DNS target rather than copying a time-sensitive provider value into documentation.
+Turnstile, Tavily, and OpenRouter variables are documented in [`.env.local.example`](../.env.local.example). The public domain is `https://crimsonreporthub.com`; use the Vercel project dashboard for the current DNS target rather than copying a time-sensitive provider value into documentation.
+
+The current optional collection switches and credentials are:
+
+- `STEAM_PULSE_ENABLED` for Steam review aggregates and screened review intake;
+- `STEAM_PLAYER_COUNTS_ENABLED` for keyless concurrent-player snapshots; and
+- `TWITCH_CLIENT_ID` plus `TWITCH_CLIENT_SECRET` for aggregate Twitch activity and IGDB metadata.
+
+Keep each collection off until its migration and privacy boundary have been reviewed. Both Twitch credentials are required for the shared Twitch/IGDB lane.
 
 Public pages may render a safe empty state when server credentials are absent during a build. Protected admin and cron routes fail closed instead.
 
@@ -55,7 +63,15 @@ The optional player-count collector uses Steam's public, keyless [GetNumberOfCur
 
 The `steam_player_snapshots` table is introduced by `20260905183834_steam_player_snapshots.sql`. Browser roles have no table privileges; the server has select/insert access only. A missing table produces a named compatibility skip before any provider request. Other read, provider and write failures remain visible in run health and do not create zero readings. Existing review and Twitch collection continue independently.
 
-Before an authorized rollout, validate the migration using the local stack and `npx supabase test db --local`. Hosted migration, deployment and enabling the switch are separate release actions. After approval, apply the migration, deploy with the switch still off, verify access and compatibility, then enable collection and verify timestamped rows from the normal schedule. Disable the switch to stop this lane while preserving its history. Public player charts require a separate aggregate read/display integration; this collection change does not add one or backfill invented history.
+Before an authorized rollout, validate the migration using the local stack and `npm exec supabase -- test db --local`. Hosted migration, deployment and enabling the switch are separate release actions. After approval, apply the migration, deploy with the switch still off, verify access and compatibility, then enable collection and verify timestamped rows from the normal schedule. Disable the switch to stop this lane while preserving its history. Public player charts require a separate aggregate read/display integration; this collection change does not add one or backfill invented history.
+
+### Steam review and platform context
+
+`STEAM_PULSE_ENABLED` controls the keyless Steam review lane. A real scan can collect at most once every six hours. It stores daily aggregate review snapshots and private review receipts, and sends only new or updated review text through the normal screening boundary. Steam reviews and their aggregates are context; they do not become direct player reports.
+
+`TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` enable one shared hourly collection lane. It stores public IGDB game metadata and aggregate Twitch live-stream and viewer counts. It does not store channel identities, stream titles, URLs, or thumbnails. A missing schema produces a compatibility skip. Other provider, read, and write failures remain visible in run health.
+
+Both lanes run inside an existing real manual or scheduled scan. A no-publish test does not collect or persist them. Disable the applicable switch or remove both Twitch credentials to stop future collection while preserving history.
 
 ### Cloudflare
 
@@ -93,7 +109,7 @@ curl -H "Authorization: Bearer <CRON_SECRET>" \
   "https://crimsonreporthub.com/api/cron/source-preview?queries=1"
 ```
 
-It is bounded and deterministic, and it does not write public data or the persisted scan ledger.
+It is capped at two queries and does not write public data or the persisted scan ledger. Its results come from the live provider and can vary between requests.
 
 When a paid model or its provider routing changes, authenticate on the Vercel preview and use **Test AI provider route** on `/scanner`. That preview-only check sends synthetic text through the configured model with one LLM call and a `$0.005` ceiling. Before generation, it requires OpenRouter to report a provider-enforced monthly key limit no greater than the app's `$2` LLM cap and enough aggregate budget for the request ceiling. It does not use Tavily or the database, it treats deterministic fallback or unverifiable provider budgeting as failure, and its endpoint cannot call the provider outside Vercel preview. The displayed call cost comes from OpenRouter's usage or generation record; OpenRouter Activity remains the authoritative account ledger.
 
@@ -101,12 +117,13 @@ Preview requests are capped at two Tavily search queries and are intended for oc
 
 ## Admin workflow
 
-1. Open `/admin/login` or the footer `Admin` link.
+1. Use the footer `Admin` control or open `/admin/login`.
 2. Authenticate with the current `ADMIN_PASSWORD`.
-3. Use the admin report queue to approve, reject, or excerpt direct reports.
-4. Use `/scanner` to inspect run health, pause/resume scheduled scans, run a no-publish test, or run an authorized capped scan.
-5. Use exception controls only for real lifecycle or visibility problems. `Auto` returns a cluster to the engine-owned baseline.
-6. Use `/admin/compile` when a maintainer needs an evidence dossier for official support.
+3. Use `/operator` for collection health and recent-run status.
+4. Use `/admin` to approve, reject, or excerpt direct reports.
+5. Use the authenticated `/scanner` view to inspect run health, pause or resume scheduled scans, run a no-publish test, or run an authorized capped scan. Anonymous visitors to `/scanner` see the public Observatory.
+6. Use exception controls only for real lifecycle or visibility problems. `Auto` returns a cluster to the engine-owned baseline.
+7. Use `/admin/compile` when a maintainer needs an evidence dossier for official support.
 
 Raw reports, rejected candidates, network hashes, and individual confirmation rows are private. Publishing a lead or excerpt is a moderation decision, not an automatic consequence of discovery.
 
@@ -114,9 +131,9 @@ Raw reports, rejected candidates, network hashes, and individual confirmation ro
 
 After a deployment:
 
-1. Visit `/`, `/issues`, `/report`, `/scanner`, and `/about`.
-2. Confirm the Patch Brief shows official context and honest N=0 copy when appropriate.
-3. Check the public scanner view, then authenticate and check the operator view.
+1. Visit `/`, `/news`, `/watch`, `/patches`, `/issues`, `/observatory`, `/report`, `/about`, and `/privacy`.
+2. Follow the [State of Play release checks](NEXT-STEPS.md#first-checks-after-a-release) for the linked article, Atom and RSS feeds, masthead date, source dates, attribution, and honest empty states.
+3. Check the public Observatory, then authenticate and check `/operator`, `/admin`, `/scanner`, and `/admin/compile`.
 4. Run the protected no-write source preview before a real scan.
    If paid model or provider routing changed, also run **Test AI provider route** from the authenticated Vercel-preview scanner. Confirm that one generation reached the expected provider; a green deterministic fallback is not sufficient proof.
 5. If exercising intake, submit a controlled test report and moderate it deliberately.

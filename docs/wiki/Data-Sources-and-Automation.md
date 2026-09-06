@@ -4,15 +4,20 @@ The hub is built around separate input registers. The public contract explains w
 
 ## Input registers
 
-| Register | Public meaning |
+| Register | Role |
 | --- | --- |
 | Official patch notes | Current patch context and the publisher's stated claims. |
 | Structured player reports | Detailed, anonymous evidence reviewed before publication. |
 | One-tap player responses | Patch- and platform-scoped signals such as *Still happening* or *Fixed for me*. |
 | Public source leads | Links found through bounded public-web discovery and mapped into questions. |
-| Patch observations | Reviewed coverage, reception, fix announcements, and community asks attached to the correct patch. |
+| Scanner context archive | Patch-scoped diagnostic observations retained for authenticated review; they no longer supply front-page articles. |
+| Original reports | First-party, source-backed articles published by the Report Hub. |
+| Selected coverage | Manually reviewed official, press, and creator links that remain outbound coverage. |
+| Platform context | Aggregate Steam review, Twitch audience, and IGDB game metadata when configured. |
 
 The application keeps these registers separate in storage and in public language. A public link cannot create a report count, and a quiet board cannot create a fix claim.
+
+Original reports and selected coverage also stay separate. The Atom and RSS feeds contain original Report Hub articles only. Selected external links, Watch videos, scanner leads, issues, and Observatory data do not enter those feeds.
 
 ## Confirmation semantics
 
@@ -28,14 +33,17 @@ The application keeps these registers separate in storage and in public language
 - High-value OpenRouter work defaults to GPT-5.6 Luna on the first-party OpenAI provider, with model-specific price ceilings and a hard $2 UTC-month cap. Switching to DeepSeek V4 Flash is manual, never automatic. Luna requests are pinned to OpenAI with provider fallback disabled; DeepSeek rollback requests may route among eligible zero-data-retention providers under the model's price ceiling.
 - Routine moderation and dossier writing use free or deterministic fallback paths.
 - Reddit API access and direct subreddit monitoring are permanently off.
-- The protected preview route is deterministic-only and does not publish or write the scan ledger.
+- The protected source preview runs at most two live Tavily queries, then applies deterministic filtering with LLM calls disabled. It does not publish or write the scan ledger. Live search results can vary between runs.
+- Optional Steam collection supplies aggregate review sentiment and stores service-role-only Steam-connected player snapshots. Review text and hashed provider identifiers stay private. Player snapshots are not currently rendered publicly and exclude offline play and other platforms.
+- Optional Twitch and IGDB collection supplies aggregate live-audience context and public game metadata. It is provider context, not player evidence.
+- Newspaper publishing uses a separate reviewed source list. Only approved hosts and verified creator videos can appear, and scanner discovery cannot publish into it automatically.
 
 ## Publishing boundary
 
-Automation can find and classify candidates, but public publication still depends on the app's evidence, trust, moderation, and patch-scoping rules. Public scanner cards use question language. Raw candidates and rejected links stay private.
+Automation can find and classify candidates, but public lead publication still depends on the app's evidence, trust, moderation, and patch-scoping rules. The public issue board presents eligible links as leads and watchlist questions. Raw candidates and rejected links stay private. Original articles and selected newspaper coverage require a separate maintained editorial decision.
 
 This page does not publish search packs, prompt text, ranking weights, or source-selection heuristics. Those are implementation details, not promises the public needs in order to audit the product's behavior.
 
 ## Maintainer controls
 
-Authenticated maintainers can inspect scanner health, run a no-publish test, run an authorized capped scan, pause or resume scheduling, and review mapped leads. See the [Maintainer Runbook](Maintainer-Runbook) for the safe checklist.
+Authenticated maintainers can inspect scanner health, run a no-publish test, run an authorized capped scan, pause or resume scheduling, and review mapped leads. See the [Maintainer Runbook](Maintainer-Runbook.md) for the safe checklist.

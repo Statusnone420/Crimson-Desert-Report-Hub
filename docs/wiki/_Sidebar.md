@@ -1,10 +1,10 @@
 # Crimson Desert Report Hub
 
-- [Home](Home)
-- [Getting Started](Getting-Started)
-- [Data Sources and Automation](Data-Sources-and-Automation)
-- [Privacy and Moderation](Privacy-and-Moderation)
-- [Maintainer Runbook](Maintainer-Runbook)
+- [Home](Home.md)
+- [Getting Started](Getting-Started.md)
+- [Data Sources and Automation](Data-Sources-and-Automation.md)
+- [Privacy and Moderation](Privacy-and-Moderation.md)
+- [Maintainer Runbook](Maintainer-Runbook.md)
 
 ## Repository
 

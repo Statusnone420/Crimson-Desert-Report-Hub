@@ -5,9 +5,10 @@ This is the short, public-safe operating checklist. For provider setup and migra
 ## Daily checks
 
 - Open the live site and confirm the public pages load.
-- Check the Patch Brief for current official context and honest empty states.
-- Review pending direct reports in /admin.
-- Open the authenticated /scanner view for run health, paused state, and obvious source problems.
+- Check the patch desk for current official context, and public pages for honest empty states.
+- Open `/operator` for collection health and recent-run status.
+- Review pending direct reports in `/admin`.
+- Open the authenticated `/scanner` view for run health, paused state, and obvious source problems. Anonymous visitors to `/scanner` see the public Observatory.
 - Approve only excerpts and links that are useful, relevant, and safe to publish.
 
 ## Before a real scan
@@ -17,6 +18,7 @@ This is the short, public-safe operating checklist. For provider setup and migra
 3. Run the protected no-publish preview.
 4. Check that its results are relevant issue material rather than general patch or review content.
 5. Run an authorized capped scan only after the preview is acceptable.
+6. If Steam or Twitch/IGDB collection is enabled, check each lane's status and capture time in `/operator`.
 
 ## If automation looks wrong
 
@@ -34,6 +36,8 @@ This is the short, public-safe operating checklist. For provider setup and migra
 - Scanner links remain leads even when a public issue displays them.
 
 ## Before release
+
+Smoke-test `/`, `/news`, `/watch`, `/patches`, `/issues`, `/observatory`, `/report`, `/about`, and `/privacy`. After sign-in, check `/operator`, `/admin`, `/scanner`, and `/admin/compile`.
 
 ~~~powershell
 npm run lint

@@ -1,0 +1,16 @@
+{
+  "issue_clusters": [],
+  "bug_reports": [],
+  "approved_excerpts": [],
+  "source_signals": [],
+  "automation_runs": [],
+  "automation_rejected_candidates": [],
+  "automation_settings": [],
+  "issue_confirmations": [],
+  "official_patch_notes": [],
+  "official_patch_claimed_fixes": [],
+  "patch_observations": [],
+  "steam_pulse_snapshots": [],
+  "platform_context_snapshots": [],
+  "scanner_feedback_rules": []
+}

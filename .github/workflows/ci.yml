@@ -58,6 +58,9 @@ jobs:
       - name: Playwright visual smoke
         run: npm run test:e2e
 
+      - name: Empty and unavailable public states
+        run: npm run test:e2e:n0
+
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v6

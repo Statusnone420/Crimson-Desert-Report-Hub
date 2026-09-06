@@ -2,9 +2,9 @@
 
 # Crimson Desert Report Hub
 
-**Know what changed, what players are reporting, and which official fixes are still being contested — without treating every link on the internet as fact.**
+**Crimson Desert news, original reports, official updates, and the player record — with sources kept in view.**
 
-[Read the patch brief](https://crimsonreporthub.com/) · [Check an issue](https://crimsonreporthub.com/issues) · [File an anonymous report](https://crimsonreporthub.com/report)
+[Read the newspaper](https://crimsonreporthub.com/) · [Read the patch record](https://crimsonreporthub.com/patches) · [Check an issue](https://crimsonreporthub.com/issues) · [File an anonymous report](https://crimsonreporthub.com/report)
 
 <p align="center">
   <a href="https://crimsonreporthub.com" title="Open the live site"><img alt="Live site" src="public/readme/badges/plaques/crimson-dev.svg" width="104"></a>&nbsp;
@@ -30,19 +30,20 @@
 
 </div>
 
-## One patch, one readable field report
+## News and the player record
 
-Crimson Desert Report Hub turns official patch notes, structured player reports, anonymous check-ins, and screened public links into a patch brief you can actually use.
+Crimson Desert Report Hub is an unofficial fan newspaper. Original stories and selected coverage sit alongside the official patch record and player reports.
 
-- See the current patch and its claimed fixes without digging through announcement pages.
-- Check what appears broken by platform and whether players say a claimed fix worked.
-- Add a quick **Happening to me**, **Fixed for me**, or **Still happening** check-in.
-- File a detailed report without creating an account or exposing raw personal information.
-- Use the public radar and Steam/platform pulse as context, with leads kept visibly separate from evidence.
+- Read [news](https://crimsonreporthub.com/news) and watch [selected videos](https://crimsonreporthub.com/watch), with sources and publication dates.
+- Follow official fixes on the [patch desk](https://crimsonreporthub.com/patches) and compare player responses on the issue board.
+- File a detailed report or add a **Happening to me**, **Fixed for me**, or **Still happening** check-in.
+- Explore review trends, audience activity, and source radar in [the Observatory](https://crimsonreporthub.com/observatory).
+
+Follow original Hub articles through [Atom](https://crimsonreporthub.com/feed.xml) or [RSS](https://crimsonreporthub.com/rss.xml). External coverage and player submissions stay out of the feeds.
 
 ## Built for honest answers
 
-Reports are moderated player evidence. Check-ins are anonymous signals. Radar links are leads. Official notes are claims and context. The Hub never turns silence into “fixed,” never invents activity to fill an empty board, and never treats a popular post as proof by itself.
+Player reports are moderated evidence. Check-ins are signals. Radar links and platform trends are context. Editorial selections require review. The Hub never turns silence into “fixed” or invents activity to fill an empty board.
 
 There are no user accounts, ads, or analytics trackers. Raw submissions, rejected scanner candidates, and uncorroborated source URLs stay private. Read the short version in [Privacy](docs/PRIVACY.md) and the full source rules in [Data Sources and Automation](docs/wiki/Data-Sources-and-Automation.md).
 

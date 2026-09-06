@@ -18,4 +18,4 @@ The Worker only wakes `/api/cron/keepalive`. Scanner cadence, Tavily credits, an
 
 This Worker is scheduled-only: `workers_dev` and preview URLs are disabled, and the script intentionally has no public `fetch` handler. The only production trigger should be Cloudflare Cron calling `scheduled()`, which forwards the stored `CRON_SECRET` to the app.
 
-Free-plan fit: an hourly trigger is about 24 Worker requests/day and one external subrequest per run. Cloudflare's current Free plan limits are far above that, so this Worker should stay a scheduler workaround rather than a paid compute dependency.
+The configured hourly trigger is about 24 Worker requests and 24 external subrequests per day. Check the current Cloudflare plan limits before rollout; this repository does not treat a provider plan limit as a stable code contract.
