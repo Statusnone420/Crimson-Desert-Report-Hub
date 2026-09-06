@@ -8,6 +8,8 @@ type CatchUpState = { ready: boolean; available: boolean; previousVisit: string 
 const initial: CatchUpState = { ready: false, available: true, previousVisit: null, preferences: { remember: true, lastVisit: null, caughtUpThrough: null } };
 let snapshot = initial;
 let initialized = false;
+let visitStarted = false;
+const isPublicPath = (pathname: string) => !/^\/(admin|operator)(\/|$)/.test(pathname);
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 const getSnapshot = () => snapshot;
@@ -22,20 +24,25 @@ function save(preferences: CatchUpPreferences, previousVisit = snapshot.previous
   return available;
 }
 
-function startVisit() {
+function initializePreferences() {
   if (initialized) return;
   initialized = true;
   let result: ReturnType<typeof readCatchUpPreferences>;
   try { result = readCatchUpPreferences(window.localStorage); }
   catch { result = { preferences: initial.preferences, available: false }; }
   snapshot = { ready: true, available: result.available, preferences: result.preferences, previousVisit: result.preferences.lastVisit };
-  if (result.preferences.remember && result.available) save({ ...result.preferences, lastVisit: new Date().toISOString() });
-  else notify();
+  notify();
+}
+
+function startVisit() {
+  if (visitStarted) return;
+  visitStarted = true;
+  if (snapshot.preferences.remember && snapshot.available) updateTimestamp("lastVisit");
 }
 
 function setRemember(remember: boolean) {
   save(remember
-    ? { ...snapshot.preferences, remember: true, lastVisit: new Date().toISOString() }
+    ? { ...snapshot.preferences, remember: true, lastVisit: isPublicPath(window.location.pathname) ? new Date().toISOString() : snapshot.preferences.lastVisit }
     : { remember: false, lastVisit: null, caughtUpThrough: null }, remember ? snapshot.previousVisit : null);
 }
 
@@ -59,11 +66,12 @@ export function CatchUpProvider({ children }: { children: ReactNode }) {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const pathname = usePathname();
   useEffect(() => {
-    if (!/^\/(admin|operator)(\/|$)/.test(pathname)) startVisit();
+    initializePreferences();
+    if (isPublicPath(pathname)) startVisit();
   }, [pathname]);
   useEffect(() => {
     const finishVisit = () => {
-      if (initialized && snapshot.preferences.remember && snapshot.available) updateTimestamp("lastVisit");
+      if (visitStarted && isPublicPath(window.location.pathname) && snapshot.preferences.remember && snapshot.available) updateTimestamp("lastVisit");
     };
     const synchronize = (event: StorageEvent) => {
       if (event.key !== CATCH_UP_STORAGE_KEY && event.key !== null) return;

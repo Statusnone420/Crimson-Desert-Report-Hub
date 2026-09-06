@@ -17,9 +17,55 @@ async function openCatchUpMenu(page: Page) {
   return dialog;
 }
 
+for (const scenario of [
+  { timezone: "Asia/Tokyo", now: "2026-09-06T16:00:00Z", today: "2026-09-07", tomorrow: "2026-09-08", midnight: "2026-09-06T15:00:00.000Z", label: "Since September 7" },
+  { timezone: "America/Los_Angeles", now: "2026-09-07T02:00:00Z", today: "2026-09-06", tomorrow: "2026-09-07", midnight: "2026-09-06T07:00:00.000Z", label: "Since September 6" },
+]) {
+  test.describe(`catch-up calendar in ${scenario.timezone}`, () => {
+    test.use({ timezoneId: scenario.timezone });
+
+    test("uses local today for the limit, submission, and reopened date", async ({ page }) => {
+      await page.clock.setFixedTime(new Date(scenario.now));
+      await page.goto("/catch-up");
+      let dialog = await openCatchUpMenu(page);
+      await dialog.getByRole("tab", { name: "Date" }).click();
+      const input = dialog.getByLabel("Last played");
+      await expect(input).toHaveAttribute("max", scenario.today);
+      await input.fill(scenario.tomorrow);
+      expect(await input.evaluate((element: HTMLInputElement) => element.validity.rangeOverflow)).toBe(true);
+      await input.fill(scenario.today);
+      await dialog.getByRole("button", { name: "Show updates" }).click();
+
+      await expect(page).toHaveURL((url) => new URLSearchParams(url.hash.slice(1)).get("since") === scenario.midnight);
+      await expect(page.locator(".cu-edition")).toContainText(scenario.label);
+      dialog = await openCatchUpMenu(page);
+      await expect(dialog.getByLabel("Last played")).toHaveValue(scenario.today);
+    });
+  });
+}
+
 test.describe("public catch-up journey", () => {
+  test.use({ timezoneId: "UTC" });
   test.beforeEach(async ({ page }) => {
     await page.clock.setFixedTime(NOW);
+  });
+
+  test("a direct admin login initializes the menu without recording a visit", async ({ page }) => {
+    await page.goto("/admin/login");
+    const dialog = await openCatchUpMenu(page);
+    await expect.poll(() => storedPreferences(page)).toBeNull();
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await expect.poll(() => storedPreferences(page)).toBeNull();
+
+    const remember = dialog.getByRole("checkbox", { name: "Remember my place on this browser" });
+    await expect(remember).toBeEnabled();
+    await remember.uncheck();
+    await remember.check();
+    await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: null, caughtUpThrough: null });
+
+    await dialog.getByRole("button", { name: "Show updates" }).click();
+    await expect(page).toHaveURL(/\/catch-up$/);
+    await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: NOW.toISOString(), caughtUpThrough: null });
   });
 
   test("a new visit can build a catch-up from a patch", async ({ page }) => {

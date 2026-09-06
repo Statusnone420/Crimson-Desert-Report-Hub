@@ -40,6 +40,6 @@ export function catchUpDate(value: string, year = false) {
 export function catchUpSelectionLabel(selection: CatchUpSelection) {
   if (selection.kind === "all") return "Full history";
   if (selection.kind === "patch") return `After patch ${selection.value}`;
-  if (selection.kind === "since") return `Since ${catchUpDate(selection.value)}`;
+  if (selection.kind === "since") return `Since ${new Date(selection.value).toLocaleDateString("en-US", { month: "long", day: "numeric" })}`;
   return "The recent highlights";
 }

@@ -91,12 +91,12 @@ describe("catch-up milestone selection", () => {
 });
 
 describe("catch-up labels", () => {
-  it("formats UTC dates and selection labels consistently", () => {
+  it("keeps official dates in UTC and personal selections on their local day", () => {
     expect(catchUpDate("2026-09-03T23:30:00-04:00")).toBe("September 4");
     expect(catchUpDate("2026-09-03T23:30:00-04:00", true)).toBe("September 4, 2026");
     expect(catchUpSelectionLabel({ kind: "highlights" })).toBe("The recent highlights");
     expect(catchUpSelectionLabel({ kind: "all" })).toBe("Full history");
     expect(catchUpSelectionLabel({ kind: "patch", value: "2.00.01" })).toBe("After patch 2.00.01");
-    expect(catchUpSelectionLabel({ kind: "since", value: "2026-09-03T23:30:00-04:00" })).toBe("Since September 4");
+    expect(catchUpSelectionLabel({ kind: "since", value: new Date(2026, 8, 4).toISOString() })).toBe("Since September 4");
   });
 });

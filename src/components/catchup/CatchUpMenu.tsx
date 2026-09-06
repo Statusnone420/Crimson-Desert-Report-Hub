@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useReducedMotion } from "motion/react";
 import { CATCH_UP_COVERAGE_START, CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
 import { catchUpDate, catchUpHash, parseCatchUpHash, type CatchUpSelection } from "@/lib/catchUp";
+import { catchUpLocalMidnight, localCalendarDay } from "@/lib/catchUpCalendar";
 import { useCatchUp } from "./CatchUpContext";
 
 type Mode = "highlights" | "date" | "patch" | "all";
@@ -65,12 +66,12 @@ export function CatchUpMenu({ label = "Catch me up", compact = false }: { label?
       navigate({ kind: "patch", value: patch });
       return;
     }
-    const parsed = Date.parse(date);
-    if (!date || !Number.isFinite(parsed) || parsed > Date.now() || new Date(parsed).toISOString().slice(0, 10) !== date) {
+    const since = catchUpLocalMidnight(date);
+    if (!since) {
       setError("Choose today or an earlier date.");
       return;
     }
-    navigate({ kind: "since", value: new Date(parsed).toISOString() });
+    navigate({ kind: "since", value: since });
   }
   function synchronizeOpen(showing: boolean) {
     setOpen(showing);
@@ -78,7 +79,7 @@ export function CatchUpMenu({ label = "Catch me up", compact = false }: { label?
     setError("");
     const selection = window.location.pathname === "/catch-up" ? parseCatchUpHash(window.location.hash) : { kind: "highlights" as const };
     setMode(selection.kind === "since" ? "date" : selection.kind);
-    setDate(selection.kind === "since" ? selection.value.slice(0, 10) : "");
+    setDate(selection.kind === "since" ? localCalendarDay(new Date(selection.value)) : "");
     setPatch(selection.kind === "patch" ? selection.value : "");
   }
   return <>
@@ -97,7 +98,7 @@ export function CatchUpMenu({ label = "Catch me up", compact = false }: { label?
           <div className="catch-up-panel" id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-tab-${mode}`}>
             {mode === "highlights" && <div className="catch-up-view-note"><strong>Recent updates and announcements</strong><p>{catchUpDate(CATCH_UP_HIGHLIGHTS_START)} – {catchUpDate(CATCH_UP_MILESTONES.at(-1)!.publishedAt)}</p></div>}
             {mode === "all" && <div className="catch-up-view-note"><strong>Every update from patch {CATCH_UP_MILESTONES[0].patch}</strong><p>{catchUpDate(CATCH_UP_COVERAGE_START)} – {catchUpDate(CATCH_UP_MILESTONES.at(-1)!.publishedAt)}</p></div>}
-            {mode === "date" && <label className="catch-up-date">Last played<input type="date" value={date} max={ready ? new Date().toISOString().slice(0, 10) : undefined} onChange={(event) => { setDate(event.target.value); setError(""); }} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined}/></label>}
+            {mode === "date" && <label className="catch-up-date">Last played<input type="date" value={date} max={ready ? localCalendarDay() : undefined} onChange={(event) => { setDate(event.target.value); setError(""); }} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined}/></label>}
             {mode === "patch" && <fieldset className="catch-up-patches"><legend>Last patch played</legend><p id={`${id}-patch-hint`}>Shows later updates. {PATCHES.length} patches, newest first.</p><div className="catch-up-patch-list" ref={patchList}>{PATCHES.map((item) => <label key={item.id} className={patch === item.patch ? "is-selected" : undefined}><input type="radio" name={`${id}-patch`} value={item.patch} checked={patch === item.patch} onChange={() => { setPatch(item.patch!); setError(""); }} aria-describedby={`${id}-patch-hint`}/><span>{item.patch}</span><time dateTime={item.publishedAt}>{catchUpDate(item.publishedAt)}</time></label>)}</div></fieldset>}
           </div>
           {error && <p id={`${id}-error`} className="catch-up-error" role="alert">{error}</p>}
