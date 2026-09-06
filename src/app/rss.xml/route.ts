@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { buildRssXml, RSS_CONTENT_TYPE } from "@/lib/rssFeed";
 
+export const dynamic = "force-static";
+
 export function GET() {
   return new NextResponse(buildRssXml(), {
     headers: {
