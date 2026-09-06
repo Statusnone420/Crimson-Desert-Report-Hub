@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import sitemap from "@/app/sitemap";
 import { chartingTheUnknown } from "@/lib/editorialArticles";
-import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL } from "@/lib/site";
+import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL, siteFeedAlternateTypes } from "@/lib/site";
 import { newsArticleJsonLd, serializeJsonLd, webSiteJsonLd } from "@/lib/structuredData";
 import nextConfig from "../next.config";
 
@@ -82,6 +82,8 @@ describe("search and share metadata", () => {
       { url: `${SITE_URL}/observatory`, changeFrequency: "hourly", priority: 0.5 },
       { url: `${SITE_URL}/report`, changeFrequency: "monthly", priority: 0.4 },
       { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.3 },
+      { url: `${SITE_URL}/feed.xml`, changeFrequency: "weekly", priority: 0.2 },
+      { url: `${SITE_URL}/rss.xml`, changeFrequency: "weekly", priority: 0.2 },
     ]);
     for (const entry of entries.filter((entry) => entry.url !== `${SITE_URL}${chartingTheUnknown.path}`)) {
       expect(entry).not.toHaveProperty("lastModified");
@@ -173,7 +175,11 @@ describe("search and share metadata", () => {
     const descriptions: string[] = [SITE_DESCRIPTION];
     for (const [page, title, path, description] of expectations) {
       const meta = await page.generateMetadata({}, parent);
-      expect(meta).toMatchObject({ title, description, alternates: { canonical: path } });
+      expect(meta).toMatchObject({
+        title,
+        description,
+        alternates: { canonical: path, types: siteFeedAlternateTypes },
+      });
       descriptions.push(meta.description as string);
       const og = meta.openGraph as Record<string, unknown>;
       expect(og.url).toBe(path);
@@ -208,7 +214,7 @@ describe("search and share metadata", () => {
     expect(article.metadata).toMatchObject({
       title: chartingTheUnknown.searchTitle,
       description: chartingTheUnknown.description,
-      alternates: { canonical: chartingTheUnknown.path },
+      alternates: { canonical: chartingTheUnknown.path, types: siteFeedAlternateTypes },
       openGraph: {
         type: "article",
         url: chartingTheUnknown.path,
