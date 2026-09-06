@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import Script from "next/script";
+import { ReportCaptcha } from "@/components/newspaper/ReportCaptcha";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   CATEGORIES,
@@ -349,7 +349,7 @@ export function ReportForm({
             <p className="filing-copy-status" role="status">Nothing has been sent until you choose Send report.</p>
           </section>
         ) : null}
-        {SITE_KEY ? <><div className="cf-turnstile" data-sitekey={SITE_KEY} data-theme="dark" /><Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="lazyOnload" /></> : null}
+        {SITE_KEY ? <ReportCaptcha siteKey={SITE_KEY} /> : null}
       </form>
     </section>
   );

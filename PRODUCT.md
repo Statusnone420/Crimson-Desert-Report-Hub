@@ -1,18 +1,52 @@
 # Product Notes
 
+<!-- impeccable:product-schema 1 -->
+
+## Platform
+
+web
+
 ## Audience
 
-Crimson Desert readers and players following news, expansions, official updates, and player-reported issues; moderators and contributors maintaining that record.
+Crimson Desert fans who want to follow the game closely: read updates, understand patch changes, explore game activity, and find an informed fan's perspective. The owner is a fan and author as well as the site's developer; moderator and contributor tools support the publication.
 
 ## Purpose
 
-Crimson Desert Report Hub is an unofficial fan newspaper with a patch desk, player-report board, and source radar. Original articles and selected external coverage form the editorial layer. It keeps the player record separate:
+Crimson Desert Report Hub is an independent fan publication. “Report” means journalism: covering what is happening, explaining what changed, and giving readers useful context. It combines enthusiasm for the game with clear sourcing and honest data.
+
+Its priorities are:
+
+- **Follow the game:** news, official updates, patch notes, and expansion coverage.
+- **Understand the activity:** Steam trends, Twitch audiences, and other game data, with explanations of what the numbers mean and where their limits are.
+- **Read the owner's perspective:** original articles on subjects the owner chooses to explore. There is no promised weekly schedule or publishing quota.
+
+The player-report board is a supporting section of the publication, not its whole identity. A published player report does not automatically become a front-page story.
+
+## Positioning
+
+The Hub brings reporting, selected outside coverage, official records, and game activity into one place while keeping their sources and meanings distinct. Readers can share the owner's excitement for Crimson Desert without mistaking commentary, popularity, or an official fix claim for verified player outcomes.
+
+## Brand Commitments
+
+An informed fan sharing a game he loves: enthusiastic, curious, welcoming, and credible. Make room for anticipation and personal interpretation; distinguish opinion from sourced facts. Keep the publication independent and clearly unofficial.
+
+## Room to Grow
+
+This is a working direction, not a closed feature list or fixed editorial formula. Topics, article formats, data views, and tools can grow as the owner's interests, understanding of the game, and development capabilities grow. Current routes and technical limits below describe today's implementation, not the limit of the publication's ambition.
+
+New capabilities do not create an obligation to use them or a publishing schedule. For example, Atom and RSS simply let readers follow original articles in a feed-reader app instead of checking the site manually. They are optional ways to read the same publication.
+
+The owner decides future scope. Expansion should retain clear sourcing, privacy, and honest treatment of unavailable or incomplete data.
+
+## Player Evidence Model
+
+Within the player record:
 
 1. **Reports are evidence.** Structured anonymous player reports are the strongest input. Raw submissions stay private; only counts, neutral summaries, and moderator-approved excerpts may become public.
 2. **Confirmations are signals.** One-tap *Happening to me*, *Still happening*, and *Fixed for me* responses count what players say for an issue, platform, and patch family. They never certify a game-wide outcome.
 3. **Scanner links are leads.** Tavily-discovered public links keep the radar alive and generate questions players can answer. A link remains a lead, not evidence or authority chrome.
 
-Official Pearl Abyss patch notes provide canonical patch context and fix claims, while the hub remains independent and unofficial. A published player report does not automatically become a front-page story.
+Official Pearl Abyss patch notes provide canonical patch context and fix claims, while the hub remains independent and unofficial.
 
 ## Public Surfaces
 
@@ -79,6 +113,8 @@ Public documentation should explain these guarantees and boundaries without trea
 
 ## Success Criteria
 
+- Readers can follow news and official changes, understand the available game data, and discover the owner's articles in one place.
+- Articles reflect the owner's interests and perspective without a forced publishing cadence.
 - The newspaper, issues page, and source radar remain complete and informative with no visitors.
 - A visitor can distinguish Hub reporting, external coverage, evidence, player signals, scanner leads, and official claims.
 - The active patch label and official source link update without code changes.

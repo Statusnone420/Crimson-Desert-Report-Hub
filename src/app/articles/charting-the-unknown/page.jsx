@@ -50,7 +50,7 @@ export default function ExpansionArticle() {
           <div className="article-meta"><time dateTime={chartingTheUnknown.publishedAt}>September 5, 2026</time><span>Sources: Pearl Abyss</span><a href="#sources">View sources ↓</a></div>
         </div>
         <figure className="article-hero">
-          <Image src={chartingTheUnknown.heroImage.src} width={chartingTheUnknown.heroImage.width} height={chartingTheUnknown.heroImage.height} priority sizes="(max-width:1440px) 100vw, 1384px" alt={chartingTheUnknown.heroImage.alt} />
+          <div className="coast-crop"><Image src={chartingTheUnknown.heroImage.src} width={chartingTheUnknown.heroImage.width} height={chartingTheUnknown.heroImage.height} priority sizes="(max-width:1440px) 100vw, 1384px" alt={chartingTheUnknown.heroImage.alt} /></div>
           <figcaption>Pywel coastline · Official base-game image, courtesy of Pearl Abyss.</figcaption>
         </figure>
         <section className="mobile-brief" aria-label="Three key facts">

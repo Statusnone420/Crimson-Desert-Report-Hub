@@ -1678,7 +1678,7 @@ server.listen(supabasePort, "127.0.0.1", () => {
       ADMIN_PASSWORD: "admin-password",
       SESSION_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       CRON_SECRET: "mock-cron-secret",
-      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.PLAYWRIGHT_TURNSTILE === "true" ? "1x00000000000000000000AA" : "",
       TURNSTILE_SECRET_KEY: "",
       GROQ_API_KEY: "",
       OPENROUTER_API_KEY: "",

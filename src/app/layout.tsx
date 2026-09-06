@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   applicationName: SITE_NAME,
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black",
+    statusBarStyle: "default",
     title: "CD Report Hub",
   },
   title: {
@@ -56,13 +56,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      data-theme="dark"
+      data-theme="light"
       suppressHydrationWarning
       data-scroll-behavior="smooth"
       className={`${instrumentSans.variable} ${instrumentSerif.variable} ${plexMono.variable}`}
     >
       <body>
-        <script dangerouslySetInnerHTML={{ __html: `try{document.documentElement.dataset.theme=localStorage.getItem('newspaper-theme')||'dark'}catch{}` }}/>
+        <script dangerouslySetInnerHTML={{ __html: `try{document.documentElement.dataset.theme=localStorage.getItem('newspaper-theme')||'light'}catch{}` }}/>
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[var(--z-toast)] focus:border focus:bg-[var(--dispatch-inset)] focus:px-3 focus:py-2 focus:text-sm"

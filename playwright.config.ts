@@ -4,7 +4,7 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  testIgnore: "n0.spec.ts",
+  testIgnore: ["n0.spec.ts", "turnstile-theme.spec.ts"],
   fullyParallel: false,
   timeout: 60_000,
   expect: {
@@ -43,14 +43,14 @@ export default defineConfig({
     {
       name: "chromium",
       // A project-level testIgnore replaces the top-level one, so n0 repeats here.
-      testIgnore: ["n0.spec.ts", "operator-writes.spec.ts"],
+      testIgnore: ["n0.spec.ts", "operator-writes.spec.ts", "turnstile-theme.spec.ts"],
       dependencies: ["operator-writes"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1100 } },
     },
     {
       name: "mobile-chromium",
       // A project-level testIgnore replaces the top-level one, so n0 repeats here.
-      testIgnore: ["n0.spec.ts", "operator-writes.spec.ts"],
+      testIgnore: ["n0.spec.ts", "operator-writes.spec.ts", "turnstile-theme.spec.ts"],
       dependencies: ["operator-writes"],
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
     },

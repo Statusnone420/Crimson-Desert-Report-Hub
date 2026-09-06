@@ -65,3 +65,6 @@ output/
 
 # Supabase CLI local project metadata
 /supabase/.temp/
+
+# Local design-tool state and critique snapshots
+.impeccable/
