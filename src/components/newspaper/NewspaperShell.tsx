@@ -6,11 +6,10 @@ import { isVercelPreview } from "@/lib/previewGuard";
 import { SOURCE_URL } from "@/lib/site";
 
 export function NewspaperShell({ children, active, home = false }: { children: ReactNode; active?: string; home?: boolean }) {
-  const date = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   return (
     <div className="newspaper">
       <div className={`paper ${home ? "" : "article-paper"}`}>
-        <NewspaperHeader active={active} home={home} date={date} />
+        <NewspaperHeader active={active} home={home} />
         {isVercelPreview() && (
           <p className="np-preview">
             {process.env.CD_LOCAL_SNAPSHOT === "true"

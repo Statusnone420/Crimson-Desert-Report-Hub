@@ -15,6 +15,23 @@ This is the public architecture contract: enough structure to review the privacy
 
 The public pages are designed to remain useful when there are no reports, taps, or published leads. Empty states describe the limits of the current evidence instead of filling the space with inferred conclusions.
 
+### Public desk date
+
+Every `NewspaperShell` page uses `DeskDate` in the shared header. The display-only
+date follows `America/New_York`, matching the desk's Eastern Time day; stored
+timestamps and source publication dates keep their existing UTC conventions.
+The browser supplies the current date after hydration, checks at each minute
+boundary, and refreshes on focus, visibility changes, and page restoration.
+Cached HTML contains only `Eastern Time`, so independently cached routes cannot
+reintroduce an old calendar day. Without JavaScript that label remains visible;
+with JavaScript the date depends on the reader's device clock. No request or
+analytics code is involved.
+
+After deployment, compare `/`, `/issues`, and `/report` in a browser against the
+current New York date. Check both direct loads and navigation, then repeat after
+New York midnight with an existing tab and after returning to a suspended tab.
+Raw HTML alone is not a date-freshness check because its placeholder is intentional.
+
 ## Four separate registers
 
 The hub does not collapse every input into one score:
