@@ -23,6 +23,8 @@ const expectedDescriptions = {
     "Hit something broken in Crimson Desert? Put it on the record — an anonymous report with the patch, platform, steps, and any evidence you've got.",
   "/about":
     "How Crimson Desert Report Hub sources its journalism, credits creators, and keeps news separate from player reports and official fix claims.",
+  "/privacy":
+    "No accounts, no email field, no ads or analytics trackers. Reports stay private unless a moderator approves a short excerpt.",
   "/scanner":
     "Crimson Desert review trends, Twitch audience activity and source radar in the Observatory.",
 } as const;
@@ -84,6 +86,7 @@ describe("search and share metadata", () => {
       { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.3 },
       { url: `${SITE_URL}/feed.xml`, changeFrequency: "weekly", priority: 0.2 },
       { url: `${SITE_URL}/rss.xml`, changeFrequency: "weekly", priority: 0.2 },
+      { url: `${SITE_URL}/privacy`, changeFrequency: "monthly", priority: 0.3 },
     ]);
     for (const entry of entries.filter((entry) => entry.url !== `${SITE_URL}${chartingTheUnknown.path}`)) {
       expect(entry).not.toHaveProperty("lastModified");
@@ -136,10 +139,11 @@ describe("search and share metadata", () => {
   });
 
   it("gives each route a distinct title, matching canonical and og:url, and keeps the parent's share images", async () => {
-    const [issues, report, about, scanner, news, watch] = await Promise.all([
+    const [issues, report, about, privacy, scanner, news, watch] = await Promise.all([
       import("@/app/issues/page"),
       import("@/app/report/page"),
       import("@/app/about/page"),
+      import("@/app/privacy/page"),
       import("@/app/scanner/page"),
       import("@/app/news/page"),
       import("@/app/watch/page"),
@@ -168,6 +172,7 @@ describe("search and share metadata", () => {
       [issues, "Issue Board", "/issues", expectedDescriptions["/issues"]],
       [report, "File a Report", "/report", expectedDescriptions["/report"]],
       [about, "Method", "/about", expectedDescriptions["/about"]],
+      [privacy, "Privacy", "/privacy", expectedDescriptions["/privacy"]],
       [scanner, "The Observatory", "/observatory", expectedDescriptions["/scanner"]],
       [news, "News", "/news", expectedDescriptions["/news"]],
       [watch, "Crimson Desert videos", "/watch", expectedDescriptions["/watch"]],

@@ -11,6 +11,7 @@ This is the public architecture contract: enough structure to review the privacy
 | `/report` | Anonymous structured report intake. |
 | `/scanner` | Public source-radar health and mapped questions; operator controls are shown only after admin authentication. |
 | `/about` | Method, privacy posture, and official-support guidance. |
+| `/privacy` | Short public privacy note; the full policy remains in the repository. |
 
 The public pages are designed to remain useful when there are no reports, taps, or published leads. Empty states describe the limits of the current evidence instead of filling the space with inferred conclusions.
 

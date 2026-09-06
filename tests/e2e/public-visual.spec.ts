@@ -77,6 +77,12 @@ test.describe("integrated newspaper public UI", () => {
     await expect(nav.getByRole("link", { name: "Watch", exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "More from the news desk →" })).toHaveAttribute("href", "/news");
     await expect(nav.getByRole("link", { name: "Observatory" })).toHaveAttribute("href", "/observatory");
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
+    await expect(page.getByRole("contentinfo").getByText("No ads · No trackers")).toBeVisible();
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Open source" })).toHaveAttribute(
+      "href",
+      "https://github.com/Statusnone420/Crimson-Desert-Report-Hub",
+    );
     if (testInfo.project.name === "mobile-chromium") {
       await expect(page.getByRole("contentinfo").getByRole("link", { name: /File a report/ })).toHaveAttribute("href", "/report");
     } else {
@@ -179,6 +185,24 @@ test.describe("integrated newspaper public UI", () => {
     await card.getByRole("button", { name: /Fixed for me/ }).click();
     await card.getByRole("button", { name: "PC (Steam)" }).click();
     await expect(card.getByText("This preview is read-only. Confirmations work on the production site.")).toBeVisible();
+  });
+
+  test("privacy page resolves from the footer and keeps the unofficial disclaimer", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/");
+    await page.getByRole("contentinfo").getByRole("link", { name: "Privacy" }).click();
+    await expect(page).toHaveURL(/\/privacy$/);
+    await expect(page.getByRole("heading", { name: "Privacy" })).toBeVisible();
+    await expect(page.getByText("There is no player sign-in and nothing to register.")).toBeVisible();
+    await expect(page.getByText("The database does not store your IP address.")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Full privacy policy" })).toHaveAttribute(
+      "href",
+      "https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/PRIVACY.md",
+    );
+    await expect(page.getByText(/Unofficial fan site/)).toBeVisible();
+    await expectNoPrivateMarkers(page);
+    await expectAccessibleLandmarks(page);
+    await expectHealthyPage(page, problems);
   });
 
   test("newspaper stays accessible and within the narrowest public viewport", async ({ page }, testInfo) => {
