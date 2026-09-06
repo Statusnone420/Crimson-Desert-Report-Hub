@@ -54,22 +54,22 @@ test.describe("operator write paths", () => {
     expect(reset.ok(), "fixture reset failed — later tests would inherit this test's writes").toBe(true);
   });
 
-  test("rejecting an ask pulls it off the public lane, and Undo puts it back", async ({ page }) => {
+  test("rejecting an archived ask and Undo preserve learning without publishing a headline", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
 
     const ask = "Day 20 of asking to add caracals to the desert : r/CrimsonDesert";
     await page.goto("/");
-    await expect(page.locator("#asks").getByText(ask)).toBeVisible();
+    await expect(page.getByText(ask)).toHaveCount(0);
 
     await page.goto("/scanner");
-    const contextLanes = page.locator('section[aria-label="Public context lanes"]');
+    const contextLanes = page.locator('section[aria-label="Scanner context archive"]');
     // Context lanes is a record, so it opens on request. Everything inside —
     // including the Undo this test proves — stays one click away.
     await contextLanes.locator("details.operator-section > summary").click();
     const askCard = contextLanes.locator("article.lead-item").filter({ hasText: "Day 20 of asking" });
     const askStatus = askCard.locator(".lead-item__status");
-    await expect(askStatus).toContainText("PUBLIC");
+    await expect(askStatus).toContainText("RETAINED");
     await askCard.locator("details.lead-feedback > summary").click();
     await askCard.getByRole("textbox", { name: "Operator reason" }).fill("Feature request, not patch context.");
     await submitAction(page, () => askCard.getByRole("button", { name: "Reject and teach" }).click());
@@ -83,9 +83,11 @@ test.describe("operator write paths", () => {
     await expect(lessons.getByText("BLOCK OFF-TOPIC")).toBeVisible();
     await expect(lessons.getByText("Feature request, not patch context.")).toBeVisible();
 
-    // The proof that matters: the write reached the public lane, not just the desk.
+    // Verify persisted visibility as well as the UI. Neither state republishes raw search text.
     await expectAfterWrite(page, "/", async () => {
-      expect(await page.locator("#asks").getByText(ask).count()).toBe(0);
+      expect(await page.getByText(ask).count()).toBe(0);
+      const records = await (await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/patch_observations`)).json();
+      expect(records.find((row: { title: string }) => row.title === ask)?.is_public).toBe(false);
     });
 
     await page.goto("/scanner");
@@ -96,11 +98,13 @@ test.describe("operator write paths", () => {
     await submitAction(page, () =>
       askCard.getByRole("button", { name: "Undo — restore item and revoke rule" }).click(),
     );
-    await expect(askStatus).toContainText("PUBLIC");
+    await expect(askStatus).toContainText("RETAINED");
     await expect(lessons.getByText("No scanner lessons yet.")).toBeVisible();
 
     await expectAfterWrite(page, "/", async () => {
-      expect(await page.locator("#asks").getByText(ask).count()).toBe(1);
+      expect(await page.getByText(ask).count()).toBe(0);
+      const records = await (await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/patch_observations`)).json();
+      expect(records.find((row: { title: string }) => row.title === ask)?.is_public).toBe(true);
     });
     await expectHealthyPage(page, problems);
   });

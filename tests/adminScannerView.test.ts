@@ -281,7 +281,10 @@ describe("AdminScannerView", () => {
       nowIso: "2026-07-22T18:00:00.000Z",
     }));
 
-    expect(markup).toContain("Wire and Asks on the Brief");
+    expect(markup).toContain("Scanner context archive");
+    expect(markup).toContain("These search records no longer supply homepage articles.");
+    expect(markup).toContain("RETAINED");
+    expect(markup).toContain("HIDDEN");
     expect(markup).toContain("Reject and teach…");
     expect(markup).toContain("no usable public lane date");
     expect(markup).toContain("Undo — restore item and revoke rule");
@@ -351,7 +354,7 @@ describe("AdminScannerView", () => {
 
     expect(markup).toContain("Scanner learning unlocks after the database schema update");
     expect(markup).toContain("Keep as relevant");
-    expect(markup).not.toContain("Reject and teach");
+    expect(markup).not.toContain('class="decision-card__reject"');
     expect(markup).not.toContain("Remove bad lead");
     expect(markup).not.toContain("Remove lead and teach scanner");
   });
@@ -737,41 +740,39 @@ describe("AdminScannerView", () => {
       expect(markup).toContain("2 domains");
     });
 
-    it("says the dating rule once for the section instead of once per card", () => {
+    it("states the legacy eligibility count once for the archive", () => {
       const markup = render({ observations: [observation(1, null), observation(2, null), observation(3, null)] });
 
-      expect(markup).toContain("None of these 3 can appear on the Brief");
+      expect(markup).toContain("Scanner context archive");
       expect(markup).toContain("newest 3 this patch");
-      expect(markup).toContain("· 0 publishable");
+      expect(markup).toContain("· 0 eligible under legacy rules");
+      expect(markup).toContain("no longer supply homepage articles");
     });
 
-    it("counts the publishable ones when some carry a date", () => {
+    it("counts historically eligible records when some carry a date", () => {
       const markup = render({
         observations: [observation(1, "2026-07-20T00:00:00.000Z"), observation(2, null)],
       });
 
-      expect(markup).toContain("1 of these 2 can appear on the Brief");
       expect(markup).toContain("newest 2 this patch");
-      expect(markup).toContain("· 1 publishable");
+      expect(markup).toContain("· 1 eligible under legacy rules");
     });
 
-    it("counts and labels an eligible undated ask exactly as the public lane does", () => {
+    it("counts and labels a legacy-eligible undated ask", () => {
       const markup = render({
         patchPublishedAt: "2026-07-20T00:00:00.000Z",
         observations: [observation(1, null)],
       });
 
-      expect(markup).toContain("1 of these 1 can appear on the Brief");
-      expect(markup).toContain("· 1 publishable");
+      expect(markup).toContain("· 1 eligible under legacy rules");
       expect(markup).toContain("first seen by radar Jul 21");
-      expect(markup).not.toContain("no source date — never shown publicly");
+      expect(markup).toContain("no longer supply homepage articles");
     });
 
-    it("never calls an item publishable that the public lane would reject", () => {
-      // A date is not automatically a usable date: the Brief drops anything from
-      // before the patch era or implausibly far in the future. The operator
-      // summary has to apply the same bounds or it advertises a lane item that
-      // can never render.
+    it("applies historic date and patch gates to the legacy count", () => {
+      // The archive keeps the prior eligibility calculation as a diagnostic. A
+      // date before the patch era or implausibly far in the future stays out of
+      // that count.
       const markup = render({
         patchPublishedAt: "2026-07-20T00:00:00.000Z",
         observations: [
@@ -782,14 +783,12 @@ describe("AdminScannerView", () => {
       });
 
       expect(markup).toContain("newest 3 this patch");
-      expect(markup).toContain("· 1 publishable");
-      expect(markup).toContain("1 of these 3 can appear on the Brief");
+      expect(markup).toContain("· 1 eligible under legacy rules");
     });
 
-    it("stops counting an item the operator just rejected", () => {
+    it("stops counting an archived item the operator just hid", () => {
       // Rejecting a lane item sets is_public false and leaves the card in this
-      // list. Counting the date alone would keep calling the thing just taken
-      // off the Brief publishable.
+      // list. The historic eligibility count must exclude that archived record.
       const markup = render({
         patchPublishedAt: "2026-07-20T00:00:00.000Z",
         observations: [
@@ -799,11 +798,10 @@ describe("AdminScannerView", () => {
       });
 
       expect(markup).toContain("newest 2 this patch");
-      expect(markup).toContain("· 1 publishable");
-      expect(markup).toContain("1 of these 2 can appear on the Brief");
+      expect(markup).toContain("· 1 eligible under legacy rules");
     });
 
-    it("judges observations against the patch they were read with, not the cached radar copy", () => {
+    it("judges legacy eligibility against the patch read, not the cached radar copy", () => {
       // The radar is cached for five minutes; the observation read is not. For
       // that window after a rollover they disagree, and judging fresh 1.15.00
       // coverage by the stale 1.14.00 version calls the new patch off-topic.
@@ -822,7 +820,7 @@ describe("AdminScannerView", () => {
       });
 
       expect(markup).toContain("newest 1 this patch");
-      expect(markup).toContain("· 1 publishable");
+      expect(markup).toContain("· 1 eligible under legacy rules");
     });
 
     it("presents the capped observation read as a window, never as the patch total", () => {
@@ -837,8 +835,7 @@ describe("AdminScannerView", () => {
       });
 
       expect(markup).toContain("newest 40 this patch");
-      expect(markup).toContain("· 40 publishable");
-      expect(markup).toContain("40 of these 40 can appear on the Brief");
+      expect(markup).toContain("· 40 eligible under legacy rules");
     });
 
     it("collapses the record sections and keeps their contents reachable", () => {

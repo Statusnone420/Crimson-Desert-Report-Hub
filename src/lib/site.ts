@@ -1,13 +1,13 @@
 export const SITE_URL = "https://crimsonreporthub.com";
 export const SITE_NAME = "Crimson Desert Report Hub";
 /** Search-result title: brand phrase first, then what the site is. Keep ≤60 chars. */
-export const SITE_SEARCH_TITLE = `${SITE_NAME} — Patch Issues & Player Reports`;
+export const SITE_SEARCH_TITLE = `${SITE_NAME} — News & Expansion Reports`;
 /** Search-snippet description. Keep ≤160 chars. */
 export const SITE_DESCRIPTION =
-  "Crimson Desert Report Hub is the unofficial brief on each patch — charting what players report, what sources pick up, and which claimed fixes haven't settled.";
+  "Crimson Desert Report Hub is an unofficial newspaper for Crimson Desert news, expansion reports, official updates, and player records.";
 /** Share-card text for surfaces that show text without the image. */
 export const SITE_OG_DESCRIPTION =
-  "What changed. What players are reporting. What matters now. An unofficial, fan-run field report on the current state of the game.";
+  "Crimson Desert news, Charting the Unknown coverage, creator videos, and official updates from an unofficial fan newspaper.";
 export const SOURCE_URL = "https://github.com/Statusnone420/Crimson-Desert-Report-Hub";
 export const PEARL_ABYSS_SUPPORT_URL = "https://support.pearlabyss.com/";
 
@@ -33,7 +33,7 @@ export function routeOpenGraph(path: "/" | `/${string}`) {
  * object shallow-replaces the root's RESOLVED block — silently dropping the
  * share-card images the file convention attached there. Spreading the
  * resolved parent keeps those images (hashed URLs included) and overrides
- * only the URL.
+ * route-specific titles, descriptions, and URLs.
  */
 export async function routeMetadata(
   title: string,
@@ -41,13 +41,18 @@ export async function routeMetadata(
   description: string,
   parent: import("next").ResolvingMetadata,
 ): Promise<import("next").Metadata> {
-  const parentOpenGraph = (await parent).openGraph as
+  const resolvedParent = await parent;
+  const parentOpenGraph = resolvedParent.openGraph as
     | NonNullable<import("next").Metadata["openGraph"]>
+    | null;
+  const parentTwitter = resolvedParent.twitter as
+    | NonNullable<import("next").Metadata["twitter"]>
     | null;
   return {
     title,
     description,
     alternates: { canonical: path },
-    openGraph: { ...parentOpenGraph, url: path },
+    openGraph: { ...parentOpenGraph, url: path, title, description },
+    twitter: { ...parentTwitter, title, description },
   };
 }

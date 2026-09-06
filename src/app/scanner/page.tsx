@@ -8,13 +8,14 @@ import { getPatchRadarData } from "@/lib/radar.server";
 import { getAutomationAdminData, getPublicScannerData } from "@/lib/queries";
 import { routeMetadata } from "@/lib/site";
 
-export function generateMetadata(_props: object, parent: ResolvingMetadata) {
-  return routeMetadata(
+export async function generateMetadata(_props: object, parent: ResolvingMetadata) {
+  const metadata = await routeMetadata(
     "The Observatory",
-    "/scanner",
-    "The Observatory scans the public web for Crimson Desert trouble: fresh leads, repeat sightings, and the questions they raise.",
+    "/observatory",
+    "Crimson Desert review trends, Twitch audience activity and source radar in the Observatory.",
     parent,
   );
+  return { ...metadata, robots: { index: false, follow: false } };
 }
 
 export const dynamic = "force-dynamic";

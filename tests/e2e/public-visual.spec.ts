@@ -73,11 +73,14 @@ test.describe("integrated newspaper public UI", () => {
     await expect(nav.getByRole("link", { name: "News" })).toHaveAttribute("href", "/");
     await expect(nav.getByRole("link", { name: "Patches" })).toHaveAttribute("href", "/patches");
     await expect(nav.getByRole("link", { name: "Player reports" })).toHaveAttribute("href", "/issues");
+    await expect(nav.getByRole("link", { name: "Expansion" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Watch", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "More from the news desk →" })).toHaveAttribute("href", "/news");
     await expect(nav.getByRole("link", { name: "Observatory" })).toHaveAttribute("href", "/observatory");
     if (testInfo.project.name === "mobile-chromium") {
       await expect(page.getByRole("contentinfo").getByRole("link", { name: /File a report/ })).toHaveAttribute("href", "/report");
     } else {
-      await expect(nav.getByRole("link", { name: /File a report/ })).toHaveAttribute("href", "/report");
+      await expect(page.getByRole("contentinfo").getByRole("link", { name: /File a report/ })).toHaveAttribute("href", "/report");
     }
     await expect(page.getByRole("link", { name: /Patch 1\.13\.01: the official fixes and player record/ })).toHaveAttribute("href", "/patches");
     await expect(page.getByText(/Individual reports stay on the issue board/)).toBeVisible();

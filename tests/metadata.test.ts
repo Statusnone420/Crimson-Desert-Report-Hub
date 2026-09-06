@@ -2,8 +2,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import sitemap from "@/app/sitemap";
+import { chartingTheUnknown } from "@/lib/editorialArticles";
 import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL } from "@/lib/site";
-import { serializeJsonLd, webSiteJsonLd } from "@/lib/structuredData";
+import { newsArticleJsonLd, serializeJsonLd, webSiteJsonLd } from "@/lib/structuredData";
 import nextConfig from "../next.config";
 
 vi.mock("server-only", () => ({}));
@@ -11,15 +12,19 @@ vi.mock("server-only", () => ({}));
 const appDir = path.join(process.cwd(), "src", "app");
 const expectedDescriptions = {
   "/":
-    "Crimson Desert Report Hub is the unofficial brief on each patch — charting what players report, what sources pick up, and which claimed fixes haven't settled.",
+    "Crimson Desert Report Hub is an unofficial newspaper for Crimson Desert news, expansion reports, official updates, and player records.",
+  "/news":
+    "Source-backed Crimson Desert news and expansion reports from the Crimson Desert Report Hub.",
+  "/watch":
+    "The Crimson Desert reveal trailer and selected creator coverage of Charting the Unknown, with links to the original videos.",
   "/issues":
     "The Issue Board lays out Crimson Desert player reports and source leads, showing how much backing reports have and where the claimed fixes stand.",
   "/report":
     "Hit something broken in Crimson Desert? Put it on the record — an anonymous report with the patch, platform, steps, and any evidence you've got.",
   "/about":
-    "How the Report Hub thinks: what separates player reports, source leads, and official fix claims — and why quiet never counts as fixed.",
+    "How Crimson Desert Report Hub sources its journalism, credits creators, and keeps news separate from player reports and official fix claims.",
   "/scanner":
-    "The Observatory scans the public web for Crimson Desert trouble: fresh leads, repeat sightings, and the questions they raise.",
+    "Crimson Desert review trends, Twitch audience activity and source radar in the Observatory.",
 } as const;
 
 function pngSize(file: string): { width: number; height: number } {
@@ -29,14 +34,14 @@ function pngSize(file: string): { width: number; height: number } {
 
 describe("search and share metadata", () => {
   it("pins the homepage search and share copy inside their display budgets", () => {
-    expect(SITE_SEARCH_TITLE).toBe(`${SITE_NAME} — Patch Issues & Player Reports`);
+    expect(SITE_SEARCH_TITLE).toBe(`${SITE_NAME} — News & Expansion Reports`);
     expect(SITE_SEARCH_TITLE.length).toBeLessThanOrEqual(60);
     expect(SITE_SEARCH_TITLE.startsWith(SITE_NAME)).toBe(true);
     expect(SITE_DESCRIPTION).toBe(expectedDescriptions["/"]);
     expect(SITE_DESCRIPTION.length).toBeLessThanOrEqual(160);
     expect(SITE_DESCRIPTION.toLowerCase()).toContain("unofficial");
     expect(SITE_OG_DESCRIPTION).toBe(
-      "What changed. What players are reporting. What matters now. An unofficial, fan-run field report on the current state of the game.",
+      "Crimson Desert news, Charting the Unknown coverage, creator videos, and official updates from an unofficial fan newspaper.",
     );
     expect(SITE_OG_DESCRIPTION.length).toBeLessThanOrEqual(200);
     expect(SITE_OG_DESCRIPTION.toLowerCase()).toContain("unofficial");
@@ -60,18 +65,25 @@ describe("search and share metadata", () => {
     expect(ogAlt.toLowerCase()).toContain("unofficial");
   });
 
-  it("lists every public route in the sitemap without claiming modification dates", () => {
+  it("lists editorial routes ahead of supporting records and dates only the original report", () => {
     const entries = sitemap();
     expect(entries).toEqual([
       { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
-      { url: `${SITE_URL}/issues`, changeFrequency: "hourly", priority: 0.9 },
+      { url: `${SITE_URL}/news`, changeFrequency: "weekly", priority: 0.9 },
+      {
+        url: `${SITE_URL}/articles/charting-the-unknown`,
+        lastModified: "2026-09-05T00:00:00Z",
+        changeFrequency: "monthly",
+        priority: 0.8,
+      },
+      { url: `${SITE_URL}/watch`, changeFrequency: "weekly", priority: 0.7 },
+      { url: `${SITE_URL}/patches`, changeFrequency: "hourly", priority: 0.6 },
+      { url: `${SITE_URL}/issues`, changeFrequency: "hourly", priority: 0.5 },
       { url: `${SITE_URL}/observatory`, changeFrequency: "hourly", priority: 0.5 },
-      { url: `${SITE_URL}/patches`, changeFrequency: "hourly", priority: 0.9 },
-      { url: `${SITE_URL}/articles/charting-the-unknown`, changeFrequency: "monthly", priority: 0.7 },
-      { url: `${SITE_URL}/report`, changeFrequency: "monthly", priority: 0.7 },
-      { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.6 },
+      { url: `${SITE_URL}/report`, changeFrequency: "monthly", priority: 0.4 },
+      { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.3 },
     ]);
-    for (const entry of entries) {
+    for (const entry of entries.filter((entry) => entry.url !== `${SITE_URL}${chartingTheUnknown.path}`)) {
       expect(entry).not.toHaveProperty("lastModified");
     }
   });
@@ -122,11 +134,13 @@ describe("search and share metadata", () => {
   });
 
   it("gives each route a distinct title, matching canonical and og:url, and keeps the parent's share images", async () => {
-    const [issues, report, about, scanner] = await Promise.all([
+    const [issues, report, about, scanner, news, watch] = await Promise.all([
       import("@/app/issues/page"),
       import("@/app/report/page"),
       import("@/app/about/page"),
       import("@/app/scanner/page"),
+      import("@/app/news/page"),
+      import("@/app/watch/page"),
     ]);
     // The resolved root openGraph as Next hands it to generateMetadata: it
     // already carries the file-convention share image. A route override must
@@ -140,13 +154,21 @@ describe("search and share metadata", () => {
         description: SITE_OG_DESCRIPTION,
         images: [{ url: `${SITE_URL}/opengraph-image.png?hash`, width: 1200, height: 630 }],
       },
+      twitter: {
+        card: "summary_large_image",
+        title: SITE_NAME,
+        description: SITE_OG_DESCRIPTION,
+        images: [{ url: `${SITE_URL}/twitter-image.png?hash`, width: 1200, height: 630 }],
+      },
     }) as never;
 
     const expectations = [
       [issues, "Issue Board", "/issues", expectedDescriptions["/issues"]],
       [report, "File a Report", "/report", expectedDescriptions["/report"]],
       [about, "Method", "/about", expectedDescriptions["/about"]],
-      [scanner, "The Observatory", "/scanner", expectedDescriptions["/scanner"]],
+      [scanner, "The Observatory", "/observatory", expectedDescriptions["/scanner"]],
+      [news, "News", "/news", expectedDescriptions["/news"]],
+      [watch, "Crimson Desert videos", "/watch", expectedDescriptions["/watch"]],
     ] as const;
     const descriptions: string[] = [SITE_DESCRIPTION];
     for (const [page, title, path, description] of expectations) {
@@ -155,10 +177,13 @@ describe("search and share metadata", () => {
       descriptions.push(meta.description as string);
       const og = meta.openGraph as Record<string, unknown>;
       expect(og.url).toBe(path);
-      expect(og).toMatchObject({ siteName: SITE_NAME, title: SITE_NAME, description: SITE_OG_DESCRIPTION });
+      expect(og).toMatchObject({ siteName: SITE_NAME, title, description });
       expect(og.images).toEqual([{ url: `${SITE_URL}/opengraph-image.png?hash`, width: 1200, height: 630 }]);
+      const twitter = meta.twitter as Record<string, unknown>;
+      expect(twitter).toMatchObject({ card: "summary_large_image", title, description });
+      expect(twitter.images).toEqual([{ url: `${SITE_URL}/twitter-image.png?hash`, width: 1200, height: 630 }]);
     }
-    expect(descriptions).toEqual(Object.values(expectedDescriptions));
+    expect([...descriptions].sort()).toEqual(Object.values(expectedDescriptions).sort());
     expect(new Set(descriptions).size).toBe(descriptions.length);
     for (const description of descriptions) {
       expect(description.length).toBeLessThanOrEqual(160);
@@ -174,5 +199,43 @@ describe("search and share metadata", () => {
       title: SITE_NAME,
       description: SITE_OG_DESCRIPTION,
     });
+    const scannerMetadata = await scanner.generateMetadata({}, parent);
+    expect(scannerMetadata.robots).toEqual({ index: false, follow: false });
+  });
+
+  it("gives the original expansion report its own canonical metadata and sourced NewsArticle data", async () => {
+    const article = await import("@/app/articles/charting-the-unknown/page");
+    expect(article.metadata).toMatchObject({
+      title: chartingTheUnknown.searchTitle,
+      description: chartingTheUnknown.description,
+      alternates: { canonical: chartingTheUnknown.path },
+      openGraph: {
+        type: "article",
+        url: chartingTheUnknown.path,
+        publishedTime: chartingTheUnknown.publishedAt,
+        images: [{
+          url: chartingTheUnknown.heroImage.src,
+          width: chartingTheUnknown.heroImage.width,
+          height: chartingTheUnknown.heroImage.height,
+          alt: chartingTheUnknown.heroImage.alt,
+        }],
+      },
+      twitter: {
+        card: "summary_large_image",
+        title: chartingTheUnknown.searchTitle,
+        description: chartingTheUnknown.description,
+        images: [chartingTheUnknown.heroImage.src],
+      },
+    });
+    const data = newsArticleJsonLd(chartingTheUnknown);
+    expect(data).toMatchObject({
+      "@type": "NewsArticle",
+      headline: chartingTheUnknown.title,
+      datePublished: chartingTheUnknown.publishedAt,
+      mainEntityOfPage: `${SITE_URL}${chartingTheUnknown.path}`,
+      citation: chartingTheUnknown.sources.map((source) => source.url),
+    });
+    expect(data).not.toHaveProperty("author");
+    expect(data).not.toHaveProperty("dateModified");
   });
 });

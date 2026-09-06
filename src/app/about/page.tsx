@@ -8,7 +8,7 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
   return routeMetadata(
     "Method",
     "/about",
-    "How the Report Hub thinks: what separates player reports, source leads, and official fix claims — and why quiet never counts as fixed.",
+    "How Crimson Desert Report Hub sources its journalism, credits creators, and keeps news separate from player reports and official fix claims.",
     parent,
   );
 }
@@ -38,20 +38,25 @@ export default async function AboutPage() {
         <header className="dispatch-pagehead" style={{ paddingBottom: 34 }}>
           <div className="dispatch-pagehead__copy">
             <p className="dispatch-kicker">The Method</p>
-            <h1 className="dispatch-pagehead__title">How this tracker thinks</h1>
+            <h1 className="dispatch-pagehead__title">How the Report Hub works</h1>
             <p className="dispatch-pagehead__dek">
               What the words on this site mean, and what we won&rsquo;t claim to know.
             </p>
           </div>
         </header>
 
+        <section className="np-wire" aria-labelledby="journalism">
+          <p className="kicker">An independent fan newspaper</p>
+          <h2 id="journalism">Reporting on Crimson Desert</h2>
+          <p className="small">Crimson Desert news, expansions and creators. Stories credit their sources. The issue scanner cannot publish articles.</p>
+        </section>
         <dl className="method-registers" id="registers">
-          <dt className="method-registers__term">Reports are evidence</dt>
+          <dt className="method-registers__term">Player reports are evidence</dt>
           <dd className="method-registers__def">You wrote it yourself. The strongest input here.</dd>
           <dt className="method-registers__term">Confirmations are signals</dt>
           <dd className="method-registers__def">A tap. Counted, never a verdict.</dd>
-          <dt className="method-registers__term">Source links are leads</dt>
-          <dd className="method-registers__def">A rumor with a link.</dd>
+          <dt className="method-registers__term">Scanner links are leads</dt>
+          <dd className="method-registers__def">A source to investigate; it does not establish a bug.</dd>
           <dt className="method-registers__term">Official notes are context</dt>
           <dd className="method-registers__def">Pearl Abyss said it. That starts a question, not an answer.</dd>
         </dl>
@@ -82,7 +87,7 @@ export default async function AboutPage() {
               <span className="method-row__ask">What counts as a player verdict?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                When this tracker records an official fix claim, it notes the date. Only what players say
+                When the patch desk records an official fix claim, it notes the date. Only what players say
                 after that date counts toward whether the fix held.
               </span>
             </summary>
