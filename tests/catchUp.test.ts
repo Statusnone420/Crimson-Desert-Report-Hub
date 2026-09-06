@@ -13,6 +13,12 @@ import { CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES, type CatchUpMilestone }
 const NOW = new Date("2026-09-06T12:00:00.000Z");
 
 describe("catch-up selection URLs", () => {
+  it("interprets a date-only link as local midnight and rejects local tomorrow", () => {
+    const localNow = new Date(2026, 8, 6, 20);
+    expect(parseCatchUpHash("#since=2026-09-06", localNow)).toEqual({ kind: "since", value: new Date(2026, 8, 6).toISOString() });
+    expect(parseCatchUpHash("#since=2026-09-07", localNow)).toEqual({ kind: "highlights" });
+  });
+
   it.each<[CatchUpSelection, string]>([
     [{ kind: "highlights" }, ""],
     [{ kind: "all" }, "#history=all"],

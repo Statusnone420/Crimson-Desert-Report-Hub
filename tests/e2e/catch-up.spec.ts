@@ -18,11 +18,32 @@ async function openCatchUpMenu(page: Page) {
 }
 
 for (const scenario of [
-  { timezone: "Asia/Tokyo", now: "2026-09-06T16:00:00Z", today: "2026-09-07", tomorrow: "2026-09-08", midnight: "2026-09-06T15:00:00.000Z", label: "Since September 7" },
-  { timezone: "America/Los_Angeles", now: "2026-09-07T02:00:00Z", today: "2026-09-06", tomorrow: "2026-09-07", midnight: "2026-09-06T07:00:00.000Z", label: "Since September 6" },
+  { timezone: "Asia/Tokyo", now: "2026-09-06T16:00:00Z", today: "2026-09-07", tomorrow: "2026-09-08", midnight: "2026-09-06T15:00:00.000Z", label: "Since September 7", firstDayMilestones: 18 },
+  { timezone: "America/Los_Angeles", now: "2026-09-07T02:00:00Z", today: "2026-09-06", tomorrow: "2026-09-07", midnight: "2026-09-06T07:00:00.000Z", label: "Since September 6", firstDayMilestones: 17 },
 ]) {
   test.describe(`catch-up calendar in ${scenario.timezone}`, () => {
     test.use({ timezoneId: scenario.timezone });
+
+    test("date-only links use local midnight and reject local tomorrow", async ({ page }) => {
+      await page.clock.setFixedTime(new Date(scenario.now));
+      await page.goto(`/catch-up#since=${scenario.today}`);
+      await expect(page.locator(".cu-edition")).toContainText(scenario.label);
+      const dialog = await openCatchUpMenu(page);
+      await expect(dialog.getByLabel("Last played")).toHaveValue(scenario.today);
+      await dialog.getByRole("button", { name: "Show updates" }).click();
+      await expect(page).toHaveURL((url) => new URLSearchParams(url.hash.slice(1)).get("since") === scenario.midnight);
+
+      await page.goto(`/catch-up#since=${scenario.tomorrow}`);
+      await expect(page.locator(".cu-edition")).toContainText("The recent highlights");
+
+      await page.goto("/catch-up#since=2026-07-02");
+      await expect(page.locator(".cu-coverage")).toBeVisible();
+      await page.goto("/catch-up#since=2026-07-03");
+      await expect(page.locator(".cu-edition")).toContainText("Since July 3");
+      // The July 3 03:00 UTC notice was already July 3 in Tokyo, but July 2 in Los Angeles.
+      await expect(page.locator(".cu-milestone")).toHaveCount(scenario.firstDayMilestones);
+      await expect(page.locator(".cu-coverage")).toHaveCount(0);
+    });
 
     test("saved resume dates agree with the local selection label and reopened picker", async ({ page }) => {
       await page.clock.setFixedTime(new Date(scenario.now));

@@ -1,4 +1,5 @@
 import { CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES, type CatchUpMilestone } from "./catchUpContent";
+import { catchUpLocalMidnight } from "./catchUpCalendar";
 
 export type CatchUpSelection = { kind: "highlights" } | { kind: "all" } | { kind: "since"; value: string } | { kind: "patch"; value: string };
 
@@ -8,7 +9,11 @@ export function parseCatchUpHash(hash: string, now = new Date()): CatchUpSelecti
   const patch = params.get("patch");
   if (patch && CATCH_UP_MILESTONES.some((item) => item.patch === patch)) return { kind: "patch", value: patch };
   const since = params.get("since");
-  if (since && /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)?$/.test(since)) {
+  if (since && /^\d{4}-\d{2}-\d{2}$/.test(since)) {
+    const midnight = catchUpLocalMidnight(since, now);
+    return midnight ? { kind: "since", value: midnight } : { kind: "highlights" };
+  }
+  if (since && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(since)) {
     const time = Date.parse(since);
     if (Number.isFinite(time) && time <= now.getTime() && new Date(time).toISOString().slice(0, 10) === since.slice(0, 10)) {
       return { kind: "since", value: new Date(time).toISOString() };
