@@ -1,6 +1,5 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { AdminControls } from "@/components/AdminControls";
 import { NewspaperHeader } from "./NewspaperHeader";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { SOURCE_URL } from "@/lib/site";
@@ -29,7 +28,6 @@ export function NewspaperShell({ children, active, home = false }: { children: R
             <Link href="/about">About</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/report">File a report →</Link>
-            <AdminControls />
           </div>
         </footer>
         <p className="media-notice">
