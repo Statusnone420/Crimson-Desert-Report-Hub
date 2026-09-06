@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildRssXml, RSS_CONTENT_TYPE } from "@/lib/rssFeed";
+import { buildRssXml, RSS_CONTENT_TYPE } from "@/lib/editorialFeed";
 
 export const dynamic = "force-static";
 

@@ -1,6 +1,8 @@
 export const SITE_URL = "https://crimsonreporthub.com";
-export const SITE_FEED_PATH = "/rss.xml";
+export const SITE_FEED_PATH = "/feed.xml";
+export const SITE_RSS_PATH = "/rss.xml";
 export const SITE_NAME = "Crimson Desert Report Hub";
+export const SITE_FEED_SUBTITLE = "Source-backed reports on Crimson Desert";
 /** Search-result title: brand phrase first, then what the site is. Keep ≤60 chars. */
 export const SITE_SEARCH_TITLE = `${SITE_NAME} — News & Expansion Reports`;
 /** Search-snippet description. Keep ≤160 chars. */
@@ -13,12 +15,12 @@ export const SOURCE_URL = "https://github.com/Statusnone420/Crimson-Desert-Repor
 export const PEARL_ABYSS_SUPPORT_URL = "https://support.pearlabyss.com/";
 
 /**
- * RSS discovery for original Hub reports. Nested routes that set `alternates`
+ * Atom discovery for original Hub reports. Nested routes that set `alternates`
  * must re-state this; a child canonical-only block would replace the root feed
  * link the same way a route-level openGraph object drops parent share images.
  */
 export const siteFeedAlternateTypes = {
-  "application/rss+xml": [{ url: SITE_FEED_PATH, title: SITE_NAME }],
+  "application/atom+xml": [{ url: SITE_FEED_PATH, title: SITE_NAME }],
 } satisfies NonNullable<NonNullable<import("next").Metadata["alternates"]>["types"]>;
 
 /**

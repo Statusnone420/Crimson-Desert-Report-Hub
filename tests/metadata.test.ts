@@ -82,6 +82,8 @@ describe("search and share metadata", () => {
       { url: `${SITE_URL}/observatory`, changeFrequency: "hourly", priority: 0.5 },
       { url: `${SITE_URL}/report`, changeFrequency: "monthly", priority: 0.4 },
       { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.3 },
+      { url: `${SITE_URL}/feed.xml`, changeFrequency: "weekly", priority: 0.2 },
+      { url: `${SITE_URL}/rss.xml`, changeFrequency: "weekly", priority: 0.2 },
     ]);
     for (const entry of entries.filter((entry) => entry.url !== `${SITE_URL}${chartingTheUnknown.path}`)) {
       expect(entry).not.toHaveProperty("lastModified");
