@@ -47,11 +47,11 @@ Every public surface remains complete at N=0. Empty and unavailable states state
 
 - Pages use one main landmark, semantic headings, labeled navigation, field labels and legends, tables or definition lists for records, and `aria-current`, `aria-pressed`, and expanded-state attributes where applicable.
 - A skip link reaches the main content. Long record pages add local skip links or section navigation. Keyboard focus uses a visible blue outline on the public edition and amber on the operator edition.
-- Shared public navigation uses 16px text on desktop and 14px on phones. Standalone reading actions use at least 14px text, and adjacent report-board actions have an explicit gap.
+- Shared public navigation uses 16px text on desktop and 14px on phones. Public links, filter controls, disclosure summaries, and report choices use at least 14px text; text fields use 16px. Standalone actions have 44px targets, with wrapping and gaps in compact rows. Inline source links remain part of their prose.
 - Controls target at least 44px where practical, including navigation and coarse-pointer actions. Forms expose validation and submission failures as text and preserve reviewed report drafts after recoverable failures.
 - Color always has a text, count, shape, or position cue. Public contrast checks require at least 4.5:1 for representative labels and footer links in the tested theme.
 - Motion is brief and functional: navigation indication, reading progress, chart entry, image hover, and small directional cues. `prefers-reduced-motion` removes animation, transition, smooth scrolling, and hover zoom.
-- Responsive verification covers 1440×1100 desktop, 390×844 mobile, and a focused 320px public-width check. The browser suite also checks landmarks, hidden focusable content, console/runtime health, image sizing, navigation state, and horizontal overflow.
+- Responsive verification covers 1440×1100 desktop, 390×844 mobile, and a 320px check across public routes in both themes, including expanded details. The browser suite also checks landmarks, hidden focusable content, console/runtime health, image sizing, navigation state, and horizontal overflow.
 
 The separate N=0 browser suite checks both empty fixture data and missing service configuration. It protects the distinction between a known zero and an unavailable count, and runs in CI after the regular browser suite.
 

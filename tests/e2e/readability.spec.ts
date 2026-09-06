@@ -25,6 +25,25 @@ const MAIN_ACTIONS = [
   "main .patch-player-actions a",
   "main .dispatch-actions a",
   "main .article-bottom a",
+  "main summary",
+  "main .claim-source",
+  "main .view-all-claims",
+  "main .watch-index-all",
+  "main .watch-index-category",
+  "main .article-meta a",
+  "main .release-note a",
+  "main .mobile-contents a",
+  "main .observatory-sections a",
+  "main .observatory-footer a",
+  "main .obs-options button",
+  "main .obs-share-days button",
+  "main .obs-capture-pages button",
+  "main .obs-platforms > a",
+  "main .obs-radar-foot a",
+  "main .filing-intro a",
+  "main .filing-footer a",
+  "main .filing-checkbox",
+
 ].join(", ");
 
 type TargetMetrics = {
@@ -37,7 +56,7 @@ async function visibleTargetMetrics(locator: Locator): Promise<TargetMetrics[]> 
   return locator.evaluateAll((elements) => elements.flatMap((element) => {
     const box = element.getBoundingClientRect();
     const style = getComputedStyle(element);
-    if (box.width === 0 || box.height === 0 || style.visibility === "hidden") return [];
+    if (box.width <= 1 || box.height <= 1 || style.visibility === "hidden") return [];
     return [{
       label: element.getAttribute("aria-label") || element.textContent?.trim().replace(/\s+/g, " ").slice(0, 80) || element.tagName,
       fontSize: Number.parseFloat(style.fontSize),
@@ -67,7 +86,7 @@ test.describe("public newspaper readability", () => {
     await page.clock.setFixedTime(E2E_NOW);
   });
 
-  test("shared navigation and actions remain readable on every public route", async ({ page }, testInfo) => {
+  test("all public links and controls remain readable, including expanded details", async ({ page }, testInfo) => {
     test.slow();
     const problems = collectConsoleProblems(page);
     const minimumNavFontSize = testInfo.project.name === "mobile-chromium" ? 14 : 16;
@@ -90,6 +109,14 @@ test.describe("public newspaper readability", () => {
       const sharedActions = page.locator(".np-footer-links a, .np-footer-links button");
       expectReadableTargets(await visibleTargetMetrics(sharedActions), 14, route);
 
+      await page.locator("main details").evaluateAll((details) => {
+        for (const detail of details) (detail as HTMLDetailsElement).open = true;
+      });
+      const allLinksAndControls = await visibleTargetMetrics(page.locator(".newspaper a, .newspaper button:not(.theme-toggle), main summary, main label, main input, main select, main textarea"));
+      expect.soft(allLinksAndControls.filter(({ fontSize }) => fontSize < 14), `${route} has small interactive text`).toEqual([]);
+      const textFields = await visibleTargetMetrics(page.locator('main input:not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="hidden"]), main select, main textarea'));
+      expect.soft(textFields.filter(({ fontSize }) => fontSize < 16), `${route} has small form text`).toEqual([]);
+
       const mainActions = await visibleTargetMetrics(page.locator(MAIN_ACTIONS));
       if (mainActions.length > 0) expectReadableTargets(mainActions, 14, route);
 
@@ -101,19 +128,24 @@ test.describe("public newspaper readability", () => {
     test.skip(testInfo.project.name !== "mobile-chromium", "The desktop project covers the wide layout.");
     await page.setViewportSize({ width: 320, height: 844 });
     const problems = collectConsoleProblems(page);
-    await page.goto("/");
-
-    expectReadableTargets(
-      await visibleTargetMetrics(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link")),
-      14,
-      "/ at 320px",
-    );
-    expectReadableTargets(
-      await visibleTargetMetrics(page.locator(".np-footer-links a, .np-footer-links button")),
-      14,
-      "/ at 320px",
-    );
-    await expectHealthyPage(page, problems);
+    test.slow();
+    for (const route of PUBLIC_ROUTES) {
+      await page.goto(route);
+      for (const theme of ["light", "dark"]) {
+        if (await page.locator("html").getAttribute("data-theme") !== theme) {
+          await page.getByRole("button", { name: `Switch to ${theme} mode` }).click();
+        }
+        await page.locator("main details").evaluateAll((details) => {
+          for (const detail of details) (detail as HTMLDetailsElement).open = true;
+        });
+        expectReadableTargets(
+          await visibleTargetMetrics(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link")), 14, `${route} ${theme} at 320px`,
+        );
+        const actions = await visibleTargetMetrics(page.locator(MAIN_ACTIONS));
+        if (actions.length > 0) expectReadableTargets(actions, 14, `${route} ${theme} at 320px`);
+        await expectHealthyPage(page, problems);
+      }
+    }
   });
 
   test("front-page lead and official stories expose real headings", async ({ page }) => {
