@@ -4,6 +4,7 @@ import {
   catchUpHash,
   catchUpSelectionLabel,
   parseCatchUpHash,
+  parseCatchUpChapter,
   selectCatchUpMilestones,
   type CatchUpSelection,
 } from "@/lib/catchUp";
@@ -36,6 +37,31 @@ describe("catch-up selection URLs", () => {
 
   it("prefers a valid patch when the hash also carries a date", () => {
     expect(parseCatchUpHash("#since=2026-09-01&patch=2.00.01", NOW)).toEqual({ kind: "patch", value: "2.00.01" });
+  });
+
+  it.each<CatchUpSelection>([
+    { kind: "highlights" },
+    { kind: "all" },
+    { kind: "patch", value: "1.13.00" },
+    { kind: "since", value: "2026-07-03T00:00:00.000Z" },
+  ])("retains the edition alongside a chapter in %j", (selection) => {
+    const chapter = selectCatchUpMilestones(selection)[0].id;
+    const hash = catchUpHash(selection, chapter);
+    expect(parseCatchUpHash(hash, NOW)).toEqual(selection);
+    expect(parseCatchUpChapter(hash)).toBe(chapter);
+    const link = new URL(`/catch-up${hash}`, "https://example.com");
+    expect(link.search).toBe("");
+  });
+
+  it("retains the edition when linking to the brief", () => {
+    const hash = catchUpHash({ kind: "all" }, "cu-brief");
+    expect(hash).toBe("#history=all&chapter=cu-brief");
+    expect(parseCatchUpChapter(hash)).toBe("cu-brief");
+    expect(parseCatchUpHash(hash, NOW)).toEqual({ kind: "all" });
+  });
+
+  it.each(["", "#history=all", "#chapter=missing", "#chapter=cu-title", "#chapter=%3Cscript%3E"])("ignores unknown chapter targets: %s", (hash) => {
+    expect(parseCatchUpChapter(hash)).toBeNull();
   });
 });
 

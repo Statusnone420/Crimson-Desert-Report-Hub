@@ -217,7 +217,7 @@ test.describe("public catch-up journey", () => {
     const milestones = page.locator("article.cu-milestone");
     await expect(milestones).toHaveCount(3);
     const journeyLink = page.getByRole("link", { name: "In the journey" }).first();
-    const targetId = (await journeyLink.getAttribute("href"))?.slice(1);
+    const targetId = new URLSearchParams((await journeyLink.getAttribute("href"))?.slice(1)).get("chapter");
     expect(targetId).toBeTruthy();
 
     await journeyLink.click();
@@ -227,6 +227,56 @@ test.describe("public catch-up journey", () => {
     await expect(page.locator(`#${targetId}`)).toBeFocused();
     await expect(page.locator(`#${targetId}`)).toHaveAttribute("tabindex", "-1");
   });
+
+  test("middle-clicking an older chapter opens its full edition in a new tab", async ({ page, context }, testInfo) => {
+    test.skip(testInfo.project.name === "mobile-chromium", "A physical mouse middle-click is covered by the desktop project.");
+    await page.goto("/catch-up#history=all");
+    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+    const chapterLink = page.locator(".cu-rail-links a").first();
+    await expect(chapterLink).toHaveAttribute("href", "#history=all&chapter=update-1-13-00");
+    const opened = context.waitForEvent("page");
+    await chapterLink.click({ button: "middle" });
+    const newTab = await opened;
+    try {
+      await newTab.bringToFront();
+      await expect(newTab).toHaveURL(/\/catch-up#history=all&chapter=update-1-13-00$/);
+      await expect(newTab.locator("article.cu-milestone")).toHaveCount(18);
+      await expect(newTab.locator("#update-1-13-00")).toBeFocused();
+      await expect(newTab.locator("#update-1-13-00")).toBeInViewport();
+      await expect(page).toHaveURL(/\/catch-up#history=all$/);
+    } finally {
+      await newTab.close();
+    }
+  });
+
+  for (const edition of [
+    { hash: "#patch=1.13.00", count: 17, chapter: "hotfix-1-13-01" },
+    { hash: "#since=2026-07-03T00%3A00%3A00.000Z", count: 18, chapter: "update-1-13-00" },
+  ]) {
+    test(`a copied chapter link preserves ${edition.hash} on direct load and reload`, async ({ page, context }) => {
+      await page.goto(`/catch-up${edition.hash}`);
+      await expect(page.locator("article.cu-milestone")).toHaveCount(edition.count);
+      const copiedURL = await page.locator(".cu-rail-links a").first().evaluate((link: HTMLAnchorElement) => link.href);
+      const expectedHash = `${edition.hash}&chapter=${edition.chapter}`;
+      expect(new URL(copiedURL).search).toBe("");
+      expect(new URL(copiedURL).hash).toBe(expectedHash);
+      const newTab = await context.newPage();
+      try {
+        await newTab.clock.setFixedTime(NOW);
+        await newTab.goto(copiedURL);
+        await expect(newTab.locator("article.cu-milestone")).toHaveCount(edition.count);
+        await expect(newTab.locator(`#${edition.chapter}`)).toBeFocused();
+        await expect(newTab.locator(`#${edition.chapter}`)).toBeInViewport();
+        await newTab.reload();
+        await expect(newTab).toHaveURL((url) => url.hash === expectedHash);
+        await expect(newTab.locator("article.cu-milestone")).toHaveCount(edition.count);
+        await expect(newTab.locator(`#${edition.chapter}`)).toBeFocused();
+        await expect(newTab.locator(`#${edition.chapter}`)).toBeInViewport();
+      } finally {
+        await newTab.close();
+      }
+    });
+  }
 
   test("a visible filter explains a patch selection and opens the full history", async ({ page }) => {
     await page.goto("/catch-up#patch=1.18.02");

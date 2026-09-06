@@ -17,10 +17,17 @@ export function parseCatchUpHash(hash: string, now = new Date()): CatchUpSelecti
   return { kind: "highlights" };
 }
 
-export function catchUpHash(selection: CatchUpSelection) {
-  if (selection.kind === "highlights") return "";
-  if (selection.kind === "all") return "#history=all";
-  return `#${new URLSearchParams({ [selection.kind]: selection.value })}`;
+export function catchUpHash(selection: CatchUpSelection, chapter?: string) {
+  const params = new URLSearchParams();
+  if (selection.kind === "all") params.set("history", "all");
+  else if (selection.kind !== "highlights") params.set(selection.kind, selection.value);
+  if (chapter) params.set("chapter", chapter);
+  return params.size ? `#${params}` : "";
+}
+
+export function parseCatchUpChapter(hash: string): string | null {
+  const chapter = new URLSearchParams(hash.replace(/^#/, "")).get("chapter");
+  return chapter === "cu-brief" || CATCH_UP_MILESTONES.some((item) => item.id === chapter) ? chapter : null;
 }
 
 export function selectCatchUpMilestones(selection: CatchUpSelection, milestones: readonly CatchUpMilestone[] = CATCH_UP_MILESTONES) {
