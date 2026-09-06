@@ -33,6 +33,7 @@ export type EditorialPublicationRejection =
   | "source_disabled"
   | "unverified_creator"
   | "invalid_creator_channel"
+  | "unverified_creator_video"
   | "invalid_type"
   | "invalid_url"
   | "disallowed_host"
@@ -119,6 +120,10 @@ export function validateEditorialPublication(
   const url = source.kind === "creator" ? canonicalCreatorVideoUrl(candidate.url) : canonicalEditorialUrl(candidate.url);
   if (!url) return { ok: false, reason: "invalid_url" };
   if (!sourceAllowsHost(source, new URL(url).hostname)) return { ok: false, reason: "disallowed_host" };
+  const videoId = new URL(url).searchParams.get("v");
+  if (source.kind === "creator" && (!videoId || !source.verifiedVideoIds?.includes(videoId))) {
+    return { ok: false, reason: "unverified_creator_video" };
+  }
   const knownUrls = new Set(
     [...options.knownCanonicalUrls ?? []]
       .map(canonicalEditorialUrl)

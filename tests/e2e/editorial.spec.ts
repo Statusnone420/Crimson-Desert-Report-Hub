@@ -35,5 +35,8 @@ test("newspaper editorial routes retain the brand and separate coverage from sca
   await expect(page.getByText(/Day 20 of asking|Airbnb|No dated coverage is available for this patch/)).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Selected press coverage" })).toHaveCount(coverageVisible ? 1 : 0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await page.getByRole("link", { name: "More videos →" }).click();
+  await expect(page).toHaveURL(/\/watch$/);
+  await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();
   await expectHealthyPage(page, problems);
 });

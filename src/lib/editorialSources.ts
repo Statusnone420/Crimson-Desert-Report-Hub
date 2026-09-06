@@ -8,6 +8,7 @@ export type EditorialSource = {
   allowSubdomains: boolean;
   enabled: boolean;
   verifiedChannelId: string | null;
+  verifiedVideoIds?: readonly string[];
   canonicalHandleUrl?: string;
   rssUrl?: string;
 };
@@ -40,6 +41,9 @@ export const EDITORIAL_SOURCES = [
     allowSubdomains: false,
     enabled: true,
     verifiedChannelId: "UCFXUSG_393wZJaRTErU6Pjw",
+    // Ownership confirmed from this channel's upload feed on September 5, 2026.
+    // Candidate-supplied channel IDs cannot add videos to this reviewed list.
+    verifiedVideoIds: ["6H6c0S80d4U"],
     canonicalHandleUrl: "https://www.youtube.com/@Khrazegaming",
     rssUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCFXUSG_393wZJaRTErU6Pjw",
   },

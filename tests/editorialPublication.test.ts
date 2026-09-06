@@ -91,11 +91,11 @@ describe("editorial publication contract", () => {
     expect(validateEditorialPublication(candidate({
       sourceId: "khraze-gaming",
       type: "video",
-      url: "https://www.youtube.com/watch?v=khraze12345&feature=share",
+      url: "https://www.youtube.com/watch?v=6H6c0S80d4U&feature=share",
       creatorChannelId: "UCFXUSG_393wZJaRTErU6Pjw",
     }), { now })).toMatchObject({
       ok: true,
-      publication: { sourceId: "khraze-gaming", type: "video", url: "https://www.youtube.com/watch?v=khraze12345" },
+      publication: { sourceId: "khraze-gaming", type: "video", url: "https://www.youtube.com/watch?v=6H6c0S80d4U" },
     });
     expect(validateEditorialPublication(candidate({
       sourceId: "khraze-gaming",
@@ -108,6 +108,15 @@ describe("editorial publication contract", () => {
       url: "https://www.youtube.com/watch?v=short",
       creatorChannelId: "UCFXUSG_393wZJaRTErU6Pjw",
     }), { now })).toEqual({ ok: false, reason: "invalid_url" });
+  });
+
+  it("rejects a substituted video even when the candidate claims the verified channel", () => {
+    expect(validateEditorialPublication(candidate({
+      sourceId: "khraze-gaming",
+      type: "video",
+      url: "https://www.youtube.com/watch?v=abcdefghijk",
+      creatorChannelId: "UCFXUSG_393wZJaRTErU6Pjw",
+    }), { now })).toEqual({ ok: false, reason: "unverified_creator_video" });
   });
 
   it("rejects unsafe URLs, invented dates, raw excerpts, boilerplate, and canonical duplicates", () => {
