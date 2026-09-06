@@ -61,6 +61,9 @@ jobs:
       - name: Empty and unavailable public states
         run: npm run test:e2e:n0
 
+      - name: Turnstile theme integration with vendor stub
+        run: npm run test:e2e:turnstile
+
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v6

@@ -2,20 +2,12 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useSyncExternalStore } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { DeskDate } from "./DeskDate";
-
-const subscribeTheme = (callback: () => void) => {
-  window.addEventListener("newspaper-theme", callback);
-  window.addEventListener("storage", callback);
-  return () => { window.removeEventListener("newspaper-theme", callback); window.removeEventListener("storage", callback); };
-};
-const themeSnapshot = () => document.documentElement.dataset.theme || "light";
-const serverTheme = () => "light";
+import { useNewspaperTheme } from "./useNewspaperTheme";
 
 export function ThemeToggle() {
-  const theme = useSyncExternalStore(subscribeTheme, themeSnapshot, serverTheme);
+  const theme = useNewspaperTheme();
   function toggle() {
     const next = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
