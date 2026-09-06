@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("@/components/dispatch/Chrome", () => ({ OperatorShell: () => null }));
 vi.mock("@/lib/adminGuard", () => ({ requireAdmin: vi.fn() }));
@@ -11,9 +13,23 @@ vi.mock("@/lib/queries", () => ({ getAutomationAdminData: vi.fn(), getPublicScan
 vi.mock("@/lib/radar.server", () => ({ getPatchRadarData: vi.fn() }));
 
 import { safeRunSummary } from "@/lib/operatorOverview";
-import { runStatusLabel, scannerSummary } from "@/components/newspaper/OperatorOverview";
+import { OperatorOverview, runStatusLabel, scannerSummary } from "@/components/newspaper/OperatorOverview";
 
 describe("operator overview run and scanner labels", () => {
+  it("shows AI unavailability even when the scan has no recorded failures", () => {
+    const markup = renderToStaticMarkup(createElement(OperatorOverview, { data: {
+      operatorReadAvailable: true,
+      scannerReadAvailable: true,
+      scannerReadFailures: [],
+      scannerFailedRuns: 0,
+      collection: { status: "ok", attentionCount: 0, lanes: [] },
+      runs: [],
+      aiHealth: { state: "unavailable", code: "openrouter_no_route", message: "No AI provider matches the selected route and price limit.", lastSuccessAt: null },
+    } }));
+    expect(markup).not.toContain("Running quietly.");
+    expect(markup).toContain("No AI provider matches the selected route and price limit.");
+    expect(markup).toContain("Review AI settings");
+  });
   it("preserves known skipped and running run statuses without exposing errors", () => {
     expect(safeRunSummary({
       started_at: "2026-09-05T12:00:00.000Z",

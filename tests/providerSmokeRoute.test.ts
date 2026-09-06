@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   isVercelPreview: vi.fn(),
   resolveAutomationOpenRouterModel: vi.fn(),
   automationModelSettings: vi.fn(),
+  getAutomationControlState: vi.fn(),
   readOpenRouterKeyBudget: vi.fn(),
   extractSignalWithOpenRouter: vi.fn(),
 }));
@@ -12,15 +13,19 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/adminGuard", () => ({ isAdmin: mocks.isAdmin }));
 vi.mock("@/lib/previewGuard", () => ({ isVercelPreview: mocks.isVercelPreview }));
-vi.mock("@/lib/automation/budget", () => ({
-  MAX_MONTHLY_LLM_USD_CAP: 2,
-  resolveAutomationOpenRouterModel: mocks.resolveAutomationOpenRouterModel,
-  automationModelSettings: mocks.automationModelSettings,
-  readOpenRouterKeyBudget: mocks.readOpenRouterKeyBudget,
-}));
+vi.mock("@/lib/automation/budget", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/budget")>();
+  return {
+    ...actual,
+    resolveAutomationOpenRouterModel: mocks.resolveAutomationOpenRouterModel,
+    automationModelSettings: mocks.automationModelSettings,
+    readOpenRouterKeyBudget: mocks.readOpenRouterKeyBudget,
+  };
+});
 vi.mock("@/lib/automation/extract", () => ({
   extractSignalWithOpenRouter: mocks.extractSignalWithOpenRouter,
 }));
+vi.mock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
 
 import { POST } from "@/app/api/admin/scan/provider-smoke/route";
 
@@ -30,11 +35,20 @@ beforeEach(() => {
   mocks.isVercelPreview.mockReset().mockReturnValue(true);
   mocks.resolveAutomationOpenRouterModel.mockReset().mockReturnValue("openai/gpt-5.6-luna");
   mocks.automationModelSettings.mockReset().mockReturnValue({ provider: { only: ["OpenAI"] } });
+  mocks.getAutomationControlState.mockReset().mockResolvedValue({
+    paused: false,
+    minIntervalMinutes: 60,
+    scheduledSearchCreditsPerRun: 1,
+    monthlyTavilyCreditCap: 900,
+    monthlyLlmUsdCap: 1,
+    modelPreset: "gpt_5_6_luna",
+    updatedAt: null,
+  });
   mocks.readOpenRouterKeyBudget.mockReset().mockResolvedValue({
-    limitUsd: 2,
-    limitRemainingUsd: 1.5,
+    limitUsd: 1,
+    limitRemainingUsd: 0.75,
     limitReset: "monthly",
-    usageMonthlyUsd: 0.5,
+    usageMonthlyUsd: 0.25,
   });
   mocks.extractSignalWithOpenRouter.mockReset().mockResolvedValue({
     extractionProvider: "openrouter",
@@ -89,12 +103,25 @@ describe("POST /api/admin/scan/provider-smoke", () => {
     expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["daily", { limitUsd: 1, limitRemainingUsd: 1, limitReset: "daily", usageMonthlyUsd: 0 }],
+    ["unreadable", null],
+  ])("refuses a %s key limit before generation", async (_label, keyBudget) => {
+    mocks.readOpenRouterKeyBudget.mockResolvedValue(keyBudget);
+
+    const response = await POST();
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "provider_smoke_budget_unverified" });
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+  });
+
   it("refuses generation when the aggregate provider budget has less than one request ceiling left", async () => {
     mocks.readOpenRouterKeyBudget.mockResolvedValue({
-      limitUsd: 2,
+      limitUsd: 1,
       limitRemainingUsd: 0.004,
       limitReset: "monthly",
-      usageMonthlyUsd: 1.996,
+      usageMonthlyUsd: 0.996,
     });
 
     const response = await POST();
@@ -120,11 +147,15 @@ describe("POST /api/admin/scan/provider-smoke", () => {
     await expect(response.json()).resolves.toEqual({
       ok: true,
       model: "openai/gpt-5.6-luna",
+      modelPreset: "gpt_5_6_luna",
       providerRoute: "OpenAI",
       llmCallsUsed: 1,
       llmCostUsd: 0.00042,
     });
     expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledOnce();
+    expect(mocks.getAutomationControlState).toHaveBeenCalledOnce();
+    expect(mocks.resolveAutomationOpenRouterModel).toHaveBeenCalledWith(undefined, "gpt_5_6_luna");
+    expect(mocks.automationModelSettings).toHaveBeenCalledWith("openai/gpt-5.6-luna", "gpt_5_6_luna");
     expect(mocks.readOpenRouterKeyBudget).toHaveBeenCalledWith(expect.any(String));
     expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
       {
@@ -132,7 +163,12 @@ describe("POST /api/admin/scan/provider-smoke", () => {
         snippet: "A synthetic PC report describes repeat frame-rate drops in a crowded city area.",
         url: "https://example.invalid/provider-route-smoke",
       },
-      { llmCallsRemaining: 1, llmBudgetRemainingUsd: 0.005 },
+      expect.objectContaining({
+        modelPreset: "gpt_5_6_luna",
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 0.005,
+        llmDeadlineAtMs: expect.any(Number),
+      }),
     );
   });
 
@@ -152,6 +188,7 @@ describe("POST /api/admin/scan/provider-smoke", () => {
       ok: false,
       error: "provider_smoke_failed",
       model: "openai/gpt-5.6-luna",
+      modelPreset: "gpt_5_6_luna",
       providerRoute: "OpenAI",
       llmCallsUsed: 1,
       llmCostUsd: 0,

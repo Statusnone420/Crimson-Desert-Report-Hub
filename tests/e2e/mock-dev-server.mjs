@@ -1575,6 +1575,23 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/rest/v1/automation_settings" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    if (rows.some((row) => !row || typeof row.key !== "string" || !Object.hasOwn(row, "value"))) {
+      sendJson(res, req.method, 400, { message: "settings require a key and value" });
+      return;
+    }
+    for (const row of rows) {
+      const existing = automationSettings.find((setting) => setting.key === row.key);
+      if (existing) Object.assign(existing, row);
+      else automationSettings.push({ ...row });
+    }
+    sendJson(res, req.method, 201, rows);
+    return;
+  }
+
   if (url.pathname === "/rest/v1/official_patch_notes" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(officialPatchNotes, url));
     return;

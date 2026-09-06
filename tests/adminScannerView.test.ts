@@ -57,7 +57,7 @@ const healthyScoreboard = {
 } satisfies PublicScannerData;
 
 describe("AdminScannerView", () => {
-  it("keeps the owner-approved two-dollar LLM cap inside native form validation", () => {
+  it("keeps the one-dollar AI limit and saved model choices inside the private form", () => {
     const view = AdminScannerView({
       runs: [],
       signals: [],
@@ -87,7 +87,10 @@ describe("AdminScannerView", () => {
 
     const input = findInput(view, "monthlyLlmUsdCap");
     expect(input?.props.min).toBe("0");
-    expect(input?.props.max).toBe("2");
+    expect(input?.props.max).toBe("1");
+    const model = findInput(view, "modelPreset");
+    expect(model?.type).toBe("select");
+    expect(renderToStaticMarkup(view)).toContain("gpt_5_6_luna_flex");
   });
 
   it("freezes teaching-desk relative times at the server-captured instant", () => {

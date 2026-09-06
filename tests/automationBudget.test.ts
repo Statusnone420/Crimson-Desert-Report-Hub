@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   APPROVED_AUTOMATION_MODELS,
   AUTOMATION_TASK_SETTINGS,
   automationModelSettings,
   computeAutomationBudget,
   countRemainingRunsThisMonth,
+  evaluateOpenRouterKeyBudget,
   isOpenRouterRoutingRefusal,
   maxOpenRouterRequestCostUsd,
   OPENROUTER_AUTOMATION_MODEL,
@@ -12,10 +13,12 @@ import {
   OPENROUTER_AUTOMATION_PROVIDER_ROUTING,
   readOpenRouterKeyBudget,
   resolveAutomationOpenRouterModel,
+  SCANNER_MODEL_PRESETS,
+  type OpenRouterKeyBudget,
 } from "@/lib/automation/budget";
 
 describe("automation budget", () => {
-  it("caps the persisted LLM policy at the owner-approved two dollars", () => {
+  it("caps the persisted LLM policy at the owner-approved dollar", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 0,
       spentMonthToDateUsd: 0,
@@ -28,8 +31,8 @@ describe("automation budget", () => {
       },
     });
 
-    expect(budget.monthlyLlmUsdCap).toBe(2);
-    expect(budget.remainingLlmUsd).toBe(2);
+    expect(budget.monthlyLlmUsdCap).toBe(1);
+    expect(budget.remainingLlmUsd).toBe(1);
     expect(budget.maxLlmCalls).toBe(4);
     expect(budget.skipReasons).not.toContain("llm_budget_capped");
   });
@@ -61,6 +64,7 @@ describe("automation budget", () => {
     expect(budget.maxTavilyCreditsPerRun).toBe(2);
     expect(budget.maxLlmCalls).toBe(4);
     expect(budget.estimatedRunAllowanceUsd).toBeGreaterThan(0);
+    expect(budget.monthlyLlmUsdCap).toBe(0.5);
   });
 
   it("honors the scanner policy search credits per scheduled run", () => {
@@ -181,11 +185,12 @@ describe("automation budget", () => {
     expect(budget.skipReasons).not.toContain("budget_capped");
   });
 
-  it("stops paid model calls after the two-dollar monthly cap", () => {
+  it("stops paid model calls after the one-dollar monthly cap", () => {
     const budget = computeAutomationBudget({
       monthlyBudgetUsd: 5,
       spentMonthToDateUsd: 0,
-      llmSpentMonthToDateUsd: 2,
+      llmSpentMonthToDateUsd: 1,
+      scannerPolicy: { monthlyLlmUsdCap: 1 },
       mode: "scheduled",
       now: new Date("2026-07-20T12:00:00Z"),
     });
@@ -217,8 +222,8 @@ describe("automation budget", () => {
   it("pins Luna to first-party OpenAI with no provider fallback or request ZDR", () => {
     expect(automationModelSettings(OPENROUTER_AUTOMATION_MODEL).outputTokenParameter).toBe("max_tokens");
     expect(OPENROUTER_AUTOMATION_PROVIDER_ROUTING.max_price).toEqual({
-      prompt: 0.15,
-      completion: 0.9,
+      prompt: 0.2,
+      completion: 1.2,
       request: 0,
       image: 0,
     });
@@ -240,12 +245,36 @@ describe("automation budget", () => {
     });
   });
 
+  it("keeps Flex explicit and resolves saved presets before environment routing", () => {
+    expect(SCANNER_MODEL_PRESETS.map(({ id }) => id)).toEqual([
+      "gpt_5_6_luna", "gpt_5_6_luna_flex", "deepseek_v4_flash",
+    ]);
+    expect(resolveAutomationOpenRouterModel(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL, "gpt_5_6_luna_flex"))
+      .toBe(OPENROUTER_AUTOMATION_MODEL);
+    expect(resolveAutomationOpenRouterModel(OPENROUTER_AUTOMATION_MODEL, "deepseek_v4_flash"))
+      .toBe(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL);
+    const flex = automationModelSettings(OPENROUTER_AUTOMATION_MODEL, "gpt_5_6_luna_flex");
+    expect(flex).toMatchObject({
+      serviceTier: "flex",
+      provider: {
+        only: ["OpenAI"], allow_fallbacks: false, data_collection: "allow", require_parameters: true,
+        max_price: { prompt: 0.1, completion: 0.6, request: 0, image: 0 },
+      },
+    });
+    expect(automationModelSettings(OPENROUTER_AUTOMATION_MODEL)).not.toHaveProperty("serviceTier");
+    expect(() => automationModelSettings(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL, "gpt_5_6_luna_flex"))
+      .toThrow(/do not match/);
+    const standard = maxOpenRouterRequestCostUsd("same prompt", 3_200);
+    const flexCost = maxOpenRouterRequestCostUsd("same prompt", 3_200, OPENROUTER_AUTOMATION_MODEL, "gpt_5_6_luna_flex");
+    expect(flexCost).toBeCloseTo(standard / 2);
+  });
+
   it("reserves full high-reasoning completion allowances at each model's price ceiling", () => {
     expect(AUTOMATION_TASK_SETTINGS).toEqual({
       extraction: { maxCompletionTokens: 3_200 },
       claim_mapping: { maxCompletionTokens: 2_048 },
     });
-    expect(maxOpenRouterRequestCostUsd("", AUTOMATION_TASK_SETTINGS.extraction.maxCompletionTokens)).toBeCloseTo(0.00288);
+    expect(maxOpenRouterRequestCostUsd("", AUTOMATION_TASK_SETTINGS.extraction.maxCompletionTokens)).toBeCloseTo(0.00384);
     expect(
       maxOpenRouterRequestCostUsd(
         "",
@@ -256,6 +285,93 @@ describe("automation budget", () => {
   });
 
   describe("OpenRouter key budget", () => {
+    const safeKey: OpenRouterKeyBudget = {
+      limitUsd: 1,
+      limitRemainingUsd: 0.75,
+      limitReset: "monthly",
+      usageMonthlyUsd: 0.25,
+    };
+    const localBudget = { monthlyLlmUsdCap: 0.5, remainingLlmUsd: 0.4 };
+
+    it("uses the smallest local, aggregate monthly, and key allowance", () => {
+      expect(evaluateOpenRouterKeyBudget(safeKey, localBudget)).toEqual({ remainingLlmUsd: 0.25, skipReason: null });
+      expect(evaluateOpenRouterKeyBudget({ ...safeKey, limitRemainingUsd: 0.1 }, localBudget))
+        .toEqual({ remainingLlmUsd: 0.1, skipReason: null });
+      expect(evaluateOpenRouterKeyBudget(safeKey, { ...localBudget, remainingLlmUsd: 0.04 }))
+        .toEqual({ remainingLlmUsd: 0.04, skipReason: null });
+      expect(evaluateOpenRouterKeyBudget({ ...safeKey, limitReset: null, limitRemainingUsd: 0.05 }, localBudget))
+        .toEqual({ remainingLlmUsd: 0.05, skipReason: null });
+    });
+
+    it.each([
+      { ...safeKey, limitUsd: null, limitRemainingUsd: null },
+      { ...safeKey, limitUsd: 2 },
+      { ...safeKey, limitReset: "daily" as const },
+      { ...safeKey, limitReset: "weekly" as const },
+    ])("rejects a key without the required aggregate ceiling: %j", (snapshot) => {
+      expect(evaluateOpenRouterKeyBudget(snapshot, localBudget))
+        .toEqual({ remainingLlmUsd: 0, skipReason: "openrouter_key_limit_unsafe" });
+    });
+
+    it.each([
+      null,
+      { ...safeKey, limitRemainingUsd: null },
+      { ...safeKey, limitRemainingUsd: Number.POSITIVE_INFINITY },
+      { ...safeKey, usageMonthlyUsd: Number.NaN },
+      { ...safeKey, usageMonthlyUsd: -1 },
+      { ...safeKey, limitUsd: Number.NaN },
+      { ...safeKey, limitRemainingUsd: 1.1 },
+    ])("fails closed for unreadable or inconsistent key counters: %j", (snapshot) => {
+      expect(evaluateOpenRouterKeyBudget(snapshot, localBudget))
+        .toEqual({ remainingLlmUsd: 0, skipReason: "openrouter_key_budget_unverified" });
+    });
+
+    it("stops when any valid spending allowance is exhausted", () => {
+      for (const snapshot of [
+        { ...safeKey, limitRemainingUsd: 0 },
+        { ...safeKey, usageMonthlyUsd: 0.5 },
+        { ...safeKey, limitUsd: 0, limitRemainingUsd: 0 },
+      ]) {
+        expect(evaluateOpenRouterKeyBudget(snapshot, localBudget))
+          .toEqual({ remainingLlmUsd: 0, skipReason: "llm_budget_capped" });
+      }
+      expect(evaluateOpenRouterKeyBudget(safeKey, { ...localBudget, remainingLlmUsd: 0 }))
+        .toEqual({ remainingLlmUsd: 0, skipReason: "llm_budget_capped" });
+      expect(evaluateOpenRouterKeyBudget(safeKey, { ...localBudget, remainingLlmUsd: Number.NaN }))
+        .toEqual({ remainingLlmUsd: 0, skipReason: "openrouter_key_budget_unverified" });
+    });
+
+    it("bounds a fetch that ignores cancellation to two seconds", async () => {
+      vi.useFakeTimers();
+      try {
+        let signal: AbortSignal | undefined;
+        const reading = readOpenRouterKeyBudget("test-key", async (_url, init) => {
+          signal = init.signal;
+          return new Promise(() => {});
+        });
+        await vi.advanceTimersByTimeAsync(2_000);
+        await expect(reading).resolves.toBeNull();
+        expect(signal?.aborted).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("also bounds a stalled JSON body", async () => {
+      vi.useFakeTimers();
+      try {
+        const reading = readOpenRouterKeyBudget("test-key", async () => ({
+          ok: true, status: 200, json: () => new Promise(() => {}),
+        }));
+        await vi.advanceTimersByTimeAsync(2_000);
+        await expect(reading).resolves.toBeNull();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("reads the provider-enforced monthly limit and actual key usage", async () => {
       const budget = await readOpenRouterKeyBudget("test-key", async () => ({
         ok: true,

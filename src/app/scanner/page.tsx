@@ -7,6 +7,7 @@ import { applyLlmCircuitToStatuses, integrationStatuses } from "@/lib/env";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getAutomationAdminData, getPublicScannerData } from "@/lib/queries";
 import { routeMetadata } from "@/lib/site";
+import { getScannerAiHealth } from "@/lib/automation/health.server";
 
 export async function generateMetadata(_props: object, parent: ResolvingMetadata) {
   const metadata = await routeMetadata(
@@ -30,6 +31,7 @@ export default async function ScannerPage() {
   const integrations = applyLlmCircuitToStatuses(integrationStatuses(), scoreboard.llmPaused);
 
   const adminData = await getAutomationAdminData();
+  const aiHealth = await getScannerAiHealth(adminData.control);
   const nowIso = new Date().toISOString();
   return (
     <OperatorShell active="scanner">
@@ -51,6 +53,7 @@ export default async function ScannerPage() {
           radar={radar}
           integrations={integrations}
           nowIso={nowIso}
+          aiHealth={aiHealth}
         />
       </div>
     </OperatorShell>

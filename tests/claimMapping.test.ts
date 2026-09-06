@@ -136,7 +136,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       data_collection: "allow",
       only: ["OpenAI"],
       allow_fallbacks: false,
-      max_price: { prompt: 0.15, completion: 0.9, request: 0, image: 0 },
+      max_price: { prompt: 0.2, completion: 1.2, request: 0, image: 0 },
     });
     expect(requestedReasoning).toEqual({ effort: "high", exclude: true });
     expect(requestedMaxTokens).toBe(2048);

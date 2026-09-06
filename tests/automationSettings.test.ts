@@ -58,19 +58,22 @@ function fakeSupabase(rows: Row[]): AutomationSettingsClient {
 }
 
 describe("automation scanner settings", () => {
-  it("caps defaults, stored policy, and form input at two dollars", async () => {
+  it("defaults to fifty cents and caps stored policy and form input at one dollar", async () => {
     const { getAutomationControlState, scannerPolicyFromFormData } = await import("@/lib/automation/settings");
     const formData = new FormData();
     formData.set("monthlyLlmUsdCap", "5");
 
-    await expect(getAutomationControlState(fakeSupabase([]))).resolves.toMatchObject({ monthlyLlmUsdCap: 2 });
+    await expect(getAutomationControlState(fakeSupabase([]))).resolves.toMatchObject({ monthlyLlmUsdCap: 0.5 });
     await expect(
       getAutomationControlState(fakeSupabase([{ key: "scanner", value: { monthlyLlmUsdCap: 5 } }])),
-    ).resolves.toMatchObject({ monthlyLlmUsdCap: 2 });
-    expect(scannerPolicyFromFormData(formData)).toMatchObject({ monthlyLlmUsdCap: 2 });
+    ).resolves.toMatchObject({ monthlyLlmUsdCap: 1 });
+    expect(scannerPolicyFromFormData(formData)).toMatchObject({ monthlyLlmUsdCap: 1 });
+    await expect(
+      getAutomationControlState(fakeSupabase([{ key: "scanner", value: { monthlyLlmUsdCap: 2 } }])),
+    ).resolves.toMatchObject({ monthlyLlmUsdCap: 1 });
   });
 
-  it("normalizes legacy and unknown routes to the single approved Luna preset", async () => {
+  it("preserves approved saved routes and defaults unknown routes to standard Luna", async () => {
     const { getAutomationControlState } = await import("@/lib/automation/settings");
 
     await expect(
@@ -79,7 +82,10 @@ describe("automation scanner settings", () => {
 
     await expect(
       getAutomationControlState(fakeSupabase([{ key: "scanner", value: { modelPreset: "deepseek_v4_flash" } }])),
-    ).resolves.toMatchObject({ modelPreset: "gpt_5_6_luna" });
+    ).resolves.toMatchObject({ modelPreset: "deepseek_v4_flash" });
+    await expect(
+      getAutomationControlState(fakeSupabase([{ key: "scanner", value: { modelPreset: "gpt_5_6_luna_flex" } }])),
+    ).resolves.toMatchObject({ modelPreset: "gpt_5_6_luna_flex" });
   });
 
   it("defaults to the safe scanner policy when no scanner setting exists", async () => {
@@ -90,7 +96,7 @@ describe("automation scanner settings", () => {
       minIntervalMinutes: 60,
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
-      monthlyLlmUsdCap: 2,
+      monthlyLlmUsdCap: 0.5,
       modelPreset: "gpt_5_6_luna",
       updatedAt: null,
     });
@@ -108,7 +114,7 @@ describe("automation scanner settings", () => {
       minIntervalMinutes: 60,
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
-      monthlyLlmUsdCap: 2,
+      monthlyLlmUsdCap: 0.5,
       modelPreset: "gpt_5_6_luna",
       updatedAt: "2026-07-06T12:00:00.000Z",
     });
@@ -138,7 +144,7 @@ describe("automation scanner settings", () => {
       minIntervalMinutes: 60,
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 1000,
-      monthlyLlmUsdCap: 2,
+      monthlyLlmUsdCap: 1,
       modelPreset: "gpt_5_6_luna",
     });
   });
@@ -181,8 +187,8 @@ describe("automation scanner settings", () => {
         minIntervalMinutes: 120,
         scheduledSearchCreditsPerRun: 3,
         monthlyTavilyCreditCap: 100,
-        monthlyLlmUsdCap: 2,
-        modelPreset: "gpt_5_6_luna",
+        monthlyLlmUsdCap: 1,
+        modelPreset: "deepseek_v4_flash",
       },
     });
     await expect(getAutomationControlState(supabase)).resolves.toMatchObject({ paused: true });
@@ -203,8 +209,8 @@ describe("automation scanner settings", () => {
       minIntervalMinutes: 360,
       scheduledSearchCreditsPerRun: 2,
       monthlyTavilyCreditCap: 900,
-      monthlyLlmUsdCap: 2,
-      modelPreset: "gpt_5_6_luna",
+      monthlyLlmUsdCap: 1,
+      modelPreset: "deepseek_v4_flash",
     });
 
     formData.set("cadence", "120");

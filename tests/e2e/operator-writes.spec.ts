@@ -54,6 +54,103 @@ test.describe("operator write paths", () => {
     expect(reset.ok(), "fixture reset failed — later tests would inherit this test's writes").toBe(true);
   });
 
+  test("private AI settings persist Flex and a fifty-cent budget within the one-dollar ceiling", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+    await page.goto("/scanner");
+    const settings = page.locator("details.operator-disclosure").filter({ has: page.getByLabel("AI model", { exact: true }) });
+    await settings.locator(":scope > summary").click();
+    const model = settings.getByLabel("AI model", { exact: true });
+    const budget = settings.getByLabel("Monthly AI budget ($)", { exact: true });
+    const originalModel = await model.inputValue();
+    const originalBudget = await budget.inputValue();
+    await expect(budget).toHaveAttribute("max", "1");
+    await budget.fill("1.25");
+    expect(await budget.evaluate((input: HTMLInputElement) => input.validity.rangeOverflow)).toBe(true);
+
+    // Establish a different saved budget so the next assertion proves a change,
+    // rather than merely observing the default fifty-cent setting.
+    await budget.fill("1");
+    await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
+    // Response headers precede React's form reset. Finish that submission before
+    // changing fields, or the reset can erase the next model selection.
+    await expect(settings.getByRole("button", { name: "Save settings" })).toBeEnabled();
+    await model.selectOption("gpt_5_6_luna_flex");
+    await budget.fill("0.5");
+    await expect(model).toHaveValue("gpt_5_6_luna_flex");
+    await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
+    await expect(settings.getByRole("button", { name: "Save settings" })).toBeEnabled();
+
+    await page.reload();
+    await settings.locator(":scope > summary").click();
+    await expect(model).toHaveValue("gpt_5_6_luna_flex");
+    await expect(budget).toHaveValue("0.5");
+    const saved = await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings?key=eq.scanner`);
+    expect(saved.ok()).toBe(true);
+    expect((await saved.json())[0].value).toMatchObject({ modelPreset: "gpt_5_6_luna_flex", monthlyLlmUsdCap: 0.5 });
+
+    await model.selectOption(originalModel);
+    await budget.fill(originalBudget);
+    await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
+    await expect(settings.getByRole("button", { name: "Save settings" })).toBeEnabled();
+    await page.reload();
+    await settings.locator(":scope > summary").click();
+    await expect(model).toHaveValue(originalModel);
+    await expect(budget).toHaveValue(originalBudget);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("a completed scan with no AI route requires attention on both private pages", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const seed = await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?order=started_at.desc&limit=1`);
+    expect(seed.ok()).toBe(true);
+    const previous = (await seed.json())[0];
+    const startedAt = new Date(Date.parse(previous.started_at) + 1000).toISOString();
+    const inserted = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: {
+        ...previous,
+        id: "00000000-0000-4000-8000-000000000089",
+        started_at: startedAt,
+        finished_at: startedAt,
+        status: "success",
+        mode: "scheduled",
+        llm_calls_used: 1,
+        skips: ["openrouter_no_route"],
+        errors: [],
+        funnel: { ...previous.funnel, llmCalls: 1 },
+        progress: { ...previous.progress, llmSucceeded: 0 },
+      },
+    });
+    expect(inserted.ok()).toBe(true);
+    expect((await inserted.json())[0]).toMatchObject({ status: "success", skips: ["openrouter_no_route"] });
+    await signInAsAdmin(page);
+
+    await page.goto("/scanner");
+    const scannerStatus = page.getByText("● AI UNAVAILABLE", { exact: true });
+    await expect(scannerStatus).toBeVisible();
+    await expect(scannerStatus).toHaveClass("is-amber");
+    await expect(page.getByText("Nothing requires intervention.", { exact: true })).toHaveCount(0);
+
+    await page.goto("/operator");
+    await expect(page.getByRole("heading", { name: "Running quietly.", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "A few things need a look.", exact: true })).toBeVisible();
+    const aiService = page.locator(".op-service").filter({ has: page.getByRole("heading", { name: "AI processing", exact: true }) });
+    await expect(aiService).toContainText("No AI provider matches the selected route and price limit.");
+    await expect(aiService.locator(".op-status")).toHaveText("Unavailable");
+    await expect(aiService.locator(".op-status")).toHaveClass(/op-caution/);
+    await expectHealthyPage(page, problems);
+
+    // Reset the injected run before invalidating the app's tagged scanner reads.
+    // A fixture reset alone cannot clear data cached while these pages rendered.
+    const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
+    expect(reset.ok()).toBe(true);
+    await page.goto("/scanner");
+    const settings = page.locator("details.operator-disclosure").filter({ has: page.getByLabel("AI model", { exact: true }) });
+    await settings.locator(":scope > summary").click();
+    await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
+    await expect(page.getByText("● AI UNAVAILABLE", { exact: true })).toHaveCount(0);
+  });
+
   test("rejecting an archived ask and Undo preserve learning without publishing a headline", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);

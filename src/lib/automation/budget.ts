@@ -15,6 +15,8 @@ export type BudgetInput = {
 };
 
 export type AutomationBudget = {
+  modelPreset?: ScannerModelPreset;
+  llmDeadlineAtMs?: number;
   monthlyBudgetUsd: number;
   remainingMonthUsd: number;
   remainingRuns: number;
@@ -35,12 +37,31 @@ export type AutomationBudget = {
 const DEFAULT_MIN_INTERVAL_MINUTES = 60;
 const DEFAULT_MONTHLY_TAVILY_CREDIT_CAP = 1000;
 const MAX_MONTHLY_TAVILY_CREDIT_CAP = 1000;
-export const MAX_MONTHLY_LLM_USD_CAP = 2;
+export const MAX_MONTHLY_LLM_USD_CAP = 1;
+export const DEFAULT_MONTHLY_LLM_USD_CAP = 0.5;
 const SEARCH_QUERY_COST_USD = 0.008;
 const SCHEDULED_RECON_CREDIT_RESERVE = 1;
 const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
 export const OPENROUTER_AUTOMATION_MODEL = "openai/gpt-5.6-luna";
 export const OPENROUTER_DEEPSEEK_ROLLBACK_MODEL = "deepseek/deepseek-v4-flash";
+
+export const SCANNER_MODEL_PRESETS = [
+  { id: "gpt_5_6_luna", label: "GPT-5.6 Luna · Standard", model: OPENROUTER_AUTOMATION_MODEL },
+  { id: "gpt_5_6_luna_flex", label: "GPT-5.6 Luna · Flex", model: OPENROUTER_AUTOMATION_MODEL, serviceTier: "flex" },
+  { id: "deepseek_v4_flash", label: "DeepSeek V4 Flash · Manual rollback", model: OPENROUTER_DEEPSEEK_ROLLBACK_MODEL },
+] as const;
+
+export type ScannerModelPreset = (typeof SCANNER_MODEL_PRESETS)[number]["id"];
+
+export function normalizeScannerModelPreset(value: unknown): ScannerModelPreset {
+  return SCANNER_MODEL_PRESETS.find(({ id }) => id === value)?.id ?? "gpt_5_6_luna";
+}
+
+function scannerModelPreset(preset: ScannerModelPreset) {
+  const selected = SCANNER_MODEL_PRESETS.find(({ id }) => id === preset);
+  if (!selected) throw new Error("Unknown scanner model preset");
+  return selected;
+}
 
 export type AutomationTask = "extraction" | "claim_mapping";
 
@@ -62,6 +83,7 @@ type AutomationModelSettings = {
   outputTokenParameter: "max_tokens" | "max_completion_tokens";
   /** Sampling is model-specific; high-reasoning Luna does not accept temperature. */
   temperature?: 0;
+  serviceTier?: "flex";
 };
 
 /**
@@ -100,10 +122,12 @@ const OPENROUTER_LUNA_PROVIDER_ROUTING = {
   // fails closed rather than silently sending scanner text to another host.
   only: ["OpenAI"],
   allow_fallbacks: false,
-  // Luna's promotional list price is $0.10/$0.60 per million input/output
-  // tokens. These finite ceilings leave a modest operational margin but reject
-  // a post-promotion price before it can increase the scanner's spend.
-  max_price: { prompt: 0.15, completion: 0.9, request: 0, image: 0 },
+  max_price: { prompt: 0.2, completion: 1.2, request: 0, image: 0 },
+} as const;
+
+const OPENROUTER_LUNA_FLEX_PROVIDER_ROUTING = {
+  ...OPENROUTER_LUNA_PROVIDER_ROUTING,
+  max_price: { prompt: 0.1, completion: 0.6, request: 0, image: 0 },
 } as const;
 
 /** The explicit manual rollback retains the previous ZDR routing posture. */
@@ -149,7 +173,8 @@ export function rejectPaidOpenRouterModel(model: string): string {
   return model;
 }
 
-export function resolveAutomationOpenRouterModel(model: string | undefined): string {
+export function resolveAutomationOpenRouterModel(model: string | undefined, modelPreset?: ScannerModelPreset): string {
+  if (modelPreset !== undefined) return scannerModelPreset(modelPreset).model;
   const resolved = model?.trim() || OPENROUTER_AUTOMATION_MODEL;
   if (!(APPROVED_AUTOMATION_MODELS as readonly string[]).includes(resolved)) {
     throw new Error(`Automation model must be one of: ${APPROVED_AUTOMATION_MODELS.join(", ")}`);
@@ -157,9 +182,15 @@ export function resolveAutomationOpenRouterModel(model: string | undefined): str
   return resolved;
 }
 
-export function automationModelSettings(model: string): AutomationModelSettings {
+export function automationModelSettings(model: string, modelPreset?: ScannerModelPreset): AutomationModelSettings {
+  if (modelPreset !== undefined && scannerModelPreset(modelPreset).model !== model) {
+    throw new Error("Scanner model preset and model do not match");
+  }
   const settings = (AUTOMATION_MODEL_SETTINGS as Record<string, AutomationModelSettings | undefined>)[model];
   if (!settings) throw new Error(`Automation model must be one of: ${APPROVED_AUTOMATION_MODELS.join(", ")}`);
+  if (modelPreset === "gpt_5_6_luna_flex") {
+    return { ...settings, provider: OPENROUTER_LUNA_FLEX_PROVIDER_ROUTING, serviceTier: "flex" };
+  }
   return settings;
 }
 
@@ -191,8 +222,9 @@ export function maxOpenRouterRequestCostUsd(
   prompt: string,
   maxCompletionTokens: number,
   model = OPENROUTER_AUTOMATION_MODEL,
+  modelPreset?: ScannerModelPreset,
 ): number {
-  const { provider } = automationModelSettings(model);
+  const { provider } = automationModelSettings(model, modelPreset);
   const inputTokenCeiling = new TextEncoder().encode(prompt).byteLength;
   return (
     inputTokenCeiling * provider.max_price.prompt +
@@ -223,10 +255,52 @@ export type OpenRouterKeyBudget = {
 
 type OpenRouterKeyBudgetFetcher = (
   url: string,
-  init: { method: "GET"; headers: Record<string, string> },
+  init: { method: "GET"; headers: Record<string, string>; signal?: AbortSignal },
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
 
 const OPENROUTER_CURRENT_KEY_URL = "https://openrouter.ai/api/v1/key";
+const OPENROUTER_KEY_BUDGET_TIMEOUT_MS = 2_000;
+
+export type OpenRouterKeyBudgetGate = {
+  remainingLlmUsd: number;
+  skipReason: "openrouter_key_budget_unverified" | "openrouter_key_limit_unsafe" | "llm_budget_capped" | null;
+};
+
+/** The provider's aggregate key limit also covers concurrent scanner paths. */
+export function evaluateOpenRouterKeyBudget(
+  snapshot: OpenRouterKeyBudget | null,
+  budget: Pick<AutomationBudget, "monthlyLlmUsdCap" | "remainingLlmUsd">,
+): OpenRouterKeyBudgetGate {
+  const blocked = (skipReason: Exclude<OpenRouterKeyBudgetGate["skipReason"], null>): OpenRouterKeyBudgetGate =>
+    ({ remainingLlmUsd: 0, skipReason });
+  if (
+    !snapshot || nonnegativeNumber(snapshot.usageMonthlyUsd) === null ||
+    nonnegativeNumber(budget.monthlyLlmUsdCap) === null || nonnegativeNumber(budget.remainingLlmUsd) === null
+  ) {
+    return blocked("openrouter_key_budget_unverified");
+  }
+  if (
+    snapshot.limitUsd === null || snapshot.limitReset === "daily" || snapshot.limitReset === "weekly" ||
+    (typeof snapshot.limitUsd === "number" && snapshot.limitUsd > MAX_MONTHLY_LLM_USD_CAP)
+  ) {
+    return blocked("openrouter_key_limit_unsafe");
+  }
+  const limitUsd = nonnegativeNumber(snapshot.limitUsd);
+  const limitRemainingUsd = nonnegativeNumber(snapshot.limitRemainingUsd);
+  if (
+    limitUsd === null || limitRemainingUsd === null ||
+    (snapshot.limitReset !== "monthly" && snapshot.limitReset !== null) || limitRemainingUsd > limitUsd
+  ) {
+    return blocked("openrouter_key_budget_unverified");
+  }
+  const monthlyCap = Math.min(budget.monthlyLlmUsdCap, MAX_MONTHLY_LLM_USD_CAP);
+  const remainingLlmUsd = Math.max(0, Math.min(
+    budget.remainingLlmUsd,
+    monthlyCap - snapshot.usageMonthlyUsd,
+    limitRemainingUsd,
+  ));
+  return { remainingLlmUsd, skipReason: remainingLlmUsd > 0 ? null : "llm_budget_capped" };
+}
 
 /**
  * Read OpenRouter's aggregate, provider-enforced key budget. This is the
@@ -237,30 +311,44 @@ export async function readOpenRouterKeyBudget(
   apiKey: string,
   fetcher: OpenRouterKeyBudgetFetcher = fetch as unknown as OpenRouterKeyBudgetFetcher,
 ): Promise<OpenRouterKeyBudget | null> {
-  try {
-    const response = await fetcher(OPENROUTER_CURRENT_KEY_URL, {
-      method: "GET",
-      headers: { authorization: `Bearer ${apiKey}` },
-    });
-    if (!response.ok) return null;
-    const body = await response.json();
-    const data = body && typeof body === "object" ? (body as { data?: unknown }).data : null;
-    if (!data || typeof data !== "object") return null;
+  if (!apiKey.trim()) return null;
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timeout = setTimeout(() => { controller.abort(); resolve(null); }, OPENROUTER_KEY_BUDGET_TIMEOUT_MS);
+  });
+  const read = async (): Promise<OpenRouterKeyBudget | null> => {
+    try {
+      const response = await fetcher(OPENROUTER_CURRENT_KEY_URL, {
+        method: "GET",
+        headers: { authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      const body = await response.json();
+      const data = body && typeof body === "object" ? (body as { data?: unknown }).data : null;
+      if (!data || typeof data !== "object") return null;
 
-    const rawLimit = (data as { limit?: unknown }).limit;
-    const rawRemaining = (data as { limit_remaining?: unknown }).limit_remaining;
-    const rawReset = (data as { limit_reset?: unknown }).limit_reset;
-    const limitUsd = rawLimit === null ? null : nonnegativeNumber(rawLimit);
-    const limitRemainingUsd = rawRemaining === null ? null : nonnegativeNumber(rawRemaining);
-    const usageMonthlyUsd = nonnegativeNumber((data as { usage_monthly?: unknown }).usage_monthly);
-    const limitReset =
-      rawReset === "daily" || rawReset === "weekly" || rawReset === "monthly" || rawReset === null ? rawReset : undefined;
-    if (limitUsd === null && rawLimit !== null) return null;
-    if (limitRemainingUsd === null && rawRemaining !== null) return null;
-    if (usageMonthlyUsd === null || limitReset === undefined) return null;
-    return { limitUsd, limitRemainingUsd, limitReset, usageMonthlyUsd };
-  } catch {
-    return null;
+      const rawLimit = (data as { limit?: unknown }).limit;
+      const rawRemaining = (data as { limit_remaining?: unknown }).limit_remaining;
+      const rawReset = (data as { limit_reset?: unknown }).limit_reset;
+      const limitUsd = rawLimit === null ? null : nonnegativeNumber(rawLimit);
+      const limitRemainingUsd = rawRemaining === null ? null : nonnegativeNumber(rawRemaining);
+      const usageMonthlyUsd = nonnegativeNumber((data as { usage_monthly?: unknown }).usage_monthly);
+      const limitReset =
+        rawReset === "daily" || rawReset === "weekly" || rawReset === "monthly" || rawReset === null ? rawReset : undefined;
+      if (limitUsd === null && rawLimit !== null) return null;
+      if (limitRemainingUsd === null && rawRemaining !== null) return null;
+      if (usageMonthlyUsd === null || limitReset === undefined) return null;
+      return { limitUsd, limitRemainingUsd, limitReset, usageMonthlyUsd };
+    } catch {
+      return null;
+    }
+  };
+  try {
+    return await Promise.race([read(), deadline]);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -280,6 +368,51 @@ export type OpenRouterGenerationFetcher = (
 const OPENROUTER_GENERATION_URL = "https://openrouter.ai/api/v1/generation";
 const OPENROUTER_GENERATION_TIMEOUT_MS = 2_000;
 const OPENROUTER_GENERATION_RETRY_DELAYS_MS = [100, 250] as const;
+const OPENROUTER_REQUEST_TIMEOUT_MS = 20_000;
+const OPENROUTER_REQUEST_RETRY_DELAYS_MS = [100, 250] as const;
+
+export class OpenRouterDeadlineExpiredError extends Error {
+  constructor() {
+    super("Scanner model time limit reached before the request started");
+    this.name = "OpenRouterDeadlineExpiredError";
+  }
+}
+
+export function llmDeadlineReached(deadlineAtMs?: number): boolean {
+  return deadlineAtMs !== undefined && (!Number.isFinite(deadlineAtMs) || Date.now() >= deadlineAtMs);
+}
+
+/** Includes response-body parsing; abort alone cannot bound a stalled fetcher. */
+export async function withOpenRouterRequestTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  deadlineAtMs?: number,
+  maximumMs = OPENROUTER_REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  if (llmDeadlineReached(deadlineAtMs)) throw new OpenRouterDeadlineExpiredError();
+  const timeoutMs = Math.min(maximumMs, deadlineAtMs === undefined ? maximumMs : deadlineAtMs - Date.now());
+  if (timeoutMs <= 0) throw new OpenRouterDeadlineExpiredError();
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error("OpenRouter request timed out; its cost is unverified"));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([operation(controller.signal), timedOut]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function waitForOpenRouterRetry(failedAttempt: number, deadlineAtMs?: number): Promise<boolean> {
+  if (llmDeadlineReached(deadlineAtMs)) return false;
+  const delay = OPENROUTER_REQUEST_RETRY_DELAYS_MS[failedAttempt] ?? OPENROUTER_REQUEST_RETRY_DELAYS_MS[1];
+  const remaining = deadlineAtMs === undefined ? delay : Math.max(0, deadlineAtMs - Date.now());
+  await new Promise((resolve) => setTimeout(resolve, Math.min(delay, remaining)));
+  return !llmDeadlineReached(deadlineAtMs);
+}
 
 function readOpenRouterResponseId(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
@@ -308,6 +441,7 @@ export async function resolveOpenRouterCostUsd(
   data: unknown,
   apiKey: string,
   fetcher: OpenRouterGenerationFetcher,
+  deadlineAtMs?: number,
 ): Promise<number | null> {
   const immediateCost = readOpenRouterUsageCostUsd(data);
   if (immediateCost !== null) return immediateCost;
@@ -316,19 +450,17 @@ export async function resolveOpenRouterCostUsd(
   if (!responseId) return null;
 
   for (let attempt = 0; attempt <= OPENROUTER_GENERATION_RETRY_DELAYS_MS.length; attempt += 1) {
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    const timeout = controller ? setTimeout(() => controller.abort(), OPENROUTER_GENERATION_TIMEOUT_MS) : null;
+    if (llmDeadlineReached(deadlineAtMs)) return null;
     try {
-      const response = await fetcher(
-        `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(responseId)}`,
-        {
-          method: "GET",
-          headers: { authorization: `Bearer ${apiKey}` },
-          ...(controller ? { signal: controller.signal } : {}),
-        },
-      );
+      const { response, body } = await withOpenRouterRequestTimeout(async (signal) => {
+        const response = await fetcher(
+          `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(responseId)}`,
+          { method: "GET", headers: { authorization: `Bearer ${apiKey}` }, signal },
+        );
+        return { response, body: response.ok ? await response.json() : null };
+      }, deadlineAtMs, OPENROUTER_GENERATION_TIMEOUT_MS);
       if (response.ok) {
-        const costUsd = readOpenRouterGenerationCostUsd(await response.json());
+        const costUsd = readOpenRouterGenerationCostUsd(body);
         if (costUsd !== null || attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length) return costUsd;
       }
       if (
@@ -338,11 +470,11 @@ export async function resolveOpenRouterCostUsd(
         return null;
       }
     } catch {
-      if (attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length) return null;
-    } finally {
-      if (timeout) clearTimeout(timeout);
+      if (attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length || llmDeadlineReached(deadlineAtMs)) return null;
     }
-    await new Promise((resolve) => setTimeout(resolve, OPENROUTER_GENERATION_RETRY_DELAYS_MS[attempt]));
+    const delay = OPENROUTER_GENERATION_RETRY_DELAYS_MS[attempt];
+    if (deadlineAtMs !== undefined && Date.now() + delay >= deadlineAtMs) return null;
+    await new Promise((resolve) => setTimeout(resolve, delay));
   }
   return null;
 }
@@ -359,7 +491,7 @@ export function computeAutomationBudget(input: BudgetInput): AutomationBudget {
     ),
   );
   const remainingTavilyCredits = Math.max(0, monthlyTavilyCreditCap - Math.max(0, input.tavilyCreditsMonthToDate ?? 0));
-  const requestedLlmUsdCap = input.scannerPolicy?.monthlyLlmUsdCap ?? monthlyBudgetUsd;
+  const requestedLlmUsdCap = input.scannerPolicy?.monthlyLlmUsdCap ?? Math.min(monthlyBudgetUsd, DEFAULT_MONTHLY_LLM_USD_CAP);
   const monthlyLlmUsdCap = Math.max(0, Math.min(requestedLlmUsdCap, MAX_MONTHLY_LLM_USD_CAP));
   const remainingLlmUsd = Math.max(0, monthlyLlmUsdCap - Math.max(0, input.llmSpentMonthToDateUsd ?? 0));
   const remainingRuns = countRemainingRunsThisMonth(input.now, input.scannerPolicy?.minIntervalMinutes);

@@ -6,6 +6,7 @@ import { platformContextConfigured, steamPulseEnabled } from "@/lib/env";
 import { safeRunSummary } from "@/lib/operatorOverview";
 import { getAutomationAdminData, getPublicScannerData } from "@/lib/queries";
 import { getPatchRadarData } from "@/lib/radar.server";
+import { getScannerAiHealth } from "@/lib/automation/health.server";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
@@ -39,6 +40,7 @@ export default async function OperatorPage() {
   const scannerReadAvailable = Boolean(radar?.connected && scanner?.scannerConnected);
   const scannerReadFailures = scanner?.readFailures ?? ["week", "heartbeat", "awaiting", "published"];
   const runs = admin ? admin.runs.map(safeRunSummary) : [];
+  const aiHealth = await getScannerAiHealth(admin?.control);
 
   return (
     <OperatorShell active="overview">
@@ -50,6 +52,7 @@ export default async function OperatorPage() {
           scannerFailedRuns: radar?.connected ? radar.health.runs7d.failed : null,
           collection,
           runs,
+          aiHealth,
         }}
       />
     </OperatorShell>

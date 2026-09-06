@@ -608,6 +608,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetDb();
   configureProviders();
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "https://openrouter.ai/api/v1/key") throw new Error(`unexpected fetch: ${String(input)}`);
+    return Response.json({
+      data: { limit: 1, limit_remaining: 1, limit_reset: "monthly", usage_monthly: 0 },
+    });
+  }));
   process.env.SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service";
   process.env.TAVILY_API_KEY = "tavily-key";
@@ -625,6 +631,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.doUnmock("@/lib/automation/run");
 });
 
@@ -1528,7 +1535,8 @@ describe("runAutomationMonitor", () => {
   });
 
   it("budget 0 still runs Tavily and deterministic extraction without paid LLM calls", async () => {
-    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    resetDb({ automation_settings: [{ key: "scanner", value: { monthlyLlmUsdCap: 0 } }] });
+    configureProviders();
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -1541,6 +1549,22 @@ describe("runAutomationMonitor", () => {
     expect(mocks.tavilySearch).toHaveBeenCalledTimes(5);
     expect(sourceSignalRows()).toHaveLength(2);
     expect(sourceSignalRows()[0]).toMatchObject({ source: "web_search", extraction_provider: "deterministic" });
+  });
+
+  it.each([
+    ["an unlimited key", { data: { limit: null, limit_remaining: null, limit_reset: null, usage_monthly: 0 } }, "openrouter_key_limit_unsafe"],
+    ["a daily key", { data: { limit: 1, limit_remaining: 1, limit_reset: "daily", usage_monthly: 0 } }, "openrouter_key_limit_unsafe"],
+    ["an unreadable key response", { unexpected: true }, "openrouter_key_budget_unverified"],
+  ])("refuses paid model calls for %s", async (_label, keyResponse, reason) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(keyResponse)));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain(reason);
+    expect(openRouterAttempts).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining === 0)).toBe(true);
   });
 
   it("an exhausted Tavily cap still runs free patch maintenance without web discovery", async () => {
@@ -4618,8 +4642,20 @@ describe("runAutomationMonitor", () => {
     });
   });
 
-  it("uses one budgeted semantic extraction when rescuing a rejected source", async () => {
+  it("uses the saved model and effective provider cap when rescuing a rejected source", async () => {
     resetDb({
+      automation_settings: [{
+        key: "scanner",
+        value: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 900,
+          monthlyLlmUsdCap: 0.5,
+          modelPreset: "gpt_5_6_luna_flex",
+        },
+        updated_at: "2026-07-05T10:00:00.000Z",
+      }],
       issue_clusters: [
         {
           id: "cluster-seeded-perf",
@@ -4636,6 +4672,9 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      data: { limit: 1, limit_remaining: 0.8, limit_reset: "monthly", usage_monthly: 0.2 },
+    })));
     mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
       issueTitle: "Heavy traversal stutter",
       category: "performance",
@@ -4646,7 +4685,7 @@ describe("runAutomationMonitor", () => {
       clusterReason: "The report clearly matches the seeded performance cluster.",
       clusterSlug: "performance_regression",
       extractionProvider: "openrouter",
-      extractionModel: "deepseek/deepseek-v4-flash",
+      extractionModel: "openai/gpt-5.6-luna",
       llmCallsUsed: 1,
       llmCostUsd: 0.0002,
     });
@@ -4667,7 +4706,8 @@ describe("runAutomationMonitor", () => {
       expect.any(Object),
       expect.objectContaining({
         llmCallsRemaining: 1,
-        llmBudgetRemainingUsd: 2,
+        llmBudgetRemainingUsd: 0.3,
+        modelPreset: "gpt_5_6_luna_flex",
         clusterOptions: [
           {
             slug: "performance_regression",
@@ -4682,7 +4722,7 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0]).toMatchObject({
       cluster_id: "cluster-seeded-perf",
       extraction_provider: "openrouter",
-      extraction_model: "deepseek/deepseek-v4-flash",
+      extraction_model: "openai/gpt-5.6-luna",
     });
     expect(tables.automation_runs).toHaveLength(1);
     expect(tables.automation_runs[0]).toMatchObject({
@@ -4690,9 +4730,52 @@ describe("runAutomationMonitor", () => {
       mode: "manual",
       intent: "rescue_candidate",
       llm_calls_used: 1,
+      funnel: expect.objectContaining({ llmCalls: 1 }),
+      progress: expect.objectContaining({ llmSucceeded: 1, llmCostUsd: 0.0002 }),
       candidates_rescued: 1,
       estimated_cost_usd: 0.0002,
     });
+  });
+
+  it("records an attempted fallback separately from a validated LLM success", async () => {
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Traversal hitching",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: "Steam players report traversal hitching.",
+      clusterAssignment: "unsure",
+      clusterReason: "Deterministic fallback cannot assign a cluster.",
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 1,
+      llmCostUsd: 0,
+      fallbackReason: "openrouter_invalid_json",
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/fallback/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Steam players report traversal hitching after the current patch.",
+      },
+    );
+
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      llm_calls_used: 1,
+      funnel: expect.objectContaining({ llmCalls: 1 }),
+      progress: expect.objectContaining({ llmSucceeded: 0, llmCostUsd: 0 }),
+    });
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("llmSucceeded");
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("llmCostUsd");
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("modelPreset");
+    expect(sourceSignalRows()[0]).toMatchObject({ extraction_provider: "deterministic" });
   });
 
   it("pages past the hosted row cap before semantic rescue routing", async () => {
@@ -4906,9 +4989,7 @@ describe("runAutomationMonitor", () => {
       candidates_rescued: 1,
       estimated_cost_usd: 0,
     });
-    expect(tables.automation_runs[1].skips).toEqual(
-      expect.arrayContaining(["budget_capped", "llm_budget_capped"]),
-    );
+    expect(tables.automation_runs[1].skips).toContain("llm_budget_capped");
   });
 
   it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
