@@ -12,7 +12,7 @@ async function storedPreferences(page: Page) {
 
 async function openCatchUpMenu(page: Page) {
   await page.getByRole("button", { name: "Catch me up", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Where should we pick up?" });
+  const dialog = page.getByRole("dialog", { name: "Catch up" });
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -35,10 +35,9 @@ test.describe("public catch-up journey", () => {
     const dialog = await openCatchUpMenu(page);
     await expect(dialog.getByLabel("Remember my place on this browser")).toBeChecked();
     await expect(dialog.getByRole("button", { name: /Since my last visit/ })).toHaveCount(0);
-    await dialog.getByRole("button", { name: /Since I last played/ }).click();
-    await dialog.getByRole("button", { name: "By patch" }).click();
-    await dialog.getByLabel("The last patch you played").selectOption("2.00.01");
-    await dialog.getByRole("button", { name: /Build my catch-up/ }).click();
+    await dialog.getByRole("tab", { name: "Patch" }).click();
+    await dialog.getByRole("radio", { name: /^2\.00\.01/ }).check();
+    await dialog.getByRole("button", { name: "Show updates" }).click();
 
     await expect(page).toHaveURL(/\/catch-up#patch=2\.00\.01$/);
     const milestones = page.locator("article.cu-milestone");
@@ -70,9 +69,9 @@ test.describe("public catch-up journey", () => {
   test("date selection and explicit completion update the edition", async ({ page }) => {
     await page.goto("/catch-up");
     const dialog = await openCatchUpMenu(page);
-    await dialog.getByRole("button", { name: /Since I last played/ }).click();
-    await dialog.getByLabel("When did you last play?").fill("2026-09-03");
-    await dialog.getByRole("button", { name: /Build my catch-up/ }).click();
+    await dialog.getByRole("tab", { name: "Date" }).click();
+    await dialog.getByLabel("Last played").fill("2026-09-03");
+    await dialog.getByRole("button", { name: "Show updates" }).click();
 
     await expect(page).toHaveURL(/#since=2026-09-03T00%3A00%3A00\.000Z$/);
     await expect(page.locator("article.cu-milestone")).toHaveCount(2);
@@ -88,21 +87,19 @@ test.describe("public catch-up journey", () => {
     await expect(page.locator(".cu-edition")).toContainText("History: July 3 – September 4, 2026");
 
     let dialog = await openCatchUpMenu(page);
-    await expect(dialog.getByRole("button", { name: /Since I last played/ })).toContainText("From July 3");
-    await dialog.getByRole("button", { name: /Since I last played/ }).click();
-    await dialog.getByLabel("When did you last play?").fill("2026-07-03");
-    await dialog.getByRole("button", { name: /Build my catch-up/ }).click();
+    await dialog.getByRole("tab", { name: "Date" }).click();
+    await dialog.getByLabel("Last played").fill("2026-07-03");
+    await dialog.getByRole("button", { name: "Show updates" }).click();
     await expect(page).toHaveURL(/#since=2026-07-03T00%3A00%3A00\.000Z$/);
     await expect(page.locator("article.cu-milestone")).toHaveCount(18);
     await expect(page.locator(".cu-coverage")).toHaveCount(0);
 
     dialog = await openCatchUpMenu(page);
-    const customChoice = dialog.getByRole("button", { name: /Since I last played/ });
-    if (await customChoice.getAttribute("aria-expanded") === "false") await customChoice.click();
-    await dialog.getByRole("button", { name: "By patch" }).click();
-    await expect(dialog.getByLabel("The last patch you played").locator('option[value="1.13.00"]')).toHaveCount(1);
-    await dialog.getByLabel("The last patch you played").selectOption("1.13.00");
-    await dialog.getByRole("button", { name: /Build my catch-up/ }).click();
+    await dialog.getByRole("tab", { name: "Patch" }).click();
+    const patches = dialog.getByRole("group", { name: "Last patch played" });
+    await expect(patches.getByRole("radio", { name: /^1\.13\.00/ })).toHaveCount(1);
+    await patches.getByRole("radio", { name: /^1\.13\.00/ }).check();
+    await dialog.getByRole("button", { name: "Show updates" }).click();
 
     await expect(page).toHaveURL(/#patch=1\.13\.00$/);
     await expect(page.locator("article.cu-milestone")).toHaveCount(17);
@@ -200,6 +197,34 @@ test.describe("public catch-up journey", () => {
     await expect(milestones.first()).toContainText("Patch 1.13.00");
     await expect(milestones.first()).toBeFocused();
     await expect(milestones.first()).toHaveAttribute("tabindex", "-1");
+  });
+
+  test("menu tabs support arrow keys and the All mode submits full history", async ({ page }) => {
+    await page.goto("/catch-up");
+    const dialog = await openCatchUpMenu(page);
+    const tabs = dialog.getByRole("tab");
+    await expect(tabs).toHaveCount(4);
+
+    const recent = dialog.getByRole("tab", { name: "Recent" });
+    const date = dialog.getByRole("tab", { name: "Date" });
+    const patch = dialog.getByRole("tab", { name: "Patch" });
+    const all = dialog.getByRole("tab", { name: "All" });
+    await recent.focus();
+    await recent.press("ArrowRight");
+    await expect(date).toBeFocused();
+    await expect(date).toHaveAttribute("aria-selected", "true");
+    await date.press("End");
+    await expect(all).toBeFocused();
+    await expect(all).toHaveAttribute("aria-selected", "true");
+    await all.press("ArrowLeft");
+    await expect(patch).toBeFocused();
+    await patch.press("Home");
+    await expect(recent).toBeFocused();
+
+    await all.click();
+    await dialog.getByRole("button", { name: "Show updates" }).click();
+    await expect(page).toHaveURL(/\/catch-up#history=all$/);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
   });
 
   test("Escape closes the menu and the phone layout does not scroll sideways", async ({ page }, testInfo) => {
