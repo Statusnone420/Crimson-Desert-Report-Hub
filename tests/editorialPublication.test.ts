@@ -119,6 +119,18 @@ describe("editorial publication contract", () => {
     }), { now })).toEqual({ ok: false, reason: "unverified_creator_video" });
   });
 
+  it("keeps the official YouTube reveal out of the Pearl Abyss coverage register", () => {
+    expect(validateEditorialPublication(candidate({
+      sourceId: "pearl-abyss-crimson-desert",
+      sourceTitle: "Crimson Desert Enhanced: Charting the Unknown | Official DLC Reveal Trailer",
+      reviewedHeadline: "Charting the Unknown — reveal trailer",
+      reviewedExcerpt: "The reveal introduces the expansion’s offshore adventure and life on land.",
+      type: "video",
+      url: "https://www.youtube.com/watch?v=HaCtG1F_hfE",
+      publishedAt: "2026-09-03",
+    }), { now })).toEqual({ ok: false, reason: "disallowed_host" });
+  });
+
   it("rejects unsafe URLs, invented dates, raw excerpts, boilerplate, and canonical duplicates", () => {
     expect(canonicalEditorialUrl("https://user:pass@www.pcgamer.com/crimson-desert")).toBeNull();
     expect(canonicalEditorialUrl("https://www.pcgamer.com:8443/crimson-desert")).toBeNull();

@@ -25,10 +25,19 @@ test("newspaper editorial routes retain the brand and separate coverage from sca
   await page.goto("/watch");
   await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Watch the official reveal ↗" })).toHaveAttribute("href", "https://www.youtube.com/watch?v=HaCtG1F_hfE");
+  await expect(page.getByRole("img", { name: "Still from Pearl Abyss’s Charting the Unknown reveal trailer" })).toBeVisible();
+  await expect(page.locator("iframe, video")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Read the confirmed expansion details →" })).toHaveAttribute("href", "/articles/charting-the-unknown");
   if (coverageVisible) {
     await expect(page.getByRole("link", { name: "Watch on YouTube ↗" })).toHaveAttribute("href", "https://www.youtube.com/watch?v=6H6c0S80d4U");
-    await expect(page.getByText(/KhrazeGaming · Creator commentary/)).toBeVisible();
+    await expect(page.getByText("KhrazeGaming", { exact: true })).toBeVisible();
+    await expect(page.getByText("Creator commentary", { exact: true })).toBeVisible();
+    await expect(page.getByRole("img", { name: "Still from KhrazeGaming’s Charting the Unknown commentary" })).toBeVisible();
+  } else {
+    await expect(page.getByText("KhrazeGaming")).toHaveCount(0);
   }
+  await page.evaluate(() => document.fonts.ready);
+  await page.screenshot({ animations: "disabled", path: `output/playwright/watch-${testInfo.project.name}.png`, fullPage: true });
   await page.goto("/");
   await expect(page).toHaveTitle(/Crimson Desert Report Hub.*News/);
   await expect(page.locator("#asks")).toHaveCount(0);
