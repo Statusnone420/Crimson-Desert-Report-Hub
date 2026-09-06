@@ -24,6 +24,26 @@ for (const scenario of [
   test.describe(`catch-up calendar in ${scenario.timezone}`, () => {
     test.use({ timezoneId: scenario.timezone });
 
+    test("saved resume dates agree with the local selection label and reopened picker", async ({ page }) => {
+      await page.clock.setFixedTime(new Date(scenario.now));
+      const saved = new Date(scenario.now).toISOString();
+      await page.addInitScript(({ key, saved }) => {
+        localStorage.setItem(key, JSON.stringify({ remember: true, lastVisit: saved, caughtUpThrough: saved }));
+      }, { key: CATCH_UP_STORAGE_KEY, saved });
+      await page.goto("/catch-up");
+      for (const label of ["Where I left off", "Since my last visit"]) {
+        const dialog = await openCatchUpMenu(page);
+        const shortcut = dialog.getByRole("button", { name: new RegExp(label) });
+        await expect(shortcut).toContainText(scenario.label.replace("Since ", ""));
+        await shortcut.click();
+        await expect(page.locator(".cu-edition")).toContainText(scenario.label);
+        await expect(page).toHaveURL((url) => new URLSearchParams(url.hash.slice(1)).get("since") === saved);
+        const reopened = await openCatchUpMenu(page);
+        await expect(reopened.getByLabel("Last played")).toHaveValue(scenario.today);
+        await reopened.getByRole("button", { name: "Close catch-up options" }).click();
+      }
+    });
+
     test("uses local today for the limit, submission, and reopened date", async ({ page }) => {
       await page.clock.setFixedTime(new Date(scenario.now));
       await page.goto("/catch-up");

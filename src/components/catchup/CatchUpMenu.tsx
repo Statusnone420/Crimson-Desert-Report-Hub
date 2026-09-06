@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent 
 import { useRouter } from "next/navigation";
 import { useReducedMotion } from "motion/react";
 import { CATCH_UP_COVERAGE_START, CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
-import { catchUpDate, catchUpHash, parseCatchUpHash, type CatchUpSelection } from "@/lib/catchUp";
+import { catchUpDate, catchUpLocalDate, catchUpHash, parseCatchUpHash, type CatchUpSelection } from "@/lib/catchUp";
 import { catchUpLocalMidnight, localCalendarDay } from "@/lib/catchUpCalendar";
 import { useCatchUp } from "./CatchUpContext";
 
@@ -90,8 +90,8 @@ export function CatchUpMenu({ label = "Catch me up", compact = false }: { label?
       <div className="catch-up-menu">
         <div className="catch-up-menu-heading"><h2 id={`${id}-title`}>Catch up</h2><button type="button" className="catch-up-close" popoverTarget={id} popoverTargetAction="hide" aria-label="Close catch-up options"><svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" strokeWidth="1.5"/></svg></button></div>
         {ready && (preferences.caughtUpThrough || previousVisit) && <div className="catch-up-saved">
-          {preferences.caughtUpThrough && <button type="button" onClick={() => navigate({ kind: "since", value: preferences.caughtUpThrough! })}>Where I left off <span>{catchUpDate(preferences.caughtUpThrough)} →</span></button>}
-          {previousVisit && <button type="button" onClick={() => navigate({ kind: "since", value: previousVisit })}>Since my last visit <span>{catchUpDate(previousVisit)} →</span></button>}
+          {preferences.caughtUpThrough && <button type="button" onClick={() => navigate({ kind: "since", value: preferences.caughtUpThrough! })}>Where I left off <span>{catchUpLocalDate(preferences.caughtUpThrough)} →</span></button>}
+          {previousVisit && <button type="button" onClick={() => navigate({ kind: "since", value: previousVisit })}>Since my last visit <span>{catchUpLocalDate(previousVisit)} →</span></button>}
         </div>}
         <form onSubmit={choose}>
           <div className="catch-up-tabs" ref={tabs} role="tablist" aria-label="Catch-up starting point">{MODES.map((item, index) => <button key={item.value} id={`${id}-tab-${item.value}`} type="button" role="tab" aria-selected={mode === item.value} aria-controls={`${id}-panel`} tabIndex={mode === item.value ? 0 : -1} onClick={() => changeMode(item.value)} onKeyDown={(event) => moveTab(event, index)}>{item.label}</button>)}</div>
