@@ -69,7 +69,7 @@ Official Pearl Abyss patch notes provide canonical patch context and fix claims,
 - Original articles are maintained in the repository with publication dates and source references.
 - External press and creator selections require a reviewed headline and excerpt, an allowed source, and a source publication date. They remain attributed outbound links.
 - Scanner trust and editorial selection are separate. Discovery does not automatically publish newspaper coverage or add an article to the feeds.
-- The creator source register supports reviewed videos; automatic YouTube discovery is not part of the current publication flow.
+- The creator source register supports reviewed videos; automatic YouTube discovery is not part of the current publication flow. A private `/admin/videos` inbox lets the owner add a YouTube link by hand and prepare a later publication PR without changing Watch.
 - Game imagery carries Pearl Abyss attribution and the site retains its unofficial disclaimer. The code license does not grant rights to third-party imagery.
 
 ## N=0 First

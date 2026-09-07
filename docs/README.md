@@ -35,7 +35,7 @@ No document replaces a fresh check of the target environment before a release. H
 
 - [Scheduler Worker](../cloudflare/scanner-cron/README.md) — the Cloudflare wake-up trigger and its deployment commands.
 - [Scanner bake-off](../scripts/bakeoff/README.md) — evidence requirements and paid live-query comparison.
-- [Environment template](../.env.local.example) — placeholder values for local configuration; never put real credentials in it.
+- [Owner attention brief](OWNER-ATTENTION-BRIEF.md) — read-only 10 AM health-check query, response shape, and rollout checks for the private video inbox.
 
 ## Repository policy
 

@@ -638,6 +638,92 @@ const platformContextSnapshots = [
 
 const scannerFeedbackRules = [];
 
+const videoReviewCandidates = [
+  {
+    id: "video-pending-1",
+    created_at: isoMinutesAgo(95),
+    updated_at: isoMinutesAgo(95),
+    revision: 1,
+    video_id: "zzInboxMock",
+    canonical_url: "https://www.youtube.com/watch?v=zzInboxMock",
+    submitted_url: "https://youtu.be/zzInboxMock",
+    source_id: "khraze-gaming",
+    creator_channel_id: "UCFXUSG_393wZJaRTErU6Pjw",
+    title: "Fixture expansion commentary for inbox tests",
+    channel_label: "FixtureChannel",
+    review_note: "Invented review note for the private inbox screenshot.",
+    reviewed_headline: "Fixture creator reads the expansion",
+    reviewed_excerpt: "Crimson Desert fixture excerpt used only in private inbox tests.",
+    excerpt_review_status: "reviewed",
+    topic: "expansion",
+    published_at: "2026-07-18",
+    state: "pending",
+    skipped_at: null,
+    approved_at: null,
+  },
+  {
+    id: "video-draft-1",
+    created_at: isoMinutesAgo(240),
+    updated_at: isoMinutesAgo(30),
+    revision: 2,
+    video_id: "zzDraftMock",
+    canonical_url: "https://www.youtube.com/watch?v=zzDraftMock",
+    submitted_url: "https://www.youtube.com/watch?v=zzDraftMock",
+    source_id: "khraze-gaming",
+    creator_channel_id: "UCFXUSG_393wZJaRTErU6Pjw",
+    title: "Fixture draft-ready commentary",
+    channel_label: "FixtureChannel",
+    review_note: "Invented draft-ready note; still missing a local still.",
+    reviewed_headline: "Fixture draft headline",
+    reviewed_excerpt: "Crimson Desert fixture draft excerpt for a later publication PR.",
+    excerpt_review_status: "reviewed",
+    topic: "expansion",
+    published_at: "2026-07-17",
+    state: "draft_ready",
+    skipped_at: null,
+    approved_at: isoMinutesAgo(30),
+  },
+  {
+    id: "video-skipped-1",
+    created_at: isoMinutesAgo(400),
+    updated_at: isoMinutesAgo(400),
+    revision: 1,
+    video_id: "zzSkipMock1",
+    canonical_url: "https://www.youtube.com/watch?v=zzSkipMock1",
+    submitted_url: "https://www.youtube.com/watch?v=zzSkipMock1",
+    source_id: "khraze-gaming",
+    creator_channel_id: "UCFXUSG_393wZJaRTErU6Pjw",
+    title: "Fixture skipped commentary",
+    channel_label: "FixtureChannel",
+    review_note: "Invented skipped note kept private.",
+    reviewed_headline: null,
+    reviewed_excerpt: null,
+    excerpt_review_status: "unreviewed",
+    topic: "expansion",
+    published_at: null,
+    state: "skipped",
+    skipped_at: isoMinutesAgo(400),
+    approved_at: null,
+  },
+];
+
+const videoPublicationDrafts = [
+  {
+    id: "video-draft-row-1",
+    created_at: isoMinutesAgo(30),
+    updated_at: isoMinutesAgo(30),
+    candidate_id: "video-draft-1",
+    video_id: "zzDraftMock",
+    completeness: "incomplete",
+    missing_requirements: [
+      "Add this video ID to verifiedVideoIds for khraze-gaming. Approval covers this video only, not later uploads.",
+      "Add a local 1280×720 still at public/watch/zzDraftMock.jpg.",
+    ],
+    markdown:
+      "# Private publication draft\n\nInvented fixture draft for screenshots. Missing a local still.\n",
+  },
+];
+
 /**
  * Preview seed override: when PREVIEW_SEED_FILE points at a JSON file, its
  * table arrays replace the built-in Playwright seed in place. This is the
@@ -664,6 +750,8 @@ if (previewSeedFile) {
     steam_pulse_snapshots: steamPulseSnapshots,
     platform_context_snapshots: platformContextSnapshots,
     scanner_feedback_rules: scannerFeedbackRules,
+    video_review_candidates: videoReviewCandidates,
+    video_publication_drafts: videoPublicationDrafts,
   };
   const seed = JSON.parse(readFileSync(previewSeedFile, "utf8"));
   for (const [table, rows] of Object.entries(seed)) {
@@ -701,6 +789,8 @@ const resettableTables = [
   scannerDecisions,
   scannerFeedbackRules,
   signalObservationEvents,
+  videoReviewCandidates,
+  videoPublicationDrafts,
 ];
 const pristineTables = resettableTables.map((table) => structuredClone(table));
 
@@ -986,6 +1076,15 @@ function filterRows(table, url) {
   }
 
   const order = url.searchParams.get("order");
+  const videoId = url.searchParams.get("video_id");
+  if (videoId?.startsWith("eq.")) rows = rows.filter((row) => row.video_id === videoId.slice(3));
+  const revision = url.searchParams.get("revision");
+  if (revision?.startsWith("eq.")) rows = rows.filter((row) => String(row.revision) === revision.slice(3));
+  const candidateId = url.searchParams.get("candidate_id");
+  if (candidateId?.startsWith("eq.")) rows = rows.filter((row) => row.candidate_id === candidateId.slice(3));
+  const inboxState = url.searchParams.get("state");
+  if (inboxState?.startsWith("eq.")) rows = rows.filter((row) => row.state === inboxState.slice(3));
+
   if (order?.startsWith("created_at.desc")) {
     // `id.desc` is the tiebreak the feedback-rule cursor depends on: with tied
     // timestamps left unordered, the next page's cursor could re-read a row.
@@ -994,6 +1093,12 @@ function filterRows(table, url) {
       (a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime() ||
         (breakTiesById ? String(b.id).localeCompare(String(a.id)) : 0),
+    );
+  }
+  if (order?.startsWith("created_at.asc")) {
+    rows.sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || String(a.id).localeCompare(String(b.id)),
     );
   }
   if (order?.startsWith("started_at.desc")) {
@@ -1075,6 +1180,82 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/bug_reports" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(bugReports, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/video_review_candidates" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(videoReviewCandidates, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/video_review_candidates" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (videoReviewCandidates.some((row) => row.video_id === parsed.video_id)) {
+      sendPgError(res, req.method, 409, "duplicate key value violates unique constraint", "23505");
+      return;
+    }
+    const row = {
+      id: nextMockId("video"),
+      created_at: new Date(now()).toISOString(),
+      updated_at: new Date(now()).toISOString(),
+      revision: 1,
+      state: "pending",
+      skipped_at: null,
+      approved_at: null,
+      ...parsed,
+    };
+    videoReviewCandidates.push(row);
+    sendJson(res, req.method, 201, [row]);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/video_review_candidates" && req.method === "PATCH") {
+    const raw = await readBody(req);
+    const patch = raw ? JSON.parse(raw) : {};
+    const rows = filterRows(videoReviewCandidates, url);
+    for (const row of rows) {
+      Object.assign(row, patch);
+      row.updated_at = new Date(now()).toISOString();
+      row.revision = Number(row.revision ?? 1) + 1;
+    }
+    sendJson(res, req.method, 200, rows);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/video_publication_drafts" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(videoPublicationDrafts, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/video_publication_drafts" && req.method === "PATCH") {
+    const raw = await readBody(req);
+    const patch = raw ? JSON.parse(raw) : {};
+    const rows = filterRows(videoPublicationDrafts, url);
+    for (const row of rows) {
+      Object.assign(row, patch, { updated_at: new Date(now()).toISOString() });
+    }
+    sendJson(res, req.method, 200, rows);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/video_publication_drafts" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const existing = videoPublicationDrafts.find((row) => row.candidate_id === parsed.candidate_id);
+    if (existing) {
+      Object.assign(existing, parsed, { updated_at: new Date(now()).toISOString() });
+      sendJson(res, req.method, 200, [existing]);
+      return;
+    }
+    const row = {
+      id: nextMockId("video-draft"),
+      created_at: new Date(now()).toISOString(),
+      updated_at: new Date(now()).toISOString(),
+      ...parsed,
+    };
+    videoPublicationDrafts.push(row);
+    sendJson(res, req.method, 201, [row]);
     return;
   }
 
@@ -1212,6 +1393,49 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/issue_confirmations" && req.method === "GET") {
     sendJson(res, req.method ?? "GET", 200, issueConfirmations);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/rpc/owner_attention_brief" && req.method === "POST") {
+    const observed = new Date(now());
+    const pending = videoReviewCandidates.filter((row) => row.state === "pending");
+    const drafts = videoReviewCandidates.filter((row) => row.state === "draft_ready");
+    const ageSeconds = (iso) => Math.max(0, Math.floor((observed.getTime() - Date.parse(iso)) / 1000));
+    const oldest = (rows, field) => {
+      const stamps = rows.map((row) => row[field]).filter(Boolean).map(ageSeconds);
+      return stamps.length ? Math.max(...stamps) : null;
+    };
+    const flagged = bugReports.filter((row) => row.moderation_status === "pending").length;
+    const unsure = clusters.filter(
+      (row) => !row.admin_override && String(row.lifecycle_reason ?? "").startsWith("Needs review:"),
+    ).length;
+    const items = [...pending, ...drafts]
+      .map((row) => ({
+        title: row.title,
+        channel: row.channel_label,
+        state: row.state,
+        ageSeconds: ageSeconds(row.state === "draft_ready" ? row.approved_at ?? row.created_at : row.created_at),
+        reviewReason: String(row.review_note).slice(0, 80),
+        adminPath: "/admin/videos",
+      }))
+      .sort((a, b) => b.ageSeconds - a.ageSeconds)
+      .slice(0, 8);
+    sendJson(res, req.method, 200, {
+      observedAt: observed.toISOString().replace(/\.\d{3}Z$/, "Z"),
+      status: "ok",
+      videoInbox: {
+        awaitingReview: { count: pending.length, oldestAgeSeconds: oldest(pending, "created_at") },
+        draftsReady: { count: drafts.length, oldestAgeSeconds: oldest(drafts, "approved_at") },
+        items,
+      },
+      adminAttention: {
+        flaggedPendingReports: flagged,
+        unsureClaimMatches: unsure,
+        needsYou: flagged + unsure,
+        reportQueuePath: "/admin",
+        scannerQueuePath: "/scanner",
+      },
+    });
     return;
   }
 

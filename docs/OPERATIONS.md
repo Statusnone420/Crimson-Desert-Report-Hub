@@ -93,6 +93,18 @@ Turnstile is optional spam protection for full report submissions:
 
 Add the production hostname to the widget configuration. The report form remains functional without Turnstile because server validation and rate boundaries still apply. Confirmation taps do not call Turnstile on the normal path.
 
+### Private video inbox and the 10 AM brief
+
+`/admin/videos` is a signed-in owner tool for manually adding YouTube links. It is not a daily admin job and does not crawl, subscribe, or call a paid metadata API. Approve stores a private later-PR draft. Skip keeps the candidate private. Neither action publishes Watch.
+
+The existing 10 AM America/New_York **Crimson Hub Health Check** can read a small summary through the current Supabase connection:
+
+```sql
+select public.owner_attention_brief();
+```
+
+The function is read-only and is not granted to `anon` or `authenticated`. Missing schema or access is unavailable, not an empty queue. Do not change the health-check schedule in order to use it. Full response shape, bullet mapping, and hosted rollout steps are in [Owner attention brief](OWNER-ATTENTION-BRIEF.md).
+
 ## Automation posture
 
 - Official patch notes provide patch context and claimed-fix metadata.

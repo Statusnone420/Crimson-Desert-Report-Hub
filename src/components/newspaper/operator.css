@@ -203,6 +203,16 @@ html[data-theme="dark"] .operator-newspaper {
 .operator-newspaper .op-legend .op-skipped { background: var(--op-amber); }
 .operator-newspaper .op-legend .op-failed { background: var(--op-red); }
 .operator-newspaper .op-unavailable { margin: 24px 0; padding: 24px 22px; background: color-mix(in srgb, var(--op-amber) 10%, var(--op-paper)); color: var(--op-muted); }
+.operator-newspaper .video-draft-preview {
+  overflow: auto;
+  max-height: 280px;
+  margin: 12px 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--op-line);
+  color: var(--op-muted);
+  font: 12px/1.5 var(--font-plex-mono), ui-monospace, monospace;
+  white-space: pre-wrap;
+}
 
 .operator-newspaper .op-tools {
   display: grid;
