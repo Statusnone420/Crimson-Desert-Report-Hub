@@ -80,12 +80,14 @@ import {
   type SteamReviewCandidate,
 } from "@/lib/automation/steam";
 import { createServiceClient } from "@/lib/supabase";
+import { appendOpenRouterDiagnostics, type OpenRouterDiagnostic } from "@/lib/automation/openRouterDiagnostics";
 import { isMissingSupabaseColumn, isMissingSupabaseRelation } from "@/lib/supabaseCompatibility";
 import { fetchCrimsonDesertPlatformContext } from "@/lib/platform/igdb";
 
 export type AutomationMode = "scheduled" | "manual" | "dry_run";
 
 export type AutomationResult = {
+  openRouterDiagnostics?: OpenRouterDiagnostic[];
   status: "success" | "partial" | "failed" | "skipped";
   searchQueriesUsed: number;
   searchResultsSeen: number;
@@ -112,6 +114,7 @@ export type AutomationResult = {
 };
 
 export type RunProgress = {
+  openRouterDiagnostics?: OpenRouterDiagnostic[];
   llmSucceeded?: number;
   llmCostUsd?: number;
   modelPreset?: ScannerModelPreset | null;
@@ -195,8 +198,15 @@ async function enforceProviderBudget(budget: AutomationBudget): Promise<Automati
   };
 }
 
+function recordOpenRouterDiagnostic(result: AutomationResult, diagnostic: OpenRouterDiagnostic): void {
+  result.openRouterDiagnostics = appendOpenRouterDiagnostics(result.openRouterDiagnostics, [diagnostic]);
+}
+
 function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
   return {
+    ...(result.openRouterDiagnostics?.length
+      ? { openRouterDiagnostics: appendOpenRouterDiagnostics(undefined, result.openRouterDiagnostics) }
+      : {}),
     stage,
     llmSucceeded: result.llmSucceeded ?? 0,
     llmCostUsd: result.llmCostUsd,
@@ -1467,6 +1477,7 @@ async function prepareSignals(
         const extraction = await extractSignalWithOpenRouter(
           { title: signal.title, snippet: effectiveBody, url: canonicalUrl },
           {
+            onDiagnostic: (diagnostic) => recordOpenRouterDiagnostic(result, diagnostic),
             modelPreset: budget.modelPreset,
             llmDeadlineAtMs: budget.llmDeadlineAtMs,
             llmCallsRemaining: remainingLlmCalls(result, budget),
@@ -1534,6 +1545,7 @@ async function prepareSignals(
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
       {
+        onDiagnostic: (diagnostic) => recordOpenRouterDiagnostic(result, diagnostic),
         modelPreset: budget.modelPreset,
         llmDeadlineAtMs: budget.llmDeadlineAtMs,
         llmCallsRemaining: remainingLlmCalls(result, budget),
@@ -1836,6 +1848,7 @@ async function runLifecyclePass(
   for (const claim of orderedClaims) {
     const llmCallsRemaining = Math.min(claimLlmCallsRemaining, remainingLlmCalls(result, budget));
     const decision = await mapClaimToClusterWithOpenRouter(claim, clusters, {
+      onDiagnostic: (diagnostic) => recordOpenRouterDiagnostic(result, diagnostic),
       modelPreset: budget.modelPreset,
       llmDeadlineAtMs: budget.llmDeadlineAtMs,
       llmCallsRemaining,
@@ -3154,6 +3167,7 @@ export async function rescueCandidateSignal(
     const extraction = await extractSignalWithOpenRouter(
       { title: source.title, snippet: source.body, url: canonicalUrl },
       {
+        onDiagnostic: (diagnostic) => recordOpenRouterDiagnostic(result, diagnostic),
         modelPreset: budget.modelPreset,
         llmDeadlineAtMs: budget.llmDeadlineAtMs,
         llmCallsRemaining: budget.maxLlmCalls,

@@ -36,6 +36,7 @@ No document replaces a fresh check of the target environment before a release. H
 - [Scheduler Worker](../cloudflare/scanner-cron/README.md) — the Cloudflare wake-up trigger and its deployment commands.
 - [Scanner bake-off](../scripts/bakeoff/README.md) — evidence requirements and paid live-query comparison.
 - [Owner attention brief](OWNER-ATTENTION-BRIEF.md) — read-only 10 AM health-check query, response shape, and rollout checks for the private video inbox.
+- [Scanner AI cost diagnostics](SCANNER-AI-DIAGNOSTICS.md) — bounded private failure details, conservative accounting, and read-only inspection.
 
 ## Repository policy
 

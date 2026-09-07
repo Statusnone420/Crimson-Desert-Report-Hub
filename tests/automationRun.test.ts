@@ -636,6 +636,40 @@ afterEach(() => {
 });
 
 describe("runAutomationMonitor", () => {
+  it.each(["extraction", "claim mapping"] as const)("persists bounded %s diagnostics without marking failed AI healthy", async (lane) => {
+    const diagnostic = { code: "request_timeout", elapsedMs: 20_000, httpStatus: null, attempts: 1 };
+    const privateMarker = "PRIVATE-DO-NOT-PERSIST-IN-DIAGNOSTICS";
+    if (lane === "claim mapping") {
+      mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([{ fixText: "Invented fix", category: "performance" }]);
+      mocks.tavilySearch.mockResolvedValue([]);
+      mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => {
+        options.onDiagnostic({ ...diagnostic, responseBody: privateMarker, generationId: privateMarker, sourceUrl: privateMarker });
+        return { matchKind: "none", clusterId: null, clusterSlug: null, reason: "Unverified", llmCallsUsed: 1,
+          llmCostUsd: 0.001, extractionModel: "openai/gpt-5.6-luna", skipReason: "openrouter_cost_unverified" };
+      });
+    } else {
+      mocks.extractSignalWithOpenRouter.mockImplementation(async (_candidate, options) => {
+        if (options.llmCallsRemaining > 0) options.onDiagnostic({ ...diagnostic, responseBody: privateMarker });
+        return { issueTitle: "FPS regression", category: "performance", platform: "pc_steam", confidence: "medium",
+          summary: "Invented performance report.", clusterAssignment: "unsure", clusterReason: "Uncertain", clusterSlug: null,
+          extractionProvider: "deterministic", extractionModel: null, llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+          llmCostUsd: options.llmCallsRemaining > 0 ? 0.001 : 0, fallbackReason: "openrouter_cost_unverified" };
+      });
+    }
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.openRouterDiagnostics).toEqual([diagnostic]);
+    expect(result.skips).toContain("openrouter_cost_unverified");
+    expect(result.llmSucceeded ?? 0).toBe(0);
+    expect(result.llmCostUsd).toBeGreaterThan(0);
+    const saved = tables.automation_runs.find((run) => run.status !== "running");
+    expect(saved).toBeDefined();
+    const progress = saved?.progress as { openRouterDiagnostics: unknown; llmSucceeded: number };
+    expect(progress.openRouterDiagnostics).toEqual([diagnostic]);
+    expect(progress.llmSucceeded).toBe(0);
+    expect(JSON.stringify(progress)).not.toContain(privateMarker);
+  });
+
   it("selects a deterministic bounded 24 named plus 24 active auto semantic options with descriptions", async () => {
     const { selectSemanticClusterOptions } = await importRunner();
     const named = [

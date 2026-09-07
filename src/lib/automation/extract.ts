@@ -6,6 +6,7 @@ import {
   llmDeadlineReached,
   maxOpenRouterRequestCostUsd,
   OpenRouterDeadlineExpiredError,
+  OpenRouterRequestTimeoutError,
   resolveOpenRouterCostUsd,
   resolveAutomationOpenRouterModel,
   waitForOpenRouterRetry,
@@ -13,6 +14,7 @@ import {
   type OpenRouterGenerationFetcher,
   type ScannerModelPreset,
 } from "@/lib/automation/budget";
+import { createOpenRouterDiagnostic, reportOpenRouterDiagnostic, type OpenRouterDiagnostic, type OpenRouterDiagnosticReporter } from "@/lib/automation/openRouterDiagnostics";
 import { classifySignal, summarize } from "@/lib/reddit";
 
 type EnvLike = Record<string, string | undefined>;
@@ -83,6 +85,7 @@ export type ClusterOption = {
 };
 
 export type OpenRouterExtractionOptions = {
+  onDiagnostic?: OpenRouterDiagnosticReporter;
   env?: EnvLike;
   fetcher?: OpenRouterFetch;
   llmCallsRemaining: number;
@@ -334,9 +337,16 @@ async function attemptOpenRouterExtraction(
   clusterOptions: ClusterOption[],
   modelPreset?: ScannerModelPreset,
   llmDeadlineAtMs?: number,
+  onDiagnostic?: OpenRouterDiagnosticReporter,
+  attemptNumber = 1,
 ): Promise<AttemptOutcome> {
   let response: OpenRouterFetchResponse;
   let data: unknown;
+  const startedAtMs = Date.now();
+  let httpStatus: number | null = null;
+  let decoding = false;
+  const diagnose = (code: OpenRouterDiagnostic["code"]) =>
+    reportOpenRouterDiagnostic(onDiagnostic, createOpenRouterDiagnostic(code, startedAtMs, httpStatus, attemptNumber));
   try {
     const completed = await withOpenRouterRequestTimeout(async (signal) => {
       const response = await fetcher(OPENROUTER_CHAT_COMPLETIONS_URL, {
@@ -345,15 +355,21 @@ async function attemptOpenRouterExtraction(
         body: JSON.stringify(extractionRequest(candidate, model, clusterOptions, modelPreset)),
         signal,
       });
+      httpStatus = response.status;
+      decoding = true;
       return { response, data: await response.json() };
     }, llmDeadlineAtMs);
     response = completed.response;
     data = completed.data;
   } catch (error) {
     if (error instanceof OpenRouterDeadlineExpiredError) return { ok: false, reason: "llm_time_limit", costUsd: 0 };
+    diagnose(error instanceof OpenRouterRequestTimeoutError
+      ? "request_timeout"
+      : decoding ? "response_decode_failure" : "request_transport_failure");
     return { ok: false, reason: "openrouter_cost_unverified", costUsd: null };
   }
   if (!response.ok) {
+    diagnose("request_http_failure");
     try {
       const errorData = data;
       if (isOpenRouterRoutingRefusal(response.status, errorData)) {
@@ -364,6 +380,8 @@ async function attemptOpenRouterExtraction(
         apiKey,
         fetcher as unknown as OpenRouterGenerationFetcher,
         llmDeadlineAtMs,
+        onDiagnostic,
+        response.status,
       );
       return errorCostUsd === null
         ? { ok: false, reason: "openrouter_cost_unverified", costUsd: null }
@@ -378,14 +396,20 @@ async function attemptOpenRouterExtraction(
     apiKey,
     fetcher as unknown as OpenRouterGenerationFetcher,
     llmDeadlineAtMs,
+    onDiagnostic,
+    response.status,
   );
   if (costUsd === null) return { ok: false, reason: "openrouter_cost_unverified", costUsd: null };
   const content = readOpenRouterContent(data);
-  if (!content) return { ok: false, reason: "openrouter_invalid_json", costUsd };
+  if (!content) {
+    diagnose("response_validation_failure");
+    return { ok: false, reason: "openrouter_invalid_json", costUsd };
+  }
 
   try {
     return { ok: true, signal: parseOpenRouterExtraction(content, clusterOptions), costUsd };
   } catch {
+    diagnose("response_validation_failure");
     return { ok: false, reason: "openrouter_invalid_json", costUsd };
   }
 }
@@ -427,7 +451,10 @@ export async function extractSignalWithOpenRouter(
       return deterministicResult(candidate, "llm_budget_capped", callsUsed, costUsd);
     }
     callsUsed += 1;
-    const outcome = await attemptOpenRouterExtraction(candidate, fetcher, apiKey, model, clusterOptions, options.modelPreset, options.llmDeadlineAtMs);
+    const outcome = await attemptOpenRouterExtraction(
+      candidate, fetcher, apiKey, model, clusterOptions, options.modelPreset, options.llmDeadlineAtMs,
+      options.onDiagnostic, attempt + 1,
+    );
     if (!outcome.ok && outcome.reason === "llm_time_limit") {
       return deterministicResult(candidate, "llm_time_limit", callsUsed - 1, costUsd);
     }
