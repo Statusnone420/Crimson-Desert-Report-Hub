@@ -164,7 +164,18 @@ async function enforceProviderBudget(budget: AutomationBudget): Promise<Automati
   if (budget.maxLlmCalls <= 0) return budget;
   const llmDeadlineAtMs = Date.now() + 180_000;
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  const keyBudget = apiKey ? await readOpenRouterKeyBudget(apiKey) : null;
+  if (!apiKey) {
+    return {
+      ...budget,
+      llmDeadlineAtMs,
+      remainingLlmUsd: 0,
+      maxLlmCalls: 0,
+      skipReasons: budget.skipReasons.includes("openrouter_missing_config")
+        ? budget.skipReasons
+        : [...budget.skipReasons, "openrouter_missing_config"],
+    };
+  }
+  const keyBudget = await readOpenRouterKeyBudget(apiKey);
   const checked = evaluateOpenRouterKeyBudget(keyBudget, budget);
   return {
     ...budget,

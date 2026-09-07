@@ -1551,6 +1551,18 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0]).toMatchObject({ source: "web_search", extraction_provider: "deterministic" });
   });
 
+  it("reports a blank OpenRouter key explicitly without querying the provider", async () => {
+    process.env.OPENROUTER_API_KEY = "   ";
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("openrouter_missing_config");
+    expect(result.skips).not.toContain("openrouter_key_budget_unverified");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+  });
+
   it.each([
     ["an unlimited key", { data: { limit: null, limit_remaining: null, limit_reset: null, usage_monthly: 0 } }, "openrouter_key_limit_unsafe"],
     ["a daily key", { data: { limit: 1, limit_remaining: 1, limit_reset: "daily", usage_monthly: 0 } }, "openrouter_key_limit_unsafe"],
@@ -4990,6 +5002,25 @@ describe("runAutomationMonitor", () => {
       estimated_cost_usd: 0,
     });
     expect(tables.automation_runs[1].skips).toContain("llm_budget_capped");
+  });
+
+  it("records a missing OpenRouter key on the rescue ledger without querying the provider", async () => {
+    process.env.OPENROUTER_API_KEY = "";
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/missing-key/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(tables.automation_runs.at(-1)?.skips).toContain("openrouter_missing_config");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
   });
 
   it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
