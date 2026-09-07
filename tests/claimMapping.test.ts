@@ -136,7 +136,7 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       data_collection: "allow",
       only: ["OpenAI"],
       allow_fallbacks: false,
-      max_price: { prompt: 0.15, completion: 0.9, request: 0, image: 0 },
+      max_price: { prompt: 0.2, completion: 1.2, request: 0, image: 0 },
     });
     expect(requestedReasoning).toEqual({ effort: "high", exclude: true });
     expect(requestedMaxTokens).toBe(2048);
@@ -366,6 +366,45 @@ describe("mapClaimToClusterWithOpenRouter", () => {
       llmCostUsd: 0.00002,
       extractionModel: "openai/gpt-5.6-luna",
     });
+  });
+
+  it("reports a positive budget below the request ceiling without making a paid request", async () => {
+    const fetcher = vi.fn();
+
+    const result = await mapClaimToClusterWithOpenRouter(
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+      clusters,
+      {
+        env: { OPENROUTER_API_KEY: "key" },
+        fetcher,
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: Number.EPSILON,
+      },
+    );
+
+    expect(result).toMatchObject({
+      matchKind: "keyword_proposal",
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      skipReason: "llm_budget_capped",
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("does not label call-count or time-limit refusal as a money limit", async () => {
+    const noCalls = await mapClaimToClusterWithOpenRouter(
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+      clusters,
+      { env: { OPENROUTER_API_KEY: "key" }, llmCallsRemaining: 0, llmBudgetRemainingUsd: Number.EPSILON },
+    );
+    const timedOut = await mapClaimToClusterWithOpenRouter(
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+      clusters,
+      { env: { OPENROUTER_API_KEY: "key" }, llmCallsRemaining: 1, llmBudgetRemainingUsd: Number.EPSILON, llmDeadlineAtMs: 0 },
+    );
+
+    expect(noCalls.skipReason).toBeUndefined();
+    expect(timedOut.skipReason).toBe("llm_time_limit");
   });
 
   it("opens the circuit when a paid response omits cost metadata", async () => {

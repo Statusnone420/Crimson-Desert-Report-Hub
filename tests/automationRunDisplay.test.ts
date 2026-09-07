@@ -24,10 +24,10 @@ describe("source monitor run display", () => {
       expect.objectContaining({ code: "openrouter_invalid_json", count: 1, label: "OpenRouter invalid JSON" }),
       expect.objectContaining({ code: "openrouter_provider_failure", count: 1, label: "OpenRouter provider failure" }),
       expect.objectContaining({ code: "wrong_patch", count: 1, label: "Wrong patch" }),
-      expect.objectContaining({ code: "llm_allowance_exhausted", count: 1, label: "LLM allowance exhausted" }),
+      expect.objectContaining({ code: "llm_allowance_exhausted", count: 1, label: "AI calls stopped for this run" }),
     ]);
     expect(summary.operatorSummary).toBe(
-      "2 not issue reports; 1 OpenRouter invalid JSON; 1 OpenRouter provider failure; 1 wrong patch; 1 LLM allowance exhausted",
+      "2 not issue reports; 1 OpenRouter invalid JSON; 1 OpenRouter provider failure; 1 wrong patch; 1 AI calls stopped for this run",
     );
     expect(summary.errorSummary).toBe("No errors");
   });

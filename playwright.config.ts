@@ -7,6 +7,8 @@ export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
   testIgnore: ["n0.spec.ts", "turnstile-theme.spec.ts"],
   fullyParallel: false,
+  // CI shares one dev server; concurrent route compilation can stall navigation.
+  workers: process.env.CI ? 1 : undefined,
   timeout: 60_000,
   expect: {
     timeout: 10_000,

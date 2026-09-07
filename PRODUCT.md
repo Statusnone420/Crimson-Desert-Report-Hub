@@ -95,9 +95,9 @@ The site must work and feel complete with zero visitors and zero community input
 - Use the newspaper for reading and discovery; keep issue and operator workflows clear and scannable.
 - Stay useful at N=0.
 - Keep Reddit API permanently off. Reddit pages may appear only through Tavily public-web discovery; promising thin results may receive bounded basic extraction after normalization to `old.reddit.com`.
-- Keep public-web discovery at or below 1,000 monthly credits. Restrict higher-cost scanner enrichment and official fix-claim mapping to approved server-side automation under a hard $2 UTC-month software cap and per-request price ceilings.
+- Keep public-web discovery at or below 1,000 monthly credits. Restrict higher-cost scanner enrichment and official fix-claim mapping to approved server-side automation with a saved $0.50 default budget, configurable up to the $1 UTC-month software ceiling, and per-request price ceilings.
 - Keep routine report moderation and dossier prose on approved low-cost or deterministic fallback paths configured by maintainers.
-- Use a dedicated OpenRouter key with a provider-side monthly reset limit of $2 or lower, verified manually by a maintainer because the repository cannot inspect that dashboard setting.
+- Use a dedicated OpenRouter key with a provider-side monthly or lifetime limit of $1 or lower. Before inference, the scanner inspects the limit, remaining credit, and monthly usage. Daily, weekly, unlimited, or unverifiable limits block AI requests.
 
 Public documentation should explain these guarantees and boundaries without treating the current discovery, ranking, prompt, or moderation implementation as a permanent public recipe.
 

@@ -1,0 +1,32 @@
+{
+  "checked": "2026-09-06",
+  "note": "Local stills for outbound Watch links. CSP does not allow remote YouTube images. These files are not embeds, autoplay sources, or new editorial selections.",
+  "assets": [
+    {
+      "file": "/watch/HaCtG1F_hfE.jpg",
+      "videoUrl": "https://www.youtube.com/watch?v=HaCtG1F_hfE",
+      "thumbnailSource": "https://i.ytimg.com/vi/HaCtG1F_hfE/maxresdefault.jpg",
+      "oembedTitle": "Crimson Desert Enhanced: Charting the Unknown | Official DLC Reveal Trailer",
+      "oembedAuthor": "Crimson Desert",
+      "oembedAuthorUrl": "https://www.youtube.com/@CrimsonDesert",
+      "width": 1280,
+      "height": 720,
+      "sha256": "979a3f84d3703890bdf576582502e18c68065fd369cb0afa9a4e3bdbf0cddeb0",
+      "bytes": 216731,
+      "context": "Official Pearl Abyss / Crimson Desert reveal trailer still. Hosted locally for the Watch page preview; playback remains on YouTube."
+    },
+    {
+      "file": "/watch/6H6c0S80d4U.jpg",
+      "videoUrl": "https://www.youtube.com/watch?v=6H6c0S80d4U",
+      "thumbnailSource": "https://i.ytimg.com/vi/6H6c0S80d4U/maxresdefault.jpg",
+      "oembedTitle": "Crimson Desert: Charting the Unknown DLC - First Details Gameplay, Ship Navigation & More",
+      "oembedAuthor": "KhrazeGaming",
+      "oembedAuthorUrl": "https://www.youtube.com/@Khrazegaming",
+      "width": 1280,
+      "height": 720,
+      "sha256": "e38bd350d92c8d7ed4ce72589e137a54cbdadccf14be85d107a9db0d0799e311",
+      "bytes": 262964,
+      "context": "Reviewed KhrazeGaming commentary still. Hosted locally for the Watch page preview; playback remains on YouTube."
+    }
+  ]
+}

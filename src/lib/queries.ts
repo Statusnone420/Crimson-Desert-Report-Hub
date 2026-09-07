@@ -99,6 +99,7 @@ export type AutomationRunRow = {
   skips: string[];
   errors: string[];
   funnel: Record<string, number> | null;
+  progress?: { llmSucceeded?: number; llmCostUsd?: number; modelPreset?: string | null } | null;
 };
 
 export type RejectedCandidateRow = {
@@ -1166,7 +1167,7 @@ export async function getLatestPublicScanMeta(): Promise<PublicScanMeta> {
 }
 
 const RUN_COLUMNS =
-  "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, search_results_seen, reddit_posts_seen, llm_calls_used, signals_inserted, signals_deduped, signals_reobserved, stale_signals_hidden, candidates_rescued, clusters_promoted, intent, skips, errors, funnel";
+  "id, started_at, finished_at, status, mode, estimated_cost_usd, search_queries_used, search_results_seen, reddit_posts_seen, llm_calls_used, signals_inserted, signals_deduped, signals_reobserved, stale_signals_hidden, candidates_rescued, clusters_promoted, intent, skips, errors, funnel, progress";
 
 type AdminRejectedCandidateRow = {
   id: string;

@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "crimson-report-hub-scanner-alerts-staging",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-06",
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": { "crons": [] },
+  "vars": {
+    "CRON_URL": "https://crimsonreporthub.com/api/cron/keepalive",
+    "ALERT_SENDER": "REPLACE_WITH_SENDER_ON_AN_ONBOARDED_DOMAIN",
+    "ALERT_RECIPIENT": "REPLACE_WITH_VERIFIED_DESTINATION"
+  },
+  "send_email": [
+    {
+      "name": "ALERT_EMAIL",
+      "destination_address": "REPLACE_WITH_VERIFIED_DESTINATION",
+      "allowed_sender_addresses": ["REPLACE_WITH_SENDER_ON_AN_ONBOARDED_DOMAIN"],
+      "remote": false
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "ALERT_STATE",
+      "id": "REPLACE_WITH_EXISTING_KV_NAMESPACE_ID"
+    }
+  ]
+}

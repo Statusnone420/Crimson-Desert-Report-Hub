@@ -550,7 +550,7 @@ describe("setScannerPolicy", () => {
           minIntervalMinutes: 120,
           scheduledSearchCreditsPerRun: 3,
           monthlyTavilyCreditCap: 1000,
-          monthlyLlmUsdCap: 2,
+          monthlyLlmUsdCap: 1,
           modelPreset: "gpt_5_6_luna",
         },
       }),

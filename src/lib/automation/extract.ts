@@ -3,10 +3,15 @@ import {
   AUTOMATION_TASK_SETTINGS,
   automationModelSettings,
   isOpenRouterRoutingRefusal,
+  llmDeadlineReached,
   maxOpenRouterRequestCostUsd,
+  OpenRouterDeadlineExpiredError,
   resolveOpenRouterCostUsd,
   resolveAutomationOpenRouterModel,
+  waitForOpenRouterRetry,
+  withOpenRouterRequestTimeout,
   type OpenRouterGenerationFetcher,
+  type ScannerModelPreset,
 } from "@/lib/automation/budget";
 import { classifySignal, summarize } from "@/lib/reddit";
 
@@ -42,6 +47,7 @@ export type ExtractionFallbackReason =
   | "openrouter_unexpected_charge"
   | "openrouter_cost_unverified"
   | "openrouter_no_route"
+  | "llm_time_limit"
   | "openrouter_budget_exceeded";
 
 export type ExtractionResult = ExtractedSignal & {
@@ -64,6 +70,7 @@ type OpenRouterFetch = (
     method: "POST";
     headers: Record<string, string>;
     body: string;
+    signal?: AbortSignal;
   },
 ) => Promise<OpenRouterFetchResponse>;
 
@@ -81,6 +88,8 @@ export type OpenRouterExtractionOptions = {
   llmCallsRemaining: number;
   llmBudgetRemainingUsd?: number;
   clusterOptions?: ClusterOption[];
+  modelPreset?: ScannerModelPreset;
+  llmDeadlineAtMs?: number;
 };
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -281,14 +290,16 @@ type AttemptOutcome =
         | "openrouter_provider_failure"
         | "openrouter_invalid_json"
         | "openrouter_cost_unverified"
+        | "llm_time_limit"
         | "openrouter_no_route";
       costUsd: number | null;
     };
 
-function extractionRequest(candidate: SourceCandidate, model: string, clusterOptions: ClusterOption[]) {
-  const modelSettings = automationModelSettings(model);
+function extractionRequest(candidate: SourceCandidate, model: string, clusterOptions: ClusterOption[], modelPreset?: ScannerModelPreset) {
+  const modelSettings = automationModelSettings(model, modelPreset);
   return {
     model,
+    ...(modelSettings.serviceTier ? { service_tier: modelSettings.serviceTier } : {}),
     ...(modelSettings.temperature === undefined ? {} : { temperature: modelSettings.temperature }),
     reasoning: modelSettings.reasoning,
     // This ceiling covers both reasoning and the final strict JSON result. The
@@ -321,20 +332,30 @@ async function attemptOpenRouterExtraction(
   apiKey: string,
   model: string,
   clusterOptions: ClusterOption[],
+  modelPreset?: ScannerModelPreset,
+  llmDeadlineAtMs?: number,
 ): Promise<AttemptOutcome> {
   let response: OpenRouterFetchResponse;
+  let data: unknown;
   try {
-    response = await fetcher(OPENROUTER_CHAT_COMPLETIONS_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify(extractionRequest(candidate, model, clusterOptions)),
-    });
-  } catch {
+    const completed = await withOpenRouterRequestTimeout(async (signal) => {
+      const response = await fetcher(OPENROUTER_CHAT_COMPLETIONS_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(extractionRequest(candidate, model, clusterOptions, modelPreset)),
+        signal,
+      });
+      return { response, data: await response.json() };
+    }, llmDeadlineAtMs);
+    response = completed.response;
+    data = completed.data;
+  } catch (error) {
+    if (error instanceof OpenRouterDeadlineExpiredError) return { ok: false, reason: "llm_time_limit", costUsd: 0 };
     return { ok: false, reason: "openrouter_cost_unverified", costUsd: null };
   }
   if (!response.ok) {
     try {
-      const errorData = await response.json();
+      const errorData = data;
       if (isOpenRouterRoutingRefusal(response.status, errorData)) {
         return { ok: false, reason: "openrouter_no_route", costUsd: 0 };
       }
@@ -342,6 +363,7 @@ async function attemptOpenRouterExtraction(
         errorData,
         apiKey,
         fetcher as unknown as OpenRouterGenerationFetcher,
+        llmDeadlineAtMs,
       );
       return errorCostUsd === null
         ? { ok: false, reason: "openrouter_cost_unverified", costUsd: null }
@@ -351,17 +373,11 @@ async function attemptOpenRouterExtraction(
     }
   }
 
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    return { ok: false, reason: "openrouter_cost_unverified", costUsd: null };
-  }
-
   const costUsd = await resolveOpenRouterCostUsd(
     data,
     apiKey,
     fetcher as unknown as OpenRouterGenerationFetcher,
+    llmDeadlineAtMs,
   );
   if (costUsd === null) return { ok: false, reason: "openrouter_cost_unverified", costUsd: null };
   const content = readOpenRouterContent(data);
@@ -383,10 +399,11 @@ export async function extractSignalWithOpenRouter(
 
   if (!apiKey) return deterministicResult(candidate, "openrouter_missing_config");
   if (options.llmCallsRemaining <= 0) return deterministicResult(candidate, "llm_allowance_exhausted");
+  if (llmDeadlineReached(options.llmDeadlineAtMs)) return deterministicResult(candidate, "llm_time_limit");
 
   let model: string;
   try {
-    model = resolveAutomationOpenRouterModel(env.OPENROUTER_AUTOMATION_MODEL);
+    model = resolveAutomationOpenRouterModel(env.OPENROUTER_AUTOMATION_MODEL, options.modelPreset);
   } catch {
     return deterministicResult(candidate, "openrouter_paid_model");
   }
@@ -396,19 +413,24 @@ export async function extractSignalWithOpenRouter(
   const maxAttempts = Math.min(MAX_OPENROUTER_ATTEMPTS, Math.max(1, options.llmCallsRemaining));
   const budgetRemainingUsd = options.llmBudgetRemainingUsd ?? 0;
   const requestCostCeiling = maxOpenRouterRequestCostUsd(
-    JSON.stringify(extractionRequest(candidate, model, clusterOptions)),
+    JSON.stringify(extractionRequest(candidate, model, clusterOptions, options.modelPreset)),
     AUTOMATION_TASK_SETTINGS.extraction.maxCompletionTokens,
     model,
+    options.modelPreset,
   );
   let callsUsed = 0;
   let costUsd = 0;
   let lastReason: ExtractionFallbackReason = "openrouter_provider_failure";
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (llmDeadlineReached(options.llmDeadlineAtMs)) return deterministicResult(candidate, "llm_time_limit", callsUsed, costUsd);
     if (budgetRemainingUsd - costUsd < requestCostCeiling) {
       return deterministicResult(candidate, "llm_budget_capped", callsUsed, costUsd);
     }
     callsUsed += 1;
-    const outcome = await attemptOpenRouterExtraction(candidate, fetcher, apiKey, model, clusterOptions);
+    const outcome = await attemptOpenRouterExtraction(candidate, fetcher, apiKey, model, clusterOptions, options.modelPreset, options.llmDeadlineAtMs);
+    if (!outcome.ok && outcome.reason === "llm_time_limit") {
+      return deterministicResult(candidate, "llm_time_limit", callsUsed - 1, costUsd);
+    }
     if (outcome.costUsd === null) {
       // Cost could not be verified, so the books assume the request cost its
       // worst-case ceiling. The run stops calling the LLM; the month does not.
@@ -433,6 +455,11 @@ export async function extractSignalWithOpenRouter(
       };
     }
     lastReason = outcome.reason;
+    if (attempt + 1 < maxAttempts && budgetRemainingUsd - costUsd >= requestCostCeiling) {
+      if (!await waitForOpenRouterRetry(attempt, options.llmDeadlineAtMs)) {
+        return deterministicResult(candidate, "llm_time_limit", callsUsed, costUsd);
+      }
+    }
   }
   return deterministicResult(candidate, lastReason, callsUsed, costUsd);
 }

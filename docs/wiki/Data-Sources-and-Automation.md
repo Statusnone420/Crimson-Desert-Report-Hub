@@ -30,7 +30,8 @@ Original reports and selected coverage also stay separate. The Atom and RSS feed
 ## Provider boundaries
 
 - Tavily is the approved public-web discovery provider and stays within the documented monthly credit ceiling.
-- High-value OpenRouter work defaults to GPT-5.6 Luna on the first-party OpenAI provider, with model-specific price ceilings and a hard $2 UTC-month cap. Switching to DeepSeek V4 Flash is manual, never automatic. Luna requests are pinned to OpenAI with provider fallback disabled; DeepSeek rollback requests may route among eligible zero-data-retention providers under the model's price ceiling.
+- High-value OpenRouter work defaults to GPT-5.6 Luna Standard on the first-party OpenAI provider. The saved budget defaults to $0.50 and is configurable up to the $1 UTC-month software ceiling, with model-specific request price ceilings. Luna Flex and DeepSeek V4 Flash rollback are explicit scanner presets, never automatic fallbacks. Luna requests are pinned to OpenAI with provider fallback disabled; DeepSeek rollback requests may route among eligible zero-data-retention providers under the model's price ceiling.
+- Before inference, the scanner inspects the dedicated OpenRouter key's limit, remaining credit, and monthly usage. It requires a monthly or lifetime limit of $1 or lower; daily, weekly, unlimited, or unverifiable limits block AI requests. These are setup requirements, not claims about a deployed account.
 - Routine moderation and dossier writing use free or deterministic fallback paths.
 - Reddit API access and direct subreddit monitoring are permanently off.
 - The protected source preview runs at most two live Tavily queries, then applies deterministic filtering with LLM calls disabled. It does not publish or write the scan ledger. Live search results can vary between runs.

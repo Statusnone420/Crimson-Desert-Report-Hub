@@ -200,11 +200,11 @@ describe("integrationStatuses", () => {
 });
 
 describe("automation env helpers", () => {
-  it("defaults and caps the monthly automation dollar budget at two dollars", () => {
-    expect(automationBudgetUsd({})).toBe(2);
+  it("defaults to fifty cents and caps the monthly AI budget at one dollar", () => {
+    expect(automationBudgetUsd({})).toBe(0.5);
     expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "-1" })).toBe(0);
     expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "not-a-number" })).toBe(0);
-    expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "100" })).toBe(2);
+    expect(automationBudgetUsd({ AUTOMATION_BUDGET_USD_MONTHLY: "100" })).toBe(1);
   });
 
   it("keeps an explicit zero-dollar budget at zero", () => {

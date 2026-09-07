@@ -222,7 +222,9 @@ test.describe("integrated newspaper public UI", () => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
     await page.getByRole("contentinfo").getByRole("link", { name: "Privacy" }).click();
-    await expect(page).toHaveURL(/\/privacy$/);
+    // CI compiles this client navigation on demand while other specs share the
+    // mock server; wait past the default expect timeout before asserting.
+    await page.waitForURL(/\/privacy$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { name: "Privacy" })).toBeVisible();
     await expect(page.getByText("There is no player sign-in and nothing to register.")).toBeVisible();
     await expect(page.getByText("The database does not store your IP address.")).toBeVisible();
