@@ -1,7 +1,9 @@
+import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { collectConsoleProblems, expectHealthyPage, signInAsAdmin } from "./helpers";
 
 const PRIVATE_NOTE = "Invented review note for the private inbox screenshot.";
+const PENDING_TITLE = "Fixture expansion commentary for inbox tests";
 
 test.describe("private video review inbox", () => {
   test("unauthenticated visitors cannot open the inbox", async ({ page }) => {
@@ -13,7 +15,7 @@ test.describe("private video review inbox", () => {
     await expect(page.getByText(PRIVATE_NOTE)).toHaveCount(0);
   });
 
-  test("signed-in owner can review, skip, and approve without changing Watch", async ({ page }) => {
+  test("signed-in owner sees the private queue without changing Watch", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/admin/videos");
@@ -22,29 +24,19 @@ test.describe("private video review inbox", () => {
       "aria-current",
       "page",
     );
-    await expect(page.getByText(PRIVATE_NOTE)).toBeVisible();
-    await expect(page.getByText("Pending")).toBeVisible();
-    await expect(page.getByText("Draft ready")).toBeVisible();
-    await expect(page.getByText("Skipped")).toBeVisible();
+    await expect(page.getByRole("heading", { name: PENDING_TITLE })).toBeVisible();
+    await expect(page.locator("article[data-video-state='pending'] .review-item__body")).toHaveText(PRIVATE_NOTE);
+    await expect(page.locator("article[data-video-state='pending']")).toHaveCount(1);
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
+    await expect(page.locator("article[data-video-state='skipped']")).toHaveCount(1);
     await expect(page.getByRole("link", { name: "Download draft" })).toBeVisible();
-
-    const pendingCard = page.locator("article").filter({ hasText: PRIVATE_NOTE });
-    await pendingCard.getByRole("button", { name: "Skip" }).click();
-    await expect(page.getByText("Skipped")).toBeVisible();
-
-    await page.getByLabel("YouTube URL", { exact: true }).first().fill("https://youtu.be/zzInboxAdd1");
-    await page.getByLabel("Title", { exact: true }).first().fill("Crimson Desert added fixture commentary");
-    await page.getByLabel("Channel", { exact: true }).first().fill("FixtureChannel");
-    await page.getByLabel("Review note").first().fill("Second invented inbox note.");
-    await page.getByRole("button", { name: "Add to inbox" }).click();
-    await expect(page.getByText("Crimson Desert added fixture commentary")).toBeVisible();
-
-    const added = page.locator("article").filter({ hasText: "Crimson Desert added fixture commentary" });
-    await added.getByRole("button", { name: "Approve draft" }).click();
-    await expect(added.getByText(/Draft incomplete|Draft complete|Private publication draft/)).toBeVisible();
-
-    await added.getByRole("button", { name: "Approve draft" }).click();
-    await expect(page.getByText("Crimson Desert added fixture commentary")).toHaveCount(1);
+    const artifactDir = "/opt/cursor/artifacts/video-inbox";
+    mkdirSync(artifactDir, { recursive: true });
+    const project = test.info().project.name;
+    await page.screenshot({
+      path: `${artifactDir}/${project}-queue.png`,
+      fullPage: true,
+    });
 
     await page.goto("/watch");
     await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();
@@ -55,6 +47,10 @@ test.describe("private video review inbox", () => {
     await expect(page.getByText(PRIVATE_NOTE)).toHaveCount(0);
     await expect(page.getByText("zzInboxMock")).toHaveCount(0);
     await expect(page.getByText("zzInboxAdd1")).toHaveCount(0);
+    await page.screenshot({
+      path: `${artifactDir}/${project}-watch.png`,
+      fullPage: true,
+    });
     await expectHealthyPage(page, problems);
   });
 

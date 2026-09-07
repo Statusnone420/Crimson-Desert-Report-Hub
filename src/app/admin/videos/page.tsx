@@ -124,7 +124,6 @@ function CandidateFields({
         defaultValue={row?.published_at ?? ""}
         placeholder="2026-09-03 or 2026-09-03T18:35:11Z"
       />
-      <input type="hidden" name="creator_channel_id" value={row?.creator_channel_id ?? sources[0]?.verifiedChannelId ?? ""} />
     </>
   );
 }
@@ -212,7 +211,6 @@ export default async function VideoReviewPage() {
   await requireAdmin("/admin/videos");
   const queue = await readVideoReviewQueue(createServiceClient());
   const sources = creatorEditorialSources();
-  const nowMs = Date.now();
 
   if (queue.status === "unavailable") {
     return (
@@ -301,7 +299,7 @@ export default async function VideoReviewPage() {
                 row={row}
                 draft={queue.draftsByCandidateId[row.id]}
                 sources={sources}
-                nowMs={nowMs}
+                nowMs={Date.parse(queue.observedAt)}
               />
             ))
           )}

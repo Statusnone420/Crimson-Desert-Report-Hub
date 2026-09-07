@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -46,6 +47,12 @@ describe("video inbox privacy", () => {
     expect(markup).not.toContain("Invented review note");
     expect(markup).not.toContain("/admin/videos");
     expect(markup).not.toContain("FixtureChannel");
+  });
+
+  it("keeps inbox writes off public cache revalidation", () => {
+    const actions = readFileSync("src/app/admin/videos/actions.ts", "utf8");
+    expect(actions).toContain('revalidatePath("/admin/videos")');
+    expect(actions).not.toContain("revalidatePublicSurfaces");
   });
 
   it("rejects unauthenticated brief and draft downloads without reading the inbox", async () => {

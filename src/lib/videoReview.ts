@@ -79,7 +79,7 @@ export function alreadyPublishedWatchVideoIds(): string[] {
   const ids = new Set<string>();
   const officialId = videoIdFromCanonicalWatchUrl(officialWatchSelection.url);
   if (officialId) ids.add(officialId);
-  for (const source of EDITORIAL_SOURCES) {
+  for (const source of EDITORIAL_SOURCES as readonly EditorialSource[]) {
     for (const videoId of source.verifiedVideoIds ?? []) ids.add(videoId);
   }
   return [...ids];

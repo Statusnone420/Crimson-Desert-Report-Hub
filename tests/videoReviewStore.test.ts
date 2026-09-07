@@ -144,6 +144,17 @@ describe("video review store", () => {
     ).rejects.toThrow("video review queue read failed");
   });
 
+  it("returns an observation time with the private queue", async () => {
+    const tables = createTables({
+      candidates: [{ id: "video-1", revision: 1, state: "pending", ...candidate }],
+    });
+    const queue = await readVideoReviewQueue(stubClient(tables));
+    expect(queue.status).toBe("ok");
+    if (queue.status !== "ok") throw new Error("expected a readable queue");
+    expect(queue.observedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(queue.candidates).toHaveLength(1);
+  });
+
   it("rejects a second insert of the same video ID", async () => {
     const tables = createTables();
     await insertVideoReviewCandidate(stubClient(tables), candidate);

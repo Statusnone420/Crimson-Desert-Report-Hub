@@ -4,10 +4,11 @@ import {
   ownerBriefBullets,
   parseOwnerAttentionBrief,
   readOwnerAttentionBrief,
+  type OwnerAttentionBrief,
 } from "@/lib/ownerAttentionBrief";
 import type { createServiceClient } from "@/lib/supabase";
 
-const okBrief = {
+const okBrief: OwnerAttentionBrief = {
   observedAt: "2026-09-07T14:00:00Z",
   status: "ok",
   videoInbox: {
@@ -80,7 +81,7 @@ describe("owner attention brief", () => {
         draftsReady: { count: 0, oldestAgeSeconds: null },
         items: [],
       },
-      adminAttention: { ...okBrief.adminAttention, flaggedPendingReports: 0, unsureClaimMatches: 0, needsYou: 0 },
+      adminAttention: { ...okBrief.adminAttention!, flaggedPendingReports: 0, unsureClaimMatches: 0, needsYou: 0 },
     });
     expect(ownerBriefBullets(quiet)).toEqual([]);
   });

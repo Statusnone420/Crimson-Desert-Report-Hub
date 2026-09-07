@@ -34,7 +34,7 @@ function candidateFromForm(formData: FormData) {
     title: formText(formData, "title"),
     channelLabel: formText(formData, "channel_label"),
     reviewNote: formText(formData, "review_note"),
-    creatorChannelId: formText(formData, "creator_channel_id") || null,
+    creatorChannelId: null,
     reviewedHeadline: formText(formData, "reviewed_headline") || null,
     reviewedExcerpt: formText(formData, "reviewed_excerpt") || null,
     excerptReviewStatus,

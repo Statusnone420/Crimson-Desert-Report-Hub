@@ -1228,6 +1228,17 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/rest/v1/video_publication_drafts" && req.method === "PATCH") {
+    const raw = await readBody(req);
+    const patch = raw ? JSON.parse(raw) : {};
+    const rows = filterRows(videoPublicationDrafts, url);
+    for (const row of rows) {
+      Object.assign(row, patch, { updated_at: new Date(now()).toISOString() });
+    }
+    sendJson(res, req.method, 200, rows);
+    return;
+  }
+
   if (url.pathname === "/rest/v1/video_publication_drafts" && req.method === "POST") {
     const raw = await readBody(req);
     const parsed = raw ? JSON.parse(raw) : {};

@@ -52,6 +52,10 @@ describe("video review candidate validation", () => {
       ok: false,
       reason: "unknown_source",
     });
+    expect(validateVideoReviewCandidate({ ...valid, creatorChannelId: null })).toMatchObject({
+      ok: true,
+      candidate: { creatorChannelId: "UCFXUSG_393wZJaRTErU6Pjw" },
+    });
     expect(videoReviewRejectionMessage("unsupported_host")).toMatch(/YouTube/);
   });
 });

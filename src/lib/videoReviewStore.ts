@@ -45,7 +45,12 @@ export type VideoPublicationDraftRow = {
 };
 
 export type VideoReviewQueue =
-  | { status: "ok"; candidates: VideoReviewRow[]; draftsByCandidateId: Record<string, VideoPublicationDraftRow> }
+  | {
+      status: "ok";
+      observedAt: string;
+      candidates: VideoReviewRow[];
+      draftsByCandidateId: Record<string, VideoPublicationDraftRow>;
+    }
   | { status: "unavailable"; reason: "schema_missing" };
 
 export class StaleVideoReviewEdit extends Error {
@@ -146,6 +151,7 @@ export async function readVideoReviewQueue(
 
   return {
     status: "ok",
+    observedAt: new Date().toISOString(),
     candidates: candidatesResult.data as VideoReviewRow[],
     draftsByCandidateId,
   };
