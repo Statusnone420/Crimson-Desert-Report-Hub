@@ -166,6 +166,7 @@ type ClaimReviewCurrentContext = {
   patchVersion: string;
   claimKeys: Set<string>;
   reviewableClusters: Set<string>;
+  clusterSnapshots: Map<string, { slug: string; title: string; category: string; lifecycleRevision: number }>;
 };
 
 async function readClaimReviewCurrentContext(
@@ -185,7 +186,7 @@ async function readClaimReviewCurrentContext(
   });
   if ("error" in fixes) return fixes;
   const clusters = await readAll<Record<string, unknown>>((after) => {
-    const query = client.from("issue_clusters").select("id, is_public, admin_override").order("id").limit(500);
+    const query = client.from("issue_clusters").select("id, slug, title, category, lifecycle_revision, is_public, admin_override").order("id").limit(500);
     return after === null ? query : query.gt("id", after);
   });
   if ("error" in clusters) return clusters;
@@ -195,28 +196,53 @@ async function readClaimReviewCurrentContext(
     claimKeys.add(claimReviewKey(row.patch_version, fix.fix_text));
   }
   const reviewableClusters = new Set<string>();
+  const clusterSnapshots = new Map<string, { slug: string; title: string; category: string; lifecycleRevision: number }>();
   for (const cluster of clusters.rows) {
     if (typeof cluster.id !== "string" || typeof cluster.is_public !== "boolean" || typeof cluster.admin_override !== "boolean") {
       return { error: { message: "claim review cluster row is malformed" } };
     }
     if (cluster.is_public && !cluster.admin_override) reviewableClusters.add(cluster.id);
+    const lifecycleRevision = Number(cluster.lifecycle_revision);
+    if (
+      typeof cluster.slug === "string" &&
+      typeof cluster.title === "string" &&
+      typeof cluster.category === "string" &&
+      Number.isFinite(lifecycleRevision)
+    ) {
+      clusterSnapshots.set(cluster.id, {
+        slug: cluster.slug,
+        title: cluster.title,
+        category: cluster.category,
+        lifecycleRevision,
+      });
+    }
   }
-  return { context: { boardNo: row.board_no, patchVersion: row.patch_version, claimKeys, reviewableClusters } };
+  return { context: { boardNo: row.board_no, patchVersion: row.patch_version, claimKeys, reviewableClusters, clusterSnapshots } };
 }
 
 function projectActivePairing(item: ClaimReviewItem, context: ClaimReviewCurrentContext | null): ClaimReviewItem {
-  if (item.state === "retired") return item;
-  if (context === null) return { ...item, derivedHistoryReason: "No current official patch is available." };
-  if (item.boardNo !== context.boardNo || item.patchVersion !== context.patchVersion) {
-    return { ...item, derivedHistoryReason: "This pairing is no longer on the current official patch." };
+  const snapshot = context?.clusterSnapshots.get(item.clusterId);
+  const displayed = snapshot
+    ? {
+        ...item,
+        clusterSlug: snapshot.slug,
+        clusterTitle: snapshot.title,
+        clusterCategory: snapshot.category,
+        clusterLifecycleRevision: snapshot.lifecycleRevision,
+      }
+    : item;
+  if (displayed.state === "retired") return displayed;
+  if (context === null) return { ...displayed, derivedHistoryReason: "No current official patch is available." };
+  if (displayed.boardNo !== context.boardNo || displayed.patchVersion !== context.patchVersion) {
+    return { ...displayed, derivedHistoryReason: "This pairing is no longer on the current official patch." };
   }
-  if (!context.claimKeys.has(item.claimKey)) {
-    return { ...item, derivedHistoryReason: "This exact official claim is no longer current." };
+  if (!context.claimKeys.has(displayed.claimKey)) {
+    return { ...displayed, derivedHistoryReason: "This exact official claim is no longer current." };
   }
-  if (!context.reviewableClusters.has(item.clusterId)) {
-    return { ...item, derivedHistoryReason: "This issue is no longer public and unlocked for review." };
+  if (!context.reviewableClusters.has(displayed.clusterId)) {
+    return { ...displayed, derivedHistoryReason: "This issue is no longer public and unlocked for review." };
   }
-  return { ...item, isActive: item.state === "pending" || item.state === "later" };
+  return { ...displayed, isActive: displayed.state === "pending" || displayed.state === "later" };
 }
 
 function unavailableQueue(
@@ -285,11 +311,13 @@ export async function readClaimReviewQueue(client: SupabaseClient = createServic
   if ("error" in currentContext) {
     return unavailableQueue("error", `claim review eligibility read failed: ${currentContext.error.message ?? "unknown error"}`);
   }
-  const audits = await readAll<Record<string, unknown>>((after) => {
-    const query = client.from("claim_review_audit_events").select("*").order("id").limit(500);
-    return after === null ? query : query.gt("id", after);
-  },
-  );
+  const pairingIds = pairings.rows.map((row) => row.id).filter((id): id is string => typeof id === "string");
+  const audits = pairingIds.length === 0
+    ? { rows: [] as Record<string, unknown>[] }
+    : await readAll<Record<string, unknown>>((after) => {
+      const query = client.from("claim_review_audit_events").select("*").in("pairing_id", pairingIds).order("id").limit(500);
+      return after === null ? query : query.gt("id", after);
+    });
   if ("error" in audits) {
     return unavailableQueue("error", `claim review audit read failed: ${audits.error.message ?? "unknown error"}`);
   }
@@ -300,8 +328,10 @@ export async function readClaimReviewQueue(client: SupabaseClient = createServic
 
 function rpcMessage(error: SupabaseErrorLike): ClaimReviewMutationResult {
   const message = error.message ?? "Claim review write failed.";
-  if (/stale_|claim_review_(?:pairing|patch|cluster)_stale|locked/i.test(message)) return { status: "stale", message };
-  if (/invalid_|required|reason/i.test(message)) return { status: "validation_error", message };
+  if (/stale_|claim_review_pairing_not_found|claim_review_(?:pairing|patch|cluster)_stale|locked/i.test(message)) {
+    return { status: "stale", message };
+  }
+  if (/invalid_|required|rejection_reason/i.test(message)) return { status: "validation_error", message };
   return { status: "error", message };
 }
 

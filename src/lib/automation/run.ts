@@ -53,7 +53,7 @@ import {
 } from "@/lib/env";
 import { computeClusterLifecycle, type LifecycleClaimDecision } from "@/lib/lifecycle";
 import {
-  getClaimedFixesForCurrentPatch,
+  readClaimedFixesForCurrentPatch,
   getCurrentPatchMetadata,
   syncOfficialPatchNote,
   type CurrentPatchMetadata,
@@ -1833,10 +1833,11 @@ async function runLifecyclePass(
   currentPatch: CurrentPatchContext,
   now: Date,
 ): Promise<void> {
-  const [clusters, claims] = await Promise.all([
+  const [clusters, claimedRegister] = await Promise.all([
     loadLifecycleClusters(supabase),
-    getClaimedFixesForCurrentPatch(supabase),
+    readClaimedFixesForCurrentPatch(supabase),
   ]);
+  const claims = claimedRegister.fixes;
   const claimDecisionByCluster = new Map<string, ClaimMappingDecision>();
   const claimReviewProposals: ClaimReviewProposal[] = [];
   const initialLlmCallsRemaining = remainingLlmCalls(result, budget);
@@ -1868,7 +1869,7 @@ async function runLifecyclePass(
         fixText: claim.fixText,
         clusterId: decision.clusterId,
         proposalKind: decision.matchKind,
-        proposalReason: decision.reason,
+        proposalReason: needsReviewReason(decision.reason, "Claim mapping needs review."),
       });
     }
     const existing = claimDecisionByCluster.get(decision.clusterId);
@@ -1877,27 +1878,22 @@ async function runLifecyclePass(
     }
   }
 
-  // Claimed-fix rows gained the section field before the review schema. A row
-  // without it is the old contract, so retaining the string lifecycle path is
-  // the narrow rolling-deploy fallback. Rich rows use the durable resolver;
-  // it returns confirmations even when this scan's rotation did not revisit
-  // their claim.
-  const usesClaimReview = claims.length > 0
-    ? claims.every((claim) => Object.hasOwn(claim, "section"))
-    : await hasClaimReviewEmptyRegister(supabase);
-  let durableByCluster = new Map<string, ClaimReviewLifecycleDecision>();
-  if (usesClaimReview) {
-    const durable = await recordClaimReviewProposals(supabase, { proposals: claimReviewProposals, now });
-    if (durable.status === "available") durableByCluster = new Map(durable.decisions.map((decision) => [decision.clusterId, decision]));
-  }
+  // The durable resolver is the live path whenever its RPC exists. A missing
+  // function is the pre-migration rolling-deploy fallback. A claimed-fixes
+  // read failure must not look like an empty register: that would skip the
+  // resolver and let the legacy writer clear Needs review prose.
+  const durable = await recordClaimReviewProposals(supabase, { proposals: claimReviewProposals, now });
+  const durableByCluster = durable.status === "available"
+    ? new Map(durable.decisions.map((decision) => [decision.clusterId, decision]))
+    : new Map<string, ClaimReviewLifecycleDecision>();
 
   for (const cluster of clusters) {
-    const durable = durableByCluster.get(cluster.id);
+    const durableDecision = durableByCluster.get(cluster.id);
     // The durable RPC already writes its matching cluster state under the same
     // lock as its pairing/audit record. A second write here would advance the
     // lifecycle revision after the card was issued and make every operator
     // action stale before it reaches the desk.
-    if (durable) continue;
+    if (durableDecision) continue;
     const claimDecision = toLifecycleClaimDecision(claimDecisionByCluster.get(cluster.id));
     const computed = computeClusterLifecycle({
       currentStatus: cluster.fix_status,
@@ -1910,25 +1906,6 @@ async function runLifecyclePass(
     });
     await writeLifecycleResult(supabase, cluster, computed);
   }
-}
-
-/**
- * An empty current register is meaningful only after the section/total schema
- * has landed. Its explicit zero lets the durable RPC retire old pairings when
- * an official sync removes every claim; an absent column is the old path.
- */
-async function hasClaimReviewEmptyRegister(supabase: ReturnType<typeof createServiceClient>): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("official_patch_notes")
-    .select("claimed_fix_total")
-    .eq("is_current", true)
-    .limit(1);
-  if (error) {
-    if (isMissingSupabaseColumn(error, "official_patch_notes", "claimed_fix_total")) return false;
-    throw new Error(`claim review capability read failed: ${error.message}`);
-  }
-  const row = ((data ?? []) as { claimed_fix_total?: number | null }[])[0];
-  return row?.claimed_fix_total === 0;
 }
 
 function matchingReportCluster(signal: PreparedSignal, reports: ApprovedReportRow[]): string | null {

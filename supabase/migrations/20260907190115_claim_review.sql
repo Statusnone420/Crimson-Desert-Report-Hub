@@ -172,6 +172,23 @@ $$;
 revoke all on function public.claim_review_normalize(text), public.claim_review_claim_key(text, text) from public, anon, authenticated;
 grant execute on function public.claim_review_normalize(text), public.claim_review_claim_key(text, text) to service_role;
 
+create or replace function public.claim_review_lifecycle_reason(p_proposal_reason text)
+returns text
+language sql
+immutable
+strict
+security invoker
+set search_path = ''
+as $$
+  select case
+    when p_proposal_reason like 'Needs review:%' then p_proposal_reason
+    else 'Needs review: ' || p_proposal_reason
+  end
+$$;
+
+revoke all on function public.claim_review_lifecycle_reason(text) from public, anon, authenticated;
+grant execute on function public.claim_review_lifecycle_reason(text) to service_role;
+
 -- This is the single scanner capability. It retires obsolete exact claims,
 -- records every proposed mapping, honors durable rejections, and returns the
 -- full current decision set so claims skipped by rotation still apply.
@@ -410,7 +427,7 @@ begin
       set fix_status = case when fix_claimed_patch_version = current_patch.patch_version then fix_status else 'reported' end,
           fix_claimed_at = case when fix_claimed_patch_version = current_patch.patch_version then fix_claimed_at else null end,
           fix_claimed_patch_version = case when fix_claimed_patch_version = current_patch.patch_version then fix_claimed_patch_version else null end,
-          lifecycle_reason = 'Needs review: ' || pairing.proposal_reason
+          lifecycle_reason = public.claim_review_lifecycle_reason(pairing.proposal_reason)
       where id = cluster.id and admin_override = false
       returning lifecycle_revision into next_lifecycle_revision;
       update public.claim_review_pairings as siblings
@@ -449,6 +466,26 @@ begin
       end if;
     end if;
   end loop;
+
+  -- Pairings this scan did not re-propose still need a current cluster
+  -- snapshot. Otherwise a rename or unrelated lifecycle write wedges every
+  -- later operator action until that exact claim rotates back in.
+  update public.claim_review_pairings as pairing_row
+  set cluster_slug = current_cluster.slug,
+      cluster_title = current_cluster.title,
+      cluster_category = current_cluster.category,
+      cluster_lifecycle_revision = current_cluster.lifecycle_revision
+  from public.issue_clusters as current_cluster
+  where pairing_row.cluster_id = current_cluster.id
+    and pairing_row.board_no = current_patch.board_no
+    and pairing_row.patch_version = current_patch.patch_version
+    and pairing_row.state <> 'retired'
+    and (
+      pairing_row.cluster_slug is distinct from current_cluster.slug
+      or pairing_row.cluster_title is distinct from current_cluster.title
+      or pairing_row.cluster_category is distinct from current_cluster.category
+      or pairing_row.cluster_lifecycle_revision is distinct from current_cluster.lifecycle_revision
+    );
 
   -- Reached only after a complete pass over the current patch, so readers may
   -- stop falling back to the pre-migration lifecycle rows from here on.
@@ -503,20 +540,44 @@ begin
   if not found then raise exception 'claim_review_pairing_not_found' using errcode = 'P0001'; end if;
   if pairing.revision <> p_revision then raise exception 'stale_claim_review_edit' using errcode = 'P0001'; end if;
   if pairing.state = 'retired' then raise exception 'stale_claim_review_claim' using errcode = 'P0001'; end if;
-  select board_no, patch_version into current_patch from public.official_patch_notes where is_current = true limit 1 for update;
+  select board_no, patch_version into current_patch
+    from public.official_patch_notes
+    where is_current = true
+    order by published_at desc nulls last
+    limit 1
+    for update;
   if not found or current_patch.board_no <> pairing.board_no or current_patch.patch_version <> pairing.patch_version
      or not exists (select 1 from public.official_patch_claimed_fixes as fix where fix.board_no = pairing.board_no and public.claim_review_claim_key(pairing.patch_version, fix.fix_text) = pairing.claim_key) then
     raise exception 'stale_claim_review_claim' using errcode = 'P0001';
   end if;
   select * into cluster from public.issue_clusters where id = pairing.cluster_id for update;
-  if not found
-     or not cluster.is_public
-     or cluster.admin_override
-     or cluster.slug <> pairing.cluster_slug
-     or cluster.title <> pairing.cluster_title
-     or cluster.category <> pairing.cluster_category
-     or cluster.lifecycle_revision <> pairing.cluster_lifecycle_revision then
+  if not found or not cluster.is_public or cluster.admin_override then
     raise exception 'stale_claim_review_cluster' using errcode = 'P0001';
+  end if;
+  -- Identity and lifecycle_revision are cached on the pairing so a concurrent
+  -- card cannot apply against a cluster the operator has not seen. A later
+  -- rename, description edit, or unrelated lifecycle write must not wedge the
+  -- card: refresh the snapshot under the row lock, then apply against the
+  -- current issue. Pairing.revision was already checked, and FOR UPDATE
+  -- serializes a second operator onto a stale pairing revision.
+  if cluster.slug is distinct from pairing.cluster_slug
+     or cluster.title is distinct from pairing.cluster_title
+     or cluster.category is distinct from pairing.cluster_category
+     or cluster.lifecycle_revision is distinct from pairing.cluster_lifecycle_revision then
+    update public.claim_review_pairings as siblings
+    set cluster_slug = cluster.slug,
+        cluster_title = cluster.title,
+        cluster_category = cluster.category,
+        cluster_lifecycle_revision = cluster.lifecycle_revision
+    where siblings.cluster_id = cluster.id
+      and siblings.state <> 'retired'
+      and (
+        siblings.cluster_slug is distinct from cluster.slug
+        or siblings.cluster_title is distinct from cluster.title
+        or siblings.cluster_category is distinct from cluster.category
+        or siblings.cluster_lifecycle_revision is distinct from cluster.lifecycle_revision
+      );
+    select * into pairing from public.claim_review_pairings where id = pairing.id;
   end if;
 
   prior_state := pairing.state;
@@ -577,7 +638,7 @@ begin
         and confirmed_pairing.state = 'confirmed'
     ) then
       update public.issue_clusters
-      set lifecycle_reason = 'Needs review: ' || pairing.proposal_reason
+      set lifecycle_reason = public.claim_review_lifecycle_reason(pairing.proposal_reason)
       where id = cluster.id returning * into cluster;
       update public.claim_review_pairings as siblings
       set cluster_lifecycle_revision = cluster.lifecycle_revision
@@ -611,7 +672,7 @@ begin
     elsif pairing.claim_clock_owned then
       update public.issue_clusters
       set fix_status = 'reported', fix_claimed_at = null, fix_claimed_patch_version = null,
-        lifecycle_reason = 'Needs review: ' || pairing.proposal_reason
+        lifecycle_reason = public.claim_review_lifecycle_reason(pairing.proposal_reason)
       where id = cluster.id returning * into cluster;
       update public.claim_review_pairings as siblings
       set cluster_lifecycle_revision = cluster.lifecycle_revision

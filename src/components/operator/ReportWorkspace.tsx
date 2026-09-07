@@ -8,7 +8,7 @@ import {
   INITIAL_REPORT_REVIEW_STATE,
   type ReportReviewActionState,
 } from "@/lib/reportReviewAction";
-import type { FlaggedReport, ReportReviewQueue } from "@/lib/reportReview";
+import { retainFlaggedReports, type FlaggedReport, type ReportReviewQueue } from "@/lib/reportReview";
 import type { AdminClusterRow } from "@/lib/adminClusters";
 import { CATEGORY_LABELS, PLATFORM_LABELS } from "@/lib/constants";
 import { ACTION_TRANSPORT_FAILURE_MESSAGE, isActionTransportFailure } from "@/lib/actionTransportFailure";
@@ -234,8 +234,16 @@ export function ReportWorkspace({
   disabled: boolean;
   initialId?: string;
 }) {
-  // Keep mounted editors after a server refresh so a partial save never discards a private draft.
-  const [retained] = useState(queue.flaggedReports);
+  // Keep every report this session has seen so a later-arriving row can still
+  // retry its excerpt after a partial approval. Store the merge in render when
+  // the queue identity changes; an effect would be too late for the retry UI.
+  const [retained, setRetained] = useState(queue.flaggedReports);
+  const flaggedIdentity = queue.flaggedReports.map((row) => row.id).join("\n");
+  const [seenFlaggedIdentity, setSeenFlaggedIdentity] = useState(flaggedIdentity);
+  if (flaggedIdentity !== seenFlaggedIdentity) {
+    setSeenFlaggedIdentity(flaggedIdentity);
+    setRetained(retainFlaggedReports(retained, queue.flaggedReports));
+  }
   const [retainedIds, setRetainedIds] = useState<string[]>([]);
   const rows = [
     ...queue.flaggedReports,

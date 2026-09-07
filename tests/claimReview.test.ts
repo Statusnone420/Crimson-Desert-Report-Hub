@@ -25,6 +25,7 @@ type PagingOptions = {
   /** Defaults to a recorded durable sync so existing reads stay available. */
   syncState?: "synced" | "awaiting" | "missing" | "denied";
   legacyRows?: Row[];
+  clusterSnapshot?: { slug: string; title: string; category: string; lifecycle_revision: number };
 };
 
 function pagingClient(rows: Row[], options: PagingOptions = {}) {
@@ -39,6 +40,7 @@ function pagingClient(rows: Row[], options: PagingOptions = {}) {
         limit: () => query,
         eq: () => query,
         like: () => query,
+        in: () => query,
         gt: (_column: string, value: string) => {
           after = value;
           return query;
@@ -71,7 +73,12 @@ function pagingClient(rows: Row[], options: PagingOptions = {}) {
           if (options.currentContext && (table === "official_patch_claimed_fixes" || table === "issue_clusters")) {
             const sourceRows = table === "official_patch_claimed_fixes"
               ? [{ id: "fix-1", fix_text: "Fixed a crash." }]
-              : [{ id: "00000000-0000-4000-8000-000000000001", is_public: true, admin_override: false }];
+              : [{
+                  id: "00000000-0000-4000-8000-000000000001",
+                  is_public: true,
+                  admin_override: false,
+                  ...(options.clusterSnapshot ?? {}),
+                }];
             const page = sourceRows.filter((row) => String(row.id) > (after ?? ""));
             return Promise.resolve({ data: page, error: null }).then(resolve);
           }
@@ -162,6 +169,22 @@ describe("claim review queue paging", () => {
 
     expect(queue.availability).toMatchObject({ status: "unavailable", reason: "error" });
   });
+
+  it("shows the live cluster title when the cached pairing snapshot is behind", async () => {
+    const row = pairingRow("0001");
+    row.state = "pending";
+    row.cluster_title = "Cached title";
+    row.claim_key = claimReviewKey("1.14.00", "Fixed a crash.");
+    const { client } = pagingClient([row], {
+      currentContext: true,
+      clusterSnapshot: { slug: "crash", title: "Renamed crash", category: "crash_startup", lifecycle_revision: 4 },
+    });
+
+    const queue = await readClaimReviewQueue(client);
+
+    expect(queue.pending[0]?.clusterTitle).toBe("Renamed crash");
+    expect(queue.pending[0]?.isActive).toBe(true);
+  });
 });
 
 describe("claim review durable-sync fallback", () => {
@@ -215,5 +238,12 @@ describe("claim review RPC response validation", () => {
 
     await expect(recordClaimReviewProposals(client, { proposals: [], now: new Date("2026-09-07T12:00:00Z") }))
       .rejects.toThrow("malformed decisions");
+  });
+
+  it("treats a missing pairing as stale work, not a retryable service error", async () => {
+    const client = { rpc: async () => ({ data: null, error: { message: "claim_review_pairing_not_found" } }) } as unknown as SupabaseClient;
+
+    await expect(applyClaimReviewDecision(client, { pairingId: "00000000-0000-4000-8000-000000000001", revision: 1, action: "confirm", actor: "test" }))
+      .resolves.toMatchObject({ status: "stale" });
   });
 });

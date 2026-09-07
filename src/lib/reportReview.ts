@@ -27,6 +27,16 @@ export type ReportReviewQueue = {
 
 export const FLAGGED_WINDOW = 50;
 
+/** Keep every report this session has seen so a later-arriving row can still retry its excerpt. */
+export function retainFlaggedReports(
+  retained: FlaggedReport[],
+  current: FlaggedReport[],
+): FlaggedReport[] {
+  const seen = new Set(retained.map((row) => row.id));
+  const incoming = current.filter((row) => !seen.has(row.id));
+  return incoming.length === 0 ? retained : [...retained, ...incoming];
+}
+
 export type ExceptionSplit = {
   /** Everything the ledger shows: unsure claim matches plus your own locks. */
   exceptionRows: AdminClusterRow[];

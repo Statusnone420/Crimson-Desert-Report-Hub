@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AdminClusterRow } from "@/lib/adminClusters";
-import { countNeedsYou, readReportReviewQueue, splitClusterExceptions } from "@/lib/reportReview";
+import { countNeedsYou, readReportReviewQueue, retainFlaggedReports, splitClusterExceptions } from "@/lib/reportReview";
 import type { createServiceClient } from "@/lib/supabase";
 
 type CountResult = { count: number | null; error: { message: string } | null };
@@ -147,5 +147,30 @@ describe("splitClusterExceptions / countNeedsYou", () => {
 
     expect(split.forcedRows.map((row) => row.id)).toEqual(["f"]);
     expect(split.autoRows.map((row) => row.id)).toEqual(["a"]);
+  });
+});
+
+describe("retainFlaggedReports", () => {
+  const report = (id: string) => ({
+    id,
+    created_at: "2026-09-07T12:00:00Z",
+    patch_version: "1.14.00",
+    platform: "pc_steam",
+    category: "crash_startup",
+    severity: "high",
+    frequency: "always",
+    issue_title: id,
+    description: "Invented fixture.",
+    repro_steps: null,
+    hardware_specs: null,
+    evidence_url: null,
+    cluster_id: null,
+  });
+
+  it("keeps a report that arrived after the first snapshot so excerpt retry can still find it", () => {
+    const first = retainFlaggedReports([report("a")], [report("a"), report("b")]);
+    const afterApproval = retainFlaggedReports(first, [report("a")]);
+
+    expect(afterApproval.map((row) => row.id)).toEqual(["a", "b"]);
   });
 });

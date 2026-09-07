@@ -7,9 +7,11 @@ const mocks = vi.hoisted(() => ({
   extractSignalWithOpenRouter: vi.fn(),
   from: vi.fn(),
   getClaimedFixesForCurrentPatch: vi.fn(),
+  readClaimedFixesForCurrentPatch: vi.fn(),
   getCurrentPatchMetadata: vi.fn(),
   mapClaimToClusterWithOpenRouter: vi.fn(),
   rpc: vi.fn(),
+  recordClaimReviewProposals: vi.fn(),
   getAutomationControlState: vi.fn(),
   runAutomationMonitor: vi.fn(),
   insertSkippedScheduledRun: vi.fn(),
@@ -71,9 +73,18 @@ vi.mock("@/lib/officialPatch.server", () => ({
   PUBLIC_DASHBOARD_TAG: "public-dashboard",
   PUBLIC_ISSUES_TAG: "public-issues",
   getClaimedFixesForCurrentPatch: mocks.getClaimedFixesForCurrentPatch,
+  readClaimedFixesForCurrentPatch: mocks.readClaimedFixesForCurrentPatch,
   getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
   syncOfficialPatchNote: mocks.syncOfficialPatchNote,
 }));
+
+vi.mock("@/lib/claimReview", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/claimReview")>();
+  return {
+    ...actual,
+    recordClaimReviewProposals: mocks.recordClaimReviewProposals,
+  };
+});
 
 type Row = Record<string, unknown>;
 type TableName =
@@ -542,6 +553,11 @@ function configureProviders() {
   mocks.getCurrentPatchMetadata.mockResolvedValue(officialPatchFixture);
   mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: officialPatchFixture });
   mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+  mocks.readClaimedFixesForCurrentPatch.mockImplementation(async () => {
+    const fixes = await mocks.getClaimedFixesForCurrentPatch();
+    return { fixes, totalClaimedFixes: fixes.length };
+  });
+  mocks.recordClaimReviewProposals.mockResolvedValue({ status: "unavailable" });
   mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
     matchKind: "none",
     clusterId: null,
@@ -5681,6 +5697,71 @@ describe("runAutomationMonitor", () => {
       fix_claimed_at: null,
       lifecycle_reason: "Needs review: keyword match is only a proposal.",
     });
+  });
+
+  it("does not clear Needs review prose when the claimed-fixes read fails", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          admin_override: false,
+          lifecycle_reason: "Needs review: keyword match is only a proposal.",
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.readClaimedFixesForCurrentPatch.mockRejectedValue(new Error("official claimed fixes read failed: permission denied"));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.errors.join(" ")).toMatch(/claimed fixes read failed|lifecycle pass failed/);
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Needs review: keyword match is only a proposal.");
+    expect(mutations.filter((entry) => entry.table === "issue_clusters" && entry.type === "update")).toEqual([]);
+  });
+
+  it("skips the legacy lifecycle write for a cluster the durable store already decided", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          admin_override: false,
+          lifecycle_reason: "Needs review: keyword match is only a proposal.",
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.recordClaimReviewProposals.mockResolvedValue({
+      status: "available",
+      decisions: [{
+        clusterId: "cluster-fps",
+        state: "pending",
+        proposalKind: "keyword_proposal",
+        reason: "Needs review: keyword match is only a proposal.",
+      }],
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.recordClaimReviewProposals).toHaveBeenCalledOnce();
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Needs review: keyword match is only a proposal.");
+    expect(mutations.filter((entry) => entry.table === "issue_clusters" && entry.type === "update")).toEqual([]);
   });
 
   it("never ages a claimed fix by silence — quiet days stay fix_claimed", async () => {

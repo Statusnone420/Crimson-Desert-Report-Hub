@@ -1,5 +1,5 @@
 begin;
-select plan(83);
+select plan(93);
 
 select ok(has_function_privilege('service_role', 'public.sync_claim_review_proposals(jsonb,timestamptz)', 'EXECUTE'), 'service role can sync claim-review proposals');
 select ok(not has_function_privilege('anon', 'public.sync_claim_review_proposals(jsonb,timestamptz)', 'EXECUTE'), 'anon cannot sync claim-review proposals');
@@ -276,6 +276,55 @@ set local role service_role;
 select is((public.owner_attention_brief() #>> '{adminAttention,unsureClaimMatches}')::integer, 2, 'before the first durable sync the brief still counts pre-migration prose');
 select lives_ok($sql$select public.sync_claim_review_proposals('[]'::jsonb, '2026-09-09T12:05:00Z')$sql$, 'a completed pass records the durable sync marker again');
 select is((select count(*) from public.claim_review_sync_state), 1::bigint, 'the durable sync marker stays a single row');
+
+insert into public.issue_clusters (id, slug, title, category, description, fix_status, confidence, is_public)
+values ('98000000-0000-4000-8000-000000000005', 'claim-review-prefix', 'Prefix crash', 'crash_startup', 'Prefix context.', 'reported', 'medium', true);
+insert into public.official_patch_claimed_fixes (board_no, position, fix_text, category, section)
+values ('claim-review-board-clock', 3, 'Fixed a prefix crash.', 'crash_startup', 'Stability');
+select lives_ok($sql$
+  select public.sync_claim_review_proposals(jsonb_build_array(jsonb_build_object(
+    'claim_text', 'Fixed a prefix crash.', 'cluster_id', '98000000-0000-4000-8000-000000000005',
+    'proposal_kind', 'keyword_proposal', 'proposal_reason', 'Needs review: keyword match is only a proposal.'
+  )), '2026-09-09T12:06:00Z')
+$sql$, 'a prefixed keyword reason is accepted');
+select is(
+  (select lifecycle_reason from public.issue_clusters where id = '98000000-0000-4000-8000-000000000005'),
+  'Needs review: keyword match is only a proposal.',
+  'stored cluster prose does not double the Needs review prefix'
+);
+
+insert into public.issue_clusters (id, slug, title, category, description, fix_status, confidence, is_public)
+values ('98000000-0000-4000-8000-000000000006', 'claim-review-mast', 'Mast snap', 'crash_startup', 'Mast context.', 'reported', 'medium', true);
+insert into public.official_patch_claimed_fixes (board_no, position, fix_text, category, section)
+values ('claim-review-board-clock', 4, 'Fixed a mast snap.', 'crash_startup', 'Stability');
+select lives_ok($sql$
+  select public.sync_claim_review_proposals(jsonb_build_array(jsonb_build_object(
+    'claim_text', 'Fixed a mast snap.', 'cluster_id', '98000000-0000-4000-8000-000000000006',
+    'proposal_kind', 'keyword_proposal', 'proposal_reason', 'Keyword mast mapping.'
+  )), '2026-09-09T12:07:00Z')
+$sql$, 'a pending mast pairing is recorded');
+update public.issue_clusters set title = 'Renamed mast' where id = '98000000-0000-4000-8000-000000000006';
+select lives_ok($sql$
+  select public.mutate_claim_review_pairing(id, revision, 'confirm', null, 'test-operator')
+  from public.claim_review_pairings where exact_official_text = 'Fixed a mast snap.'
+$sql$, 'confirm still applies after the issue was renamed');
+select is((select state from public.claim_review_pairings where exact_official_text = 'Fixed a mast snap.'), 'confirmed', 'rename refresh does not block confirm');
+select is((select cluster_title from public.claim_review_pairings where exact_official_text = 'Fixed a mast snap.'), 'Renamed mast', 'confirm stores the live issue title');
+
+insert into public.issue_clusters (id, slug, title, category, description, fix_status, confidence, is_public)
+values ('98000000-0000-4000-8000-000000000007', 'claim-review-sail', 'Sail tear', 'crash_startup', 'Sail context.', 'reported', 'medium', true);
+insert into public.official_patch_claimed_fixes (board_no, position, fix_text, category, section)
+values ('claim-review-board-clock', 5, 'Fixed a sail tear.', 'crash_startup', 'Stability');
+select lives_ok($sql$
+  select public.sync_claim_review_proposals(jsonb_build_array(jsonb_build_object(
+    'claim_text', 'Fixed a sail tear.', 'cluster_id', '98000000-0000-4000-8000-000000000007',
+    'proposal_kind', 'keyword_proposal', 'proposal_reason', 'Keyword sail mapping.'
+  )), '2026-09-09T12:08:00Z')
+$sql$, 'a pending sail pairing is recorded');
+update public.issue_clusters set title = 'Renamed sail' where id = '98000000-0000-4000-8000-000000000007';
+select lives_ok($sql$select public.sync_claim_review_proposals('[]'::jsonb, '2026-09-09T12:09:00Z')$sql$, 'a later pass refreshes snapshots it did not re-propose');
+select is((select cluster_title from public.claim_review_pairings where exact_official_text = 'Fixed a sail tear.'), 'Renamed sail', 'sync refreshes a cached title without re-proposal');
+select is((select state from public.claim_review_pairings where exact_official_text = 'Fixed a sail tear.'), 'pending', 'snapshot refresh does not change the review state');
 
 reset role;
 select * from finish();
