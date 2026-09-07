@@ -45,6 +45,7 @@ import { getAutomationControlState, type AutomationSettingsClient, type ScannerP
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import {
+  automationBudgetUsd,
   features,
   platformContextConfigured,
   steamPlayerCountsEnabled,
@@ -123,6 +124,13 @@ export type RunProgress = {
   kept: number;
   promoted: number;
 };
+
+function applyAutomationBudgetCeiling(scannerPolicy: ScannerPolicy): ScannerPolicy {
+  return {
+    ...scannerPolicy,
+    monthlyLlmUsdCap: Math.min(scannerPolicy.monthlyLlmUsdCap, automationBudgetUsd()),
+  };
+}
 
 function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): number {
   if (
@@ -2921,7 +2929,9 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
   await sweepStaleRuns(supabase, now);
   if (await hasActiveRun(supabase, now)) return { status: "already_running", runId: null };
 
-  const scannerPolicy = input.scannerPolicy ?? await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+  const scannerPolicy = applyAutomationBudgetCeiling(
+    input.scannerPolicy ?? await getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+  );
   const monthlyBudgetUsd = scannerPolicy.monthlyLlmUsdCap;
   let patchMetadata = await getCurrentPatchMetadata(supabase);
   let patchSyncError: string | null = null;
@@ -3072,7 +3082,9 @@ export async function rescueCandidateSignal(
   const clusterRouting = await loadClusterRoutingState(supabase);
   const clusterOptions = clusterRouting.semanticOptions;
 
-  const scannerPolicy = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+  const scannerPolicy = applyAutomationBudgetCeiling(
+    await getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+  );
   const monthlyBudgetUsd = scannerPolicy.monthlyLlmUsdCap;
   let budgetReadError: string | null = null;
   let spentMonthToDateUsd = 0;

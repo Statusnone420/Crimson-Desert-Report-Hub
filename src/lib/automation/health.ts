@@ -56,7 +56,7 @@ export function scannerAiHealth(
     : { state: "idle", code: null, message: "No AI result is recorded yet.", lastSuccessAt };
   const failure = latest.skips.find((code) => code in FAILURE_MESSAGES);
   if (failure) return { state: (latest.progress?.llmSucceeded ?? 0) > 0 ? "limited" : "unavailable", code: failure, message: FAILURE_MESSAGES[failure], lastSuccessAt };
-  if (latest.skips.includes("llm_budget_capped")) return { state: "limited", code: "llm_budget_capped", message: "AI processing reached the saved spending limit.", lastSuccessAt };
+  if (latest.skips.includes("llm_budget_capped")) return { state: "limited", code: "llm_budget_capped", message: "AI processing reached a spending limit.", lastSuccessAt };
   if (latest.skips.includes("llm_time_limit")) return { state: "limited", code: "llm_time_limit", message: "AI processing reached the scan time limit.", lastSuccessAt };
   if ((latest.progress?.llmSucceeded ?? 0) > 0) return { state: "healthy", code: null, message: "The latest AI requests passed validation.", lastSuccessAt };
   return { state: "idle", code: "ai_success_unverified", message: "Older run records do not verify successful AI responses.", lastSuccessAt };

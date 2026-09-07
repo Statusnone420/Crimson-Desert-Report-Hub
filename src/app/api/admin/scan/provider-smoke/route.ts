@@ -9,6 +9,7 @@ import {
 import { extractSignalWithOpenRouter } from "@/lib/automation/extract";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { getAutomationControlState } from "@/lib/automation/settings";
+import { automationBudgetUsd } from "@/lib/env";
 
 const PROVIDER_SMOKE_MAX_COST_USD = 0.005;
 const SYNTHETIC_CANDIDATE = {
@@ -37,7 +38,8 @@ export async function POST() {
   }
 
   const keyBudget = await readOpenRouterKeyBudget(apiKey);
-  const allowance = evaluateOpenRouterKeyBudget(keyBudget, { monthlyLlmUsdCap: control.monthlyLlmUsdCap, remainingLlmUsd: control.monthlyLlmUsdCap });
+  const monthlyLlmUsdCap = Math.min(control.monthlyLlmUsdCap, automationBudgetUsd());
+  const allowance = evaluateOpenRouterKeyBudget(keyBudget, { monthlyLlmUsdCap, remainingLlmUsd: monthlyLlmUsdCap });
   if (allowance.skipReason && allowance.skipReason !== "llm_budget_capped") {
     return NextResponse.json({ ok: false, error: "provider_smoke_budget_unverified" }, { status: 503 });
   }

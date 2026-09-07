@@ -1614,6 +1614,81 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0]).toMatchObject({ source: "web_search", extraction_provider: "deterministic" });
   });
 
+  it.each(["manual", "scheduled", "dry_run"] as const)("treats the environment budget ceiling as an emergency stop for %s scans", async (mode) => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode,
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.skips).toContain("llm_budget_capped");
+  });
+
+  it.each([
+    ["environment lower", 1, "0.25", 0.25],
+    ["saved setting lower", 0.2, "0.5", 0.2],
+    ["limits match", 1, "1", 1],
+  ] as const)("uses the lower LLM ceiling when the %s", async (_label, savedCap, envCap, expectedCap) => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = envCap;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "manual",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: savedCap,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(tables.automation_runs[0]).toMatchObject({ budget_monthly_usd: expectedCap });
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmBudgetRemainingUsd: expectedCap }),
+    );
+  });
+
+  it("uses the normalized default environment ceiling when the variable is absent", async () => {
+    delete process.env.AUTOMATION_BUDGET_USD_MONTHLY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "manual",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(tables.automation_runs[0]).toMatchObject({ budget_monthly_usd: 0.5 });
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmBudgetRemainingUsd: 0.5 }),
+    );
+  });
+
   it("reports a blank OpenRouter key explicitly without querying the provider", async () => {
     process.env.OPENROUTER_API_KEY = "   ";
     const { runAutomationMonitor } = await importRunner();
@@ -4809,6 +4884,34 @@ describe("runAutomationMonitor", () => {
       progress: expect.objectContaining({ llmSucceeded: 1, llmCostUsd: 0.0002 }),
       candidates_rescued: 1,
       estimated_cost_usd: 0.0002,
+    });
+  });
+
+  it("applies the environment budget ceiling to rescue before provider inspection", async () => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    resetDb({ automation_settings: [{ key: "scanner", value: { monthlyLlmUsdCap: 1 } }] });
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/env-stop/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmCallsRemaining: 0, llmBudgetRemainingUsd: 0 }),
+    );
+    expect(tables.automation_runs[0]).toMatchObject({
+      budget_monthly_usd: 0,
+      skips: expect.arrayContaining(["llm_budget_capped"]),
     });
   });
 

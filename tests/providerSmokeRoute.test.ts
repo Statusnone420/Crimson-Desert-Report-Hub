@@ -131,6 +131,21 @@ describe("POST /api/admin/scan/provider-smoke", () => {
     expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { environmentCap: "0", savedCap: 1 },
+    { environmentCap: "0.254", savedCap: 1 },
+    { environmentCap: "1", savedCap: 0.254 },
+  ])("honors both spending ceilings before a paid preview check: %j", async ({ environmentCap, savedCap }) => {
+    vi.stubEnv("AUTOMATION_BUDGET_USD_MONTHLY", environmentCap);
+    mocks.getAutomationControlState.mockResolvedValue({ monthlyLlmUsdCap: savedCap, modelPreset: "gpt_5_6_luna" });
+
+    const response = await POST();
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "provider_smoke_budget_exhausted" });
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+  });
+
   it("is unavailable outside Vercel preview", async () => {
     mocks.isVercelPreview.mockReturnValue(false);
 
