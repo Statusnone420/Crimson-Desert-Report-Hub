@@ -24,11 +24,11 @@ create table public.video_review_candidates (
     check (excerpt_review_status in ('unreviewed', 'reviewed')),
   topic text not null default 'expansion' check (topic in ('base_game', 'expansion')),
   published_at text check (published_at is null or char_length(published_at) <= 40),
-  state text not null default 'pending' check (state in ('pending', 'skipped', 'draft_ready')),
+  state text not null default 'pending' check (state in ('pending', 'skipped', 'draft_ready', 'archived')),
   skipped_at timestamptz,
   approved_at timestamptz,
   check (state <> 'skipped' or skipped_at is not null),
-  check (state <> 'draft_ready' or approved_at is not null)
+  check (state not in ('draft_ready', 'archived') or approved_at is not null)
 );
 
 create index video_review_candidates_state_created_idx
@@ -146,7 +146,24 @@ begin
     raise exception using errcode = 'P0001', message = 'stale_video_review_edit';
   end if;
 
-  if p_operation = 'save' then
+  if p_operation = 'archive' then
+    if candidate_row.state <> 'draft_ready' then
+      raise exception using errcode = 'P0001', message = 'video_review_only_ready_draft_can_archive';
+    end if;
+    update public.video_review_candidates set state = 'archived'
+    where id = p_id returning * into candidate_row;
+  elsif p_operation = 'restore' then
+    if candidate_row.state <> 'archived' then
+      raise exception using errcode = 'P0001', message = 'video_review_only_archived_draft_can_restore';
+    end if;
+    if not exists (select 1 from public.video_publication_drafts where candidate_id = p_id) then
+      raise exception using errcode = 'P0001', message = 'video_publication_draft_not_found';
+    end if;
+    update public.video_review_candidates set state = 'draft_ready'
+    where id = p_id returning * into candidate_row;
+  elsif candidate_row.state = 'archived' then
+    raise exception using errcode = 'P0001', message = 'video_review_archived_restore_required';
+  elsif p_operation = 'save' then
     if p_candidate is null or jsonb_typeof(p_candidate) <> 'object' then
       raise exception using errcode = 'P0001', message = 'video_review_candidate_payload_required';
     end if;

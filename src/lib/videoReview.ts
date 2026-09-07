@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { editorialSourceById, EDITORIAL_SOURCES, type EditorialSource } from "@/lib/editorialSources";
-import { officialWatchSelection } from "@/lib/watchSelections";
+import { getWatchSelections } from "@/lib/watchSelections";
 import { parseYouTubeVideoUrl, videoIdFromCanonicalWatchUrl } from "@/lib/youtubeVideoUrl";
 
-export const VIDEO_REVIEW_STATES = ["pending", "skipped", "draft_ready"] as const;
+export const VIDEO_REVIEW_STATES = ["pending", "skipped", "draft_ready", "archived"] as const;
 export type VideoReviewState = (typeof VIDEO_REVIEW_STATES)[number];
 
 export const EXCERPT_REVIEW_STATUSES = ["unreviewed", "reviewed"] as const;
@@ -77,10 +77,9 @@ export function creatorEditorialSources(): EditorialSource[] {
 
 export function alreadyPublishedWatchVideoIds(): string[] {
   const ids = new Set<string>();
-  const officialId = videoIdFromCanonicalWatchUrl(officialWatchSelection.url);
-  if (officialId) ids.add(officialId);
-  for (const source of EDITORIAL_SOURCES as readonly EditorialSource[]) {
-    for (const videoId of source.verifiedVideoIds ?? []) ids.add(videoId);
+  for (const selection of getWatchSelections()) {
+    const videoId = videoIdFromCanonicalWatchUrl(selection.url);
+    if (videoId) ids.add(videoId);
   }
   return [...ids];
 }

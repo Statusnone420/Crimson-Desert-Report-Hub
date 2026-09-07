@@ -114,45 +114,70 @@ function insertPayload(candidate: NormalizedVideoReviewCandidate): Record<string
   };
 }
 
+const VIDEO_REVIEW_PAGE_SIZE = 1000;
+
+/** Read every page by immutable id; hosted PostgREST caps can be below the requested size. */
+async function readAllVideoReviewPages<Row extends { id: string }>(
+  supabase: ReturnType<typeof createServiceClient>,
+  table: "video_review_candidates" | "video_publication_drafts",
+  columns: string,
+): Promise<{ rows: Row[] } | { error: { message: string; code?: string } }> {
+  const rows: Row[] = [];
+  let after: string | null = null;
+  for (;;) {
+    const filtered = supabase.from(table).select(columns);
+    const page = await (after === null ? filtered : filtered.gt("id", after))
+      .order("id", { ascending: true })
+      .limit(VIDEO_REVIEW_PAGE_SIZE);
+    if (page.error) return { error: page.error };
+    if (page.data === null) return { error: { message: "read returned no rows" } };
+    const pageRows = page.data as unknown as Row[];
+    if (pageRows.length === 0) return { rows };
+    rows.push(...pageRows);
+    after = pageRows[pageRows.length - 1].id;
+  }
+}
+
+function byCreatedAtThenId(a: VideoReviewRow, b: VideoReviewRow): number {
+  return Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id);
+}
+
 export async function readVideoReviewQueue(
   supabase: ReturnType<typeof createServiceClient>,
 ): Promise<VideoReviewQueue> {
-  const candidatesResult = await supabase
-    .from("video_review_candidates")
-    .select(
-      "id, created_at, updated_at, revision, video_id, canonical_url, submitted_url, source_id, creator_channel_id, title, channel_label, review_note, reviewed_headline, reviewed_excerpt, excerpt_review_status, topic, published_at, state, skipped_at, approved_at",
-    )
-    .order("created_at", { ascending: true });
+  const candidatesResult = await readAllVideoReviewPages<VideoReviewRow>(
+    supabase,
+    "video_review_candidates",
+    "id, created_at, updated_at, revision, video_id, canonical_url, submitted_url, source_id, creator_channel_id, title, channel_label, review_note, reviewed_headline, reviewed_excerpt, excerpt_review_status, topic, published_at, state, skipped_at, approved_at",
+  );
 
-  if (candidatesResult.error) {
+  if ("error" in candidatesResult) {
     if (isMissingSupabaseRelation(candidatesResult.error, "video_review_candidates")) {
       return { status: "unavailable", reason: "schema_missing" };
     }
     throw new Error(`video review queue read failed: ${candidatesResult.error.message}`);
   }
-  if (candidatesResult.data === null) throw new Error("video review queue read returned no rows");
+  const draftsResult = await readAllVideoReviewPages<VideoPublicationDraftRow>(
+    supabase,
+    "video_publication_drafts",
+    "id, created_at, updated_at, candidate_id, video_id, completeness, missing_requirements, markdown",
+  );
 
-  const draftsResult = await supabase
-    .from("video_publication_drafts")
-    .select("id, created_at, updated_at, candidate_id, video_id, completeness, missing_requirements, markdown");
-
-  if (draftsResult.error) {
+  if ("error" in draftsResult) {
     if (isMissingSupabaseRelation(draftsResult.error, "video_publication_drafts")) {
       return { status: "unavailable", reason: "schema_missing" };
     }
     throw new Error(`video publication drafts read failed: ${draftsResult.error.message}`);
   }
-  if (draftsResult.data === null) throw new Error("video publication drafts read returned no rows");
-
   const draftsByCandidateId: Record<string, VideoPublicationDraftRow> = {};
-  for (const draft of draftsResult.data as VideoPublicationDraftRow[]) {
+  for (const draft of draftsResult.rows) {
     draftsByCandidateId[draft.candidate_id] = draft;
   }
 
   return {
     status: "ok",
     observedAt: new Date().toISOString(),
-    candidates: candidatesResult.data as VideoReviewRow[],
+    candidates: candidatesResult.rows.sort(byCreatedAtThenId),
     draftsByCandidateId,
   };
 }
@@ -199,7 +224,7 @@ async function mutateCandidate(
   supabase: ReturnType<typeof createServiceClient>,
   id: string,
   revision: number,
-  operation: "save" | "approve" | "skip",
+  operation: "save" | "approve" | "skip" | "archive" | "restore",
   candidate: Record<string, unknown> | null = null,
   draft: ReturnType<typeof draftPayload> | null = null,
 ): Promise<CandidateMutation> {
@@ -236,6 +261,7 @@ export async function updateVideoReviewCandidate(
   candidate: NormalizedVideoReviewCandidate,
 ): Promise<VideoReviewRow> {
   const current = await readCandidate(supabase, id);
+  if (current.state === "archived") throw new Error("Restore this archived draft before editing it.");
   if (current.revision !== revision) throw new StaleVideoReviewEdit();
   const sameIdentity = current.video_id === candidate.videoId &&
     current.source_id === candidate.sourceId && current.creator_channel_id === candidate.creatorChannelId;
@@ -260,6 +286,7 @@ export async function skipVideoReviewCandidate(
   revision: number,
 ): Promise<VideoReviewRow> {
   const current = await readCandidate(supabase, id);
+  if (current.state === "archived") throw new Error("This draft is archived. Restore it to resume review.");
   if (current.state === "skipped") return current;
   if (current.state === "draft_ready") {
     throw new Error("This video already has a publication draft. Skipping it now would hide a ready later-PR item.");
@@ -281,6 +308,7 @@ export async function approveVideoReviewCandidate(
   revision: number,
 ): Promise<{ candidate: VideoReviewRow; draft: VideoPublicationDraftRow }> {
   const current = await readCandidate(supabase, id);
+  if (current.state === "archived") throw new Error("This draft is archived. Restore it to resume review.");
   // An already completed approval is read-only, including a repeated stale click.
   if (current.state === "draft_ready") return existingApprovedDraft(supabase, current);
   if (current.revision !== revision) throw new StaleVideoReviewEdit();
@@ -294,6 +322,36 @@ export async function approveVideoReviewCandidate(
     if (latest.state === "draft_ready") return existingApprovedDraft(supabase, latest);
     throw error;
   }
+}
+
+export async function archiveVideoReviewCandidate(
+  supabase: ReturnType<typeof createServiceClient>,
+  id: string,
+  revision: number,
+): Promise<VideoReviewRow> {
+  const current = await readCandidate(supabase, id);
+  if (current.state === "archived") return current;
+  if (current.revision !== revision) throw new StaleVideoReviewEdit();
+  if (current.state !== "draft_ready") throw new Error("Only a ready publication draft can be archived.");
+  try {
+    return (await mutateCandidate(supabase, id, revision, "archive")).candidate;
+  } catch (error) {
+    if (!(error instanceof StaleVideoReviewEdit)) throw error;
+    const latest = await readCandidate(supabase, id);
+    if (latest.state === "archived") return latest;
+    throw error;
+  }
+}
+
+export async function restoreVideoReviewCandidate(
+  supabase: ReturnType<typeof createServiceClient>,
+  id: string,
+  revision: number,
+): Promise<VideoReviewRow> {
+  const current = await readCandidate(supabase, id);
+  if (current.revision !== revision) throw new StaleVideoReviewEdit();
+  if (current.state !== "archived") throw new Error("Only an archived draft can be restored.");
+  return (await mutateCandidate(supabase, id, revision, "restore")).candidate;
 }
 
 export async function readPublicationDraft(

@@ -486,6 +486,24 @@ test.describe("operator write paths", () => {
     await submitAction(page, () => replacement.getByRole("button", { name: "Approve draft" }).click());
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
 
+    const draftBeforeArchive = await drafted.locator(".video-draft-preview").textContent();
+    await submitAction(page, () => drafted.getByRole("button", { name: "Archive draft" }).click());
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
+    const archivedBrief = await (await page.request.get("/api/admin/video-review-brief")).json();
+    expect(archivedBrief.videoInbox.draftsReady.count).toBe(1);
+    expect(archivedBrief.videoInbox.items.map((item: { title: string }) => item.title))
+      .not.toContain("Crimson Desert added fixture commentary");
+    await page.getByText("Archived drafts (1)", { exact: true }).click();
+    const archived = page.locator("article[data-video-state='archived']");
+    await expect(archived.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    expect(await archived.locator(".video-draft-preview").textContent()).toBe(draftBeforeArchive);
+    await submitAction(page, () => archived.getByRole("button", { name: "Restore draft" }).click());
+    await expect(page.locator("article[data-video-state='archived']")).toHaveCount(0);
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
+    const restoredBrief = await (await page.request.get("/api/admin/video-review-brief")).json();
+    expect(restoredBrief.videoInbox.draftsReady.count).toBe(2);
+    expect(await drafted.locator(".video-draft-preview").textContent()).toBe(draftBeforeArchive);
+
     await page.goto("/watch");
     await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Watch the official reveal ↗" })).toHaveAttribute(

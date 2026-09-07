@@ -1076,6 +1076,7 @@ function filterRows(table, url) {
   }
 
   const order = url.searchParams.get("order");
+  if (order === "id.asc") rows.sort((a, b) => String(a.id).localeCompare(String(b.id)));
   const videoId = url.searchParams.get("video_id");
   if (videoId?.startsWith("eq.")) rows = rows.filter((row) => row.video_id === videoId.slice(3));
   const revision = url.searchParams.get("revision");
@@ -1405,7 +1406,18 @@ const server = createServer(async (req, res) => {
     }
     const next = { ...row };
     let removeDraft = false;
-    if (args.p_operation === "save") {
+    if (args.p_operation === "archive" && row.state === "draft_ready") {
+      next.state = "archived";
+    } else if (args.p_operation === "restore" && row.state === "archived") {
+      if (!videoPublicationDrafts.some((item) => item.candidate_id === row.id)) {
+        sendPgError(res, req.method, 400, "video_publication_draft_not_found", "P0001");
+        return;
+      }
+      next.state = "draft_ready";
+    } else if (row.state === "archived") {
+      sendPgError(res, req.method, 400, "video_review_archived_restore_required", "P0001");
+      return;
+    } else if (args.p_operation === "save") {
       const patch = args.p_candidate;
       removeDraft = ["video_id", "source_id", "creator_channel_id"].some((key) => patch[key] !== row[key]);
       Object.assign(next, patch);
@@ -1422,7 +1434,8 @@ const server = createServer(async (req, res) => {
       sendPgError(res, req.method, 409, "duplicate video ID", "23505");
       return;
     }
-    if (next.state === "draft_ready" && (!args.p_draft || args.p_draft.video_id !== next.video_id)) {
+    const writeDraft = next.state === "draft_ready" && args.p_operation !== "restore";
+    if (writeDraft && (!args.p_draft || args.p_draft.video_id !== next.video_id)) {
       sendPgError(res, req.method, 400, "invalid_publication_draft", "P0001");
       return;
     }
@@ -1430,7 +1443,7 @@ const server = createServer(async (req, res) => {
     if (removeDraft) {
       videoPublicationDrafts.splice(0, videoPublicationDrafts.length, ...videoPublicationDrafts.filter((item) => item.candidate_id !== row.id));
     }
-    if (row.state === "draft_ready") {
+    if (writeDraft) {
       const draft = videoPublicationDrafts.find((item) => item.candidate_id === row.id);
       const payload = { ...args.p_draft, candidate_id: row.id, updated_at: new Date(now()).toISOString() };
       if (draft) Object.assign(draft, payload);

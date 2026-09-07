@@ -1,6 +1,8 @@
 import {
   addVideoReviewCandidate,
   approveVideoCandidate,
+  archiveVideoCandidate,
+  restoreVideoCandidate,
   saveVideoReviewCandidate,
   skipVideoCandidate,
 } from "@/app/admin/videos/actions";
@@ -22,6 +24,7 @@ const STATE_LABEL: Record<VideoReviewRow["state"], string> = {
   pending: "Pending",
   draft_ready: "Draft ready",
   skipped: "Skipped",
+  archived: "Archived",
 };
 
 function CandidateFields({
@@ -152,45 +155,73 @@ function CandidateCard({
           {row.canonical_url}
         </a>
       </p>
-      <form action={saveVideoReviewCandidate} className="review-item__form dispatch-field">
-        <input type="hidden" name="id" value={row.id} />
-        <input type="hidden" name="revision" value={row.revision} />
-        <CandidateFields row={row} sources={sources} />
-        <SubmitButton className="dispatch-btn" pendingText="Saving...">
-          Save
-        </SubmitButton>
-        {row.state === "draft_ready" ? (
-          <p className="scope-line">Changing the video or creator removes this draft and requires a new approval.</p>
-        ) : null}
-      </form>
-      <div className="review-item__form" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <form action={approveVideoCandidate}>
-          <input type="hidden" name="id" value={row.id} />
-          <input type="hidden" name="revision" value={row.revision} />
-          <SubmitButton className="dispatch-btn" pendingText="Preparing draft..." describedBy={`approve-scope-${row.id}`}>
-            Approve draft
-          </SubmitButton>
-        </form>
-        <form action={skipVideoCandidate}>
-          <input type="hidden" name="id" value={row.id} />
-          <input type="hidden" name="revision" value={row.revision} />
-          <SubmitButton
-            className="tap-btn tap-btn--destructive"
-            pendingText="Skipping..."
-            describedBy={`skip-scope-${row.id}`}
-          >
-            Skip
-          </SubmitButton>
-        </form>
-      </div>
-      <p className="scope-line" id={`approve-scope-${row.id}`}>
-        <b>Approve draft</b> stores a private later-PR checklist. It does not publish this video, change Watch, or
-        update a public registry.
-      </p>
-      <p className="scope-line" id={`skip-scope-${row.id}`}>
-        <b>Skip</b> keeps this candidate private. It never appears on Watch.
-      </p>
-      {row.state === "draft_ready" && draft ? (
+      {row.state !== "archived" ? (
+        <>
+          <form action={saveVideoReviewCandidate} className="review-item__form dispatch-field">
+            <input type="hidden" name="id" value={row.id} />
+            <input type="hidden" name="revision" value={row.revision} />
+            <CandidateFields row={row} sources={sources} />
+            <SubmitButton className="dispatch-btn" pendingText="Saving...">
+              Save
+            </SubmitButton>
+            {row.state === "draft_ready" ? (
+              <p className="scope-line">Changing the video or creator removes this draft and requires a new approval.</p>
+            ) : null}
+          </form>
+          <div className="review-item__form" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <form action={approveVideoCandidate}>
+              <input type="hidden" name="id" value={row.id} />
+              <input type="hidden" name="revision" value={row.revision} />
+              <SubmitButton className="dispatch-btn" pendingText="Preparing draft..." describedBy={`approve-scope-${row.id}`}>
+                Approve draft
+              </SubmitButton>
+            </form>
+            {row.state !== "draft_ready" ? (
+              <form action={skipVideoCandidate}>
+                <input type="hidden" name="id" value={row.id} />
+                <input type="hidden" name="revision" value={row.revision} />
+                <SubmitButton
+                  className="tap-btn tap-btn--destructive"
+                  pendingText="Skipping..."
+                  describedBy={`skip-scope-${row.id}`}
+                >
+                  Skip
+                </SubmitButton>
+              </form>
+            ) : null}
+          </div>
+          <p className="scope-line" id={`approve-scope-${row.id}`}>
+            <b>Approve draft</b> stores a private later-PR checklist. It does not publish this video, change Watch, or
+            update a public registry.
+          </p>
+          {row.state !== "draft_ready" ? (
+            <p className="scope-line" id={`skip-scope-${row.id}`}>
+              <b>Skip</b> keeps this candidate private. It never appears on Watch.
+            </p>
+          ) : null}
+        </>
+      ) : null}
+      {row.state === "draft_ready" || row.state === "archived" ? (
+        <>
+          <form action={row.state === "archived" ? restoreVideoCandidate : archiveVideoCandidate} className="review-item__form">
+            <input type="hidden" name="id" value={row.id} />
+            <input type="hidden" name="revision" value={row.revision} />
+            <SubmitButton
+              className="dispatch-btn"
+              pendingText={row.state === "archived" ? "Restoring..." : "Archiving..."}
+              describedBy={`archive-scope-${row.id}`}
+            >
+              {row.state === "archived" ? "Restore draft" : "Archive draft"}
+            </SubmitButton>
+          </form>
+          <p className="scope-line" id={`archive-scope-${row.id}`}>
+            {row.state === "archived"
+              ? "Archived drafts stay private and leave the daily brief. Restore this draft to resume review."
+              : "Archive when publication is finished or you stop pursuing this draft. This removes it from the daily brief, keeps its private record, and can be undone. It does not publish a video."}
+          </p>
+        </>
+      ) : null}
+      {(row.state === "draft_ready" || row.state === "archived") && draft ? (
         <section aria-label="Publication draft preview" className="ledger-body">
           <p className="mono-label">{draft.completeness === "complete" ? "Draft complete" : "Draft incomplete"}</p>
           {draft.missing_requirements.length > 0 ? (
@@ -239,6 +270,8 @@ export default async function VideoReviewPage() {
   const pending = queue.candidates.filter((row) => row.state === "pending").length;
   const draftReady = queue.candidates.filter((row) => row.state === "draft_ready").length;
   const skipped = queue.candidates.filter((row) => row.state === "skipped").length;
+  const activeCandidates = queue.candidates.filter((row) => row.state !== "archived");
+  const archivedCandidates = queue.candidates.filter((row) => row.state === "archived");
 
   return (
     <OperatorShell active="videos">
@@ -293,10 +326,10 @@ export default async function VideoReviewPage() {
             <span className="mono-label">Queue</span>
             <p className="op-note">Oldest first. Repeated approve or skip does not create a second row.</p>
           </div>
-          {queue.candidates.length === 0 ? (
-            <p className="review-clear">No private video candidates yet. Add a YouTube link above.</p>
+          {activeCandidates.length === 0 ? (
+            <p className="review-clear">No active video candidates. Add a YouTube link above or restore an archived draft.</p>
           ) : (
-            queue.candidates.map((row) => (
+            activeCandidates.map((row) => (
               <CandidateCard
                 key={row.id}
                 row={row}
@@ -307,6 +340,20 @@ export default async function VideoReviewPage() {
             ))
           )}
         </section>
+        {archivedCandidates.length > 0 ? (
+          <details className="review-band">
+            <summary className="op-link">Archived drafts ({archivedCandidates.length})</summary>
+            {archivedCandidates.map((row) => (
+              <CandidateCard
+                key={row.id}
+                row={row}
+                draft={queue.draftsByCandidateId[row.id]}
+                sources={sources}
+                nowMs={Date.parse(queue.observedAt)}
+              />
+            ))}
+          </details>
+        ) : null}
       </div>
     </OperatorShell>
   );

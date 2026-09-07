@@ -14,7 +14,9 @@ import {
   DuplicateVideoReviewCandidate,
   StaleVideoReviewEdit,
   approveVideoReviewCandidate,
+  archiveVideoReviewCandidate,
   insertVideoReviewCandidate,
+  restoreVideoReviewCandidate,
   skipVideoReviewCandidate,
   updateVideoReviewCandidate,
 } from "@/lib/videoReviewStore";
@@ -95,5 +97,25 @@ export async function skipVideoCandidate(formData: FormData): Promise<void> {
   const revision = Number(formText(formData, "revision"));
   if (!id || !Number.isInteger(revision)) throw new Error("bad input");
   await skipVideoReviewCandidate(createServiceClient(), id, revision);
+  refreshInbox();
+}
+
+export async function archiveVideoCandidate(formData: FormData): Promise<void> {
+  await requireAdmin("/admin/videos");
+  assertProductionWriteAllowed();
+  const id = formText(formData, "id");
+  const revision = Number(formText(formData, "revision"));
+  if (!id || !Number.isInteger(revision)) throw new Error("bad input");
+  await archiveVideoReviewCandidate(createServiceClient(), id, revision);
+  refreshInbox();
+}
+
+export async function restoreVideoCandidate(formData: FormData): Promise<void> {
+  await requireAdmin("/admin/videos");
+  assertProductionWriteAllowed();
+  const id = formText(formData, "id");
+  const revision = Number(formText(formData, "revision"));
+  if (!id || !Number.isInteger(revision)) throw new Error("bad input");
+  await restoreVideoReviewCandidate(createServiceClient(), id, revision);
   refreshInbox();
 }

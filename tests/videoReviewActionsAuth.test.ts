@@ -40,6 +40,8 @@ const WRITE_ACTIONS: { name: keyof Actions; form: Record<string, string> }[] = [
   },
   { name: "approveVideoCandidate", form: { id: "video-1", revision: "1" } },
   { name: "skipVideoCandidate", form: { id: "video-1", revision: "1" } },
+  { name: "archiveVideoCandidate", form: { id: "video-1", revision: "1" } },
+  { name: "restoreVideoCandidate", form: { id: "video-1", revision: "1" } },
 ];
 
 function buildFormData(fields: Record<string, string>): FormData {

@@ -1,5 +1,5 @@
 begin;
-select plan(36);
+select plan(54);
 
 select ok(has_function_privilege('service_role', 'public.mutate_video_review_candidate(uuid,integer,text,jsonb,jsonb)', 'EXECUTE'), 'service role can mutate the private inbox atomically');
 select ok(not has_function_privilege('anon', 'public.mutate_video_review_candidate(uuid,integer,text,jsonb,jsonb)', 'EXECUTE'), 'anon cannot call the mutation RPC');
@@ -113,6 +113,53 @@ select throws_ok(
   'P0001', 'video_review_draft_ready_cannot_skip', 'ready drafts cannot be skipped'
 );
 
+create temporary table archive_snapshot as
+select
+  candidate.approved_at,
+  draft.id as draft_id,
+  draft.markdown
+from public.video_review_candidates candidate
+join public.video_publication_drafts draft on draft.candidate_id = candidate.id
+where candidate.id = '94000000-0000-4000-8000-000000000001';
+
+select throws_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000001', 4, 'archive', null, null)$sql$,
+  'P0001', 'stale_video_review_edit', 'stale revisions block archive'
+);
+select lives_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000001', 5, 'archive', null, null)$sql$,
+  'ready drafts can be archived'
+);
+select is((select state from public.video_review_candidates where id='94000000-0000-4000-8000-000000000001'), 'archived', 'archive moves ready drafts to archived');
+select is((select revision from public.video_review_candidates where id='94000000-0000-4000-8000-000000000001'), 6, 'archive increments the candidate revision');
+select is(
+  (select approved_at from public.video_review_candidates where id='94000000-0000-4000-8000-000000000001'),
+  (select approved_at from archive_snapshot),
+  'archive retains the approval time'
+);
+select is(
+  (select id from public.video_publication_drafts where candidate_id='94000000-0000-4000-8000-000000000001'),
+  (select draft_id from archive_snapshot),
+  'archive retains the private draft'
+);
+select is(
+  (select markdown from public.video_publication_drafts where candidate_id='94000000-0000-4000-8000-000000000001'),
+  (select markdown from archive_snapshot),
+  'archive does not alter private draft content'
+);
+select throws_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000001', 6, 'save', null, null)$sql$,
+  'P0001', 'video_review_archived_restore_required', 'archived candidates cannot be saved'
+);
+select throws_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000001', 6, 'approve', null, null)$sql$,
+  'P0001', 'video_review_archived_restore_required', 'archived candidates cannot be approved'
+);
+select throws_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000001', 6, 'skip', null, null)$sql$,
+  'P0001', 'video_review_archived_restore_required', 'archived candidates cannot be skipped'
+);
+
 insert into public.video_review_candidates (
   id, video_id, canonical_url, submitted_url, source_id, creator_channel_id,
   title, channel_label, review_note, excerpt_review_status, topic
@@ -123,9 +170,44 @@ insert into public.video_review_candidates (
   'https://private.example/do-not-copy', 'unreviewed', 'expansion'
 );
 
+select throws_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000002', 1, 'archive', null, null)$sql$,
+  'P0001', 'video_review_only_ready_draft_can_archive', 'only ready drafts can be archived'
+);
+
 select is((public.owner_attention_brief() #>> '{videoInbox,awaitingReview,count}')::integer, 1, 'owner brief counts pending candidates');
-select is((public.owner_attention_brief() #>> '{videoInbox,draftsReady,count}')::integer, 1, 'owner brief counts atomically created drafts');
+select is((public.owner_attention_brief() #>> '{videoInbox,draftsReady,count}')::integer, 0, 'owner brief excludes archived drafts');
+select ok(position('Replacement video edited' in public.owner_attention_brief()::text) = 0, 'owner brief excludes archived items');
 select ok(position('private.example' in public.owner_attention_brief()::text) = 0, 'owner brief does not copy private review-note URLs');
+
+select throws_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000001', 5, 'restore', null, null)$sql$,
+  'P0001', 'stale_video_review_edit', 'stale revisions block restore'
+);
+select lives_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000001', 6, 'restore', null, null)$sql$,
+  'archived drafts can be restored'
+);
+select is((select state from public.video_review_candidates where id='94000000-0000-4000-8000-000000000001'), 'draft_ready', 'restore returns archived candidates to ready');
+select is((select revision from public.video_review_candidates where id='94000000-0000-4000-8000-000000000001'), 7, 'restore increments the candidate revision');
+select throws_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000001', 7, 'restore', null, null)$sql$,
+  'P0001', 'video_review_only_archived_draft_can_restore', 'only archived candidates can be restored'
+);
+
+insert into public.video_review_candidates (
+  id, video_id, canonical_url, submitted_url, source_id, creator_channel_id,
+  title, channel_label, review_note, excerpt_review_status, topic, state, approved_at
+) values (
+  '94000000-0000-4000-8000-000000000003', 'arcDEF12345',
+  'https://www.youtube.com/watch?v=arcDEF12345', 'https://youtu.be/arcDEF12345',
+  'creator-one', 'UC1234567890123456789012', 'Archived without draft', 'Creator One',
+  'https://private.example/archived-without-draft', 'unreviewed', 'expansion', 'archived', now()
+);
+select throws_ok(
+  $sql$select public.mutate_video_review_candidate('94000000-0000-4000-8000-000000000003', 1, 'restore', null, null)$sql$,
+  'P0001', 'video_publication_draft_not_found', 'restore requires the existing private draft'
+);
 
 set local role service_role;
 select lives_ok($sql$select public.owner_attention_brief()$sql$, 'service role can read the private brief');

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EDITORIAL_SOURCES } from "@/lib/editorialSources";
 import { alreadyPublishedWatchVideoIds, validateVideoReviewCandidate, videoReviewRejectionMessage } from "@/lib/videoReview";
 
 const valid = {
@@ -27,7 +28,25 @@ describe("video review candidate validation", () => {
     });
   });
 
-  it("rejects the two videos already on Watch", () => {
+  it("rejects selected Watch videos but accepts a verified, unselected video", () => {
+    const source = EDITORIAL_SOURCES.find((candidate) => candidate.id === "khraze-gaming");
+    if (!source) throw new Error("KhrazeGaming fixture source is required");
+    const originalVerifiedVideoIds = source.verifiedVideoIds;
+    const verifiedButUnselectedVideoId = "zzVerify001";
+    (source as { verifiedVideoIds?: readonly string[] }).verifiedVideoIds = [
+      ...originalVerifiedVideoIds ?? [],
+      verifiedButUnselectedVideoId,
+    ];
+
+    try {
+      expect(validateVideoReviewCandidate({ ...valid, url: `https://www.youtube.com/watch?v=${verifiedButUnselectedVideoId}` })).toMatchObject({
+        ok: true,
+        candidate: { videoId: verifiedButUnselectedVideoId },
+      });
+    } finally {
+      (source as { verifiedVideoIds?: readonly string[] }).verifiedVideoIds = originalVerifiedVideoIds;
+    }
+
     expect(alreadyPublishedWatchVideoIds().sort()).toEqual(["6H6c0S80d4U", "HaCtG1F_hfE"].sort());
     expect(validateVideoReviewCandidate({ ...valid, url: "https://www.youtube.com/watch?v=6H6c0S80d4U" })).toEqual({
       ok: false,

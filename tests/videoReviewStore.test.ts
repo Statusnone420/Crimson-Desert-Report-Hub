@@ -41,6 +41,9 @@ function matches(row: Row, filters: Record<string, unknown>) {
 
 function tableApi(rows: Row[], options: { unique?: string; bumpRevision?: boolean } = {}) {
   const filters: Record<string, unknown> = {};
+  const greaterThan: Record<string, string> = {};
+  let orderedBy: { column: string; ascending: boolean } | null = null;
+  let rowLimit: number | null = null;
   const builder = {
     select: () => builder,
     insert: (payload: Row) => {
@@ -79,13 +82,25 @@ function tableApi(rows: Row[], options: { unique?: string; bumpRevision?: boolea
       filters[column] = value;
       return builder;
     },
-    order: () => Promise.resolve({ data: rows.filter((row) => matches(row, filters)), error: null }),
-    limit: () => finish(),
+    gt: (column: string, value: string) => {
+      greaterThan[column] = value;
+      return builder;
+    },
+    order: (column: string, options: { ascending?: boolean } = {}) => {
+      orderedBy = { column, ascending: options.ascending ?? true };
+      return builder;
+    },
+    limit: (value: number) => {
+      rowLimit = value;
+      return finish();
+    },
     then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => finish().then(resolve, reject),
     patch: null as Row | null,
   };
   function finish() {
-    const matched = rows.filter((row) => matches(row, filters));
+    const matched = rows.filter((row) =>
+      matches(row, filters) && Object.entries(greaterThan).every(([column, value]) => String(row[column]) > value),
+    );
     if (builder.patch) {
       if (matched.length === 0) return Promise.resolve({ data: [], error: null });
       for (const row of matched) {
@@ -94,7 +109,10 @@ function tableApi(rows: Row[], options: { unique?: string; bumpRevision?: boolea
       }
       return Promise.resolve({ data: matched, error: null });
     }
-    return Promise.resolve({ data: matched, error: null });
+    const sorted = orderedBy
+      ? [...matched].sort((a, b) => String(a[orderedBy!.column]).localeCompare(String(b[orderedBy!.column])) * (orderedBy!.ascending ? 1 : -1))
+      : matched;
+    return Promise.resolve({ data: rowLimit === null ? sorted : sorted.slice(0, rowLimit), error: null });
   }
   return builder;
 }
@@ -139,7 +157,8 @@ function stubClient(tables: ReturnType<typeof createTables>, errors: Record<stri
           upsert: () => failing,
           update: () => failing,
           eq: () => failing,
-          order: () => Promise.resolve({ data: null, error }),
+          gt: () => failing,
+          order: () => failing,
           limit: () => Promise.resolve({ data: null, error }),
           then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
             Promise.resolve({ data: null, error }).then(resolve, reject),
@@ -235,6 +254,108 @@ describe("video review store", () => {
     expect(skipped.state).toBe("skipped");
     expect(again.state).toBe("skipped");
     expect(tables.drafts).toHaveLength(0);
+  });
+});
+
+type QueuePage = { table: string; after: string | null; ordered: string[]; limit: number | null };
+
+function paginatedQueueClient(
+  tables: ReturnType<typeof createTables>,
+  options: { cap: number; failAt?: { table: string; call: number; error: { code?: string; message: string } } },
+) {
+  const pages: QueuePage[] = [];
+  const calls: Record<string, number> = {};
+  return {
+    from: (table: string) => ({
+      select: () => {
+        const page: QueuePage = { table, after: null, ordered: [], limit: null };
+        const builder = {
+          gt: (column: string, value: string) => {
+            expect(column).toBe("id");
+            page.after = value;
+            return builder;
+          },
+          order: (column: string) => {
+            page.ordered.push(column);
+            return builder;
+          },
+          limit: (value: number) => {
+            page.limit = value;
+            return builder;
+          },
+          then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => {
+            pages.push(page);
+            calls[table] = (calls[table] ?? 0) + 1;
+            if (options.failAt?.table === table && options.failAt.call === calls[table]) {
+              return Promise.resolve({ data: null, error: options.failAt.error }).then(resolve, reject);
+            }
+            const source = table === "video_review_candidates" ? tables.candidates : tables.drafts;
+            const data = source
+              .filter((row) => page.after === null || String(row.id) > page.after)
+              .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+              .slice(0, Math.min(page.limit ?? 0, options.cap));
+            return Promise.resolve({ data, error: null }).then(resolve, reject);
+          },
+        };
+        return builder;
+      },
+    }),
+    pages: () => pages,
+  } as unknown as ReturnType<typeof createServiceClient> & { pages: () => QueuePage[] };
+}
+
+function queueId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+}
+
+function queueCandidate(index: number, createdAt: string): Row {
+  return { id: queueId(index), created_at: createdAt };
+}
+
+function queueDraft(index: number): Row {
+  return { id: queueId(index), candidate_id: `candidate-${index}` };
+}
+
+describe("video review queue pagination", () => {
+  it("walks capped candidate and draft pages to empty, then sorts candidates by created_at and id", async () => {
+    const tables = createTables({
+      candidates: Array.from({ length: 1001 }, (_, offset) => {
+        const index = offset + 1;
+        return queueCandidate(index, index <= 2 ? "2026-09-01T00:00:00.000Z" : "2026-09-02T00:00:00.000Z");
+      }).reverse(),
+      drafts: Array.from({ length: 1003 }, (_, offset) => queueDraft(offset + 1)).reverse(),
+    });
+    const client = paginatedQueueClient(tables, { cap: 400 });
+
+    const queue = await readVideoReviewQueue(client);
+
+    expect(queue.status).toBe("ok");
+    if (queue.status !== "ok") throw new Error("expected a readable queue");
+    expect(queue.candidates).toHaveLength(1001);
+    expect(queue.candidates.slice(0, 2).map((row) => row.id)).toEqual([queueId(1), queueId(2)]);
+    expect(Object.keys(queue.draftsByCandidateId)).toHaveLength(1003);
+    expect(queue.draftsByCandidateId["candidate-1003"].id).toBe(queueId(1003));
+
+    const pages = (client as unknown as { pages: () => QueuePage[] }).pages();
+    expect(pages.filter((page) => page.table === "video_review_candidates")).toHaveLength(4);
+    expect(pages.filter((page) => page.table === "video_publication_drafts")).toHaveLength(4);
+    for (const page of pages) {
+      expect(page.ordered).toEqual(["id"]);
+      expect(page.limit).toBe(1000);
+    }
+  });
+
+  it("surfaces a failure on a later candidate page instead of returning a partial queue", async () => {
+    const tables = createTables({
+      candidates: Array.from({ length: 1001 }, (_, offset) => queueCandidate(offset + 1, "2026-09-01T00:00:00.000Z")),
+    });
+    const client = paginatedQueueClient(tables, {
+      cap: 1000,
+      failAt: { table: "video_review_candidates", call: 2, error: { code: "42501", message: "permission denied" } },
+    });
+
+    await expect(readVideoReviewQueue(client)).rejects.toThrow("video review queue read failed: permission denied");
+    expect((client as unknown as { pages: () => QueuePage[] }).pages()).toHaveLength(2);
   });
 });
 

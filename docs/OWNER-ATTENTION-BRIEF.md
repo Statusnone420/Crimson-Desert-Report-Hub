@@ -4,6 +4,8 @@ This is the read-only connector for the existing **Crimson Hub Health Check** ta
 
 The inbox at `/admin/videos` is a manual owner tool. It is not a daily admin job. Approval stores a private later-PR draft only. It never publishes Watch, updates a public registry, or creates a GitHub pull request.
 
+After publication is finished, or you stop pursuing a draft, choose **Archive draft**. The private record and download remain under **Archived drafts**, but the candidate leaves the daily brief. Archiving does not certify publication or change Watch. **Restore draft** returns it to Draft ready and the brief. Archived drafts must be restored before editing or approving again.
+
 ## Connector query
 
 After the hosted migration is applied, the existing Supabase connection should run exactly:
@@ -70,7 +72,7 @@ Use at most five bullets across **Needs my approval** and **Keep an eye on**. Ea
 - Unsure claim matches → Needs my approval → open `/admin`
 - Unavailable or error → Keep an eye on → apply the migration or inspect the database error
 
-Do not auto-approve, skip, publish, scan, change budgets, or write hosted data from the health check. The schedule itself stays unchanged.
+Do not auto-approve, skip, archive, restore, publish, scan, change budgets, or write hosted data from the health check. The schedule itself stays unchanged.
 
 ## Website verification
 
