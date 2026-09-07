@@ -153,6 +153,7 @@ function recordOpenRouterRunSkip(result: AutomationResult, reason: string | unde
       reason === "openrouter_no_route" ||
       reason === "openrouter_provider_failure" ||
       reason === "openrouter_invalid_json" ||
+      reason === "llm_budget_capped" ||
       reason === "llm_time_limit") &&
     !result.skips.includes(reason)
   ) {

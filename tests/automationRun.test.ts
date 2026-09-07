@@ -1141,6 +1141,31 @@ describe("runAutomationMonitor", () => {
     expect(result.skips).not.toContain("openrouter_cost_unverified");
   });
 
+  it("records an extraction request that cannot fit the remaining LLM budget", async () => {
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => ({
+      issueTitle: candidate.title,
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: candidate.snippet,
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      fallbackReason: "llm_budget_capped",
+    }));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(tables.automation_runs[0].skips).toContain("llm_budget_capped");
+  });
+
   it("reserves scheduled LLM allowance for scanner extraction after claim mapping", async () => {
     resetDb({
       issue_clusters: [
@@ -1277,6 +1302,44 @@ describe("runAutomationMonitor", () => {
     // Still not a circuit reason: nothing was spent and nothing is unverified.
     expect(result.skips).not.toContain("openrouter_cost_unverified");
     expect(result.llmCostUsd).toBe(0);
+  });
+
+  it("records a claim-mapping budget-floor refusal in the run ledger", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-fps",
+        slug: "performance_regression",
+        title: "Performance regression",
+        category: "performance",
+        description: "Frame-rate drops after the patch.",
+        fix_status: "reported",
+        is_public: true,
+        admin_override: false,
+      }],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed frame-rate drops in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "keyword_proposal",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "Needs review: monthly OpenRouter budget cap reached.",
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      extractionModel: null,
+      skipReason: "llm_budget_capped",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.llmSucceeded).toBeUndefined();
+    expect(tables.automation_runs[0].skips).toContain("llm_budget_capped");
   });
 
   it("keeps the current-month LLM circuit open across later runs", async () => {

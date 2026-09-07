@@ -56,7 +56,7 @@ export type ClaimMappingDecision = {
    * it exists so the run stops asking a route that has already refused it.
    */
   skipReason?: "openrouter_cost_unverified" | "openrouter_budget_exceeded" | "openrouter_no_route" |
-    "openrouter_provider_failure" | "openrouter_invalid_json" | "llm_time_limit";
+    "openrouter_provider_failure" | "openrouter_invalid_json" | "llm_budget_capped" | "llm_time_limit";
 };
 
 export type ClaimMappingOptions = {
@@ -282,7 +282,7 @@ export async function mapClaimToClusterWithOpenRouter(
   );
   const budgetRemainingUsd = options.llmBudgetRemainingUsd ?? 0;
   if (budgetRemainingUsd < requestCostCeiling) {
-    return fallback("Needs review: monthly OpenRouter budget cap reached.");
+    return { ...fallback("Needs review: monthly OpenRouter budget cap reached."), skipReason: "llm_budget_capped" };
   }
   const fetcher = options.fetcher ?? (fetch as unknown as OpenRouterFetch);
   const attemptOnce = async (): Promise<ClaimMappingDecision> => {
