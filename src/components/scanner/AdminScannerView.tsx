@@ -24,6 +24,8 @@ import type { PatchRadarData } from "@/lib/radar.server";
 import { isBriefRenderableObservation } from "@/lib/observationDisplay";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { registerUnread, type ScannerReadRegister } from "@/lib/scannerRegisters";
+import { SCANNER_MODEL_PRESETS } from "@/lib/automation/budget";
+import { scannerAiHealth, type ScannerAiHealth } from "@/lib/automation/health";
 
 function cadenceLabel(minutes: number): string {
   if (minutes === 60) return "hourly";
@@ -55,8 +57,12 @@ function scannerStatus(
   return { label: "ACTIVE", toneClass: "is-green" };
 }
 
-function formatUsd(value: number): string {
-  return `$${Number(value).toFixed(2)}`;
+function aiCostLabel(run: AutomationRunRow): string {
+  const recorded = run.progress?.llmCostUsd;
+  const value = typeof recorded === "number" && Number.isFinite(recorded)
+    ? recorded
+    : Math.max(0, run.estimated_cost_usd - run.search_queries_used * 0.008);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(value);
 }
 
 function relativeTime(iso: string | null, nowMs: number): string {
@@ -346,6 +352,7 @@ export function AdminScannerView({
   radar,
   integrations,
   nowIso,
+  aiHealth: suppliedAiHealth,
 }: {
   runs: AutomationRunRow[];
   signals: AdminSignalRow[];
@@ -364,12 +371,17 @@ export function AdminScannerView({
   radar: PatchRadarData;
   integrations: IntegrationStatus[];
   nowIso: string;
+  aiHealth?: ScannerAiHealth;
 }) {
   const now = new Date(nowIso);
   const nowMs = now.getTime();
   const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
   const nextEligible = nextEligibleScheduledScanAt(runs, now, control.minIntervalMinutes);
-  const status = scannerStatus(control, activeRun, lastScheduled);
+  const aiHealth = suppliedAiHealth ?? scannerAiHealth(runs, control);
+  const aiNeedsAttention = aiHealth.state === "unavailable" || aiHealth.state === "limited";
+  const status = aiNeedsAttention
+    ? { label: aiHealth.state === "unavailable" ? "AI UNAVAILABLE" : "AI LIMITED", toneClass: "is-amber" }
+    : scannerStatus(control, activeRun, lastScheduled);
   const projectedCredits = projectedMonthlyCredits(control);
   const latestRun = latestRealRun;
   const optionalCandidates = rejectedCandidates.filter(
@@ -404,9 +416,10 @@ export function AdminScannerView({
   const scannerHealthKnown = radar.connected && unknownCircuitIntegrations.length === 0;
   const healthKnown = scannerHealthKnown && collections.status !== "unknown";
   // Counts are checks to review, not distinct incidents: one run may affect a provider too.
-  const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length + collections.attentionCount;
+  const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length + collections.attentionCount + Number(aiNeedsAttention);
   // Name the affected checks so a repeated count does not imply a new incident.
   const attentionParts = [
+    aiNeedsAttention ? aiHealth.message : null,
     radar.health.runs7d.failed > 0
       ? `${radar.health.runs7d.failed} failed run${radar.health.runs7d.failed === 1 ? "" : "s"} · 7d`
       : null,
@@ -745,7 +758,7 @@ export function AdminScannerView({
                   <div><dt>Search</dt><dd>{latestRun.search_queries_used} credits</dd></div>
                   <div><dt>Candidates</dt><dd>{displayCandidateCount(latestRun)}</dd></div>
                   <div><dt>LLM</dt><dd>{latestRun.llm_calls_used} calls</dd></div>
-                  <div><dt>Cost</dt><dd>{formatUsd(latestRun.estimated_cost_usd)}</dd></div>
+                  <div><dt>AI cost estimate</dt><dd>{aiCostLabel(latestRun)}</dd></div>
                 </dl>
               </>
             ) : <p className="op-rail__sentence">No completed scan yet.</p>}
@@ -762,7 +775,7 @@ export function AdminScannerView({
                 <div key={run.id} className="op-history-row">
                   <span className="num-quiet">{formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}</span>
                   <span>{plainRunLine(run)}</span>
-                  <span className="num-quiet">{formatUsd(run.estimated_cost_usd)}</span>
+                  <span className="num-quiet">{aiCostLabel(run)} AI</span>
                 </div>
               ))}
               <details className="raw-diagnostics">
@@ -783,7 +796,8 @@ export function AdminScannerView({
             <summary>Scanner cadence and budget</summary>
             <form action={setScannerPolicy} className="operator-disclosure__body decision-form dispatch-field">
               <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
-              <input type="hidden" name="modelPreset" value={control.modelPreset} />
+              <label><span id="scanner-model-label">AI model</span><select aria-labelledby="scanner-model-label" name="modelPreset" defaultValue={control.modelPreset}>{SCANNER_MODEL_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
+              <p className="op-note">Flex costs less but can be slower or unavailable. A failed route stops AI processing and is flagged here.</p>
               <label><span>How often</span><select name="cadence" defaultValue={control.paused ? "paused" : String(control.minIntervalMinutes)}>
                 <option value="60">Hourly</option><option value="120">Every 2 hours</option>
                 <option value="360">Every 6 hours</option><option value="1440">Daily</option><option value="paused">Paused</option>
@@ -792,8 +806,9 @@ export function AdminScannerView({
                 <option value="1">1 search / run</option><option value="2">2 searches / run</option><option value="3">3 searches / run</option>
               </select></label>
               <label><span>Monthly search cap</span><input name="monthlyTavilyCreditCap" type="number" min="0" max="1000" step="1" defaultValue={control.monthlyTavilyCreditCap} /></label>
-              <label><span>Monthly LLM cap ($)</span><input name="monthlyLlmUsdCap" type="number" min="0" max="2" step="0.25" defaultValue={control.monthlyLlmUsdCap} /></label>
-              <p className="op-note">About {projectedCredits} scheduled Tavily credits monthly at this setting, capped at {control.monthlyTavilyCreditCap}. LLM spend stops at ${control.monthlyLlmUsdCap.toFixed(2)}. Cadence is {cadenceLabel(control.minIntervalMinutes)}.</p>
+              <label><span>Monthly AI budget ($)</span><input name="monthlyLlmUsdCap" type="number" min="0" max="1" step="0.25" defaultValue={control.monthlyLlmUsdCap} /></label>
+              <p className="op-note">The OpenRouter key must also have a monthly or lifetime limit of $1 or less. Zero turns AI processing off.</p>
+              <p className="op-note">About {projectedCredits} scheduled Tavily credits monthly at this setting, capped at {control.monthlyTavilyCreditCap}. AI budget: ${control.monthlyLlmUsdCap.toFixed(2)}. Search credits are separate from AI cost. The OpenRouter key limit is the final spending ceiling. Cadence is {cadenceLabel(control.minIntervalMinutes)}.</p>
               <SubmitButton className="dispatch-btn" pendingText="Saving...">Save settings</SubmitButton>
             </form>
           </details>

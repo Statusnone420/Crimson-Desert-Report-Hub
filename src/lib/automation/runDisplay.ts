@@ -101,9 +101,24 @@ const SKIP_META: Record<string, MessageMeta> = {
     summaryLabel: "other category",
   },
   llm_allowance_exhausted: {
-    label: "LLM allowance exhausted",
-    detail: "The run used its LLM call allowance; remaining items fell back to deterministic extraction.",
-    summaryLabel: "LLM allowance exhausted",
+    label: "AI calls stopped for this run",
+    detail: "The run reached its call allowance or stopped after a provider failure. Remaining items used rule-based processing; this does not mean the OpenRouter balance is empty.",
+    summaryLabel: "AI calls stopped for this run",
+  },
+  openrouter_key_budget_unverified: {
+    label: "AI spending limit unverified",
+    detail: "The OpenRouter key budget could not be read. AI calls are blocked until the limit can be verified.",
+    summaryLabel: "AI spending limit unverified",
+  },
+  openrouter_key_limit_unsafe: {
+    label: "AI key limit needs attention",
+    detail: "The OpenRouter key must have a monthly or lifetime spending limit of $1 or less. AI calls remain blocked until it does.",
+    summaryLabel: "AI key limit needs attention",
+  },
+  llm_time_limit: {
+    label: "AI time limit reached",
+    detail: "AI processing stopped within the scan time limit. Later scheduled runs can try again.",
+    summaryLabel: "AI time limit reached",
   },
   openrouter_invalid_json: {
     label: "OpenRouter invalid JSON",

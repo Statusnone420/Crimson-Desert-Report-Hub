@@ -5,6 +5,7 @@ import { getAutomationControlState } from "@/lib/automation/settings";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
 import { createServiceClient } from "@/lib/supabase";
+import { getScannerAiHealth } from "@/lib/automation/health.server";
 
 export const maxDuration = 300;
 
@@ -58,11 +59,13 @@ export async function GET(req: Request) {
     await insertSkippedScheduledRun(supabase, decision.skipReason, now);
   }
 
+  const aiHealth = await getScannerAiHealth(control);
   return NextResponse.json({
     ok: !touchError && !purgeError,
     touch: touchError?.message ?? "ok",
     purge: purgeError?.message ?? "ok",
     scanner: control,
     automation,
+    aiHealth,
   });
 }

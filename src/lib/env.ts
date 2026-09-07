@@ -1,4 +1,4 @@
-import { MAX_MONTHLY_LLM_USD_CAP, resolveAutomationOpenRouterModel } from "@/lib/automation/budget";
+import { DEFAULT_MONTHLY_LLM_USD_CAP, MAX_MONTHLY_LLM_USD_CAP, resolveAutomationOpenRouterModel } from "@/lib/automation/budget";
 
 type EnvLike = Record<string, string | undefined>;
 
@@ -119,7 +119,7 @@ export function integrationStatuses(env: EnvLike = process.env): IntegrationStat
 
 export function automationBudgetUsd(env: EnvLike = process.env): number {
   const raw = env.AUTOMATION_BUDGET_USD_MONTHLY?.trim();
-  if (!raw) return MAX_MONTHLY_LLM_USD_CAP;
+  if (!raw) return DEFAULT_MONTHLY_LLM_USD_CAP;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   return Math.min(parsed, MAX_MONTHLY_LLM_USD_CAP);

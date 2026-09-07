@@ -1,6 +1,6 @@
 import "server-only";
 
-import { computeAutomationBudget, type AutomationBudget } from "@/lib/automation/budget";
+import { computeAutomationBudget, evaluateOpenRouterKeyBudget, readOpenRouterKeyBudget, type ScannerModelPreset, type AutomationBudget } from "@/lib/automation/budget";
 import { circuitReadStartIso, openRouterCircuitOpenFromRuns } from "@/lib/automation/circuit";
 import {
   mapClaimToClusterWithOpenRouter,
@@ -41,7 +41,7 @@ import {
   type SearchResult,
 } from "@/lib/automation/search";
 import { resolveBurstState } from "@/lib/automation/schedule";
-import type { ScannerPolicy } from "@/lib/automation/settings";
+import { getAutomationControlState, type AutomationSettingsClient, type ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import {
@@ -90,6 +90,8 @@ export type AutomationResult = {
   searchQueriesUsed: number;
   searchResultsSeen: number;
   llmCallsUsed: number;
+  llmSucceeded?: number;
+  modelPreset?: ScannerModelPreset;
   candidatesSeen: number;
   prefilterRejected: number;
   signalsPrepared: number;
@@ -110,6 +112,9 @@ export type AutomationResult = {
 };
 
 export type RunProgress = {
+  llmSucceeded?: number;
+  llmCostUsd?: number;
+  modelPreset?: ScannerModelPreset | null;
   stage: "starting" | "searching" | "screening" | "persisting" | "done";
   searchesDone: number;
   searchTotal: number;
@@ -119,6 +124,13 @@ export type RunProgress = {
   kept: number;
   promoted: number;
 };
+
+function applyAutomationBudgetCeiling(scannerPolicy: ScannerPolicy): ScannerPolicy {
+  return {
+    ...scannerPolicy,
+    monthlyLlmUsdCap: Math.min(scannerPolicy.monthlyLlmUsdCap, automationBudgetUsd()),
+  };
+}
 
 function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): number {
   if (
@@ -146,16 +158,49 @@ function recordOpenRouterRunSkip(result: AutomationResult, reason: string | unde
   if (
     (reason === "openrouter_cost_unverified" ||
       reason === "openrouter_budget_exceeded" ||
-      reason === "openrouter_no_route") &&
+      reason === "openrouter_no_route" ||
+      reason === "openrouter_provider_failure" ||
+      reason === "openrouter_invalid_json" ||
+      reason === "llm_budget_capped" ||
+      reason === "llm_time_limit") &&
     !result.skips.includes(reason)
   ) {
     result.skips.push(reason);
   }
 }
 
+async function enforceProviderBudget(budget: AutomationBudget): Promise<AutomationBudget> {
+  if (budget.maxLlmCalls <= 0) return budget;
+  const llmDeadlineAtMs = Date.now() + 180_000;
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) {
+    return {
+      ...budget,
+      llmDeadlineAtMs,
+      remainingLlmUsd: 0,
+      maxLlmCalls: 0,
+      skipReasons: budget.skipReasons.includes("openrouter_missing_config")
+        ? budget.skipReasons
+        : [...budget.skipReasons, "openrouter_missing_config"],
+    };
+  }
+  const keyBudget = await readOpenRouterKeyBudget(apiKey);
+  const checked = evaluateOpenRouterKeyBudget(keyBudget, budget);
+  return {
+    ...budget,
+    llmDeadlineAtMs,
+    remainingLlmUsd: checked.remainingLlmUsd,
+    maxLlmCalls: checked.skipReason ? 0 : budget.maxLlmCalls,
+    skipReasons: checked.skipReason ? [...budget.skipReasons, checked.skipReason] : budget.skipReasons,
+  };
+}
+
 function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
   return {
     stage,
+    llmSucceeded: result.llmSucceeded ?? 0,
+    llmCostUsd: result.llmCostUsd,
+    modelPreset: result.modelPreset ?? null,
     // Clamp: recon /extract calls share searchQueriesUsed, so raw done can exceed the
     // per-run search total; the progress bar should never read >100%.
     searchesDone: Math.min(result.searchQueriesUsed, searchTotal),
@@ -1422,12 +1467,15 @@ async function prepareSignals(
         const extraction = await extractSignalWithOpenRouter(
           { title: signal.title, snippet: effectiveBody, url: canonicalUrl },
           {
+            modelPreset: budget.modelPreset,
+            llmDeadlineAtMs: budget.llmDeadlineAtMs,
             llmCallsRemaining: remainingLlmCalls(result, budget),
             llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
             clusterOptions,
           },
         );
         result.llmCallsUsed += extraction.llmCallsUsed;
+        if (extraction.extractionProvider === "openrouter") result.llmSucceeded = (result.llmSucceeded ?? 0) + 1;
         result.llmCostUsd += extraction.llmCostUsd ?? 0;
         result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
         if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
@@ -1486,12 +1534,15 @@ async function prepareSignals(
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
       {
+        modelPreset: budget.modelPreset,
+        llmDeadlineAtMs: budget.llmDeadlineAtMs,
         llmCallsRemaining: remainingLlmCalls(result, budget),
         llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
         clusterOptions,
       },
     );
     result.llmCallsUsed += extraction.llmCallsUsed;
+    if (extraction.extractionProvider === "openrouter") result.llmSucceeded = (result.llmSucceeded ?? 0) + 1;
     result.llmCostUsd += extraction.llmCostUsd ?? 0;
     result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
@@ -1785,10 +1836,13 @@ async function runLifecyclePass(
   for (const claim of orderedClaims) {
     const llmCallsRemaining = Math.min(claimLlmCallsRemaining, remainingLlmCalls(result, budget));
     const decision = await mapClaimToClusterWithOpenRouter(claim, clusters, {
+      modelPreset: budget.modelPreset,
+      llmDeadlineAtMs: budget.llmDeadlineAtMs,
       llmCallsRemaining,
       llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
     });
     result.llmCallsUsed += decision.llmCallsUsed;
+    if (decision.matchKind === "llm_sure" || decision.matchKind === "llm_unsure") result.llmSucceeded = (result.llmSucceeded ?? 0) + 1;
     result.llmCostUsd += decision.llmCostUsd;
     result.estimatedCostUsd += decision.llmCostUsd;
     recordOpenRouterRunSkip(result, decision.skipReason);
@@ -2705,6 +2759,7 @@ async function executeAutomationRun(
   now: Date,
 ): Promise<AutomationResult> {
   const result: AutomationResult = {
+    modelPreset: budget.modelPreset,
     status: "success",
     searchQueriesUsed: 0,
     searchResultsSeen: 0,
@@ -2874,7 +2929,10 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
   await sweepStaleRuns(supabase, now);
   if (await hasActiveRun(supabase, now)) return { status: "already_running", runId: null };
 
-  const monthlyBudgetUsd = input.scannerPolicy?.monthlyLlmUsdCap ?? automationBudgetUsd();
+  const scannerPolicy = applyAutomationBudgetCeiling(
+    input.scannerPolicy ?? await getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+  );
+  const monthlyBudgetUsd = scannerPolicy.monthlyLlmUsdCap;
   let patchMetadata = await getCurrentPatchMetadata(supabase);
   let patchSyncError: string | null = null;
   let budgetReadError: string | null = null;
@@ -2910,9 +2968,9 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     mode: input.mode,
     patchBurstActive,
     now,
-    scannerPolicy: input.scannerPolicy,
+    scannerPolicy,
   });
-  const budget = openRouterCircuitOpen ? { ...computedBudget, maxLlmCalls: 0 } : computedBudget;
+  const budget = await enforceProviderBudget({ ...computedBudget, modelPreset: scannerPolicy.modelPreset, maxLlmCalls: openRouterCircuitOpen ? 0 : computedBudget.maxLlmCalls });
 
   const runId = await createRunLedger(supabase, input.mode, budget, now, patchBurstActive);
   const completion = executeAutomationRun(
@@ -3024,7 +3082,10 @@ export async function rescueCandidateSignal(
   const clusterRouting = await loadClusterRoutingState(supabase);
   const clusterOptions = clusterRouting.semanticOptions;
 
-  const monthlyBudgetUsd = automationBudgetUsd();
+  const scannerPolicy = applyAutomationBudgetCeiling(
+    await getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+  );
+  const monthlyBudgetUsd = scannerPolicy.monthlyLlmUsdCap;
   let budgetReadError: string | null = null;
   let spentMonthToDateUsd = 0;
   let tavilyCreditsMonthToDate = 0;
@@ -3049,16 +3110,19 @@ export async function rescueCandidateSignal(
     llmSpentMonthToDateUsd,
     mode: "manual",
     now,
+    scannerPolicy,
   });
-  const budget: AutomationBudget = {
+  const budget: AutomationBudget = await enforceProviderBudget({
     ...computedBudget,
     allowPaidSearch: false,
     maxSearchQueries: 0,
     maxSearchResults: 0,
+    modelPreset: scannerPolicy.modelPreset,
     maxLlmCalls: openRouterCircuitOpen ? 0 : Math.min(MAX_RESCUE_LLM_CALLS, computedBudget.maxLlmCalls),
-  };
+  });
   const runId = await createRunLedger(supabase, "manual", budget, now);
   const result: AutomationResult = {
+    modelPreset: budget.modelPreset,
     status: "success",
     searchQueriesUsed: 0,
     searchResultsSeen: 0,
@@ -3090,12 +3154,15 @@ export async function rescueCandidateSignal(
     const extraction = await extractSignalWithOpenRouter(
       { title: source.title, snippet: source.body, url: canonicalUrl },
       {
+        modelPreset: budget.modelPreset,
+        llmDeadlineAtMs: budget.llmDeadlineAtMs,
         llmCallsRemaining: budget.maxLlmCalls,
         llmBudgetRemainingUsd: budget.remainingLlmUsd,
         clusterOptions,
       },
     );
     result.llmCallsUsed = extraction.llmCallsUsed;
+    result.llmSucceeded = extraction.extractionProvider === "openrouter" ? 1 : 0;
     result.llmCostUsd = extraction.llmCostUsd;
     result.estimatedCostUsd = extraction.llmCostUsd;
     if (extraction.fallbackReason && !result.skips.includes(extraction.fallbackReason)) {

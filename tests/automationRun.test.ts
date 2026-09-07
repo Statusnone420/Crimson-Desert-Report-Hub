@@ -599,7 +599,7 @@ function configureProviders() {
     scheduledSearchCreditsPerRun: 1,
     monthlyTavilyCreditCap: 900,
     monthlyLlmUsdCap: 2,
-    modelPreset: "deepseek_v4_flash",
+    modelPreset: "gpt_5_6_luna",
     updatedAt: null,
   });
 }
@@ -608,6 +608,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetDb();
   configureProviders();
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "https://openrouter.ai/api/v1/key") throw new Error(`unexpected fetch: ${String(input)}`);
+    return Response.json({
+      data: { limit: 1, limit_remaining: 1, limit_reset: "monthly", usage_monthly: 0 },
+    });
+  }));
   process.env.SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service";
   process.env.TAVILY_API_KEY = "tavily-key";
@@ -625,6 +631,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.doUnmock("@/lib/automation/run");
 });
 
@@ -1134,6 +1141,31 @@ describe("runAutomationMonitor", () => {
     expect(result.skips).not.toContain("openrouter_cost_unverified");
   });
 
+  it("records an extraction request that cannot fit the remaining LLM budget", async () => {
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => ({
+      issueTitle: candidate.title,
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: candidate.snippet,
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      fallbackReason: "llm_budget_capped",
+    }));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(tables.automation_runs[0].skips).toContain("llm_budget_capped");
+  });
+
   it("reserves scheduled LLM allowance for scanner extraction after claim mapping", async () => {
     resetDb({
       issue_clusters: [
@@ -1270,6 +1302,44 @@ describe("runAutomationMonitor", () => {
     // Still not a circuit reason: nothing was spent and nothing is unverified.
     expect(result.skips).not.toContain("openrouter_cost_unverified");
     expect(result.llmCostUsd).toBe(0);
+  });
+
+  it("records a claim-mapping budget-floor refusal in the run ledger", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-fps",
+        slug: "performance_regression",
+        title: "Performance regression",
+        category: "performance",
+        description: "Frame-rate drops after the patch.",
+        fix_status: "reported",
+        is_public: true,
+        admin_override: false,
+      }],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed frame-rate drops in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "keyword_proposal",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "Needs review: monthly OpenRouter budget cap reached.",
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      extractionModel: null,
+      skipReason: "llm_budget_capped",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.llmSucceeded).toBeUndefined();
+    expect(tables.automation_runs[0].skips).toContain("llm_budget_capped");
   });
 
   it("keeps the current-month LLM circuit open across later runs", async () => {
@@ -1499,7 +1569,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
     await runAutomationMonitor({
@@ -1511,7 +1581,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -1528,7 +1598,8 @@ describe("runAutomationMonitor", () => {
   });
 
   it("budget 0 still runs Tavily and deterministic extraction without paid LLM calls", async () => {
-    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    resetDb({ automation_settings: [{ key: "scanner", value: { monthlyLlmUsdCap: 0 } }] });
+    configureProviders();
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
@@ -1541,6 +1612,109 @@ describe("runAutomationMonitor", () => {
     expect(mocks.tavilySearch).toHaveBeenCalledTimes(5);
     expect(sourceSignalRows()).toHaveLength(2);
     expect(sourceSignalRows()[0]).toMatchObject({ source: "web_search", extraction_provider: "deterministic" });
+  });
+
+  it.each(["manual", "scheduled", "dry_run"] as const)("treats the environment budget ceiling as an emergency stop for %s scans", async (mode) => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode,
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.skips).toContain("llm_budget_capped");
+  });
+
+  it.each([
+    ["environment lower", 1, "0.25", 0.25],
+    ["saved setting lower", 0.2, "0.5", 0.2],
+    ["limits match", 1, "1", 1],
+  ] as const)("uses the lower LLM ceiling when the %s", async (_label, savedCap, envCap, expectedCap) => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = envCap;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "manual",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: savedCap,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(tables.automation_runs[0]).toMatchObject({ budget_monthly_usd: expectedCap });
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmBudgetRemainingUsd: expectedCap }),
+    );
+  });
+
+  it("uses the normalized default environment ceiling when the variable is absent", async () => {
+    delete process.env.AUTOMATION_BUDGET_USD_MONTHLY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "manual",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(tables.automation_runs[0]).toMatchObject({ budget_monthly_usd: 0.5 });
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmBudgetRemainingUsd: 0.5 }),
+    );
+  });
+
+  it("reports a blank OpenRouter key explicitly without querying the provider", async () => {
+    process.env.OPENROUTER_API_KEY = "   ";
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("openrouter_missing_config");
+    expect(result.skips).not.toContain("openrouter_key_budget_unverified");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+  });
+
+  it.each([
+    ["an unlimited key", { data: { limit: null, limit_remaining: null, limit_reset: null, usage_monthly: 0 } }, "openrouter_key_limit_unsafe"],
+    ["a daily key", { data: { limit: 1, limit_remaining: 1, limit_reset: "daily", usage_monthly: 0 } }, "openrouter_key_limit_unsafe"],
+    ["an unreadable key response", { unexpected: true }, "openrouter_key_budget_unverified"],
+  ])("refuses paid model calls for %s", async (_label, keyResponse, reason) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(keyResponse)));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain(reason);
+    expect(openRouterAttempts).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining === 0)).toBe(true);
   });
 
   it("an exhausted Tavily cap still runs free patch maintenance without web discovery", async () => {
@@ -1568,7 +1742,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 1,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -1609,7 +1783,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4254,7 +4428,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4293,7 +4467,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4328,7 +4502,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4380,7 +4554,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4434,7 +4608,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4484,7 +4658,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4523,7 +4697,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4589,7 +4763,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4618,8 +4792,20 @@ describe("runAutomationMonitor", () => {
     });
   });
 
-  it("uses one budgeted semantic extraction when rescuing a rejected source", async () => {
+  it("uses the saved model and effective provider cap when rescuing a rejected source", async () => {
     resetDb({
+      automation_settings: [{
+        key: "scanner",
+        value: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 900,
+          monthlyLlmUsdCap: 0.5,
+          modelPreset: "gpt_5_6_luna_flex",
+        },
+        updated_at: "2026-07-05T10:00:00.000Z",
+      }],
       issue_clusters: [
         {
           id: "cluster-seeded-perf",
@@ -4636,6 +4822,9 @@ describe("runAutomationMonitor", () => {
       ],
     });
     configureProviders();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      data: { limit: 1, limit_remaining: 0.8, limit_reset: "monthly", usage_monthly: 0.2 },
+    })));
     mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
       issueTitle: "Heavy traversal stutter",
       category: "performance",
@@ -4646,7 +4835,7 @@ describe("runAutomationMonitor", () => {
       clusterReason: "The report clearly matches the seeded performance cluster.",
       clusterSlug: "performance_regression",
       extractionProvider: "openrouter",
-      extractionModel: "deepseek/deepseek-v4-flash",
+      extractionModel: "openai/gpt-5.6-luna",
       llmCallsUsed: 1,
       llmCostUsd: 0.0002,
     });
@@ -4667,7 +4856,8 @@ describe("runAutomationMonitor", () => {
       expect.any(Object),
       expect.objectContaining({
         llmCallsRemaining: 1,
-        llmBudgetRemainingUsd: 2,
+        llmBudgetRemainingUsd: 0.3,
+        modelPreset: "gpt_5_6_luna_flex",
         clusterOptions: [
           {
             slug: "performance_regression",
@@ -4682,7 +4872,7 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0]).toMatchObject({
       cluster_id: "cluster-seeded-perf",
       extraction_provider: "openrouter",
-      extraction_model: "deepseek/deepseek-v4-flash",
+      extraction_model: "openai/gpt-5.6-luna",
     });
     expect(tables.automation_runs).toHaveLength(1);
     expect(tables.automation_runs[0]).toMatchObject({
@@ -4690,9 +4880,80 @@ describe("runAutomationMonitor", () => {
       mode: "manual",
       intent: "rescue_candidate",
       llm_calls_used: 1,
+      funnel: expect.objectContaining({ llmCalls: 1 }),
+      progress: expect.objectContaining({ llmSucceeded: 1, llmCostUsd: 0.0002 }),
       candidates_rescued: 1,
       estimated_cost_usd: 0.0002,
     });
+  });
+
+  it("applies the environment budget ceiling to rescue before provider inspection", async () => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    resetDb({ automation_settings: [{ key: "scanner", value: { monthlyLlmUsdCap: 1 } }] });
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/env-stop/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmCallsRemaining: 0, llmBudgetRemainingUsd: 0 }),
+    );
+    expect(tables.automation_runs[0]).toMatchObject({
+      budget_monthly_usd: 0,
+      skips: expect.arrayContaining(["llm_budget_capped"]),
+    });
+  });
+
+  it("records an attempted fallback separately from a validated LLM success", async () => {
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Traversal hitching",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: "Steam players report traversal hitching.",
+      clusterAssignment: "unsure",
+      clusterReason: "Deterministic fallback cannot assign a cluster.",
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 1,
+      llmCostUsd: 0,
+      fallbackReason: "openrouter_invalid_json",
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/fallback/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Steam players report traversal hitching after the current patch.",
+      },
+    );
+
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      llm_calls_used: 1,
+      funnel: expect.objectContaining({ llmCalls: 1 }),
+      progress: expect.objectContaining({ llmSucceeded: 0, llmCostUsd: 0 }),
+    });
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("llmSucceeded");
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("llmCostUsd");
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("modelPreset");
+    expect(sourceSignalRows()[0]).toMatchObject({ extraction_provider: "deterministic" });
   });
 
   it("pages past the hosted row cap before semantic rescue routing", async () => {
@@ -4906,9 +5167,26 @@ describe("runAutomationMonitor", () => {
       candidates_rescued: 1,
       estimated_cost_usd: 0,
     });
-    expect(tables.automation_runs[1].skips).toEqual(
-      expect.arrayContaining(["budget_capped", "llm_budget_capped"]),
+    expect(tables.automation_runs[1].skips).toContain("llm_budget_capped");
+  });
+
+  it("records a missing OpenRouter key on the rescue ledger without querying the provider", async () => {
+    process.env.OPENROUTER_API_KEY = "";
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/missing-key/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
     );
+
+    expect(tables.automation_runs.at(-1)?.skips).toContain("openrouter_missing_config");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
   });
 
   it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
@@ -5656,7 +5934,7 @@ describe("cron keepalive route", () => {
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 900,
       monthlyLlmUsdCap: 1,
-      modelPreset: "deepseek_v4_flash",
+      modelPreset: "gpt_5_6_luna",
       updatedAt: "2026-07-05T12:00:00.000Z",
     });
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });

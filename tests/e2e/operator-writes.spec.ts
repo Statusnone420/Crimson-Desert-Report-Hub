@@ -54,6 +54,170 @@ test.describe("operator write paths", () => {
     expect(reset.ok(), "fixture reset failed — later tests would inherit this test's writes").toBe(true);
   });
 
+  test("private AI settings persist Flex and a fifty-cent budget within the one-dollar ceiling", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+    await page.goto("/scanner");
+    const settings = page.locator("details.operator-disclosure").filter({ has: page.getByLabel("AI model", { exact: true }) });
+    await settings.locator(":scope > summary").click();
+    const model = settings.getByLabel("AI model", { exact: true });
+    const budget = settings.getByLabel("Monthly AI budget ($)", { exact: true });
+    const originalModel = await model.inputValue();
+    const originalBudget = await budget.inputValue();
+    await expect(budget).toHaveAttribute("max", "1");
+    await budget.fill("1.25");
+    expect(await budget.evaluate((input: HTMLInputElement) => input.validity.rangeOverflow)).toBe(true);
+
+    // Establish a different saved budget so the next assertion proves a change,
+    // rather than merely observing the default fifty-cent setting.
+    await budget.fill("1");
+    await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
+    // Response headers precede React's form reset. Finish that submission before
+    // changing fields, or the reset can erase the next model selection.
+    await expect(settings.getByRole("button", { name: "Save settings" })).toBeEnabled();
+    await model.selectOption("gpt_5_6_luna_flex");
+    await budget.fill("0.5");
+    await expect(model).toHaveValue("gpt_5_6_luna_flex");
+    await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
+    await expect(settings.getByRole("button", { name: "Save settings" })).toBeEnabled();
+
+    await page.reload();
+    await settings.locator(":scope > summary").click();
+    await expect(model).toHaveValue("gpt_5_6_luna_flex");
+    await expect(budget).toHaveValue("0.5");
+    const saved = await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings?key=eq.scanner`);
+    expect(saved.ok()).toBe(true);
+    expect((await saved.json())[0].value).toMatchObject({ modelPreset: "gpt_5_6_luna_flex", monthlyLlmUsdCap: 0.5 });
+
+    await model.selectOption(originalModel);
+    await budget.fill(originalBudget);
+    await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
+    await expect(settings.getByRole("button", { name: "Save settings" })).toBeEnabled();
+    await page.reload();
+    await settings.locator(":scope > summary").click();
+    await expect(model).toHaveValue(originalModel);
+    await expect(budget).toHaveValue(originalBudget);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("an AI outage survives 101 idle scans and clears only after a validated result", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const seed = await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?order=started_at.desc&limit=1`);
+    expect(seed.ok()).toBe(true);
+    const previous = (await seed.json())[0];
+    const startedAt = new Date(Date.parse(previous.started_at) + 1000).toISOString();
+    const inserted = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: {
+        ...previous,
+        id: "00000000-0000-4000-8000-000000000089",
+        started_at: startedAt,
+        finished_at: startedAt,
+        status: "success",
+        mode: "scheduled",
+        llm_calls_used: 1,
+        skips: ["openrouter_no_route"],
+        errors: [],
+        funnel: { ...previous.funnel, llmCalls: 1 },
+        progress: { ...previous.progress, llmSucceeded: 0 },
+      },
+    });
+    expect(inserted.ok()).toBe(true);
+    expect((await inserted.json())[0]).toMatchObject({ status: "success", skips: ["openrouter_no_route"] });
+    const idleRuns = Array.from({ length: 101 }, (_, index) => {
+      const time = new Date(Date.parse(startedAt) + (index + 1) * 1000).toISOString();
+      return {
+        ...previous,
+        id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+        started_at: time,
+        finished_at: time,
+        status: "success",
+        mode: "scheduled",
+        llm_calls_used: 0,
+        skips: [],
+        errors: [],
+        funnel: { ...previous.funnel, llmCalls: 0 },
+        progress: { ...previous.progress, llmSucceeded: 0 },
+      };
+    });
+    const idleInsert = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, { data: idleRuns });
+    expect(idleInsert.ok()).toBe(true);
+    expect(await idleInsert.json()).toHaveLength(101);
+    const unverified = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: { ...idleRuns[100], id: "00000000-0000-4000-8000-000000000202", llm_calls_used: 1, progress: null },
+    });
+    expect(unverified.ok()).toBe(true);
+    await signInAsAdmin(page);
+
+    await page.goto("/scanner");
+    const scannerStatus = page.getByText("● AI UNAVAILABLE", { exact: true });
+    await expect(scannerStatus).toBeVisible();
+    await expect(scannerStatus).toHaveClass("is-amber");
+    await expect(page.getByText("Nothing requires intervention.", { exact: true })).toHaveCount(0);
+
+    await page.goto("/operator");
+    await expect(page.getByRole("heading", { name: "Running quietly.", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "A few things need a look.", exact: true })).toBeVisible();
+    const aiService = page.locator(".op-service").filter({ has: page.getByRole("heading", { name: "AI processing", exact: true }) });
+    await expect(aiService).toContainText("No AI provider matches the selected route and price limit.");
+    await expect(aiService.locator(".op-status")).toHaveText("Unavailable");
+    await expect(aiService.locator(".op-status")).toHaveClass(/op-caution/);
+    await expectHealthyPage(page, problems);
+
+    const recoveredAt = new Date(Date.parse(startedAt) + 102_000).toISOString();
+    const recovery = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: {
+        ...idleRuns[0],
+        id: "00000000-0000-4000-8000-000000000201",
+        started_at: recoveredAt,
+        finished_at: recoveredAt,
+        llm_calls_used: 1,
+        progress: { llmSucceeded: 1, llmCostUsd: 0.0001 },
+      },
+    });
+    expect(recovery.ok()).toBe(true);
+    await page.reload();
+    await expect(aiService.locator(".op-status")).toHaveText("Available");
+    await page.goto("/scanner");
+    await expect(scannerStatus).toHaveCount(0);
+
+    // Overlapping scans can finish in the opposite order to their starts.
+    // Legacy rows without a completion time must still use their start time.
+    for (const [index, outcome] of [
+      { startOffset: 50_000, finishOffset: 103_000, failed: true },
+      { startOffset: 51_000, finishOffset: 104_000, failed: false },
+      { startOffset: 105_000, finishOffset: null, failed: true },
+      { startOffset: 106_000, finishOffset: null, failed: false },
+    ].entries()) {
+      const newerOutcome = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+        data: {
+          ...idleRuns[0],
+          id: `00000000-0000-4000-8000-${String(203 + index).padStart(12, "0")}`,
+          started_at: new Date(Date.parse(startedAt) + outcome.startOffset).toISOString(),
+          finished_at: outcome.finishOffset === null ? null : new Date(Date.parse(startedAt) + outcome.finishOffset).toISOString(),
+          llm_calls_used: 1,
+          skips: outcome.failed ? ["openrouter_no_route"] : [],
+          progress: { llmSucceeded: outcome.failed ? 0 : 1, llmCostUsd: 0.0001 },
+        },
+      });
+      expect(newerOutcome.ok()).toBe(true);
+      await page.reload();
+      await expect(scannerStatus).toHaveCount(outcome.failed ? 1 : 0);
+      await page.goto("/operator");
+      await expect(aiService.locator(".op-status")).toHaveText(outcome.failed ? "Unavailable" : "Available");
+      await page.goto("/scanner");
+    }
+
+    // Reset the injected run before invalidating the app's tagged scanner reads.
+    // A fixture reset alone cannot clear data cached while these pages rendered.
+    const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
+    expect(reset.ok()).toBe(true);
+    await page.goto("/scanner");
+    const settings = page.locator("details.operator-disclosure").filter({ has: page.getByLabel("AI model", { exact: true }) });
+    await settings.locator(":scope > summary").click();
+    await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
+    await expect(page.getByText("● AI UNAVAILABLE", { exact: true })).toHaveCount(0);
+  });
+
   test("rejecting an archived ask and Undo preserve learning without publishing a headline", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
