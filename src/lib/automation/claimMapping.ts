@@ -5,6 +5,7 @@ import {
   llmDeadlineReached,
   maxOpenRouterRequestCostUsd,
   OpenRouterDeadlineExpiredError,
+  OpenRouterRequestTimeoutError,
   resolveOpenRouterCostUsd,
   resolveAutomationOpenRouterModel,
   waitForOpenRouterRetry,
@@ -12,6 +13,7 @@ import {
   type OpenRouterGenerationFetcher,
   type ScannerModelPreset,
 } from "@/lib/automation/budget";
+import { createOpenRouterDiagnostic, reportOpenRouterDiagnostic, type OpenRouterDiagnostic, type OpenRouterDiagnosticReporter } from "@/lib/automation/openRouterDiagnostics";
 import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import type { Category } from "@/lib/constants";
 
@@ -60,6 +62,7 @@ export type ClaimMappingDecision = {
 };
 
 export type ClaimMappingOptions = {
+  onDiagnostic?: OpenRouterDiagnosticReporter;
   env?: EnvLike;
   fetcher?: OpenRouterFetch;
   llmCallsRemaining: number;
@@ -285,9 +288,14 @@ export async function mapClaimToClusterWithOpenRouter(
     return { ...fallback("Needs review: monthly OpenRouter budget cap reached."), skipReason: "llm_budget_capped" };
   }
   const fetcher = options.fetcher ?? (fetch as unknown as OpenRouterFetch);
-  const attemptOnce = async (): Promise<ClaimMappingDecision> => {
+  const attemptOnce = async (attemptNumber: number): Promise<ClaimMappingDecision> => {
     let response: OpenRouterFetchResponse;
     let data: unknown;
+    const startedAtMs = Date.now();
+    let httpStatus: number | null = null;
+    let decoding = false;
+    const diagnose = (code: OpenRouterDiagnostic["code"]) =>
+      reportOpenRouterDiagnostic(options.onDiagnostic, createOpenRouterDiagnostic(code, startedAtMs, httpStatus, attemptNumber));
     try {
       const completed = await withOpenRouterRequestTimeout(async (signal) => {
         const response = await fetcher(OPENROUTER_CHAT_COMPLETIONS_URL, {
@@ -296,6 +304,8 @@ export async function mapClaimToClusterWithOpenRouter(
           body: JSON.stringify(request),
           signal,
         });
+        httpStatus = response.status;
+        decoding = true;
         return { response, data: await response.json() };
       }, options.llmDeadlineAtMs);
       response = completed.response;
@@ -304,6 +314,9 @@ export async function mapClaimToClusterWithOpenRouter(
       if (error instanceof OpenRouterDeadlineExpiredError) {
         return { ...fallback("Scanner model time limit reached."), skipReason: "llm_time_limit" };
       }
+      diagnose(error instanceof OpenRouterRequestTimeoutError
+        ? "request_timeout"
+        : decoding ? "response_decode_failure" : "request_transport_failure");
       return {
         ...fallback("Needs review: OpenRouter cost could not be verified."),
         llmCallsUsed: 1,
@@ -314,6 +327,7 @@ export async function mapClaimToClusterWithOpenRouter(
     }
 
     if (!response.ok) {
+      diagnose("request_http_failure");
       try {
         const errorData = data;
         if (isOpenRouterRoutingRefusal(response.status, errorData)) {
@@ -333,6 +347,8 @@ export async function mapClaimToClusterWithOpenRouter(
           apiKey,
           fetcher as unknown as OpenRouterGenerationFetcher,
           options.llmDeadlineAtMs,
+          options.onDiagnostic,
+          response.status,
         );
         if (errorCostUsd !== null) {
           if (errorCostUsd > requestCostCeiling + Number.EPSILON || errorCostUsd > budgetRemainingUsd + Number.EPSILON) {
@@ -363,6 +379,8 @@ export async function mapClaimToClusterWithOpenRouter(
       apiKey,
       fetcher as unknown as OpenRouterGenerationFetcher,
       options.llmDeadlineAtMs,
+      options.onDiagnostic,
+      response.status,
     );
     if (costUsd === null) {
       return {
@@ -385,7 +403,10 @@ export async function mapClaimToClusterWithOpenRouter(
 
     try {
       const content = readOpenRouterContent(data);
-      if (!content) return { ...fallback(), llmCallsUsed: 1, llmCostUsd: costUsd, extractionModel: model, skipReason: "openrouter_invalid_json" };
+      if (!content) {
+        diagnose("response_validation_failure");
+        return { ...fallback(), llmCallsUsed: 1, llmCostUsd: costUsd, extractionModel: model, skipReason: "openrouter_invalid_json" };
+      }
       const parsed = parseOpenRouterClaimMapping(content, clusters, claim.category);
       return {
         ...parsed,
@@ -394,6 +415,7 @@ export async function mapClaimToClusterWithOpenRouter(
         extractionModel: model,
       };
     } catch {
+      diagnose("response_validation_failure");
       return { ...fallback(), llmCallsUsed: 1, llmCostUsd: costUsd, extractionModel: model, skipReason: "openrouter_invalid_json" };
     }
   };
@@ -406,7 +428,7 @@ export async function mapClaimToClusterWithOpenRouter(
       return { ...fallback("Scanner model time limit reached."), llmCallsUsed: callsUsed, llmCostUsd: costUsd,
         extractionModel: callsUsed > 0 ? model : null, skipReason: "llm_time_limit" };
     }
-    const decision = await attemptOnce();
+    const decision = await attemptOnce(attempt + 1);
     callsUsed += decision.llmCallsUsed;
     costUsd += decision.llmCostUsd;
     const result = { ...decision, llmCallsUsed: callsUsed, llmCostUsd: costUsd,

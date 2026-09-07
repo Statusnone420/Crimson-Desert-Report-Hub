@@ -1,3 +1,10 @@
+import {
+  createOpenRouterDiagnostic,
+  reportOpenRouterDiagnostic,
+  type OpenRouterDiagnosticCode,
+  type OpenRouterDiagnosticReporter,
+} from "@/lib/automation/openRouterDiagnostics";
+
 export type BudgetInput = {
   monthlyBudgetUsd: number;
   spentMonthToDateUsd: number;
@@ -380,6 +387,13 @@ export class OpenRouterDeadlineExpiredError extends Error {
   }
 }
 
+export class OpenRouterRequestTimeoutError extends Error {
+  constructor() {
+    super("OpenRouter request timed out; its cost is unverified");
+    this.name = "OpenRouterRequestTimeoutError";
+  }
+}
+
 export function llmDeadlineReached(deadlineAtMs?: number): boolean {
   return deadlineAtMs !== undefined && (!Number.isFinite(deadlineAtMs) || Date.now() >= deadlineAtMs);
 }
@@ -397,8 +411,8 @@ export async function withOpenRouterRequestTimeout<T>(
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(() => {
+      reject(new OpenRouterRequestTimeoutError());
       controller.abort();
-      reject(new Error("OpenRouter request timed out; its cost is unverified"));
     }, timeoutMs);
   });
   try {
@@ -431,6 +445,13 @@ function readOpenRouterGenerationCostUsd(data: unknown): number | null {
   );
 }
 
+class OpenRouterGenerationDecodeError extends Error {
+  constructor() {
+    super("OpenRouter generation response could not be decoded");
+    this.name = "OpenRouterGenerationDecodeError";
+  }
+}
+
 function shouldRetryOpenRouterGeneration(status: number): boolean {
   return status === 404 || status === 408 || status === 425 || status === 429 || status >= 500;
 }
@@ -444,38 +465,77 @@ export async function resolveOpenRouterCostUsd(
   apiKey: string,
   fetcher: OpenRouterGenerationFetcher,
   deadlineAtMs?: number,
+  onDiagnostic?: OpenRouterDiagnosticReporter,
+  responseHttpStatus: number | null = null,
 ): Promise<number | null> {
+  const startedAtMs = Date.now();
+  const report = (code: OpenRouterDiagnosticCode, httpStatus: number | null, attempts: number): void => {
+    reportOpenRouterDiagnostic(onDiagnostic, createOpenRouterDiagnostic(code, startedAtMs, httpStatus, attempts));
+  };
   const immediateCost = readOpenRouterUsageCostUsd(data);
   if (immediateCost !== null) return immediateCost;
+  report("response_cost_missing", responseHttpStatus, 0);
 
   const responseId = readOpenRouterResponseId(data);
-  if (!responseId) return null;
+  if (!responseId) {
+    report("response_id_missing", responseHttpStatus, 0);
+    return null;
+  }
 
   for (let attempt = 0; attempt <= OPENROUTER_GENERATION_RETRY_DELAYS_MS.length; attempt += 1) {
-    if (llmDeadlineReached(deadlineAtMs)) return null;
+    const attempts = attempt + 1;
+    if (llmDeadlineReached(deadlineAtMs)) {
+      report("generation_lookup_deadline", null, attempt);
+      return null;
+    }
+    let httpStatus: number | null = null;
     try {
       const { response, body } = await withOpenRouterRequestTimeout(async (signal) => {
         const response = await fetcher(
           `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(responseId)}`,
           { method: "GET", headers: { authorization: `Bearer ${apiKey}` }, signal },
         );
-        return { response, body: response.ok ? await response.json() : null };
+        httpStatus = response.status;
+        if (!response.ok) return { response, body: null };
+        try {
+          return { response, body: await response.json() };
+        } catch {
+          throw new OpenRouterGenerationDecodeError();
+        }
       }, deadlineAtMs, OPENROUTER_GENERATION_TIMEOUT_MS);
       if (response.ok) {
         const costUsd = readOpenRouterGenerationCostUsd(body);
-        if (costUsd !== null || attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length) return costUsd;
+        if (costUsd !== null) {
+          report("generation_lookup_verified", response.status, attempts);
+          return costUsd;
+        }
+        report("generation_lookup_cost_missing", response.status, attempts);
+        if (attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length) return null;
       }
       if (
         !response.ok &&
         (!shouldRetryOpenRouterGeneration(response.status) || attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length)
       ) {
+        report("generation_lookup_http_failure", response.status, attempts);
         return null;
       }
-    } catch {
-      if (attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length || llmDeadlineReached(deadlineAtMs)) return null;
+      if (!response.ok) report("generation_lookup_http_failure", response.status, attempts);
+    } catch (error) {
+      if (error instanceof OpenRouterRequestTimeoutError) report("generation_lookup_timeout", httpStatus, attempts);
+      else if (error instanceof OpenRouterGenerationDecodeError) report("generation_lookup_decode_failure", httpStatus, attempts);
+      else report("generation_lookup_transport_failure", httpStatus, attempts);
+      if (attempt === OPENROUTER_GENERATION_RETRY_DELAYS_MS.length || llmDeadlineReached(deadlineAtMs)) {
+        if (llmDeadlineReached(deadlineAtMs) && !(error instanceof OpenRouterRequestTimeoutError)) {
+          report("generation_lookup_deadline", null, attempts);
+        }
+        return null;
+      }
     }
     const delay = OPENROUTER_GENERATION_RETRY_DELAYS_MS[attempt];
-    if (deadlineAtMs !== undefined && Date.now() + delay >= deadlineAtMs) return null;
+    if (deadlineAtMs !== undefined && Date.now() + delay >= deadlineAtMs) {
+      report("generation_lookup_deadline", null, attempts);
+      return null;
+    }
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
   return null;
