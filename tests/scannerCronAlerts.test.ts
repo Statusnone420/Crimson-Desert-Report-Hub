@@ -176,6 +176,18 @@ describe("scanner cron alert lifecycle", () => {
     expect(state.put).not.toHaveBeenCalled();
   });
 
+  it.each(["", "null", "[]", "{}", '{"incidentCode":42}', '{"incidentCode":""}', '{"incidentCode":"unsafe code"}'])(
+    "rejects corrupt alert state %j without sending or overwriting it",
+    async (raw) => {
+      const { env, email, state } = configuredEnv();
+      state.get.mockResolvedValue(raw);
+      await expect(runCron(env, async () => response(healthy))).rejects.toThrow("alert_state_unavailable");
+      await expect(runCron(env, async () => response(limited))).rejects.toThrow("alert_state_unavailable");
+      expect(email.send).not.toHaveBeenCalled();
+      expect(state.put).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps alerts disabled when every optional alert binding is absent", async () => {
     const env: Env = { CRON_URL: "https://example.test/api/cron/keepalive", CRON_SECRET: "test-secret" };
     await expect(runCron(env, async () => response(healthy))).resolves.toBeUndefined();

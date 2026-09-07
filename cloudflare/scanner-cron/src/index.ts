@@ -129,11 +129,14 @@ function alertBindings(env: Env) {
 async function readAlertState(state: NonNullable<Env["ALERT_STATE"]>): Promise<AlertState> {
   try {
     const raw = await state.get(ALERT_STATE_KEY);
-    if (!raw) return { incidentCode: null };
+    if (raw === null) return { incidentCode: null };
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { incidentCode: null };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new CronIncident("alert_state_unavailable");
     const incidentCode = (parsed as Record<string, unknown>).incidentCode;
-    return { incidentCode: typeof incidentCode === "string" && SAFE_CODE.test(incidentCode) ? incidentCode : null };
+    if (incidentCode !== null && (typeof incidentCode !== "string" || !SAFE_CODE.test(incidentCode))) {
+      throw new CronIncident("alert_state_unavailable");
+    }
+    return { incidentCode };
   } catch {
     throw new CronIncident("alert_state_unavailable");
   }
