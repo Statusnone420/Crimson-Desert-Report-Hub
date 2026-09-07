@@ -17,6 +17,12 @@ async function openCatchUpMenu(page: Page) {
   return dialog;
 }
 
+// CI compiles these client navigations on demand while two projects share the
+// mock server; wait past the default expect timeout before asserting.
+async function waitForClientPath(page: Page, pathname: string) {
+  await page.waitForURL((url) => url.pathname === pathname, { timeout: 30_000 });
+}
+
 for (const scenario of [
   { timezone: "Asia/Tokyo", now: "2026-09-06T16:00:00Z", today: "2026-09-07", tomorrow: "2026-09-08", midnight: "2026-09-06T15:00:00.000Z", label: "Since September 7", firstDayMilestones: 18 },
   { timezone: "America/Los_Angeles", now: "2026-09-07T02:00:00Z", today: "2026-09-06", tomorrow: "2026-09-07", midnight: "2026-09-06T07:00:00.000Z", label: "Since September 6", firstDayMilestones: 17 },
@@ -105,7 +111,7 @@ test.describe("public catch-up journey", () => {
     await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: null, caughtUpThrough: null });
 
     await dialog.getByRole("button", { name: "Show updates" }).click();
-    await expect(page).toHaveURL(/\/catch-up$/);
+    await waitForClientPath(page, "/catch-up");
     await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: NOW.toISOString(), caughtUpThrough: null });
   });
 
@@ -119,7 +125,7 @@ test.describe("public catch-up journey", () => {
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
     await page.getByLabel("Password", { exact: true }).fill("admin-password");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL((url) => url.pathname === "/scanner");
+    await waitForClientPath(page, "/scanner");
     await expect(page.locator(".operator-newspaper")).toBeVisible();
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
     await page.reload();
@@ -129,7 +135,7 @@ test.describe("public catch-up journey", () => {
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
 
     await page.locator(".nameplate__title a").click();
-    await expect(page).toHaveURL((url) => url.pathname === "/");
+    await waitForClientPath(page, "/");
     await expect.poll(() => storedPreferences(page)).toEqual({ ...previous, lastVisit: NOW.toISOString() });
     await page.goBack();
     await expect(page.locator(".operator-newspaper")).toBeVisible();
