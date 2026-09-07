@@ -84,8 +84,9 @@ html[data-theme=dark] .catch-up-popover{--paper:#111;--ink:#edeae3;--muted:#b8bb
 .newspaper .cu-journey-filter{display:none}
 .newspaper .cu-rail-selection{font-size:13px;color:var(--muted);line-height:1.5;margin-top:-12px}
 .newspaper .cu-show-all{display:inline-flex;align-items:center;min-height:44px;color:var(--blue);margin:6px 0 12px}
-.newspaper .cu-rail-links{position:relative;border-left:1px solid var(--line);overflow-y:auto;min-height:0;overscroll-behavior:contain}
-.newspaper .cu-progress{position:absolute;left:-1px;top:0;width:2px;height:100%;background:var(--red);transform-origin:top}
+.newspaper .cu-rail-links{overflow-y:auto;min-height:0;overscroll-behavior:contain}
+.newspaper .cu-rail-track{position:relative;border-left:1px solid var(--line)}
+.newspaper .cu-progress{position:absolute;left:-1px;top:0;width:2px;height:0;background:var(--red);pointer-events:none}
 .newspaper .cu-rail-links a{display:flex;align-items:start;gap:18px;padding:13px 0 13px 20px;font-size:13px;color:var(--muted)}
 .newspaper .cu-rail-links a>span:first-child{font:19px var(--serif),serif}
 .newspaper .cu-rail-links small{display:block;font-size:11px;margin-top:4px}
@@ -128,7 +129,8 @@ html[data-theme=dark] .catch-up-popover{--paper:#111;--ink:#edeae3;--muted:#b8bb
  .newspaper .cu-brief{padding:28px 0 30px}.newspaper .cu-section-heading{display:block;margin-bottom:20px}.newspaper .cu-section-heading h2{font-size:36px;margin:9px 0}.newspaper .cu-section-heading>span{font-size:11px}.newspaper .cu-brief-grid{grid-template-columns:1fr;gap:19px}.newspaper .cu-brief-grid li{display:grid;grid-template-columns:30px 1fr;column-gap:12px;padding-top:17px}.newspaper .cu-brief-grid h3{font-size:27px;margin:0 0 10px}.newspaper .cu-brief-grid p,.newspaper .cu-text-link{grid-column:2}.newspaper .cu-brief-grid p{font-size:14px}.newspaper .cu-text-link{margin-top:4px}
  .newspaper .cu-journey{display:block;padding-top:22px}.newspaper .cu-rail{display:none}.newspaper .cu-chapter-meta{font-size:10px;gap:12px}.newspaper .cu-chapter-number{font-size:29px}.newspaper .cu-milestone h2{font-size:38px;margin:15px 0 20px}.newspaper .cu-chapter-image{aspect-ratio:1.65;margin-bottom:20px}.newspaper .cu-chapter-summary{font-size:23px;line-height:1.4}.newspaper .cu-chapter-copy{gap:20px}.newspaper .cu-takeaways{padding-top:17px}.newspaper .cu-chapter-copy ul{font-size:14px}.newspaper .cu-sources{font-size:11px;gap:5px;margin-top:16px}.newspaper .cu-milestone{padding-bottom:27px;margin-bottom:24px}.newspaper .cu-milestone--hotfix h2{font-size:29px}.newspaper .cu-milestone--hotfix .cu-chapter-summary{font-size:14px}.newspaper .cu-end{padding:10px 0 25px}.newspaper .cu-end h2{font-size:42px}.newspaper .cu-end-actions{gap:10px;margin-top:20px}
 }
-@media(prefers-reduced-motion:reduce){.newspaper .cu-page{scroll-behavior:auto}}
+@media(prefers-reduced-motion:reduce){.newspaper .cu-page{scroll-behavior:auto}.newspaper .cu-progress{transition:none}}
+@media(prefers-reduced-motion:no-preference){.newspaper .cu-progress{transition:height .18s ease-out}}
 
 /* Actions stay readable at the same minimum as the rest of the public edition. */
 .newspaper .catch-up-trigger--compact,.newspaper .cu-page a,.newspaper .cu-page button,.newspaper .cu-page summary,.newspaper .catch-up-menu button,.newspaper .catch-up-menu label,.newspaper .catch-up-menu a{font-size:14px}
