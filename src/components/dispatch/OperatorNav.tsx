@@ -8,6 +8,7 @@ import type { OperatorNavKey } from "@/components/dispatch/Chrome";
 const OPERATOR_PAGES: Array<{ key: OperatorNavKey; href: string; label: string }> = [
   { key: "overview", href: "/operator", label: "Overview" },
   { key: "review", href: "/admin", label: "Report review" },
+  { key: "videos", href: "/admin/videos", label: "Videos" },
   { key: "scanner", href: "/scanner", label: "Scanner monitor" },
   { key: "compile", href: "/admin/compile", label: "Dossiers" },
 ];

@@ -6,6 +6,7 @@ describe("resolveLoginReturn", () => {
   it("returns each allowlisted operator destination", () => {
     expect(resolveLoginReturn("/admin")).toBe("/admin");
     expect(resolveLoginReturn("/admin/compile")).toBe("/admin/compile");
+    expect(resolveLoginReturn("/admin/videos")).toBe("/admin/videos");
     expect(resolveLoginReturn("/scanner")).toBe("/scanner");
     expect(resolveLoginReturn("/operator")).toBe("/operator");
   });

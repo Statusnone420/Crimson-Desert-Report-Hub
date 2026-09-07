@@ -433,4 +433,85 @@ test.describe("operator write paths", () => {
     });
     await expectHealthyPage(page, problems);
   });
+
+  test("video inbox skip, save, and approve stay private and leave Watch unchanged", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+    await page.goto("/admin/videos");
+    await expect(page.getByRole("heading", { name: "Video review" })).toBeVisible();
+
+    const pending = page.locator("article[data-video-state='pending']");
+    await expect(pending).toHaveCount(1);
+    await pending.getByLabel("Title").fill("Fixture expansion commentary, corrected");
+    await submitAction(page, () => pending.getByRole("button", { name: "Save" }).click());
+    await expect(page.getByRole("heading", { name: "Fixture expansion commentary, corrected" })).toBeVisible();
+
+    const corrected = page.locator("article[data-video-state='pending']");
+    await submitAction(page, () => corrected.getByRole("button", { name: "Skip" }).click());
+    await expect(page.locator("article[data-video-state='skipped']")).toHaveCount(2);
+    await expect(page.locator("article[data-video-state='pending']")).toHaveCount(0);
+
+    const add = page.getByRole("region", { name: "Add a video" });
+    await add.getByLabel("YouTube URL").fill("https://youtu.be/zzInboxAdd1");
+    await add.getByLabel("Title").fill("Crimson Desert added fixture commentary");
+    await add.getByLabel("Channel").fill("FixtureChannel");
+    await add.getByLabel("Review note").fill("Second invented inbox note.");
+    await add.getByLabel("Reviewed excerpt").fill("Invented excerpt for a later publication PR.");
+    await add.getByLabel("Excerpt is reviewed").check();
+    await submitAction(page, () => add.getByRole("button", { name: "Add to inbox" }).click());
+    await expect(page.getByRole("heading", { name: "Crimson Desert added fixture commentary" })).toBeVisible();
+
+    const added = page.locator("article[data-video-state='pending']").filter({
+      has: page.getByRole("heading", { name: "Crimson Desert added fixture commentary" }),
+    });
+    await submitAction(page, () => added.getByRole("button", { name: "Approve draft" }).click());
+    const drafted = page.locator("article[data-video-state='draft_ready']").filter({
+      has: page.getByRole("heading", { name: "Crimson Desert added fixture commentary" }),
+    });
+    await expect(drafted.getByText("Draft incomplete")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Crimson Desert added fixture commentary" })).toHaveCount(1);
+
+    await submitAction(page, () => drafted.getByRole("button", { name: "Approve draft" }).click());
+    await expect(page.getByRole("heading", { name: "Crimson Desert added fixture commentary" })).toHaveCount(1);
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
+
+    await drafted.getByLabel("YouTube URL").fill("https://youtu.be/abcdefghijk");
+    await submitAction(page, () => drafted.getByRole("button", { name: "Save", exact: true }).click());
+    const replacement = page.locator("article[data-video-state='pending']").filter({
+      has: page.getByRole("heading", { name: "Crimson Desert added fixture commentary" }),
+    });
+    await expect(replacement).toBeVisible();
+    await expect(replacement.getByRole("link", { name: "Download draft" })).toHaveCount(0);
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
+    await submitAction(page, () => replacement.getByRole("button", { name: "Approve draft" }).click());
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
+
+    const draftBeforeArchive = await drafted.locator(".video-draft-preview").textContent();
+    await submitAction(page, () => drafted.getByRole("button", { name: "Archive draft" }).click());
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
+    const archivedBrief = await (await page.request.get("/api/admin/video-review-brief")).json();
+    expect(archivedBrief.videoInbox.draftsReady.count).toBe(1);
+    expect(archivedBrief.videoInbox.items.map((item: { title: string }) => item.title))
+      .not.toContain("Crimson Desert added fixture commentary");
+    await page.getByText("Archived drafts (1)", { exact: true }).click();
+    const archived = page.locator("article[data-video-state='archived']");
+    await expect(archived.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    expect(await archived.locator(".video-draft-preview").textContent()).toBe(draftBeforeArchive);
+    await submitAction(page, () => archived.getByRole("button", { name: "Restore draft" }).click());
+    await expect(page.locator("article[data-video-state='archived']")).toHaveCount(0);
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
+    const restoredBrief = await (await page.request.get("/api/admin/video-review-brief")).json();
+    expect(restoredBrief.videoInbox.draftsReady.count).toBe(2);
+    expect(await drafted.locator(".video-draft-preview").textContent()).toBe(draftBeforeArchive);
+
+    await page.goto("/watch");
+    await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Watch the official reveal ↗" })).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=HaCtG1F_hfE",
+    );
+    await expect(page.getByText("zzInboxAdd1")).toHaveCount(0);
+    await expect(page.getByText("Fixture expansion commentary, corrected")).toHaveCount(0);
+    await expectHealthyPage(page, problems);
+  });
 });

@@ -9,7 +9,7 @@ import { patchFamilyKey } from "@/lib/patchWatch";
 import { CatchUpPublicVisit } from "@/components/catchup/CatchUpContext";
 
 export type PublicNavKey = "brief" | "news" | "watch" | "issues" | "patches" | "observatory" | "method" | "report";
-export type OperatorNavKey = "overview" | "review" | "scanner" | "compile";
+export type OperatorNavKey = "overview" | "review" | "videos" | "scanner" | "compile";
 
 /** Deterministic dateline: UTC so server rendering never depends on host locale. */
 export function dispatchDateline(date: Date = new Date()): string {

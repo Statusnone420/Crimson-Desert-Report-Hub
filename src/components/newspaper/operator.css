@@ -203,6 +203,16 @@ html[data-theme="dark"] .operator-newspaper {
 .operator-newspaper .op-legend .op-skipped { background: var(--op-amber); }
 .operator-newspaper .op-legend .op-failed { background: var(--op-red); }
 .operator-newspaper .op-unavailable { margin: 24px 0; padding: 24px 22px; background: color-mix(in srgb, var(--op-amber) 10%, var(--op-paper)); color: var(--op-muted); }
+.operator-newspaper .video-draft-preview {
+  overflow: auto;
+  max-height: 280px;
+  margin: 12px 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--op-line);
+  color: var(--op-muted);
+  font: 12px/1.5 var(--font-plex-mono), ui-monospace, monospace;
+  white-space: pre-wrap;
+}
 
 .operator-newspaper .op-tools {
   display: grid;
@@ -260,3 +270,23 @@ html[data-theme="dark"] .operator-newspaper {
   .operator-newspaper .op-service { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; }
   .operator-newspaper .op-service h3 { font-size: 23px; }
 }
+
+/* The private inbox reuses the operator palette for its legacy form classes. */
+.operator-newspaper .video-review-inbox {
+  --dispatch-inset: var(--op-paper);
+  --dispatch-raised: var(--op-paper);
+  --dispatch-ink: var(--op-ink);
+  --dispatch-dim: var(--op-muted);
+  --dispatch-muted: var(--op-muted);
+  --dispatch-faint: var(--op-muted);
+  --dispatch-quiet: var(--op-muted);
+  --surface-edge: var(--op-line);
+  --crimson: var(--op-red);
+}
+.operator-newspaper .video-review-inbox form.dispatch-field { display: grid; gap: 8px; align-items: start; }
+.operator-newspaper .video-review-inbox input,
+.operator-newspaper .video-review-inbox select,
+.operator-newspaper .video-review-inbox textarea { border-color: var(--op-line); }
+.operator-newspaper .video-review-inbox input[type="checkbox"] { min-width: 0; width: auto; }
+.operator-newspaper .video-review-inbox .dispatch-btn { justify-self: start; min-height: 44px; background: var(--op-ink); color: var(--op-paper); }
+.operator-newspaper .video-review-inbox .dispatch-btn:hover { background: var(--op-muted); }
