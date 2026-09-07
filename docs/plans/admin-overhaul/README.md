@@ -8,8 +8,11 @@ This integrated draft supersedes the WIP-only PRs:
 
 - [#96](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/pull/96) — spec (`cursor/slice-a-admin-spec-0b16` @ `cac22aa`)
 - [#97](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/pull/97) — concept (`slice-a/admin-concept` @ `86a6086`)
+- [#99](https://github.com/Statusnone420/Crimson-Desert-Report-Hub/pull/99) — independent review (`slice-a/admin-review` @ `e348b47`)
 
 Those PRs stay open. Do not merge them into `main`.
+
+Independent review **verdict: NEEDS FIXES**. Blocking issues are listed for the owner in [`SLICE-A-HANDOFF.md`](SLICE-A-HANDOFF.md#independent-review--needs-fixes). Spec and concept were not rewritten to paper over them.
 
 ## Open the concept
 
@@ -28,9 +31,10 @@ Full steps: [`concept/README.md`](concept/README.md).
 | --- | --- | --- |
 | [`spec/`](spec/) | Behavior and data contracts: capabilities, metrics/attention, claim-review, surface notes, three owner data calls | Agent 1 / PR #96 — copied, not rewritten |
 | [`concept/`](concept/) | Self-contained Overview + Report/Claim Review HTML/CSS/JS, screenshots, verification | Agent 2 / PR #97 — copied, not rewritten |
+| [`review/`](review/) | Independent review of spec + concept. **Verdict: NEEDS FIXES.** | Agent 3 / PR #99 — copied, not rewritten |
 | [`README.md`](README.md) | This index | Agent 4 (integrator) |
 | [`delivery-map.md`](delivery-map.md) | Proposed Slices B–D, risks, stop gates. **No authorization to start B–D.** | Agent 4 |
-| [`SLICE-A-HANDOFF.md`](SLICE-A-HANDOFF.md) | Base SHA, files, checks vs gaps, merged owner-decision list, spec/concept contradictions | Agent 4 |
+| [`SLICE-A-HANDOFF.md`](SLICE-A-HANDOFF.md) | Base SHA, files, checks vs gaps, review blocking issues, merged owner-decision list | Agent 4 |
 
 ### Spec (behavior wording)
 
@@ -59,9 +63,12 @@ Key screenshot paths:
 - [`concept/screenshots/mobile-light-overview-normal.png`](concept/screenshots/mobile-light-overview-normal.png)
 - [`concept/screenshots/mobile-light-review-claim.png`](concept/screenshots/mobile-light-review-claim.png)
 
-### Independent review (not in this PR)
+### Independent review (PR #99)
 
-Branch `slice-a/admin-review` and `docs/plans/admin-overhaul/review/` were **not** on the remote when this PR was assembled. Agent 3’s intended files are `review/findings.md` and `review/acceptance-checklist.md`. Fold that review PR in later, or keep it as a separate draft and link it from the handoff. Do not treat this integrator PR as a substitute for independent review.
+- [`review/findings.md`](review/findings.md) — verdict, contradictions, retained-capability drops, evidence gaps
+- [`review/acceptance-checklist.md`](review/acceptance-checklist.md) — owner-brief grid
+
+**Verdict: NEEDS FIXES.** This integrator PR copied those files; it did not “fix” spec or concept. Owner visual/behavior review of one desk should wait until the blocking list is resolved or the owner explicitly accepts the open mismatches.
 
 ## Hard constraints (still in force)
 

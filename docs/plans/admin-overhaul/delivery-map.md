@@ -11,7 +11,8 @@ This map is reconstructed from:
 1. Owner brief excerpts in the Slice A agent prompts (quoted below).
 2. Spec “later slice” notes (pairing store, Overview composition, scanner honesty, brief RPC).
 3. Concept coverage: Overview + Report/Claim Review only; Videos / Scanner / Dossiers are inert nav.
-4. Hard constraints that every Slice A agent was given.
+4. Independent review PR #99 (`review/findings.md`) — verdict **NEEDS FIXES**.
+5. Hard constraints that every Slice A agent was given.
 
 Historical Phase 4 docs (`docs/PHASE-4-TARGET.md`, `docs/PHASE-4-ADMIN-INVENTORY.md`) are **search aids and prior contracts**, not this overhaul’s implementation plan. They must not override [`spec/`](spec/) or [`DESIGN.md`](../../DESIGN.md).
 
@@ -39,10 +40,11 @@ Frozen in every prompt: no production access; no paid calls; no scanner runs; no
 | --- | --- |
 | Spec contracts for all operator surfaces | Application routes, shared CSS, production chrome |
 | Interactive concept for Overview + Report/Claim Review | Concept HTML for Videos / Scanner / Dossiers |
+| Independent review (NEEDS FIXES) | Treating the concept HTML as the Slice B contract without owner acceptance |
 | Invented, labeled sample data | Production reports, private exports, live admin captures |
 | Owner-decision lists | Implementation of Confirm / Not the same issue / Decide later |
 
-**Slice A stop gate:** owner visual/behavior review of this PR (and, when it exists, the independent review). Do not treat merge of this docs PR as a green light for B–D.
+**Slice A stop gate:** independent review (#99) verdict is **NEEDS FIXES**. Owner visual/behavior review of one desk should wait until those blocking issues are resolved or the owner explicitly accepts them. Do not treat merge of this docs PR as a green light for B–D.
 
 ## Proposed later slices (not started)
 
@@ -116,13 +118,13 @@ Out:
 | Inventory counted as chores | Awaiting, yield, screening events, approved/spam look like Needs you | Metrics contract families; concept already separates inventory on Overview |
 | AI row in concept “Do now” | Spec: AI health is an **operational incident**, not an owner-decision numeral | Keep AI named, but in the operational family; do not mix it into the Review count |
 | Scanner/Videos/Dossiers unconcepted | Slice C/D implementers may copy Phase 4 mockups or newspaper spacing | Spec `surface-notes.md` is the constraint; Phase 4 is historical |
-| Independent review missing | This PR assembled before `slice-a/admin-review` existed | Fold review files later or link the review PR; do not rubber-stamp |
+| Independent review **NEEDS FIXES** | Spec and concept are two contracts (attention arithmetic, reject reason, Lock, `/admin` break-glass, evidence matrix) | Do not start B until the owner accepts or the concept/spec are aligned in a later pass |
 | Historical `admin/redesign-plan` | Stale local branch, out of bounds | Do not fetch, push, delete, or use it as baseline |
 | Paid scan / hosted SQL by accident | Bake-off and `db push` are easy to “just run” | Later PRs stay local-first; hosted apply needs explicit current-message authorization |
 
 ## Stop gates (do not pass without owner)
 
-1. **Slice A not accepted** — no B–D implementation PRs.
+1. **Slice A not accepted** — no B–D implementation PRs. Review #99 is **NEEDS FIXES**; do not treat the concept HTML as the Slice B contract unless the owner accepts the blocking mismatches.
 2. **Open data decisions unanswered** — no pairing write semantics that assume yes/no on other-cluster Confirm, private clusters, or Later-blocks-sure.
 3. **No hosted schema apply** — create migration files; prove with local `db:reset`; never `supabase db push` or MCP Apply Migration against production unless the owner authorizes it in that message.
 4. **No cadence/budget/model/circuit change** — 2h / 3 searches remain the operating baseline.
