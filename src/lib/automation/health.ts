@@ -35,6 +35,27 @@ export const SCANNER_AI_RELEVANT_SKIP_CODES = [
   "llm_time_limit",
 ] as const;
 
+function finiteTimestamp(value: string | null | undefined): number | null {
+  const timestamp = Date.parse(value ?? "");
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function completionTimestamp(run: ScannerAiRun): number {
+  return finiteTimestamp(run.finished_at) ?? finiteTimestamp(run.started_at) ?? Number.NEGATIVE_INFINITY;
+}
+
+function compareCompletedRuns(a: ScannerAiRun, b: ScannerAiRun): number {
+  const aCompleted = completionTimestamp(a);
+  const bCompleted = completionTimestamp(b);
+  if (aCompleted !== bCompleted) return bCompleted > aCompleted ? 1 : -1;
+  const aStarted = finiteTimestamp(a.started_at) ?? Number.NEGATIVE_INFINITY;
+  const bStarted = finiteTimestamp(b.started_at) ?? Number.NEGATIVE_INFINITY;
+  if (aStarted !== bStarted) return bStarted > aStarted ? 1 : -1;
+  const aKey = `${a.finished_at ?? ""}\u0000${a.started_at}\u0000${a.status}\u0000${a.skips.join("\u0000")}`;
+  const bKey = `${b.finished_at ?? ""}\u0000${b.started_at}\u0000${b.status}\u0000${b.skips.join("\u0000")}`;
+  return bKey.localeCompare(aKey);
+}
+
 export function scannerAiHealth(
   runs: readonly ScannerAiRun[],
   options: { readAvailable?: boolean; paused?: boolean; monthlyLlmUsdCap?: number } = {},
@@ -42,9 +63,15 @@ export function scannerAiHealth(
   const completed = runs
     .filter((run) => run.mode !== "dry_run" && !["running", "skipped"].includes(run.status))
     .slice()
-    .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
+    .sort(compareCompletedRuns);
   const success = completed.find((run) => (run.progress?.llmSucceeded ?? 0) > 0);
-  const lastSuccessAt = success?.finished_at ?? success?.started_at ?? null;
+  const lastSuccessAt = success
+    ? finiteTimestamp(success.finished_at) !== null
+      ? success.finished_at ?? null
+      : finiteTimestamp(success.started_at) !== null
+        ? success.started_at
+        : null
+    : null;
   if (options.readAvailable === false) return { state: "unavailable", code: "ai_history_unavailable", message: "AI run history could not be read.", lastSuccessAt: null };
   if (options.paused) return { state: "idle", code: "scanner_paused", message: "The scanner is paused.", lastSuccessAt };
   if (options.monthlyLlmUsdCap === 0) return { state: "idle", code: "ai_disabled", message: "AI processing is disabled by the saved budget.", lastSuccessAt };

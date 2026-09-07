@@ -999,6 +999,9 @@ function filterRows(table, url) {
   if (order?.startsWith("started_at.desc")) {
     rows.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
   }
+  if (order?.startsWith("finished_at.desc")) {
+    rows.sort((a, b) => new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime());
+  }
   if (order?.startsWith("observed_at.desc")) {
     rows.sort((a, b) => new Date(b.observed_at).getTime() - new Date(a.observed_at).getTime());
   }

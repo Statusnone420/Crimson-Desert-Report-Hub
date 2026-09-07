@@ -23,6 +23,33 @@ describe("private scanner AI health", () => {
     const health = scannerAiHealth([run(), run({ started_at: "2026-09-06T19:00:00Z", skips: ["openrouter_no_route"], progress: { llmSucceeded: 0 } })]);
     expect(health).toMatchObject({ state: "healthy", lastSuccessAt: "2026-09-06T20:00:00Z" });
   });
+  it("orders known AI outcomes by completion time", () => {
+    const health = scannerAiHealth([
+      run({ started_at: "2026-09-06T20:00:00Z", finished_at: "2026-09-06T22:00:00Z", skips: ["openrouter_provider_failure"], progress: { llmSucceeded: 0 } }),
+      run({ started_at: "2026-09-06T21:00:00Z", finished_at: "2026-09-06T21:30:00Z" }),
+    ]);
+    expect(health).toMatchObject({ state: "unavailable", code: "openrouter_provider_failure", lastSuccessAt: "2026-09-06T21:30:00Z" });
+  });
+  it("recognizes recovery when an earlier-started validation finishes last", () => {
+    const health = scannerAiHealth([
+      run({ started_at: "2026-09-06T20:00:00Z", finished_at: "2026-09-06T22:00:00Z" }),
+      run({ started_at: "2026-09-06T21:00:00Z", finished_at: "2026-09-06T21:30:00Z", skips: ["openrouter_provider_failure"], progress: { llmSucceeded: 0 } }),
+    ]);
+    expect(health).toMatchObject({ state: "healthy", code: null, lastSuccessAt: "2026-09-06T22:00:00Z" });
+  });
+  it("falls back safely to start time for legacy rows without a completion time", () => {
+    const health = scannerAiHealth([
+      run({ started_at: "2026-09-06T22:00:00Z", finished_at: null }),
+      run({ started_at: "2026-09-06T20:00:00Z", finished_at: "2026-09-06T21:00:00Z", skips: ["openrouter_provider_failure"], progress: { llmSucceeded: 0 } }),
+    ]);
+    expect(health).toMatchObject({ state: "healthy", lastSuccessAt: "2026-09-06T22:00:00Z" });
+  });
+  it("falls back to a finite start time when a completion timestamp is invalid", () => {
+    expect(scannerAiHealth([run({ finished_at: "invalid" })])).toMatchObject({
+      state: "healthy",
+      lastSuccessAt: "2026-09-06T20:00:00Z",
+    });
+  });
   it("recognizes validated response metadata independently of the attempted-call counter", () => {
     expect(scannerAiHealth([run({ llm_calls_used: 0 })])).toMatchObject({ state: "healthy", lastSuccessAt: "2026-09-06T20:00:00Z" });
   });

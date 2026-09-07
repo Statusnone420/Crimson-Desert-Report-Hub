@@ -180,6 +180,33 @@ test.describe("operator write paths", () => {
     await page.goto("/scanner");
     await expect(scannerStatus).toHaveCount(0);
 
+    // Overlapping scans can finish in the opposite order to their starts.
+    // Legacy rows without a completion time must still use their start time.
+    for (const [index, outcome] of [
+      { startOffset: 50_000, finishOffset: 103_000, failed: true },
+      { startOffset: 51_000, finishOffset: 104_000, failed: false },
+      { startOffset: 105_000, finishOffset: null, failed: true },
+      { startOffset: 106_000, finishOffset: null, failed: false },
+    ].entries()) {
+      const newerOutcome = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+        data: {
+          ...idleRuns[0],
+          id: `00000000-0000-4000-8000-${String(203 + index).padStart(12, "0")}`,
+          started_at: new Date(Date.parse(startedAt) + outcome.startOffset).toISOString(),
+          finished_at: outcome.finishOffset === null ? null : new Date(Date.parse(startedAt) + outcome.finishOffset).toISOString(),
+          llm_calls_used: 1,
+          skips: outcome.failed ? ["openrouter_no_route"] : [],
+          progress: { llmSucceeded: outcome.failed ? 0 : 1, llmCostUsd: 0.0001 },
+        },
+      });
+      expect(newerOutcome.ok()).toBe(true);
+      await page.reload();
+      await expect(scannerStatus).toHaveCount(outcome.failed ? 1 : 0);
+      await page.goto("/operator");
+      await expect(aiService.locator(".op-status")).toHaveText(outcome.failed ? "Unavailable" : "Available");
+      await page.goto("/scanner");
+    }
+
     // Reset the injected run before invalidating the app's tagged scanner reads.
     // A fixture reset alone cannot clear data cached while these pages rendered.
     const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
