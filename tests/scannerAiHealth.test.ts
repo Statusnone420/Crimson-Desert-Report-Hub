@@ -15,12 +15,28 @@ describe("private scanner AI health", () => {
       run({ started_at: "2026-09-06T23:00:00Z", mode: "dry_run" }),
       run({ started_at: "2026-09-06T22:00:00Z", status: "skipped" }),
       run({ started_at: "2026-09-06T21:00:00Z", llm_calls_used: 0, progress: { llmSucceeded: 0 } }),
+      run({ started_at: "2026-09-06T21:30:00Z", llm_calls_used: 1, progress: null }),
       run({ skips: ["openrouter_no_route"], progress: { llmSucceeded: 0 } }),
     ]).state).toBe("unavailable");
   });
   it("requires a validated result for recovery and retains its timestamp", () => {
     const health = scannerAiHealth([run(), run({ started_at: "2026-09-06T19:00:00Z", skips: ["openrouter_no_route"], progress: { llmSucceeded: 0 } })]);
     expect(health).toMatchObject({ state: "healthy", lastSuccessAt: "2026-09-06T20:00:00Z" });
+  });
+  it("recognizes validated response metadata independently of the attempted-call counter", () => {
+    expect(scannerAiHealth([run({ llm_calls_used: 0 })])).toMatchObject({ state: "healthy", lastSuccessAt: "2026-09-06T20:00:00Z" });
+  });
+  it("retains the latest validated timestamp beyond 100 later AI failures", () => {
+    const failures = Array.from({ length: 101 }, (_, index) => run({
+      started_at: new Date(Date.parse("2026-09-07T00:00:00Z") + index * 60_000).toISOString(),
+      skips: ["openrouter_no_route"],
+      progress: { llmSucceeded: 0 },
+    }));
+    const health = scannerAiHealth([
+      ...failures,
+      run({ started_at: "2026-09-06T20:00:00Z", finished_at: "2026-09-06T20:01:00Z" }),
+    ]);
+    expect(health).toMatchObject({ state: "unavailable", lastSuccessAt: "2026-09-06T20:01:00Z" });
   });
   it("distinguishes partial AI success from full unavailability", () => {
     expect(scannerAiHealth([run({ skips: ["openrouter_invalid_json"] })]).state).toBe("limited");

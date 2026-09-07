@@ -100,7 +100,7 @@ test.describe("operator write paths", () => {
     await expectHealthyPage(page, problems);
   });
 
-  test("a completed scan with no AI route requires attention on both private pages", async ({ page }) => {
+  test("an AI outage survives 101 idle scans and clears only after a validated result", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     const seed = await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?order=started_at.desc&limit=1`);
     expect(seed.ok()).toBe(true);
@@ -123,6 +123,29 @@ test.describe("operator write paths", () => {
     });
     expect(inserted.ok()).toBe(true);
     expect((await inserted.json())[0]).toMatchObject({ status: "success", skips: ["openrouter_no_route"] });
+    const idleRuns = Array.from({ length: 101 }, (_, index) => {
+      const time = new Date(Date.parse(startedAt) + (index + 1) * 1000).toISOString();
+      return {
+        ...previous,
+        id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+        started_at: time,
+        finished_at: time,
+        status: "success",
+        mode: "scheduled",
+        llm_calls_used: 0,
+        skips: [],
+        errors: [],
+        funnel: { ...previous.funnel, llmCalls: 0 },
+        progress: { ...previous.progress, llmSucceeded: 0 },
+      };
+    });
+    const idleInsert = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, { data: idleRuns });
+    expect(idleInsert.ok()).toBe(true);
+    expect(await idleInsert.json()).toHaveLength(101);
+    const unverified = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: { ...idleRuns[100], id: "00000000-0000-4000-8000-000000000202", llm_calls_used: 1, progress: null },
+    });
+    expect(unverified.ok()).toBe(true);
     await signInAsAdmin(page);
 
     await page.goto("/scanner");
@@ -139,6 +162,23 @@ test.describe("operator write paths", () => {
     await expect(aiService.locator(".op-status")).toHaveText("Unavailable");
     await expect(aiService.locator(".op-status")).toHaveClass(/op-caution/);
     await expectHealthyPage(page, problems);
+
+    const recoveredAt = new Date(Date.parse(startedAt) + 102_000).toISOString();
+    const recovery = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: {
+        ...idleRuns[0],
+        id: "00000000-0000-4000-8000-000000000201",
+        started_at: recoveredAt,
+        finished_at: recoveredAt,
+        llm_calls_used: 1,
+        progress: { llmSucceeded: 1, llmCostUsd: 0.0001 },
+      },
+    });
+    expect(recovery.ok()).toBe(true);
+    await page.reload();
+    await expect(aiService.locator(".op-status")).toHaveText("Available");
+    await page.goto("/scanner");
+    await expect(scannerStatus).toHaveCount(0);
 
     // Reset the injected run before invalidating the app's tagged scanner reads.
     // A fixture reset alone cannot clear data cached while these pages rendered.

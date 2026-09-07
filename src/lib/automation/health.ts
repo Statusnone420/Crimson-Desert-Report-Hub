@@ -29,6 +29,12 @@ const FAILURE_MESSAGES: Record<string, string> = {
   openrouter_key_limit_unsafe: "Set the OpenRouter key to a monthly or lifetime limit of $1 or less.",
 };
 
+export const SCANNER_AI_RELEVANT_SKIP_CODES = [
+  ...Object.keys(FAILURE_MESSAGES),
+  "llm_budget_capped",
+  "llm_time_limit",
+] as const;
+
 export function scannerAiHealth(
   runs: readonly ScannerAiRun[],
   options: { readAvailable?: boolean; paused?: boolean; monthlyLlmUsdCap?: number } = {},
@@ -43,9 +49,11 @@ export function scannerAiHealth(
   if (options.paused) return { state: "idle", code: "scanner_paused", message: "The scanner is paused.", lastSuccessAt };
   if (options.monthlyLlmUsdCap === 0) return { state: "idle", code: "ai_disabled", message: "AI processing is disabled by the saved budget.", lastSuccessAt };
 
-  // A skipped wake-up or a scan with no AI work cannot prove recovery.
-  const latest = completed.find((run) => run.llm_calls_used > 0 || run.skips.some((code) => code in FAILURE_MESSAGES || code === "llm_budget_capped" || code === "llm_time_limit"));
-  if (!latest) return { state: "idle", code: null, message: "No AI result is recorded yet.", lastSuccessAt };
+  // Idle scans and unverified attempts cannot replace a known AI outcome.
+  const latest = completed.find((run) => (run.progress?.llmSucceeded ?? 0) > 0 || run.skips.some((code) => SCANNER_AI_RELEVANT_SKIP_CODES.includes(code)));
+  if (!latest) return completed.some((run) => run.llm_calls_used > 0)
+    ? { state: "idle", code: "ai_success_unverified", message: "Older run records do not verify successful AI responses.", lastSuccessAt }
+    : { state: "idle", code: null, message: "No AI result is recorded yet.", lastSuccessAt };
   const failure = latest.skips.find((code) => code in FAILURE_MESSAGES);
   if (failure) return { state: (latest.progress?.llmSucceeded ?? 0) > 0 ? "limited" : "unavailable", code: failure, message: FAILURE_MESSAGES[failure], lastSuccessAt };
   if (latest.skips.includes("llm_budget_capped")) return { state: "limited", code: "llm_budget_capped", message: "AI processing reached the saved spending limit.", lastSuccessAt };
