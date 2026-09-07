@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { resolveLoginReturn } from "@/lib/loginReturn";
 
 describe("resolveLoginReturn", () => {
+  it("restores an exact workspace destination while dropping unrelated redirect parameters", () => {
+    expect(resolveLoginReturn("/operator?view=claims&item=claim-1")).toBe("/operator?view=claims&item=claim-1");
+    expect(resolveLoginReturn("/operator?view=dossiers&run=run-1&redirect=https://evil.example")).toBe("/operator?view=dossiers&run=run-1");
+    expect(resolveLoginReturn("/operator?view=https://evil.example")).toBe("/admin");
+    expect(resolveLoginReturn("/operator?view=reports&view=claims")).toBe("/admin");
+  });
   it("returns each allowlisted operator destination", () => {
     expect(resolveLoginReturn("/admin")).toBe("/admin");
     expect(resolveLoginReturn("/admin/compile")).toBe("/admin/compile");

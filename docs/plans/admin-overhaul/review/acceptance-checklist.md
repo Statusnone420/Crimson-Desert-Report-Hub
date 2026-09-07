@@ -1,5 +1,6 @@
 # Slice A acceptance checklist
 
+> Historical review of PRs #96 and #97. The replacement implementation and current verification are documented in [the implementation record](../SLICE-A-HANDOFF.md). This verdict does not describe the replacement.
 Independent check of Spec PR #96 and Concept PR #97 against the owner brief and `origin/main` @ `2a0953a`. Not a sign-off. Spec/concept were not edited.
 
 Legend: **Pass** / **Fail** / **Partial** / **Unverified**. Evidence is what this review actually saw (code, committed PNGs, source). Claims only in `VERIFICATION.md` without a PNG or re-run are Unverified.

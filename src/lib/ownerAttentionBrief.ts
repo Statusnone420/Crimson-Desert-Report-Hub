@@ -33,6 +33,7 @@ export type OwnerAttentionBrief = {
     needsYou: number;
     reportQueuePath: "/admin";
     scannerQueuePath: "/scanner";
+    claimReviewPath?: "/operator?view=claims";
   } | null;
 };
 
@@ -192,8 +193,8 @@ export function ownerBriefBullets(brief: OwnerAttentionBrief): OwnerBriefBullet[
     bullets.push({
       section: "needs_approval",
       decision: `${brief.adminAttention.unsureClaimMatches} unsure claim ${brief.adminAttention.unsureClaimMatches === 1 ? "match" : "matches"}`,
-      reason: "Needs you: engine-owned unsure claim matches only.",
-      nextStep: "Open /admin. Ordinary reports and locks you already set are not new approval work.",
+      reason: "Pending and deferred claim pairings still need a decision.",
+      nextStep: "Open /operator?view=claims. Review the exact patch-note pairing; lifecycle locks remain separate.",
     });
   }
   return bullets.slice(0, 5);

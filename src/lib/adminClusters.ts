@@ -4,6 +4,8 @@ import { isMissingSupabaseColumn } from "@/lib/supabaseCompatibility";
 export type AdminClusterRow = {
   id: string;
   title: string;
+  description?: string;
+  category?: string;
   fix_status: string;
   admin_override: boolean | null;
   lifecycle_reason: string | null;
@@ -14,8 +16,8 @@ export type AdminClusterRow = {
 };
 
 const CURRENT_COLUMNS =
-  "id, title, fix_status, admin_override, lifecycle_reason, admin_visibility_override, admin_visibility_reason, admin_visibility_changed_at, is_public";
-const LEGACY_COLUMNS = "id, title, fix_status, admin_override, lifecycle_reason, admin_visibility_override, is_public";
+  "id, title, description, category, fix_status, admin_override, lifecycle_reason, admin_visibility_override, admin_visibility_reason, admin_visibility_changed_at, is_public";
+const LEGACY_COLUMNS = "id, title, description, category, fix_status, admin_override, lifecycle_reason, admin_visibility_override, is_public";
 
 /** Rows requested per page; the hosted API may return fewer than asked for. */
 const DEFAULT_PAGE_SIZE = 1000;

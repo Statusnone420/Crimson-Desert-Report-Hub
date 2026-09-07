@@ -195,7 +195,7 @@ test.describe("public catch-up journey", () => {
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
 
-    await page.locator(".nameplate__title a").click();
+    await page.getByRole("link", { name: "View public site" }).click();
     await waitForClientPath(page, "/");
     await expect.poll(() => storedPreferences(page)).toEqual({ ...previous, lastVisit: NOW.toISOString() });
     await page.goBack();

@@ -81,6 +81,7 @@ import {
 } from "@/lib/automation/steam";
 import { createServiceClient } from "@/lib/supabase";
 import { appendOpenRouterDiagnostics, type OpenRouterDiagnostic } from "@/lib/automation/openRouterDiagnostics";
+import { recordClaimReviewProposals, type ClaimReviewLifecycleDecision, type ClaimReviewProposal } from "@/lib/claimReview";
 import { isMissingSupabaseColumn, isMissingSupabaseRelation } from "@/lib/supabaseCompatibility";
 import { fetchCrimsonDesertPlatformContext } from "@/lib/platform/igdb";
 
@@ -1837,6 +1838,7 @@ async function runLifecyclePass(
     getClaimedFixesForCurrentPatch(supabase),
   ]);
   const claimDecisionByCluster = new Map<string, ClaimMappingDecision>();
+  const claimReviewProposals: ClaimReviewProposal[] = [];
   const initialLlmCallsRemaining = remainingLlmCalls(result, budget);
   const extractionReserve = budget.allowPaidSearch
     ? Math.min(MAX_RESERVED_EXTRACTION_LLM_CALLS, Math.floor(initialLlmCallsRemaining / 2))
@@ -1861,13 +1863,42 @@ async function runLifecyclePass(
     recordOpenRouterRunSkip(result, decision.skipReason);
     claimLlmCallsRemaining = Math.max(0, claimLlmCallsRemaining - decision.llmCallsUsed);
     if (!decision.clusterId) continue;
+    if (decision.matchKind !== "none") {
+      claimReviewProposals.push({
+        fixText: claim.fixText,
+        clusterId: decision.clusterId,
+        proposalKind: decision.matchKind,
+        proposalReason: decision.reason,
+      });
+    }
     const existing = claimDecisionByCluster.get(decision.clusterId);
     if (!existing || decisionRank(decision) > decisionRank(existing)) {
       claimDecisionByCluster.set(decision.clusterId, decision);
     }
   }
 
+  // Claimed-fix rows gained the section field before the review schema. A row
+  // without it is the old contract, so retaining the string lifecycle path is
+  // the narrow rolling-deploy fallback. Rich rows use the durable resolver;
+  // it returns confirmations even when this scan's rotation did not revisit
+  // their claim.
+  const usesClaimReview = claims.length > 0
+    ? claims.every((claim) => Object.hasOwn(claim, "section"))
+    : await hasClaimReviewEmptyRegister(supabase);
+  let durableByCluster = new Map<string, ClaimReviewLifecycleDecision>();
+  if (usesClaimReview) {
+    const durable = await recordClaimReviewProposals(supabase, { proposals: claimReviewProposals, now });
+    if (durable.status === "available") durableByCluster = new Map(durable.decisions.map((decision) => [decision.clusterId, decision]));
+  }
+
   for (const cluster of clusters) {
+    const durable = durableByCluster.get(cluster.id);
+    // The durable RPC already writes its matching cluster state under the same
+    // lock as its pairing/audit record. A second write here would advance the
+    // lifecycle revision after the card was issued and make every operator
+    // action stale before it reaches the desk.
+    if (durable) continue;
+    const claimDecision = toLifecycleClaimDecision(claimDecisionByCluster.get(cluster.id));
     const computed = computeClusterLifecycle({
       currentStatus: cluster.fix_status,
       fixClaimedAt: cluster.fix_claimed_at ?? null,
@@ -1875,10 +1906,29 @@ async function runLifecyclePass(
       currentPatchVersion: currentPatch.version,
       adminOverride: Boolean(cluster.admin_override),
       now,
-      claimDecision: toLifecycleClaimDecision(claimDecisionByCluster.get(cluster.id)),
+      claimDecision,
     });
     await writeLifecycleResult(supabase, cluster, computed);
   }
+}
+
+/**
+ * An empty current register is meaningful only after the section/total schema
+ * has landed. Its explicit zero lets the durable RPC retire old pairings when
+ * an official sync removes every claim; an absent column is the old path.
+ */
+async function hasClaimReviewEmptyRegister(supabase: ReturnType<typeof createServiceClient>): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("official_patch_notes")
+    .select("claimed_fix_total")
+    .eq("is_current", true)
+    .limit(1);
+  if (error) {
+    if (isMissingSupabaseColumn(error, "official_patch_notes", "claimed_fix_total")) return false;
+    throw new Error(`claim review capability read failed: ${error.message}`);
+  }
+  const row = ((data ?? []) as { claimed_fix_total?: number | null }[])[0];
+  return row?.claimed_fix_total === 0;
 }
 
 function matchingReportCluster(signal: PreparedSignal, reports: ApprovedReportRow[]): string | null {

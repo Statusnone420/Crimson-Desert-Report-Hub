@@ -7,9 +7,11 @@ import { OperatorNav } from "@/components/dispatch/OperatorNav";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { patchFamilyKey } from "@/lib/patchWatch";
 import { CatchUpPublicVisit } from "@/components/catchup/CatchUpContext";
+import { WORKSPACE_LABELS, type OperatorView } from "@/lib/operatorWorkspace";
+import { WorkspaceIcon } from "@/components/operator/WorkspaceIcon";
 
 export type PublicNavKey = "brief" | "news" | "watch" | "issues" | "patches" | "observatory" | "method" | "report";
-export type OperatorNavKey = "overview" | "review" | "videos" | "scanner" | "compile";
+export type OperatorNavKey = "overview" | "review" | "claims" | "videos" | "scanner" | "compile" | "settings";
 
 /** Deterministic dateline: UTC so server rendering never depends on host locale. */
 export function dispatchDateline(date: Date = new Date()): string {
@@ -33,7 +35,7 @@ export function PublicShell({ active, masthead = false, children }: {
   return <><CatchUpPublicVisit /><NewspaperShell active={active} home={masthead}>{children}</NewspaperShell></>;
 }
 
-/** Operator chrome: amber topline, console nav, session-truthful footer. */
+/** One private workspace shared by canonical and legacy admin entry points. */
 export async function OperatorShell({
   active,
   children,
@@ -43,31 +45,21 @@ export async function OperatorShell({
 }) {
   const patch = await getCurrentPatchMetadata();
   const family = patchFamilyKey(patch.version);
+  const view: OperatorView = active === "review" ? "reports" : active === "compile" ? "dossiers" : active ?? "overview";
   return (
-    <div className="operator-newspaper">
-      <div className="dispatch-topline dispatch-topline--operator" aria-hidden="true" />
-      <header className="dispatch-container nameplate">
-        <div className="nameplate__row">
-          <div className="nameplate__meta nameplate__meta--operator">Operator console · signed in</div>
-          <p className="nameplate__title">
-            <Link href="/">
-              Crimson Desert <em>Report Hub</em>
-            </Link>
-          </p>
-          <div className="nameplate__meta nameplate__meta--right">{dispatchDateline()}<span className="theme"><ThemeToggle/></span></div>
-        </div>
+    <div className="operator-newspaper operator-workspace">
+      <a className="workspace-skip-link" href="#main-content">Skip to workspace</a>
+      <aside className="workspace-sidebar">
+        <Link className="workspace-identity" href="/operator"><span><strong>Crimson Desert<br/><em>Report Hub</em></strong><small>Your admin workspace</small></span></Link>
         <OperatorNav active={active} />
-      </header>
-      {isVercelPreview() && <p className="dispatch-container op-preview-notice">{process.env.CD_LOCAL_SNAPSHOT === "true" ? "Local preview · Copy of production data. Changes and scans are disabled." : "Preview edition · Changes and scans are disabled."}</p>}
-      <main id="main-content">{children}</main>
-      <footer className="dispatch-footer">
-        <p className="dispatch-footer__note">
-          Operator surfaces are never linked publicly. Sessions expire 12 hours after sign-in.
-        </p>
-        <div className="dispatch-footer__links">
-          <span>{family ? `OPERATOR · v${family} CONSOLE` : "OPERATOR CONSOLE"}</span>
-        </div>
-      </footer>
+        <p className="workspace-sidebar-note">Crimson Desert Report Hub<br/>Private workspace{family ? ` · v${family}` : ""}</p>
+      </aside>
+      <div className="workspace-main-column">
+        <header className="workspace-topbar"><div className="workspace-breadcrumb"><span>Workspace</span><WorkspaceIcon name="arrow"/><strong>{WORKSPACE_LABELS[view]}</strong></div><div className="workspace-top-tools"><Link href="/">View public site</Link><ThemeToggle/></div></header>
+        {isVercelPreview() && <p className="workspace-preview-notice">{process.env.CD_LOCAL_SNAPSHOT === "true" ? "Local preview · Copy of production data. Changes and scans are disabled." : "Preview edition · Changes and scans are disabled."}</p>}
+        <main id="main-content" className="workspace-main">{children}</main>
+        <footer className="workspace-footer">Operator surfaces are never linked publicly. Sessions expire 12 hours after sign-in.</footer>
+      </div>
     </div>
   );
 }

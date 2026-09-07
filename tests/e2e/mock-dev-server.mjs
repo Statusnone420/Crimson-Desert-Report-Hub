@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
@@ -27,6 +28,9 @@ if (!Number.isFinite(fixtureNowMs)) throw new Error(`Invalid PLAYWRIGHT_NOW: ${f
 const now = () => fixtureNowMs;
 const isoMinutesAgo = (minutes) => new Date(now() - minutes * 60 * 1000).toISOString();
 const isoDaysAgo = (days) => new Date(now() - days * 24 * 60 * 60 * 1000).toISOString();
+const claimKey = (patchVersion, text) => createHash("sha256").update(`${patchVersion}\n${text.normalize("NFC").replace(/\0/g, "").trim().replace(/\s+/gu, " ")}`).digest("hex");
+const MAP_CLAIM_TEXT = "[PS5] Fixed an issue where opening the world map could crash or freeze the client.";
+const FPS_CLAIM_TEXT = "Fixed an issue where performance could drop in crowded areas.";
 
 const clusterIds = {
   fps: "00000000-0000-4000-8000-000000000001",
@@ -46,6 +50,7 @@ const clusters = [
     fix_status: "reported",
     confidence: "medium",
     is_public: true,
+    admin_override: false,
   },
   {
     id: clusterIds.map,
@@ -58,6 +63,7 @@ const clusters = [
     fix_claimed_patch_version: "1.13.01",
     confidence: "medium",
     is_public: true,
+    admin_override: false,
   },
   {
     id: clusterIds.mount,
@@ -68,6 +74,7 @@ const clusters = [
     fix_status: "reported",
     confidence: "low",
     is_public: true,
+    admin_override: false,
   },
   {
     id: clusterIds.ghosting,
@@ -78,6 +85,7 @@ const clusters = [
     fix_status: "acknowledged",
     confidence: "low",
     is_public: true,
+    admin_override: false,
   },
   {
     id: clusterIds.visibilityOverride,
@@ -88,6 +96,7 @@ const clusters = [
     fix_status: "reported",
     confidence: "low",
     is_public: false,
+    admin_override: false,
     admin_visibility_override: "force_hidden",
     admin_visibility_reason: "Temporary duplicate hold while the Xbox graphics reports are consolidated.",
     admin_visibility_changed_at: isoMinutesAgo(95),
@@ -127,7 +136,7 @@ const bugReports = reportSeed.map(([clusterId, category, platform, minutes], ind
 }));
 
 bugReports.push({
-  id: "report-pending-1",
+  id: "00000000-0000-4000-8000-000000000101",
   created_at: isoMinutesAgo(22),
   patch_version: "1.13.00",
   platform: "pc_steam",
@@ -165,6 +174,33 @@ const excerpts = [
     bug_reports: { cluster_id: clusterIds.mount, platform: "xbox_series_x" },
   },
 ];
+
+const claimReviewPairings = [
+  {
+    id: "00000000-0000-4000-8000-000000000201",
+    pairing_key: `${claimKey("1.13.01", MAP_CLAIM_TEXT)}\n${clusterIds.map}`,
+    claim_key: claimKey("1.13.01", MAP_CLAIM_TEXT), revision: 1, state: "pending", board_no: "105", patch_version: "1.13.01",
+    official_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+    exact_official_text: MAP_CLAIM_TEXT, official_section: "Content",
+    cluster_id: clusterIds.map, cluster_slug: "map-open-crash-persists", cluster_title: "Map-open crash persists after fix", cluster_category: "crash_startup",
+    proposal_kind: "keyword_proposal", proposal_reason: "Needs review: the claim and issue both mention map crashes.",
+    first_seen_at: isoMinutesAgo(150), last_seen_at: isoMinutesAgo(20), seen_count: 3, seen_by_operator_at: null,
+    rejected_reason: null, confirmed_at: null, retired_at: null, retired_reason: null, cluster_lifecycle_revision: 1,
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000202",
+    pairing_key: `${claimKey("1.13.01", FPS_CLAIM_TEXT)}\n${clusterIds.fps}`,
+    claim_key: claimKey("1.13.01", FPS_CLAIM_TEXT), revision: 2, state: "rejected", board_no: "105", patch_version: "1.13.01",
+    official_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+    exact_official_text: FPS_CLAIM_TEXT, official_section: "Graphics / Settings",
+    cluster_id: clusterIds.fps, cluster_slug: "fps-regression-113", cluster_title: "FPS regression since 1.13", cluster_category: "performance",
+    proposal_kind: "llm_unsure", proposal_reason: "The wording is only weakly related to the issue.",
+    first_seen_at: isoMinutesAgo(250), last_seen_at: isoMinutesAgo(100), seen_count: 2, seen_by_operator_at: isoMinutesAgo(90),
+    rejected_reason: "Camera smoothing does not describe the frame-rate regression.", confirmed_at: null, retired_at: null, retired_reason: null, cluster_lifecycle_revision: 1,
+  },
+];
+
+const claimReviewAuditEvents = [];
 
 const signals = [
   {
@@ -454,16 +490,18 @@ const officialPatchNotes = [
 
 const officialPatchClaimedFixes = [
   {
+    id: "official-fix-105-0",
     board_no: "105",
     position: 0,
-    fix_text: "[PS5] Fixed an issue where opening the world map could crash or freeze the client.",
+    fix_text: MAP_CLAIM_TEXT,
     category: "crash_startup",
     section: "Content",
   },
   {
+    id: "official-fix-105-1",
     board_no: "105",
     position: 1,
-    fix_text: "Fixed an issue where performance could drop in crowded areas.",
+    fix_text: FPS_CLAIM_TEXT,
     category: "performance",
     section: "Graphics / Settings",
   },
@@ -724,6 +762,16 @@ const videoPublicationDrafts = [
   },
 ];
 
+const dossierRuns = [
+  {
+    id: "dossier-run-1",
+    created_at: isoMinutesAgo(75),
+    provider: "deterministic",
+    markdown: "# Fixture dossier\n\nThis private fixture output is safe to copy for the operator workflow test.\n",
+    stats: { totalSignals: 3, totalDirectReports: 2, totalVerifiedReports: 1, pendingCount: 1 },
+  },
+];
+
 /**
  * Preview seed override: when PREVIEW_SEED_FILE points at a JSON file, its
  * table arrays replace the built-in Playwright seed in place. This is the
@@ -752,6 +800,9 @@ if (previewSeedFile) {
     scanner_feedback_rules: scannerFeedbackRules,
     video_review_candidates: videoReviewCandidates,
     video_publication_drafts: videoPublicationDrafts,
+    dossier_runs: dossierRuns,
+    claim_review_pairings: claimReviewPairings,
+    claim_review_audit_events: claimReviewAuditEvents,
   };
   const seed = JSON.parse(readFileSync(previewSeedFile, "utf8"));
   for (const [table, rows] of Object.entries(seed)) {
@@ -791,10 +842,19 @@ const resettableTables = [
   signalObservationEvents,
   videoReviewCandidates,
   videoPublicationDrafts,
+  dossierRuns,
+  claimReviewPairings,
+  claimReviewAuditEvents,
 ];
+
 const pristineTables = resettableTables.map((table) => structuredClone(table));
 
 let mockIdSeq = 0;
+let failNextApprovedExcerptInsert = false;
+let claimReviewReadUnavailable = false;
+let dossierRunsUnavailable = false;
+let failNextVideoMutation = false;
+let bugReportReadsUnavailable = false;
 /** Stable ids per server run: production returns uuids, but nothing reads their shape. */
 const nextMockId = (prefix) => `mock-${prefix}-${(mockIdSeq += 1)}`;
 
@@ -803,6 +863,11 @@ function resetFixture() {
     table.splice(0, table.length, ...structuredClone(pristineTables[index]));
   });
   mockIdSeq = 0;
+  failNextApprovedExcerptInsert = false;
+  claimReviewReadUnavailable = false;
+  dossierRunsUnavailable = false;
+  failNextVideoMutation = false;
+  bugReportReadsUnavailable = false;
 }
 
 /**
@@ -1142,6 +1207,36 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/__test__/fail-next-approved-excerpt" && req.method === "POST") {
+    failNextApprovedExcerptInsert = true;
+    sendJson(res, req.method, 200, { armed: true });
+    return;
+  }
+
+  if (url.pathname === "/__test__/claim-review-unavailable" && req.method === "POST") {
+    claimReviewReadUnavailable = true;
+    sendJson(res, req.method, 200, { unavailable: true });
+    return;
+  }
+
+  if (url.pathname === "/__test__/dossier-runs-unavailable" && req.method === "POST") {
+    dossierRunsUnavailable = true;
+    sendJson(res, req.method, 200, { unavailable: true });
+    return;
+  }
+
+  if (url.pathname === "/__test__/fail-next-video-mutation" && req.method === "POST") {
+    failNextVideoMutation = true;
+    sendJson(res, req.method, 200, { armed: true });
+    return;
+  }
+
+  if (url.pathname === "/__test__/bug-reports-unavailable" && req.method === "POST") {
+    bugReportReadsUnavailable = true;
+    sendJson(res, req.method, 200, { unavailable: true });
+    return;
+  }
+
   if (url.pathname === "/rest/v1/issue_clusters" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(clusters, url));
     return;
@@ -1180,7 +1275,57 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/rest/v1/bug_reports" && req.method === "GET") {
+    if (bugReportReadsUnavailable) {
+      sendPgError(res, req.method, 500, "fixture approved reports read unavailable", "XX000");
+      return;
+    }
     sendJson(res, req.method, 200, filterRows(bugReports, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/bug_reports" && req.method === "PATCH") {
+    const raw = await readBody(req);
+    const patch = raw ? JSON.parse(raw) : {};
+    const rows = filterRows(bugReports, url);
+    for (const row of rows) Object.assign(row, patch);
+    sendJson(res, req.method, 200, rows);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/claim_review_pairings" && req.method === "GET") {
+    if (claimReviewReadUnavailable) {
+      sendPgError(res, req.method, 500, "fixture claim review read unavailable", "XX000");
+      return;
+    }
+    sendJson(res, req.method, 200, filterRows(claimReviewPairings, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/claim_review_audit_events" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(claimReviewAuditEvents, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/dossier_runs" && req.method === "GET") {
+    if (dossierRunsUnavailable) {
+      sendPgError(res, req.method, 500, "fixture dossier run read unavailable", "XX000");
+      return;
+    }
+    sendJson(res, req.method, 200, filterRows(dossierRuns, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/dossier_runs" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const row = {
+      id: nextMockId("dossier"),
+      created_at: new Date(now()).toISOString(),
+      ...parsed,
+    };
+    dossierRuns.unshift(row);
+    const wantsObject = (req.headers.accept ?? "").includes("vnd.pgrst.object");
+    sendJson(res, req.method, 201, wantsObject ? row : [row]);
     return;
   }
 
@@ -1288,6 +1433,11 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/rest/v1/approved_excerpts" && req.method === "POST") {
     const raw = await readBody(req);
     const parsed = raw ? JSON.parse(raw) : {};
+    if (failNextApprovedExcerptInsert) {
+      failNextApprovedExcerptInsert = false;
+      sendPgError(res, req.method, 500, "fixture approved excerpt insert failed", "XX000");
+      return;
+    }
     const row = {
       id: `excerpt-${excerpts.length + 1}`,
       created_at: new Date(now()).toISOString(),
@@ -1399,6 +1549,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/rpc/mutate_video_review_candidate" && req.method === "POST") {
     const args = JSON.parse(await readBody(req));
+    if (failNextVideoMutation) {
+      failNextVideoMutation = false;
+      sendPgError(res, req.method, 500, "fixture video mutation unavailable", "XX000");
+      return;
+    }
     const row = videoReviewCandidates.find((item) => item.id === args.p_id);
     if (!row || row.revision !== args.p_revision) {
       sendPgError(res, req.method, 400, row ? "stale_video_review_edit" : "video_review_candidate_not_found", "P0001");
@@ -1450,6 +1605,64 @@ const server = createServer(async (req, res) => {
       else videoPublicationDrafts.push({ id: nextMockId("video-draft"), created_at: new Date(now()).toISOString(), ...payload });
     }
     sendJson(res, req.method, 200, { candidate: row, draft: videoPublicationDrafts.find((item) => item.candidate_id === row.id) ?? null });
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/rpc/mutate_claim_review_pairing" && req.method === "POST") {
+    const args = JSON.parse(await readBody(req));
+    const pairing = claimReviewPairings.find((row) => row.id === args.p_pairing_id);
+    if (!pairing || pairing.revision !== Number(args.p_revision)) {
+      sendPgError(res, req.method, 400, "claim_review_pairing_stale", "P0001");
+      return;
+    }
+    const action = String(args.p_action ?? "");
+    const priorState = pairing.state;
+    const reason = typeof args.p_reason === "string" ? args.p_reason.trim() : "";
+    if (!['confirm', 'reject', 'later', 'undo'].includes(action)) {
+      sendPgError(res, req.method, 400, "claim_review_action_invalid", "22023");
+      return;
+    }
+    if (action === "reject" && (reason.length < 3 || reason.length > 500)) {
+      sendPgError(res, req.method, 400, "claim_review_reject_reason_invalid", "22023");
+      return;
+    }
+    if ((action === "confirm" || action === "reject" || action === "later") && !["pending", "later"].includes(pairing.state)) {
+      sendPgError(res, req.method, 400, `claim_review_${action}_invalid_state`, "P0001");
+      return;
+    }
+    if (action === "undo" && !["confirmed", "rejected", "later"].includes(pairing.state)) {
+      sendPgError(res, req.method, 400, "claim_review_undo_invalid_state", "P0001");
+      return;
+    }
+    const occurredAt = new Date(now()).toISOString();
+    if (action === "confirm") Object.assign(pairing, { state: "confirmed", confirmed_at: occurredAt, rejected_reason: null, seen_by_operator_at: occurredAt });
+    if (action === "reject") Object.assign(pairing, { state: "rejected", rejected_reason: reason, seen_by_operator_at: occurredAt });
+    if (action === "later") Object.assign(pairing, { state: "later", seen_by_operator_at: occurredAt });
+    if (action === "undo") Object.assign(pairing, { state: "pending", rejected_reason: null, confirmed_at: null, seen_by_operator_at: null });
+    pairing.revision += 1;
+    claimReviewAuditEvents.push({
+      id: nextMockId("claim-audit"), pairing_id: pairing.id,
+      action: action === "undo" ? `undo_${priorState}` : action === "confirm" ? "confirmed" : action === "reject" ? "rejected" : "later",
+      actor: String(args.p_actor ?? "admin-session"), occurred_at: occurredAt, prior_state: priorState, state: pairing.state,
+      claim_key: pairing.claim_key, patch_version: pairing.patch_version, exact_official_text: pairing.exact_official_text,
+      cluster_id: pairing.cluster_id, reason: action === "reject" ? pairing.rejected_reason : null,
+    });
+    sendJson(res, req.method, 200, pairing);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/rpc/save_approved_report_excerpt" && req.method === "POST") {
+    const args = JSON.parse(await readBody(req));
+    const report = bugReports.find((row) => row.id === args.p_report_id);
+    const excerpt = typeof args.p_excerpt === "string" ? args.p_excerpt.trim() : "";
+    if (!report || report.moderation_status !== "approved" || !excerpt || excerpt.length > 500) {
+      sendPgError(res, req.method, 400, "report is missing or no longer approved", "22023");
+      return;
+    }
+    if (!excerpts.some((row) => row.report_id === report.id && row.excerpt_text === excerpt)) {
+      excerpts.push({ id: nextMockId("excerpt"), report_id: report.id, excerpt_text: excerpt, created_at: new Date(now()).toISOString(), bug_reports: null });
+    }
+    sendJson(res, req.method, 200, null);
     return;
   }
 
@@ -1998,7 +2211,7 @@ server.listen(supabasePort, "127.0.0.1", () => {
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.PLAYWRIGHT_TURNSTILE === "true" ? "1x00000000000000000000AA" : "",
       TURNSTILE_SECRET_KEY: "",
       GROQ_API_KEY: "",
-      OPENROUTER_API_KEY: "",
+      OPENROUTER_API_KEY: "mock-openrouter-key",
       // Blanked with the rest: a developer's real key in .env.local otherwise
       // flips the Observatory's Tavily card from "Off" to "Connected" and the
       // committed screenshots — taken with no keys — fail locally but not in CI.

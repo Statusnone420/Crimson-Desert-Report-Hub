@@ -300,7 +300,7 @@ test.describe("integrated newspaper public UI", () => {
     await expect(footer.getByRole("button", { name: "Admin", exact: true })).toHaveCount(0);
     await expect(footer.getByRole("link", { name: "Admin", exact: true })).toHaveCount(0);
 
-    await page.goto("/admin/login?from=%2Fadmin");
+    await page.goto("/admin/login?from=%2Foperator%3Fview%3Dreports");
     await expect(page.getByRole("heading", { level: 1, name: "Admin sign-in" })).toBeVisible();
     await page.getByLabel("Password").fill("admin-password");
     for (const theme of ["light", "dark"] as const) {
@@ -313,19 +313,19 @@ test.describe("integrated newspaper public UI", () => {
     await page.getByRole("button", { name: "Sign in" }).click();
     // CI compiles this client navigation on demand; wait for its document
     // transition before asserting the authenticated page and its controls.
-    await page.waitForURL(/\/admin$/, { timeout: 30_000 });
-    await expect(page.getByRole("heading", { name: "Report review" })).toBeVisible();
+    await page.waitForURL(/\/operator\?view=reports$/, { timeout: 30_000 });
+    await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
     const operator = page.getByRole("navigation", { name: "Operator" });
     await expect(operator.getByRole("link", { name: "Overview" })).toHaveAttribute("href", "/operator");
-    await expect(operator.getByRole("link", { name: "Report review" })).toHaveAttribute("aria-current", "page");
-    await expect(operator.getByRole("link", { name: "Videos" })).toHaveAttribute("href", "/admin/videos");
-    await expect(operator.getByRole("link", { name: "Scanner monitor" })).toHaveAttribute("href", "/scanner");
+    await expect(operator.getByRole("link", { name: "Reports" })).toHaveAttribute("aria-current", "page");
+    await expect(operator.getByRole("link", { name: "Videos" })).toHaveAttribute("href", "/operator?view=videos");
+    await expect(operator.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/operator?view=scanner");
     await page.getByRole("button", { name: /Export CSV/ }).click();
     await expect(page.getByText("Export all report-review rows?")).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
-    await page.goto("/admin/compile");
-    await expect(page.getByRole("heading", { name: "Compile Pearl Abyss dossier" })).toBeVisible();
+    await page.goto("/operator?view=dossiers");
+    await expect(page.getByRole("heading", { name: "Compile dossier" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Compile now" })).toBeVisible();
     await expectHealthyPage(page, problems);
   });

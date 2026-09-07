@@ -148,19 +148,15 @@ test.describe("operator write paths", () => {
     expect(unverified.ok()).toBe(true);
     await signInAsAdmin(page);
 
-    await page.goto("/scanner");
-    const scannerStatus = page.getByText("● AI UNAVAILABLE", { exact: true });
-    await expect(scannerStatus).toBeVisible();
-    await expect(scannerStatus).toHaveClass("is-amber");
-    await expect(page.getByText("Nothing requires intervention.", { exact: true })).toHaveCount(0);
+    await page.goto("/operator?view=scanner");
+    const scannerAttention = page.locator("#health").getByText("AI processing unavailable", { exact: true });
+    await expect(scannerAttention).toBeVisible();
+    await expect(page.getByText("No named health checks require action.", { exact: true })).toHaveCount(0);
 
     await page.goto("/operator");
-    await expect(page.getByRole("heading", { name: "Running quietly.", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "A few things need a look.", exact: true })).toBeVisible();
-    const aiService = page.locator(".op-service").filter({ has: page.getByRole("heading", { name: "AI processing", exact: true }) });
-    await expect(aiService).toContainText("No AI provider matches the selected route and price limit.");
-    await expect(aiService.locator(".op-status")).toHaveText("Unavailable");
-    await expect(aiService.locator(".op-status")).toHaveClass(/op-caution/);
+    const overviewAiAttention = page.locator(".workspace-overview").getByText("AI processing unavailable", { exact: true });
+    await expect(overviewAiAttention).toBeVisible();
+    await expect(page.getByText("No AI provider matches the selected route and price limit.")).toBeVisible();
     await expectHealthyPage(page, problems);
 
     const recoveredAt = new Date(Date.parse(startedAt) + 102_000).toISOString();
@@ -176,9 +172,9 @@ test.describe("operator write paths", () => {
     });
     expect(recovery.ok()).toBe(true);
     await page.reload();
-    await expect(aiService.locator(".op-status")).toHaveText("Available");
-    await page.goto("/scanner");
-    await expect(scannerStatus).toHaveCount(0);
+    await expect(overviewAiAttention).toHaveCount(0);
+    await page.goto("/operator?view=scanner");
+    await expect(scannerAttention).toHaveCount(0);
 
     // Overlapping scans can finish in the opposite order to their starts.
     // Legacy rows without a completion time must still use their start time.
@@ -201,21 +197,21 @@ test.describe("operator write paths", () => {
       });
       expect(newerOutcome.ok()).toBe(true);
       await page.reload();
-      await expect(scannerStatus).toHaveCount(outcome.failed ? 1 : 0);
+      await expect(scannerAttention).toHaveCount(outcome.failed ? 1 : 0);
       await page.goto("/operator");
-      await expect(aiService.locator(".op-status")).toHaveText(outcome.failed ? "Unavailable" : "Available");
-      await page.goto("/scanner");
+      await expect(overviewAiAttention).toHaveCount(outcome.failed ? 1 : 0);
+      await page.goto("/operator?view=scanner");
     }
 
     // Reset the injected run before invalidating the app's tagged scanner reads.
     // A fixture reset alone cannot clear data cached while these pages rendered.
     const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
     expect(reset.ok()).toBe(true);
-    await page.goto("/scanner");
+    await page.goto("/operator?view=scanner");
     const settings = page.locator("details.operator-disclosure").filter({ has: page.getByLabel("AI model", { exact: true }) });
     await settings.locator(":scope > summary").click();
     await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
-    await expect(page.getByText("● AI UNAVAILABLE", { exact: true })).toHaveCount(0);
+    await expect(scannerAttention).toHaveCount(0);
   });
 
   test("rejecting an archived ask and Undo preserve learning without publishing a headline", async ({ page }) => {
@@ -343,7 +339,7 @@ test.describe("operator write paths", () => {
     // itself revalidates all public tags for, against the restored rows.
     const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
     expect(reset.ok(), "mid-test fixture reset failed").toBe(true);
-    await page.goto("/admin");
+    await page.goto("/operator?view=settings");
     const patchLedger = page
       .locator("details")
       .filter({ has: page.getByText("Current patch override", { exact: true }) })
@@ -361,7 +357,7 @@ test.describe("operator write paths", () => {
     await page.goto("/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toBeVisible();
 
-    await page.goto("/admin");
+    await page.goto("/operator?view=settings");
     const visibilityLedger = page
       .locator("details")
       .filter({ has: page.getByText("Visibility overrides", { exact: true }) })
@@ -391,7 +387,7 @@ test.describe("operator write paths", () => {
 
     // Reset is the only writer of visibility=auto, and the restore columns are
     // what put the issue back the way the engine had it.
-    await page.goto("/admin");
+    await page.goto("/operator?view=settings");
     await visibilityLedger.locator(":scope > summary").click();
     await submitAction(page, () => forcedCard.getByRole("button", { name: "Reset to automatic" }).click());
     await expect(forcedCard).toHaveCount(0);
@@ -404,7 +400,7 @@ test.describe("operator write paths", () => {
   test("setting the current patch by hand takes over the board", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
-    await page.goto("/admin");
+    await page.goto("/operator?view=settings");
 
     const patchLedger = page
       .locator("details")
@@ -424,7 +420,7 @@ test.describe("operator write paths", () => {
     // touch the app's tagged render caches, and this project runs before the
     // screenshot projects. Overriding back makes the app do its own
     // revalidation, so the pages the next project renders are the seeded ones.
-    await page.goto("/admin");
+    await page.goto("/operator?view=settings");
     await patchLedger.locator(":scope > summary").click();
     await patchLedger.getByLabel("New current patch").fill("1.13.01");
     await submitAction(page, () => patchLedger.getByRole("button", { name: "Set current patch" }).click());
@@ -437,14 +433,16 @@ test.describe("operator write paths", () => {
   test("video inbox skip, save, and approve stay private and leave Watch unchanged", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
-    await page.goto("/admin/videos");
+    await page.goto("/operator?view=videos");
     await expect(page.getByRole("heading", { name: "Video review" })).toBeVisible();
 
     const pending = page.locator("article[data-video-state='pending']");
     await expect(pending).toHaveCount(1);
-    await pending.getByLabel("Title").fill("Fixture expansion commentary, corrected");
-    await submitAction(page, () => pending.getByRole("button", { name: "Save" }).click());
-    await expect(page.getByRole("heading", { name: "Fixture expansion commentary, corrected" })).toBeVisible();
+    await pending.getByRole("button", { name: /Fixture expansion commentary/ }).click();
+    const editor = page.getByRole("region", { name: /^Video details:/ });
+    await editor.getByLabel("Title").fill("Fixture expansion commentary, corrected");
+    await submitAction(page, () => editor.getByRole("button", { name: "Save" }).click());
+    await expect(pending).toContainText("Fixture expansion commentary, corrected");
 
     const corrected = page.locator("article[data-video-state='pending']");
     await submitAction(page, () => corrected.getByRole("button", { name: "Skip" }).click());
@@ -459,34 +457,28 @@ test.describe("operator write paths", () => {
     await add.getByLabel("Reviewed excerpt").fill("Invented excerpt for a later publication PR.");
     await add.getByLabel("Excerpt is reviewed").check();
     await submitAction(page, () => add.getByRole("button", { name: "Add to inbox" }).click());
-    await expect(page.getByRole("heading", { name: "Crimson Desert added fixture commentary" })).toBeVisible();
+    await expect(page.locator("article[data-video-state='pending']").filter({ hasText: "Crimson Desert added fixture commentary" })).toBeVisible();
 
-    const added = page.locator("article[data-video-state='pending']").filter({
-      has: page.getByRole("heading", { name: "Crimson Desert added fixture commentary" }),
-    });
+    const added = page.locator("article[data-video-state='pending']").filter({ hasText: "Crimson Desert added fixture commentary" });
     await submitAction(page, () => added.getByRole("button", { name: "Approve draft" }).click());
-    const drafted = page.locator("article[data-video-state='draft_ready']").filter({
-      has: page.getByRole("heading", { name: "Crimson Desert added fixture commentary" }),
-    });
-    await expect(drafted.getByText("Draft incomplete")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Crimson Desert added fixture commentary" })).toHaveCount(1);
+    const drafted = page.locator("article[data-video-state='draft_ready']").filter({ hasText: "Crimson Desert added fixture commentary" });
+    await expect(editor.getByText("Draft incomplete")).toBeVisible();
+    await expect(drafted).toBeVisible();
 
     await submitAction(page, () => drafted.getByRole("button", { name: "Approve draft" }).click());
-    await expect(page.getByRole("heading", { name: "Crimson Desert added fixture commentary" })).toHaveCount(1);
+    await expect(drafted).toBeVisible();
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
 
-    await drafted.getByLabel("YouTube URL").fill("https://youtu.be/abcdefghijk");
-    await submitAction(page, () => drafted.getByRole("button", { name: "Save", exact: true }).click());
-    const replacement = page.locator("article[data-video-state='pending']").filter({
-      has: page.getByRole("heading", { name: "Crimson Desert added fixture commentary" }),
-    });
+    await editor.getByLabel("YouTube URL").fill("https://youtu.be/abcdefghijk");
+    await submitAction(page, () => editor.getByRole("button", { name: "Save", exact: true }).click());
+    const replacement = page.locator("article[data-video-state='pending']").filter({ hasText: "Crimson Desert added fixture commentary" });
     await expect(replacement).toBeVisible();
-    await expect(replacement.getByRole("link", { name: "Download draft" })).toHaveCount(0);
+    await expect(editor.getByRole("link", { name: "Download draft" })).toHaveCount(0);
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
     await submitAction(page, () => replacement.getByRole("button", { name: "Approve draft" }).click());
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
 
-    const draftBeforeArchive = await drafted.locator(".video-draft-preview").textContent();
+    const draftBeforeArchive = await editor.locator(".video-draft-preview").textContent();
     await submitAction(page, () => drafted.getByRole("button", { name: "Archive draft" }).click());
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
     const archivedBrief = await (await page.request.get("/api/admin/video-review-brief")).json();
@@ -496,13 +488,13 @@ test.describe("operator write paths", () => {
     await page.getByText("Archived drafts (1)", { exact: true }).click();
     const archived = page.locator("article[data-video-state='archived']");
     await expect(archived.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
-    expect(await archived.locator(".video-draft-preview").textContent()).toBe(draftBeforeArchive);
+    expect(await editor.locator(".video-draft-preview").textContent()).toBe(draftBeforeArchive);
     await submitAction(page, () => archived.getByRole("button", { name: "Restore draft" }).click());
     await expect(page.locator("article[data-video-state='archived']")).toHaveCount(0);
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
     const restoredBrief = await (await page.request.get("/api/admin/video-review-brief")).json();
     expect(restoredBrief.videoInbox.draftsReady.count).toBe(2);
-    expect(await drafted.locator(".video-draft-preview").textContent()).toBe(draftBeforeArchive);
+    expect(await editor.locator(".video-draft-preview").textContent()).toBe(draftBeforeArchive);
 
     await page.goto("/watch");
     await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();

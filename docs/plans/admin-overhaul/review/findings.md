@@ -1,5 +1,6 @@
 # Slice A independent review — Spec (#96) + Concept (#97)
 
+> Historical review of PRs #96 and #97. The replacement implementation and current verification are documented in [the implementation record](../SLICE-A-HANDOFF.md). This verdict does not describe the replacement.
 Reviewer: Slice A Agent 3. Did not author either input. Did not edit `docs/plans/admin-overhaul/spec/` or `docs/plans/admin-overhaul/concept/`. No application code, migrations, paid calls, or merges.
 
 **Inputs**
