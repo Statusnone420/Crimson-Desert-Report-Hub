@@ -475,6 +475,17 @@ test.describe("operator write paths", () => {
     await expect(page.getByRole("heading", { name: "Crimson Desert added fixture commentary" })).toHaveCount(1);
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
 
+    await drafted.getByLabel("YouTube URL").fill("https://youtu.be/abcdefghijk");
+    await submitAction(page, () => drafted.getByRole("button", { name: "Save", exact: true }).click());
+    const replacement = page.locator("article[data-video-state='pending']").filter({
+      has: page.getByRole("heading", { name: "Crimson Desert added fixture commentary" }),
+    });
+    await expect(replacement).toBeVisible();
+    await expect(replacement.getByRole("link", { name: "Download draft" })).toHaveCount(0);
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
+    await submitAction(page, () => replacement.getByRole("button", { name: "Approve draft" }).click());
+    await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(2);
+
     await page.goto("/watch");
     await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Watch the official reveal ↗" })).toHaveAttribute(

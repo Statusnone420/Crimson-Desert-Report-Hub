@@ -159,6 +159,9 @@ function CandidateCard({
         <SubmitButton className="dispatch-btn" pendingText="Saving...">
           Save
         </SubmitButton>
+        {row.state === "draft_ready" ? (
+          <p className="scope-line">Changing the video or creator removes this draft and requires a new approval.</p>
+        ) : null}
       </form>
       <div className="review-item__form" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <form action={approveVideoCandidate}>
@@ -215,7 +218,7 @@ export default async function VideoReviewPage() {
   if (queue.status === "unavailable") {
     return (
       <OperatorShell active="videos">
-        <div className="dispatch-container">
+        <div className="dispatch-container video-review-inbox">
           <header className="dispatch-pagehead">
             <div className="dispatch-pagehead__copy">
               <p className="dispatch-kicker dispatch-kicker--amber">Operator · Watch inbox</p>
@@ -239,7 +242,7 @@ export default async function VideoReviewPage() {
 
   return (
     <OperatorShell active="videos">
-      <div className="dispatch-container">
+      <div className="dispatch-container video-review-inbox">
         <header className="dispatch-pagehead" style={{ paddingBottom: 32 }}>
           <div className="dispatch-pagehead__copy">
             <p className="dispatch-kicker dispatch-kicker--amber">Operator · Watch inbox</p>

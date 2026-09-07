@@ -30,13 +30,33 @@ test.describe("private video review inbox", () => {
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
     await expect(page.locator("article[data-video-state='skipped']")).toHaveCount(1);
     await expect(page.getByRole("link", { name: "Download draft" })).toBeVisible();
-    const artifactDir = "/opt/cursor/artifacts/video-inbox";
+    const artifactDir = "output/playwright/video-inbox";
     mkdirSync(artifactDir, { recursive: true });
     const project = test.info().project.name;
-    await page.screenshot({
-      path: `${artifactDir}/${project}-queue.png`,
-      fullPage: true,
-    });
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
+    for (const theme of ["light", "dark"] as const) {
+      await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+      const failures = await page.locator(".video-review-inbox").evaluate((root) => {
+        const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+        const luminance = (channels: number[]) => channels.map((channel) => {
+          const value = channel / 255;
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+        return Array.from(root.querySelectorAll("input:not([type=hidden]):not([type=checkbox]), select, textarea, .dispatch-btn, .review-item__body, .scope-line, .video-draft-preview")).flatMap((element) => {
+          const style = getComputedStyle(element);
+          let surface: Element | null = element;
+          while (surface && getComputedStyle(surface).backgroundColor === "rgba(0, 0, 0, 0)") surface = surface.parentElement;
+          if (!surface) return ["missing background"];
+          const foreground = luminance(rgb(style.color));
+          const background = luminance(rgb(getComputedStyle(surface).backgroundColor));
+          const contrast = (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+          return contrast >= 4.5 ? [] : [`${element.tagName}.${element.className}: ${contrast.toFixed(2)}`];
+        });
+      });
+      expect(failures, `${theme} inbox text must remain readable`).toEqual([]);
+      await page.screenshot({ path: `${artifactDir}/${project}-queue-${theme}.png`, fullPage: true, animations: "disabled" });
+    }
+    await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
 
     await page.goto("/watch");
     await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();

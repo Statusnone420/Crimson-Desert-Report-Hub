@@ -270,3 +270,23 @@ html[data-theme="dark"] .operator-newspaper {
   .operator-newspaper .op-service { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; }
   .operator-newspaper .op-service h3 { font-size: 23px; }
 }
+
+/* The private inbox reuses the operator palette for its legacy form classes. */
+.operator-newspaper .video-review-inbox {
+  --dispatch-inset: var(--op-paper);
+  --dispatch-raised: var(--op-paper);
+  --dispatch-ink: var(--op-ink);
+  --dispatch-dim: var(--op-muted);
+  --dispatch-muted: var(--op-muted);
+  --dispatch-faint: var(--op-muted);
+  --dispatch-quiet: var(--op-muted);
+  --surface-edge: var(--op-line);
+  --crimson: var(--op-red);
+}
+.operator-newspaper .video-review-inbox form.dispatch-field { display: grid; gap: 8px; align-items: start; }
+.operator-newspaper .video-review-inbox input,
+.operator-newspaper .video-review-inbox select,
+.operator-newspaper .video-review-inbox textarea { border-color: var(--op-line); }
+.operator-newspaper .video-review-inbox input[type="checkbox"] { min-width: 0; width: auto; }
+.operator-newspaper .video-review-inbox .dispatch-btn { justify-self: start; min-height: 44px; background: var(--op-ink); color: var(--op-paper); }
+.operator-newspaper .video-review-inbox .dispatch-btn:hover { background: var(--op-muted); }

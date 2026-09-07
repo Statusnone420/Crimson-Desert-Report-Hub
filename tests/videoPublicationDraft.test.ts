@@ -32,6 +32,8 @@ describe("publication draft", () => {
     expect(draft.missingRequirements.some((item) => item.includes("public/watch/zzDraftMock.jpg"))).toBe(true);
     expect(draft.missingRequirements.some((item) => item.includes("CREATOR_STILLS"))).toBe(true);
     expect(draft.markdown).toContain("Approval did not publish this video");
+    expect(draft.markdown).toContain('pointing at `/watch/zzDraftMock.jpg`');
+    expect(draft.markdown).not.toContain("public\\watch");
     expect(draft.markdown).toContain(officialWatchSelection.url);
     expect(draft.markdown).toContain("Do not mark the source `enabled: false` to pause it.");
     expect(getWatchSelections(now)).toEqual(before);

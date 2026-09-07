@@ -29,7 +29,7 @@ Do not call this as the anonymous or authenticated browser role. Execute is gran
         "channel": "Example channel",
         "state": "pending",
         "ageSeconds": 3600,
-        "reviewReason": "Short private reason, max 80 characters",
+        "reviewReason": "Video candidate awaiting owner review.",
         "adminPath": "/admin/videos"
       }
     ]
@@ -43,6 +43,8 @@ Do not call this as the anonymous or authenticated browser role. Execute is gran
   }
 }
 ```
+
+`reviewReason` is a fixed workflow status, never a copy of the private review note.
 
 `items` is bounded (at most eight). It never includes video IDs, source URLs, report bodies, evidence links, or rejected contents.
 
@@ -81,3 +83,9 @@ An authenticated admin GET to `/api/admin/video-review-brief` returns the same p
 3. Deploy the application that contains the inbox code.
 4. Sign in and open `/admin/videos`. Confirm a genuine empty queue or a genuine unavailable message.
 5. Run `select public.owner_attention_brief();` once. Confirm `status` is `ok` before the 10 AM task mentions videos.
+
+## Local verification and updates
+
+Candidate changes and their publication drafts commit together through the service-role-only `mutate_video_review_candidate` RPC. It locks the candidate and checks its revision before writing. Changing the video ID or registered creator returns the item to Pending and deletes its previous draft; the owner must approve that new identity. Correcting metadata for the same approved video refreshes its draft in the same transaction.
+
+Run `npm run db:start`, then `npm run db:reset -- --local`, then `npm exec supabase -- test db --local supabase/tests/video_review_inbox_test.sql`. The SQL tests roll back their synthetic fixtures. These commands target the local Docker stack only; hosted deployment and migration need separate approval.

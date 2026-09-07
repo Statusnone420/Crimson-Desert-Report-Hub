@@ -113,6 +113,142 @@ create policy deny_all_public_access on public.video_publication_drafts
   using (false)
   with check (false);
 
+-- Candidate state and its private publication draft are one transaction. The
+-- caller supplies a reviewed, normalized column payload; this function never
+-- accepts ownership of ids, state, revisions, or timestamps from that payload.
+create or replace function public.mutate_video_review_candidate(
+  p_id uuid,
+  p_revision integer,
+  p_operation text,
+  p_candidate jsonb default null,
+  p_draft jsonb default null
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  candidate_row public.video_review_candidates%rowtype;
+  draft_row public.video_publication_drafts%rowtype;
+  identity_changed boolean := false;
+  write_draft boolean := false;
+begin
+  select * into candidate_row
+  from public.video_review_candidates
+  where id = p_id
+  for update;
+
+  if not found then
+    raise exception using errcode = 'P0001', message = 'video_review_candidate_not_found';
+  end if;
+  if candidate_row.revision is distinct from p_revision then
+    raise exception using errcode = 'P0001', message = 'stale_video_review_edit';
+  end if;
+
+  if p_operation = 'save' then
+    if p_candidate is null or jsonb_typeof(p_candidate) <> 'object' then
+      raise exception using errcode = 'P0001', message = 'video_review_candidate_payload_required';
+    end if;
+    identity_changed :=
+      candidate_row.video_id is distinct from (p_candidate ->> 'video_id') or
+      candidate_row.source_id is distinct from (p_candidate ->> 'source_id') or
+      candidate_row.creator_channel_id is distinct from (p_candidate ->> 'creator_channel_id');
+
+    update public.video_review_candidates
+    set
+      video_id = p_candidate ->> 'video_id',
+      canonical_url = p_candidate ->> 'canonical_url',
+      submitted_url = p_candidate ->> 'submitted_url',
+      source_id = p_candidate ->> 'source_id',
+      creator_channel_id = p_candidate ->> 'creator_channel_id',
+      title = p_candidate ->> 'title',
+      channel_label = p_candidate ->> 'channel_label',
+      review_note = p_candidate ->> 'review_note',
+      reviewed_headline = p_candidate ->> 'reviewed_headline',
+      reviewed_excerpt = p_candidate ->> 'reviewed_excerpt',
+      excerpt_review_status = p_candidate ->> 'excerpt_review_status',
+      topic = p_candidate ->> 'topic',
+      published_at = p_candidate ->> 'published_at',
+      state = case when identity_changed then 'pending' else state end,
+      skipped_at = case when identity_changed then null else skipped_at end,
+      approved_at = case when identity_changed then null else approved_at end
+    where id = p_id
+    returning * into candidate_row;
+
+    if identity_changed then
+      delete from public.video_publication_drafts where candidate_id = p_id;
+    elsif candidate_row.state = 'draft_ready' then
+      write_draft := true;
+    end if;
+  elsif p_operation = 'approve' then
+    update public.video_review_candidates
+    set
+      state = 'draft_ready',
+      approved_at = coalesce(approved_at, now()),
+      skipped_at = null
+    where id = p_id
+    returning * into candidate_row;
+    write_draft := true;
+  elsif p_operation = 'skip' then
+    if candidate_row.state = 'draft_ready' then
+      raise exception using errcode = 'P0001', message = 'video_review_draft_ready_cannot_skip';
+    end if;
+    update public.video_review_candidates
+    set
+      state = 'skipped',
+      skipped_at = now(),
+      approved_at = null
+    where id = p_id
+    returning * into candidate_row;
+  else
+    raise exception using errcode = 'P0001', message = 'invalid_video_review_operation';
+  end if;
+
+  if write_draft then
+    if p_draft is null or jsonb_typeof(p_draft) <> 'object' then
+      raise exception using errcode = 'P0001', message = 'video_publication_draft_payload_required';
+    end if;
+    if p_draft ->> 'video_id' is distinct from candidate_row.video_id then
+      raise exception using errcode = 'P0001', message = 'video_publication_draft_identity_mismatch';
+    end if;
+    if jsonb_typeof(p_draft -> 'missing_requirements') is distinct from 'array' then
+      raise exception using errcode = 'P0001', message = 'video_publication_draft_requirements_invalid';
+    end if;
+
+    insert into public.video_publication_drafts (
+      candidate_id,
+      video_id,
+      completeness,
+      missing_requirements,
+      markdown
+    ) values (
+      candidate_row.id,
+      p_draft ->> 'video_id',
+      p_draft ->> 'completeness',
+      array(select jsonb_array_elements_text(p_draft -> 'missing_requirements')),
+      p_draft ->> 'markdown'
+    )
+    on conflict (candidate_id) do update set
+      video_id = excluded.video_id,
+      completeness = excluded.completeness,
+      missing_requirements = excluded.missing_requirements,
+      markdown = excluded.markdown
+    returning * into draft_row;
+  end if;
+
+  return jsonb_build_object(
+    'candidate', to_jsonb(candidate_row),
+    'draft', case when write_draft then to_jsonb(draft_row) else 'null'::jsonb end
+  );
+end;
+$$;
+
+revoke all on function public.mutate_video_review_candidate(uuid, integer, text, jsonb, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.mutate_video_review_candidate(uuid, integer, text, jsonb, jsonb)
+  to service_role;
+
 -- Read-only owner brief for the existing 10 AM cloud health check.
 -- Call: select public.owner_attention_brief();
 -- Restricted: not granted to anon/authenticated. Missing function is unavailable,
@@ -163,7 +299,10 @@ begin
       'channel', channel_label,
       'state', state,
       'ageSeconds', extract(epoch from item_age)::int,
-      'reviewReason', left(btrim(review_note), 80),
+      'reviewReason', case
+        when state = 'draft_ready' then 'Publication draft ready for owner review.'
+        else 'Video candidate awaiting owner review.'
+      end,
       'adminPath', '/admin/videos'
     ) as item,
     extract(epoch from item_age)::int as item_age_seconds

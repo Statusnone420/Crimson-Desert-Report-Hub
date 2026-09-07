@@ -183,87 +183,39 @@ export async function insertVideoReviewCandidate(
   return row;
 }
 
-async function updateCandidateAtRevision(
-  supabase: ReturnType<typeof createServiceClient>,
-  id: string,
-  revision: number,
-  patch: Record<string, unknown>,
-): Promise<VideoReviewRow> {
-  const updated = await supabase
-    .from("video_review_candidates")
-    .update(patch)
-    .eq("id", id)
-    .eq("revision", revision)
-    .select("*")
-    .limit(1);
-  if (updated.error) {
-    if (isMissingSupabaseRelation(updated.error, "video_review_candidates")) {
-      throw new Error("video review inbox is unavailable until its migration is applied");
-    }
-    throw new Error(`video candidate update failed: ${updated.error.message}`);
-  }
-  const row = (updated.data as VideoReviewRow[] | null)?.[0];
-  if (row) return row;
+type CandidateMutation = { candidate: VideoReviewRow; draft: VideoPublicationDraftRow | null };
 
-  const existing = await supabase.from("video_review_candidates").select("id, revision").eq("id", id).limit(1);
-  throwReadError("video candidate", existing.error);
-  if (!(existing.data as { id: string }[] | null)?.[0]) throw new Error("video candidate not found");
-  throw new StaleVideoReviewEdit();
-}
-
-export async function updateVideoReviewCandidate(
-  supabase: ReturnType<typeof createServiceClient>,
-  id: string,
-  revision: number,
-  candidate: NormalizedVideoReviewCandidate,
-): Promise<VideoReviewRow> {
-  const row = await updateCandidateAtRevision(supabase, id, revision, {
-    source_id: candidate.sourceId,
-    creator_channel_id: candidate.creatorChannelId,
-    title: candidate.title,
-    channel_label: candidate.channelLabel,
-    review_note: candidate.reviewNote,
-    reviewed_headline: candidate.reviewedHeadline,
-    reviewed_excerpt: candidate.reviewedExcerpt,
-    excerpt_review_status: candidate.excerptReviewStatus,
-    topic: candidate.topic,
-    published_at: candidate.publishedAt,
-    submitted_url: candidate.submittedUrl,
-    canonical_url: candidate.canonicalUrl,
+function draftPayload(candidate: NormalizedVideoReviewCandidate) {
+  const draft = buildVideoPublicationDraft(candidate);
+  return {
     video_id: candidate.videoId,
-  });
-  if (row.state === "draft_ready") {
-    await upsertPublicationDraft(supabase, row);
-  }
-  return row;
-}
-
-async function upsertPublicationDraft(
-  supabase: ReturnType<typeof createServiceClient>,
-  row: VideoReviewRow,
-): Promise<VideoPublicationDraftRow> {
-  const draft = buildVideoPublicationDraft(rowToNormalized(row));
-  const payload = {
-    candidate_id: row.id,
-    video_id: row.video_id,
     completeness: draft.completeness,
     missing_requirements: draft.missingRequirements,
     markdown: draft.markdown,
   };
-  const upserted = await supabase
-    .from("video_publication_drafts")
-    .upsert(payload, { onConflict: "candidate_id" })
-    .select("*")
-    .limit(1);
-  if (upserted.error) {
-    if (isMissingSupabaseRelation(upserted.error, "video_publication_drafts")) {
+}
+
+async function mutateCandidate(
+  supabase: ReturnType<typeof createServiceClient>,
+  id: string,
+  revision: number,
+  operation: "save" | "approve" | "skip",
+  candidate: Record<string, unknown> | null = null,
+  draft: ReturnType<typeof draftPayload> | null = null,
+): Promise<CandidateMutation> {
+  const result = await supabase.rpc("mutate_video_review_candidate", {
+    p_id: id, p_revision: revision, p_operation: operation,
+    p_candidate: candidate, p_draft: draft,
+  });
+  if (result.error) {
+    if (result.error.message === "stale_video_review_edit") throw new StaleVideoReviewEdit();
+    if (isMissingSupabaseRpc(result.error, "mutate_video_review_candidate")) {
       throw new Error("video review inbox is unavailable until its migration is applied");
     }
-    throw new Error(`publication draft write failed: ${upserted.error.message}`);
+    throw new Error(`video candidate ${operation} failed: ${result.error.message}`);
   }
-  const saved = (upserted.data as VideoPublicationDraftRow[] | null)?.[0];
-  if (!saved) throw new Error("publication draft write returned no row");
-  return saved;
+  if (!result.data?.candidate) throw new Error("video candidate mutation returned no row");
+  return result.data as CandidateMutation;
 }
 
 async function readCandidate(
@@ -277,22 +229,44 @@ async function readCandidate(
   return row;
 }
 
+export async function updateVideoReviewCandidate(
+  supabase: ReturnType<typeof createServiceClient>,
+  id: string,
+  revision: number,
+  candidate: NormalizedVideoReviewCandidate,
+): Promise<VideoReviewRow> {
+  const current = await readCandidate(supabase, id);
+  if (current.revision !== revision) throw new StaleVideoReviewEdit();
+  const sameIdentity = current.video_id === candidate.videoId &&
+    current.source_id === candidate.sourceId && current.creator_channel_id === candidate.creatorChannelId;
+  const patch = insertPayload(candidate);
+  delete patch.state;
+  const draft = current.state === "draft_ready" && sameIdentity ? draftPayload(candidate) : null;
+  return (await mutateCandidate(supabase, id, revision, "save", patch, draft)).candidate;
+}
+
+async function existingApprovedDraft(
+  supabase: ReturnType<typeof createServiceClient>,
+  candidate: VideoReviewRow,
+): Promise<{ candidate: VideoReviewRow; draft: VideoPublicationDraftRow }> {
+  const draft = await readPublicationDraft(supabase, candidate.id);
+  if ("status" in draft) throw new Error("video review inbox is unavailable until its migration is applied");
+  return { candidate, draft };
+}
+
 export async function skipVideoReviewCandidate(
   supabase: ReturnType<typeof createServiceClient>,
   id: string,
   revision: number,
 ): Promise<VideoReviewRow> {
-  const row = await readCandidate(supabase, id);
-  if (row.state === "skipped") return row;
-  if (row.state === "draft_ready") {
+  const current = await readCandidate(supabase, id);
+  if (current.state === "skipped") return current;
+  if (current.state === "draft_ready") {
     throw new Error("This video already has a publication draft. Skipping it now would hide a ready later-PR item.");
   }
-  if (row.revision !== revision) throw new StaleVideoReviewEdit();
+  if (current.revision !== revision) throw new StaleVideoReviewEdit();
   try {
-    return await updateCandidateAtRevision(supabase, id, revision, {
-      state: "skipped",
-      skipped_at: new Date().toISOString(),
-    });
+    return (await mutateCandidate(supabase, id, revision, "skip")).candidate;
   } catch (error) {
     if (!(error instanceof StaleVideoReviewEdit)) throw error;
     const latest = await readCandidate(supabase, id);
@@ -306,26 +280,20 @@ export async function approveVideoReviewCandidate(
   id: string,
   revision: number,
 ): Promise<{ candidate: VideoReviewRow; draft: VideoPublicationDraftRow }> {
-  const row = await readCandidate(supabase, id);
-  if (row.state === "draft_ready") {
-    return { candidate: row, draft: await upsertPublicationDraft(supabase, row) };
-  }
-  if (row.revision !== revision) throw new StaleVideoReviewEdit();
-
-  let candidate: VideoReviewRow;
+  const current = await readCandidate(supabase, id);
+  // An already completed approval is read-only, including a repeated stale click.
+  if (current.state === "draft_ready") return existingApprovedDraft(supabase, current);
+  if (current.revision !== revision) throw new StaleVideoReviewEdit();
   try {
-    candidate = await updateCandidateAtRevision(supabase, id, revision, {
-      state: "draft_ready",
-      approved_at: row.approved_at ?? new Date().toISOString(),
-    });
+    const result = await mutateCandidate(supabase, id, revision, "approve", null, draftPayload(rowToNormalized(current)));
+    if (!result.draft) throw new Error("approval returned no publication draft");
+    return { candidate: result.candidate, draft: result.draft };
   } catch (error) {
     if (!(error instanceof StaleVideoReviewEdit)) throw error;
     const latest = await readCandidate(supabase, id);
-    if (latest.state !== "draft_ready") throw error;
-    candidate = latest;
+    if (latest.state === "draft_ready") return existingApprovedDraft(supabase, latest);
+    throw error;
   }
-  const draft = await upsertPublicationDraft(supabase, candidate);
-  return { candidate, draft };
 }
 
 export async function readPublicationDraft(

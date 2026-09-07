@@ -101,6 +101,35 @@ function tableApi(rows: Row[], options: { unique?: string; bumpRevision?: boolea
 
 function stubClient(tables: ReturnType<typeof createTables>, errors: Record<string, { code?: string; message: string } | null> = {}) {
   return {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name !== "mutate_video_review_candidate") throw new Error(`unexpected RPC ${name}`);
+      if (errors[name]) return { data: null, error: errors[name] };
+      const row = tables.candidates.find((item) => item.id === args.p_id);
+      if (!row) return { data: null, error: { message: "video_review_candidate_not_found" } };
+      if (row.revision !== args.p_revision) return { data: null, error: { message: "stale_video_review_edit" } };
+      const next = { ...row };
+      let removeDraft = false;
+      if (args.p_operation === "save") {
+        const patch = args.p_candidate as Row;
+        removeDraft = ["video_id", "source_id", "creator_channel_id"].some((key) => patch[key] !== row[key]);
+        Object.assign(next, patch);
+        if (removeDraft) Object.assign(next, { state: "pending", approved_at: null, skipped_at: null });
+      } else if (args.p_operation === "approve") {
+        Object.assign(next, { state: "draft_ready", approved_at: "2026-09-07T12:00:00Z" });
+      } else {
+        Object.assign(next, { state: "skipped", skipped_at: "2026-09-07T12:00:00Z" });
+      }
+      next.revision = Number(row.revision) + 1;
+      Object.assign(row, next);
+      if (removeDraft) tables.drafts.splice(0, tables.drafts.length, ...tables.drafts.filter((item) => item.candidate_id !== row.id));
+      if (args.p_draft) {
+        const payload = { ...(args.p_draft as Row), candidate_id: row.id };
+        const existing = tables.drafts.find((item) => item.candidate_id === row.id);
+        if (existing) Object.assign(existing, payload);
+        else tables.drafts.push({ id: `draft-${tables.drafts.length + 1}`, ...payload });
+      }
+      return { data: { candidate: { ...row }, draft: tables.drafts.find((item) => item.candidate_id === row.id) ?? null }, error: null };
+    },
     from: (name: string) => {
       if (errors[name]) {
         const error = errors[name];
@@ -206,5 +235,46 @@ describe("video review store", () => {
     expect(skipped.state).toBe("skipped");
     expect(again.state).toBe("skipped");
     expect(tables.drafts).toHaveLength(0);
+  });
+});
+
+
+describe("atomic video-review client contract", () => {
+  const validCandidate = { ...candidate, videoId: "abcdefghijk", canonicalUrl: "https://www.youtube.com/watch?v=abcdefghijk", submittedUrl: "https://youtu.be/abcdefghijk" };
+
+  it("does not separately mark a candidate approved when the transaction fails", async () => {
+    const tables = createTables();
+    const good = stubClient(tables);
+    const row = await insertVideoReviewCandidate(good, validCandidate);
+    const failing = stubClient(tables, { mutate_video_review_candidate: { message: "draft constraint failed" } });
+    await expect(approveVideoReviewCandidate(failing, row.id, row.revision)).rejects.toThrow("draft constraint failed");
+    expect(tables.candidates[0].state).toBe("pending");
+    expect(tables.drafts).toHaveLength(0);
+  });
+
+  it("requires a new approval after changing the approved video's identity", async () => {
+    const tables = createTables();
+    const client = stubClient(tables);
+    const row = await insertVideoReviewCandidate(client, validCandidate);
+    const approved = await approveVideoReviewCandidate(client, row.id, row.revision);
+    const changed = await updateVideoReviewCandidate(client, row.id, approved.candidate.revision, { ...validCandidate, videoId: "lmnopqrstuv", canonicalUrl: "https://www.youtube.com/watch?v=lmnopqrstuv", submittedUrl: "https://youtu.be/lmnopqrstuv" });
+    expect(changed.state).toBe("pending");
+    expect(changed.approved_at).toBeNull();
+    expect(tables.drafts).toHaveLength(0);
+    const reapproved = await approveVideoReviewCandidate(client, row.id, changed.revision);
+    expect(reapproved.draft.video_id).toBe("lmnopqrstuv");
+  });
+
+  it("refreshes same-video metadata and its draft together", async () => {
+    const tables = createTables();
+    const client = stubClient(tables);
+    const row = await insertVideoReviewCandidate(client, validCandidate);
+    const approved = await approveVideoReviewCandidate(client, row.id, row.revision);
+    const changed = await updateVideoReviewCandidate(client, row.id, approved.candidate.revision, { ...validCandidate, title: "Corrected Crimson Desert title" });
+    expect(changed.state).toBe("draft_ready");
+    expect(tables.drafts[0].markdown).toContain("Corrected Crimson Desert title");
+    const repeated = await approveVideoReviewCandidate(client, row.id, 1);
+    expect(repeated.candidate.revision).toBe(changed.revision);
+    expect(tables.drafts).toHaveLength(1);
   });
 });

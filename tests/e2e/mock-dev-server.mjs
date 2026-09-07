@@ -1396,6 +1396,50 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/rest/v1/rpc/mutate_video_review_candidate" && req.method === "POST") {
+    const args = JSON.parse(await readBody(req));
+    const row = videoReviewCandidates.find((item) => item.id === args.p_id);
+    if (!row || row.revision !== args.p_revision) {
+      sendPgError(res, req.method, 400, row ? "stale_video_review_edit" : "video_review_candidate_not_found", "P0001");
+      return;
+    }
+    const next = { ...row };
+    let removeDraft = false;
+    if (args.p_operation === "save") {
+      const patch = args.p_candidate;
+      removeDraft = ["video_id", "source_id", "creator_channel_id"].some((key) => patch[key] !== row[key]);
+      Object.assign(next, patch);
+      if (removeDraft) Object.assign(next, { state: "pending", approved_at: null, skipped_at: null });
+    } else if (args.p_operation === "approve") {
+      Object.assign(next, { state: "draft_ready", approved_at: row.approved_at ?? new Date(now()).toISOString() });
+    } else if (args.p_operation === "skip" && row.state !== "draft_ready") {
+      Object.assign(next, { state: "skipped", skipped_at: new Date(now()).toISOString() });
+    } else {
+      sendPgError(res, req.method, 400, "invalid_video_review_transition", "P0001");
+      return;
+    }
+    if (videoReviewCandidates.some((item) => item.id !== row.id && item.video_id === next.video_id)) {
+      sendPgError(res, req.method, 409, "duplicate video ID", "23505");
+      return;
+    }
+    if (next.state === "draft_ready" && (!args.p_draft || args.p_draft.video_id !== next.video_id)) {
+      sendPgError(res, req.method, 400, "invalid_publication_draft", "P0001");
+      return;
+    }
+    Object.assign(row, next, { revision: row.revision + 1, updated_at: new Date(now()).toISOString() });
+    if (removeDraft) {
+      videoPublicationDrafts.splice(0, videoPublicationDrafts.length, ...videoPublicationDrafts.filter((item) => item.candidate_id !== row.id));
+    }
+    if (row.state === "draft_ready") {
+      const draft = videoPublicationDrafts.find((item) => item.candidate_id === row.id);
+      const payload = { ...args.p_draft, candidate_id: row.id, updated_at: new Date(now()).toISOString() };
+      if (draft) Object.assign(draft, payload);
+      else videoPublicationDrafts.push({ id: nextMockId("video-draft"), created_at: new Date(now()).toISOString(), ...payload });
+    }
+    sendJson(res, req.method, 200, { candidate: row, draft: videoPublicationDrafts.find((item) => item.candidate_id === row.id) ?? null });
+    return;
+  }
+
   if (url.pathname === "/rest/v1/rpc/owner_attention_brief" && req.method === "POST") {
     const observed = new Date(now());
     const pending = videoReviewCandidates.filter((row) => row.state === "pending");
@@ -1415,7 +1459,7 @@ const server = createServer(async (req, res) => {
         channel: row.channel_label,
         state: row.state,
         ageSeconds: ageSeconds(row.state === "draft_ready" ? row.approved_at ?? row.created_at : row.created_at),
-        reviewReason: String(row.review_note).slice(0, 80),
+        reviewReason: row.state === "draft_ready" ? "Publication draft ready for owner review." : "Video candidate awaiting owner review.",
         adminPath: "/admin/videos",
       }))
       .sort((a, b) => b.ageSeconds - a.ageSeconds)

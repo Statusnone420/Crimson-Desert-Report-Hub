@@ -86,7 +86,7 @@ export function alreadyPublishedWatchVideoIds(): string[] {
 }
 
 export function localWatchStillPath(videoId: string): string {
-  return path.join("public", "watch", `${videoId}.jpg`);
+  return `public/watch/${videoId}.jpg`;
 }
 
 export function localWatchStillExists(videoId: string, cwd = process.cwd()): boolean {
