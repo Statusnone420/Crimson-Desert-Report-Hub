@@ -599,7 +599,7 @@ function configureProviders() {
     scheduledSearchCreditsPerRun: 1,
     monthlyTavilyCreditCap: 900,
     monthlyLlmUsdCap: 2,
-    modelPreset: "deepseek_v4_flash",
+    modelPreset: "gpt_5_6_luna",
     updatedAt: null,
   });
 }
@@ -1506,7 +1506,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
     await runAutomationMonitor({
@@ -1518,7 +1518,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -1592,7 +1592,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 1,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -1633,7 +1633,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4278,7 +4278,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4317,7 +4317,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4352,7 +4352,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4404,7 +4404,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4458,7 +4458,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4508,7 +4508,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4547,7 +4547,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -4613,7 +4613,7 @@ describe("runAutomationMonitor", () => {
         scheduledSearchCreditsPerRun: 1,
         monthlyTavilyCreditCap: 900,
         monthlyLlmUsdCap: 2,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
 
@@ -5737,7 +5737,7 @@ describe("cron keepalive route", () => {
       scheduledSearchCreditsPerRun: 1,
       monthlyTavilyCreditCap: 900,
       monthlyLlmUsdCap: 1,
-      modelPreset: "deepseek_v4_flash",
+      modelPreset: "gpt_5_6_luna",
       updatedAt: "2026-07-05T12:00:00.000Z",
     });
     mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });

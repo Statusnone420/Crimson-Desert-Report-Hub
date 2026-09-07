@@ -48,12 +48,14 @@ export const OPENROUTER_DEEPSEEK_ROLLBACK_MODEL = "deepseek/deepseek-v4-flash";
 export const SCANNER_MODEL_PRESETS = [
   { id: "gpt_5_6_luna", label: "GPT-5.6 Luna · Standard", model: OPENROUTER_AUTOMATION_MODEL },
   { id: "gpt_5_6_luna_flex", label: "GPT-5.6 Luna · Flex", model: OPENROUTER_AUTOMATION_MODEL, serviceTier: "flex" },
-  { id: "deepseek_v4_flash", label: "DeepSeek V4 Flash · Manual rollback", model: OPENROUTER_DEEPSEEK_ROLLBACK_MODEL },
+  { id: "deepseek_v4_flash_rollback", label: "DeepSeek V4 Flash · Manual rollback", model: OPENROUTER_DEEPSEEK_ROLLBACK_MODEL },
 ] as const;
 
 export type ScannerModelPreset = (typeof SCANNER_MODEL_PRESETS)[number]["id"];
 
 export function normalizeScannerModelPreset(value: unknown): ScannerModelPreset {
+  // Preserve the prior migration: legacy DeepSeek settings select standard Luna.
+  if (value === "deepseek_v4_flash") return "gpt_5_6_luna";
   return SCANNER_MODEL_PRESETS.find(({ id }) => id === value)?.id ?? "gpt_5_6_luna";
 }
 

@@ -21,7 +21,7 @@ describe("saved scanner model presets", () => {
   const presets: { preset: ScannerModelPreset; model: string; inputPrice: number; outputPrice: number; tier?: string }[] = [
     { preset: "gpt_5_6_luna", model: "openai/gpt-5.6-luna", inputPrice: 0.2, outputPrice: 1.2 },
     { preset: "gpt_5_6_luna_flex", model: "openai/gpt-5.6-luna", inputPrice: 0.1, outputPrice: 0.6, tier: "flex" },
-    { preset: "deepseek_v4_flash", model: "deepseek/deepseek-v4-flash", inputPrice: 0.2, outputPrice: 0.5 },
+    { preset: "deepseek_v4_flash_rollback", model: "deepseek/deepseek-v4-flash", inputPrice: 0.2, outputPrice: 0.5 },
   ];
 
   for (const task of ["extraction", "claim_mapping"] as const) {

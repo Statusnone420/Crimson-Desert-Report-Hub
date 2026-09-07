@@ -247,11 +247,11 @@ describe("automation budget", () => {
 
   it("keeps Flex explicit and resolves saved presets before environment routing", () => {
     expect(SCANNER_MODEL_PRESETS.map(({ id }) => id)).toEqual([
-      "gpt_5_6_luna", "gpt_5_6_luna_flex", "deepseek_v4_flash",
+      "gpt_5_6_luna", "gpt_5_6_luna_flex", "deepseek_v4_flash_rollback",
     ]);
     expect(resolveAutomationOpenRouterModel(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL, "gpt_5_6_luna_flex"))
       .toBe(OPENROUTER_AUTOMATION_MODEL);
-    expect(resolveAutomationOpenRouterModel(OPENROUTER_AUTOMATION_MODEL, "deepseek_v4_flash"))
+    expect(resolveAutomationOpenRouterModel(OPENROUTER_AUTOMATION_MODEL, "deepseek_v4_flash_rollback"))
       .toBe(OPENROUTER_DEEPSEEK_ROLLBACK_MODEL);
     const flex = automationModelSettings(OPENROUTER_AUTOMATION_MODEL, "gpt_5_6_luna_flex");
     expect(flex).toMatchObject({

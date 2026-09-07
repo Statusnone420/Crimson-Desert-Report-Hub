@@ -83,7 +83,7 @@ beforeEach(() => {
     scheduledSearchCreditsPerRun: 1,
     monthlyTavilyCreditCap: 900,
     monthlyLlmUsdCap: 1,
-    modelPreset: "deepseek_v4_flash",
+    modelPreset: "gpt_5_6_luna",
     updatedAt: null,
   });
   mocks.sweepStaleRuns.mockReset().mockResolvedValue(undefined);

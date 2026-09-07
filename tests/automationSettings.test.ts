@@ -82,10 +82,38 @@ describe("automation scanner settings", () => {
 
     await expect(
       getAutomationControlState(fakeSupabase([{ key: "scanner", value: { modelPreset: "deepseek_v4_flash" } }])),
-    ).resolves.toMatchObject({ modelPreset: "deepseek_v4_flash" });
+    ).resolves.toMatchObject({ modelPreset: "gpt_5_6_luna" });
     await expect(
       getAutomationControlState(fakeSupabase([{ key: "scanner", value: { modelPreset: "gpt_5_6_luna_flex" } }])),
     ).resolves.toMatchObject({ modelPreset: "gpt_5_6_luna_flex" });
+  });
+
+  it("keeps legacy stored DeepSeek values on Luna without rewriting the row", async () => {
+    const { getAutomationControlState } = await import("@/lib/automation/settings");
+    const { resolveAutomationOpenRouterModel } = await import("@/lib/automation/budget");
+    const rows: Row[] = [{ key: "scanner", value: { paused: true, modelPreset: "deepseek_v4_flash", monthlyLlmUsdCap: 0.5 } }];
+    const before = structuredClone(rows);
+    const policy = await getAutomationControlState(fakeSupabase(rows));
+    expect(policy).toMatchObject({ paused: true, modelPreset: "gpt_5_6_luna", monthlyLlmUsdCap: 0.5 });
+    expect(resolveAutomationOpenRouterModel("deepseek/deepseek-v4-flash", policy.modelPreset)).toBe("openai/gpt-5.6-luna");
+    expect(rows).toEqual(before);
+  });
+
+  it("round-trips a new explicit rollback choice through form, storage and pause changes", async () => {
+    const { scannerPolicyFromFormData, setScannerPolicy, getAutomationControlState, setAutomationPaused } = await import("@/lib/automation/settings");
+    const { resolveAutomationOpenRouterModel, automationModelSettings } = await import("@/lib/automation/budget");
+    const form = new FormData();
+    form.set("modelPreset", "deepseek_v4_flash_rollback");
+    form.set("monthlyLlmUsdCap", "0.5");
+    const rows: Row[] = [];
+    const client = fakeSupabase(rows);
+    await setScannerPolicy(client, scannerPolicyFromFormData(form));
+    await setAutomationPaused(client, true);
+    const policy = await getAutomationControlState(client);
+    expect(policy).toMatchObject({ modelPreset: "deepseek_v4_flash_rollback", paused: true, monthlyLlmUsdCap: 0.5 });
+    const model = resolveAutomationOpenRouterModel("openai/gpt-5.6-luna", policy.modelPreset);
+    expect(model).toBe("deepseek/deepseek-v4-flash");
+    expect(automationModelSettings(model, policy.modelPreset).provider).toMatchObject({ data_collection: "deny", zdr: true });
   });
 
   it("defaults to the safe scanner policy when no scanner setting exists", async () => {
@@ -188,7 +216,7 @@ describe("automation scanner settings", () => {
         scheduledSearchCreditsPerRun: 3,
         monthlyTavilyCreditCap: 100,
         monthlyLlmUsdCap: 1,
-        modelPreset: "deepseek_v4_flash",
+        modelPreset: "gpt_5_6_luna",
       },
     });
     await expect(getAutomationControlState(supabase)).resolves.toMatchObject({ paused: true });
@@ -210,7 +238,7 @@ describe("automation scanner settings", () => {
       scheduledSearchCreditsPerRun: 2,
       monthlyTavilyCreditCap: 900,
       monthlyLlmUsdCap: 1,
-      modelPreset: "deepseek_v4_flash",
+      modelPreset: "gpt_5_6_luna",
     });
 
     formData.set("cadence", "120");
