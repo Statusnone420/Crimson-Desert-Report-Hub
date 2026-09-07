@@ -12,5 +12,7 @@
   "patch_observations": [],
   "steam_pulse_snapshots": [],
   "platform_context_snapshots": [],
-  "scanner_feedback_rules": []
+  "scanner_feedback_rules": [],
+  "video_review_candidates": [],
+  "video_publication_drafts": []
 }

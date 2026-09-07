@@ -63,6 +63,11 @@ function videoIdFromWatchUrl(url: string): string | null {
   }
 }
 
+/** Read-only lookup for later publication drafts. Does not add Watch entries. */
+export function creatorStillForVideoId(videoId: string): WatchStill | undefined {
+  return CREATOR_STILLS[videoId];
+}
+
 function firstReviewedSentence(excerpt: string): string {
   const match = excerpt.match(/^.+?[.](?=\s|$)/);
   return match?.[0] ?? excerpt;

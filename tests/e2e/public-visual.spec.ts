@@ -318,6 +318,7 @@ test.describe("integrated newspaper public UI", () => {
     const operator = page.getByRole("navigation", { name: "Operator" });
     await expect(operator.getByRole("link", { name: "Overview" })).toHaveAttribute("href", "/operator");
     await expect(operator.getByRole("link", { name: "Report review" })).toHaveAttribute("aria-current", "page");
+    await expect(operator.getByRole("link", { name: "Videos" })).toHaveAttribute("href", "/admin/videos");
     await expect(operator.getByRole("link", { name: "Scanner monitor" })).toHaveAttribute("href", "/scanner");
     await page.getByRole("button", { name: /Export CSV/ }).click();
     await expect(page.getByText("Export all report-review rows?")).toBeVisible();

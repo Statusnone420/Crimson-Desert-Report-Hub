@@ -15,6 +15,7 @@ This is the public architecture contract: enough structure to review the privacy
 | `/observatory` | Aggregate Steam, Twitch, IGDB, and source-radar context with collection-health labels. |
 | `/report` | Anonymous structured report intake. |
 | `/scanner` | The Observatory view for anonymous visitors and the scanner monitor for an authenticated admin. This compatibility route is excluded from search indexing. |
+| `/admin/videos` | Authenticated owner inbox for manually reviewing YouTube links. Approval stores a private later-PR draft only. |
 | `/about` | Method, privacy posture, and official-support guidance. |
 | `/privacy` | Short public privacy note; the full policy remains in the repository. |
 | `/feed.xml` and `/rss.xml` | Separate Atom and RSS 2.0 feeds for original Report Hub articles only. |
@@ -70,6 +71,7 @@ public visitor or authenticated maintainer
                  +--> patch context and diagnostic observations
                  +--> Steam, Twitch, and IGDB snapshots
                  +--> automation history and settings
+                 +--> private video-review candidates and later-PR drafts
 
        maintained editorial register
       original articles / reviewed outbound links

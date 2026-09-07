@@ -8,6 +8,7 @@ This is the short, public-safe operating checklist. For provider setup and migra
 - Check the patch desk for current official context, and public pages for honest empty states.
 - Open `/operator` for collection health and recent-run status.
 - Review pending direct reports in `/admin`.
+- Use `/admin/videos` only when you have a YouTube link to review. It is not part of the daily check.
 - Open the authenticated `/scanner` view for run health, paused state, and obvious source problems. Anonymous visitors to `/scanner` see the public Observatory.
 - Approve only excerpts and links that are useful, relevant, and safe to publish.
 
@@ -37,7 +38,7 @@ This is the short, public-safe operating checklist. For provider setup and migra
 
 ## Before release
 
-Smoke-test `/`, `/news`, `/watch`, `/patches`, `/issues`, `/observatory`, `/report`, `/about`, and `/privacy`. After sign-in, check `/operator`, `/admin`, `/scanner`, and `/admin/compile`.
+Smoke-test `/`, `/news`, `/watch`, `/patches`, `/issues`, `/observatory`, `/report`, `/about`, and `/privacy`. After sign-in, check `/operator`, `/admin`, `/admin/videos`, `/scanner`, and `/admin/compile`.
 
 ~~~powershell
 npm run lint

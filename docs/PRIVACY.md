@@ -24,7 +24,7 @@ Public pages may show:
 - Aggregate Steam review sentiment, aggregate Twitch audience, and public IGDB game metadata when those lanes are configured and current.
 - Moderator-approved excerpts from direct reports.
 
-Public pages never intentionally show raw unmoderated report text, Steam review text retained for classification, hashed provider identifiers, connected-player snapshots, rejected scanner candidates, IP addresses, IP hashes, confirmation rows, or the confirmation-attempt ledger.
+Public pages never intentionally show raw unmoderated report text, Steam review text retained for classification, hashed provider identifiers, connected-player snapshots, rejected scanner candidates, IP addresses, IP hashes, confirmation rows, or the confirmation-attempt ledger. Pending and skipped video-review candidates, including their review notes, stay in private operator storage until a later publication PR adds an approved Watch entry.
 
 ## Structured Reports
 
