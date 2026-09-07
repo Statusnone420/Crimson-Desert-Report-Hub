@@ -43,6 +43,8 @@ export default async function PrivacyPage() {
           <dd className="method-registers__def">The report form never asks for an address.</dd>
           <dt className="method-registers__term">No ads or trackers</dt>
           <dd className="method-registers__def">This project does not include advertising code or analytics trackers.</dd>
+          <dt className="method-registers__term">Your catch-up place</dt>
+          <dd className="method-registers__def">This browser can remember your last visit and the date you choose to mark yourself caught up. These dates stay on your device. Turn off “Remember my place” in “Catch me up” to clear both dates and stop saving them. A shared catch-up link includes the starting point you chose.</dd>
           <dt className="method-registers__term">No raw IP storage</dt>
           <dd className="method-registers__def">The database does not store your IP address.</dd>
           <dt className="method-registers__term">Reports stay private</dt>

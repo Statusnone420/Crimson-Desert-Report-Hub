@@ -4,6 +4,7 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   testIgnore: ["n0.spec.ts", "turnstile-theme.spec.ts"],
   fullyParallel: false,
   timeout: 60_000,
