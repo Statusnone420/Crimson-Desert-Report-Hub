@@ -1,5 +1,5 @@
 begin;
-select plan(62);
+select plan(83);
 
 select ok(has_function_privilege('service_role', 'public.sync_claim_review_proposals(jsonb,timestamptz)', 'EXECUTE'), 'service role can sync claim-review proposals');
 select ok(not has_function_privilege('anon', 'public.sync_claim_review_proposals(jsonb,timestamptz)', 'EXECUTE'), 'anon cannot sync claim-review proposals');
@@ -206,6 +206,76 @@ select throws_ok(
     from public.claim_review_pairings where exact_official_text = 'Fixed a transport crash.'$sql$,
   'P0001', 'stale_claim_review_cluster', 'private clusters reject stale review actions'
 );
+
+-- A corrected or removed official line retires its pairing while the patch
+-- version is unchanged. The claim clock must not survive its only support, or
+-- the public issue keeps saying a fix is claimed with nothing backing it.
+insert into public.issue_clusters (id, slug, title, category, description, fix_status, confidence, is_public)
+values ('98000000-0000-4000-8000-000000000002', 'claim-review-boat', 'Boat crash', 'crash_startup', 'Boat crash context.', 'reported', 'medium', true);
+update public.official_patch_notes set is_current = false;
+insert into public.official_patch_notes (board_no, title, patch_version, official_url, observed_at, is_current)
+values ('claim-review-board-clock', 'Clock patch', '8.8.8', 'https://official.example/clock', '2026-09-09T12:00:00Z', true);
+insert into public.official_patch_claimed_fixes (board_no, position, fix_text, category, section)
+values ('claim-review-board-clock', 0, 'Fixed a boat crash.', 'crash_startup', 'Stability');
+select lives_ok($sql$
+  select public.sync_claim_review_proposals(jsonb_build_array(jsonb_build_object(
+    'claim_text', 'Fixed a boat crash.', 'cluster_id', '98000000-0000-4000-8000-000000000002',
+    'proposal_kind', 'llm_sure', 'proposal_reason', 'Exact boat mapping.'
+  )), '2026-09-09T12:01:00Z')
+$sql$, 'a sure boat pairing owns a new claim clock');
+select is((select fix_status from public.issue_clusters where id = '98000000-0000-4000-8000-000000000002'), 'fix_claimed', 'confirmed boat pairing stamps the claim clock');
+
+update public.official_patch_claimed_fixes set fix_text = 'Fixed a boat crash on load.'
+where board_no = 'claim-review-board-clock' and position = 0;
+select lives_ok($sql$select public.sync_claim_review_proposals('[]'::jsonb, '2026-09-09T12:02:00Z')$sql$, 'a corrected official line retires its pairing on the same patch');
+select is((select state from public.claim_review_pairings where exact_official_text = 'Fixed a boat crash.'), 'retired', 'the unsupported pairing retires');
+select is((select fix_status from public.issue_clusters where id = '98000000-0000-4000-8000-000000000002'), 'reported', 'retiring the only support clears the claim status');
+select is((select fix_claimed_patch_version from public.issue_clusters where id = '98000000-0000-4000-8000-000000000002'), null::text, 'retiring the only support clears the patch provenance');
+select ok((select not claim_clock_owned from public.claim_review_pairings where exact_official_text = 'Fixed a boat crash.'), 'a retired pairing no longer owns a claim clock');
+
+-- With another still-current confirmed pairing the clock is transferred, not
+-- cleared, so its owner remains recorded for a later safe undo.
+insert into public.issue_clusters (id, slug, title, category, description, fix_status, confidence, is_public)
+values ('98000000-0000-4000-8000-000000000003', 'claim-review-rudder', 'Rudder stall', 'crash_startup', 'Rudder context.', 'reported', 'medium', true);
+insert into public.official_patch_claimed_fixes (board_no, position, fix_text, category, section)
+values ('claim-review-board-clock', 1, 'Fixed a rudder stall.', 'crash_startup', 'Stability'),
+  ('claim-review-board-clock', 2, 'Fixed a rudder drift.', 'crash_startup', 'Stability');
+select lives_ok($sql$
+  select public.sync_claim_review_proposals(jsonb_build_array(
+    jsonb_build_object('claim_text', 'Fixed a rudder stall.', 'cluster_id', '98000000-0000-4000-8000-000000000003',
+      'proposal_kind', 'llm_sure', 'proposal_reason', 'First exact support.'),
+    jsonb_build_object('claim_text', 'Fixed a rudder drift.', 'cluster_id', '98000000-0000-4000-8000-000000000003',
+      'proposal_kind', 'llm_sure', 'proposal_reason', 'Second exact support.')
+  ), '2026-09-09T12:03:00Z')
+$sql$, 'two exact claims independently confirm one cluster');
+select is((select count(*) from public.claim_review_pairings where cluster_id = '98000000-0000-4000-8000-000000000003' and state = 'confirmed'), 2::bigint, 'both rudder claims are confirmed');
+
+update public.official_patch_claimed_fixes set fix_text = 'Fixed a rudder stall on load.'
+where board_no = 'claim-review-board-clock' and position = 1;
+select lives_ok($sql$select public.sync_claim_review_proposals('[]'::jsonb, '2026-09-09T12:04:00Z')$sql$, 'retiring a clock owner runs with a remaining support');
+select is((select state from public.claim_review_pairings where exact_official_text = 'Fixed a rudder stall.'), 'retired', 'the corrected rudder pairing retires');
+select is((select fix_status from public.issue_clusters where id = '98000000-0000-4000-8000-000000000003'), 'fix_claimed', 'a remaining confirmed support preserves the claim clock');
+select ok((select claim_clock_owned from public.claim_review_pairings where exact_official_text = 'Fixed a rudder drift.'), 'retirement transfers clock ownership to the remaining support');
+select lives_ok($sql$
+  select public.mutate_claim_review_pairing(id, revision, 'undo', null, 'test-operator')
+  from public.claim_review_pairings where exact_official_text = 'Fixed a rudder drift.'
+$sql$, 'the transferred owner can still be undone');
+select is((select fix_status from public.issue_clusters where id = '98000000-0000-4000-8000-000000000003'), 'reported', 'undoing the transferred owner clears the claim clock');
+
+-- A freshly migrated hosted database has an empty pairing table while the
+-- pre-migration lifecycle prose still holds real outstanding decisions.
+insert into public.issue_clusters (id, slug, title, category, description, fix_status, confidence, is_public, lifecycle_reason)
+values ('98000000-0000-4000-8000-000000000004', 'claim-review-legacy', 'Legacy prose', 'crash_startup', 'Legacy prose context.', 'reported', 'medium', true, 'Needs review: Pre-migration prose.');
+select ok(not has_table_privilege('anon', 'public.claim_review_sync_state', 'SELECT'), 'anon cannot read the durable sync marker');
+select ok(not has_table_privilege('service_role', 'public.claim_review_sync_state', 'DELETE'), 'the durable sync marker cannot be deleted by the writer role');
+select is((public.owner_attention_brief() #>> '{adminAttention,unsureClaimMatches}')::integer, 1, 'a recorded durable sync counts pairings and ignores pre-migration prose');
+
+reset role;
+delete from public.claim_review_sync_state;
+set local role service_role;
+select is((public.owner_attention_brief() #>> '{adminAttention,unsureClaimMatches}')::integer, 2, 'before the first durable sync the brief still counts pre-migration prose');
+select lives_ok($sql$select public.sync_claim_review_proposals('[]'::jsonb, '2026-09-09T12:05:00Z')$sql$, 'a completed pass records the durable sync marker again');
+select is((select count(*) from public.claim_review_sync_state), 1::bigint, 'the durable sync marker stays a single row');
 
 reset role;
 select * from finish();

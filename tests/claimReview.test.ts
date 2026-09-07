@@ -15,7 +15,19 @@ function pairingRow(id: string): Row {
   };
 }
 
-function pagingClient(rows: Row[], options: { currentContext?: boolean; nullPairingRead?: boolean; nullCurrentPatchRead?: boolean; cap?: number } = {}) {
+type MockError = { code?: string; message?: string };
+
+type PagingOptions = {
+  currentContext?: boolean;
+  nullPairingRead?: boolean;
+  nullCurrentPatchRead?: boolean;
+  cap?: number;
+  /** Defaults to a recorded durable sync so existing reads stay available. */
+  syncState?: "synced" | "awaiting" | "missing" | "denied";
+  legacyRows?: Row[];
+};
+
+function pagingClient(rows: Row[], options: PagingOptions = {}) {
   const cursors: (string | null)[] = [];
   const cap = options.cap ?? 500;
   const client = {
@@ -31,7 +43,21 @@ function pagingClient(rows: Row[], options: { currentContext?: boolean; nullPair
           after = value;
           return query;
         },
-        then: (resolve: (value: { data: Row[] | null; error: null }) => unknown) => {
+        then: (resolve: (value: { data: Row[] | null; error: MockError | null }) => unknown) => {
+          if (table === "claim_review_sync_state") {
+            if (options.syncState === "missing") {
+              return Promise.resolve({ data: null, error: { code: "PGRST205", message: "Could not find the table 'public.claim_review_sync_state' in the schema cache" } }).then(resolve);
+            }
+            if (options.syncState === "denied") {
+              return Promise.resolve({ data: null, error: { code: "42501", message: "permission denied for table claim_review_sync_state" } }).then(resolve);
+            }
+            if (options.syncState === "awaiting") return Promise.resolve({ data: [], error: null }).then(resolve);
+            return Promise.resolve({ data: [{ first_synced_at: "2026-09-07T12:00:00Z" }], error: null }).then(resolve);
+          }
+          if (table === "issue_clusters" && options.legacyRows) {
+            const page = options.legacyRows.filter((row) => String(row.id) > (after ?? ""));
+            return Promise.resolve({ data: page, error: null }).then(resolve);
+          }
           if (table === "claim_review_pairings") {
             cursors.push(after);
             if (options.nullPairingRead) return Promise.resolve({ data: null, error: null }).then(resolve);
@@ -135,6 +161,44 @@ describe("claim review queue paging", () => {
     const queue = await readClaimReviewQueue(client);
 
     expect(queue.availability).toMatchObject({ status: "unavailable", reason: "error" });
+  });
+});
+
+describe("claim review durable-sync fallback", () => {
+  const legacyRows: Row[] = [
+    { id: "00000000-0000-4000-8000-0000000000a1", slug: "legacy-one", title: "Legacy one", lifecycle_reason: "Needs review: keyword match." },
+    { id: "00000000-0000-4000-8000-0000000000a2", slug: "legacy-two", title: "Legacy two", lifecycle_reason: "Needs review: unsure match." },
+  ];
+
+  it("keeps pre-migration rows visible until the first durable sync is recorded", async () => {
+    const { client } = pagingClient([], { syncState: "awaiting", legacyRows });
+
+    const queue = await readClaimReviewQueue(client);
+
+    expect(queue.availability).toMatchObject({ status: "unavailable", reason: "awaiting_sync" });
+    expect(queue.pendingCount).toBe(2);
+    expect(queue.legacyReadonly).toHaveLength(2);
+    expect(queue.pending).toHaveLength(0);
+  });
+
+  it("still reports an unapplied migration as missing schema with its legacy rows", async () => {
+    const { client } = pagingClient([], { syncState: "missing", legacyRows });
+
+    const queue = await readClaimReviewQueue(client);
+
+    expect(queue.availability).toMatchObject({ status: "unavailable", reason: "missing_schema" });
+    expect(queue.pendingCount).toBe(2);
+  });
+
+  it("surfaces a denied sync-state read as an error instead of a missing table", async () => {
+    const { client } = pagingClient([], { syncState: "denied", legacyRows });
+
+    const queue = await readClaimReviewQueue(client);
+
+    expect(queue.availability).toMatchObject({ status: "unavailable", reason: "error" });
+    expect(queue.availability.status === "unavailable" && queue.availability.message).toContain("permission denied");
+    expect(queue.pendingCount).toBe(0);
+    expect(queue.legacyReadonly).toHaveLength(0);
   });
 });
 

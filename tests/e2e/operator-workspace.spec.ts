@@ -257,6 +257,33 @@ test.describe("operator workspace flows", () => {
     await expectHealthyPage(page, problems);
   });
 
+  test("a migrated store with no recorded sync keeps existing flags read-only", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+    const awaiting = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/claim-review-awaiting-sync`);
+    expect(awaiting.ok()).toBe(true);
+
+    await page.goto("/operator?view=claims");
+    await expect(page.getByText(/scanner has not recorded its first pass/)).toBeVisible();
+    await expect(page.getByText("Review store unavailable")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Decision history" })).toBeDisabled();
+
+    await page.goto("/operator");
+    await expect(page.getByRole("link", { name: /Claim review.*Unavailable/ })).toBeVisible();
+    await expectHealthyPage(page, problems);
+  });
+
+  test("a denied sync-state read is an error, never an empty queue", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+    const denied = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/claim-review-sync-state-denied`);
+    expect(denied.ok()).toBe(true);
+
+    await page.goto("/operator?view=claims");
+    await expect(page.getByText("Claim review could not be read. Its count and history are unavailable, not zero.")).toBeVisible();
+    await expectHealthyPage(page, problems);
+  });
+
   test("seven workspace destinations render in both palettes", async ({ page }, testInfo) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);

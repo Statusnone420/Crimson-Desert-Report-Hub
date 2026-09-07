@@ -396,7 +396,10 @@ export function ClaimWorkspace({
           {queue.availability.status === "unavailable" &&
           queue.availability.reason === "missing_schema"
             ? "The durable claim-review update has not been applied yet. Existing flags are shown read-only; this is not an empty queue. Do not use Lock to dismiss a proposed match."
-            : "Claim review could not be read. Its count and history are unavailable, not zero."}
+            : queue.availability.status === "unavailable" &&
+              queue.availability.reason === "awaiting_sync"
+              ? "The durable store is applied but the scanner has not recorded its first pass yet. Existing flags are shown read-only; this is not an empty queue. Do not use Lock to dismiss a proposed match."
+              : "Claim review could not be read. Its count and history are unavailable, not zero."}
         </div>
       )}
       {notice && (

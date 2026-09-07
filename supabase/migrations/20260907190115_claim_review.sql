@@ -94,6 +94,17 @@ create table public.claim_review_audit_events (
 
 create index claim_review_audit_events_pairing_idx on public.claim_review_audit_events (pairing_id, occurred_at desc, id);
 
+-- A freshly migrated hosted database has an empty pairing table while the
+-- pre-migration lifecycle rows still hold real outstanding decisions. Readers
+-- must keep showing those rows until the scanner records its first successful
+-- durable pass, so this row is the explicit "the durable store is populated"
+-- signal rather than inferring it from a row count of zero.
+create table public.claim_review_sync_state (
+  id boolean primary key default true check (id),
+  first_synced_at timestamptz not null,
+  last_synced_at timestamptz not null
+);
+
 create or replace function public.touch_claim_review_pairing()
 returns trigger
 language plpgsql
@@ -116,11 +127,14 @@ for each row execute function public.touch_claim_review_pairing();
 
 alter table public.claim_review_pairings enable row level security;
 alter table public.claim_review_audit_events enable row level security;
-revoke all on public.claim_review_pairings, public.claim_review_audit_events from public, anon, authenticated, service_role;
+alter table public.claim_review_sync_state enable row level security;
+revoke all on public.claim_review_pairings, public.claim_review_audit_events, public.claim_review_sync_state from public, anon, authenticated, service_role;
 grant select, insert, update on public.claim_review_pairings to service_role;
 grant select, insert on public.claim_review_audit_events to service_role;
+grant select, insert, update on public.claim_review_sync_state to service_role;
 create policy deny_all_public_access on public.claim_review_pairings for all to anon, authenticated using (false) with check (false);
 create policy deny_all_public_access on public.claim_review_audit_events for all to anon, authenticated using (false) with check (false);
+create policy deny_all_public_access on public.claim_review_sync_state for all to anon, authenticated using (false) with check (false);
 
 create or replace function public.claim_review_normalize(p_text text)
 returns text
@@ -174,6 +188,8 @@ declare
   cluster record;
   existing public.claim_review_pairings%rowtype;
   pairing public.claim_review_pairings%rowtype;
+  orphan record;
+  supporting_pairing_id uuid;
   normalized_claim text;
   next_state text;
   made_clock boolean;
@@ -230,6 +246,59 @@ begin
     retired.patch_version, retired.exact_official_text, retired.cluster_id, coalesce(candidates.prior_rejected_reason, retired.retired_reason)
   from retired
   join retirement_candidates as candidates on candidates.id = retired.id;
+
+  -- Retiring a pairing removes the support for any claim clock it owned. The
+  -- clock must move to another still-current confirmed pairing or be cleared:
+  -- an unchanged patch version would otherwise keep the public issue saying a
+  -- fix is claimed after its exact official claim was corrected or removed.
+  -- Every non-current pairing is already retired above, so a confirmed row
+  -- that remains here is still current.
+  for orphan in
+    select distinct retired_owner.cluster_id, retired_owner.patch_version
+    from public.claim_review_pairings as retired_owner
+    where retired_owner.state = 'retired'
+      and retired_owner.retired_at = p_seen_at
+      and retired_owner.claim_clock_owned
+  loop
+    select support.id into supporting_pairing_id
+    from public.claim_review_pairings as support
+    where support.cluster_id = orphan.cluster_id
+      and support.patch_version = orphan.patch_version
+      and support.state = 'confirmed'
+    order by support.confirmed_at, support.id
+    limit 1
+    for update;
+
+    if supporting_pairing_id is not null then
+      update public.claim_review_pairings set claim_clock_owned = true where id = supporting_pairing_id;
+    else
+      next_lifecycle_revision := null;
+      update public.issue_clusters
+      set fix_status = case when fix_status = 'fix_claimed' then 'reported' else fix_status end,
+          fix_claimed_at = null,
+          fix_claimed_patch_version = null,
+          lifecycle_reason = case when lifecycle_reason like 'Needs review:%' then null else lifecycle_reason end
+      where id = orphan.cluster_id
+        and admin_override = false
+        and fix_claimed_patch_version = orphan.patch_version
+      returning lifecycle_revision into next_lifecycle_revision;
+      if next_lifecycle_revision is not null then
+        update public.claim_review_pairings as siblings
+        set cluster_lifecycle_revision = next_lifecycle_revision
+        where siblings.cluster_id = orphan.cluster_id
+          and siblings.state <> 'retired'
+          and siblings.cluster_lifecycle_revision is distinct from next_lifecycle_revision;
+      end if;
+    end if;
+
+    update public.claim_review_pairings as retired_owner
+    set claim_clock_owned = false
+    where retired_owner.cluster_id = orphan.cluster_id
+      and retired_owner.patch_version = orphan.patch_version
+      and retired_owner.state = 'retired'
+      and retired_owner.retired_at = p_seen_at
+      and retired_owner.claim_clock_owned;
+  end loop;
 
   for proposal in select value from pg_catalog.jsonb_array_elements(p_proposals) loop
     if pg_catalog.jsonb_typeof(proposal) <> 'object'
@@ -380,6 +449,12 @@ begin
       end if;
     end if;
   end loop;
+
+  -- Reached only after a complete pass over the current patch, so readers may
+  -- stop falling back to the pre-migration lifecycle rows from here on.
+  insert into public.claim_review_sync_state (id, first_synced_at, last_synced_at)
+  values (true, p_seen_at, p_seen_at)
+  on conflict (id) do update set last_synced_at = p_seen_at;
 
   return query
   select ranked.cluster_id, ranked.state, ranked.proposal_kind, ranked.proposal_reason
@@ -585,27 +660,37 @@ set search_path = public
 as $$
 declare
   observed timestamptz := now(); pending_count integer; pending_oldest interval; draft_count integer; draft_oldest interval;
-  flagged_count integer; unsure_count integer; items jsonb;
+  flagged_count integer; unsure_count integer; items jsonb; durable_ready boolean;
 begin
   select count(*), (observed - min(created_at)) into pending_count, pending_oldest from public.video_review_candidates where state = 'pending';
   select count(*), (observed - min(approved_at)) into draft_count, draft_oldest from public.video_review_candidates where state = 'draft_ready';
   select count(*) into flagged_count from public.bug_reports where moderation_status = 'pending';
-  select count(*) into unsure_count
-  from public.claim_review_pairings as pairing
-  join public.official_patch_notes as patch
-    on patch.is_current = true
-   and patch.board_no = pairing.board_no
-   and patch.patch_version = pairing.patch_version
-  join public.issue_clusters as cluster
-    on cluster.id = pairing.cluster_id
-   and cluster.is_public = true
-   and cluster.admin_override = false
-  where pairing.state in ('pending', 'later')
-    and exists (
-      select 1 from public.official_patch_claimed_fixes as fix
-      where fix.board_no = patch.board_no
-        and public.claim_review_claim_key(patch.patch_version, fix.fix_text) = pairing.claim_key
-    );
+  select exists (select 1 from public.claim_review_sync_state) into durable_ready;
+  if durable_ready then
+    select count(*) into unsure_count
+    from public.claim_review_pairings as pairing
+    join public.official_patch_notes as patch
+      on patch.is_current = true
+     and patch.board_no = pairing.board_no
+     and patch.patch_version = pairing.patch_version
+    join public.issue_clusters as cluster
+      on cluster.id = pairing.cluster_id
+     and cluster.is_public = true
+     and cluster.admin_override = false
+    where pairing.state in ('pending', 'later')
+      and exists (
+        select 1 from public.official_patch_claimed_fixes as fix
+        where fix.board_no = patch.board_no
+          and public.claim_review_claim_key(patch.patch_version, fix.fix_text) = pairing.claim_key
+      );
+  else
+    -- The durable store has not completed a pass yet, so the pre-migration
+    -- lifecycle prose is still the only record of outstanding decisions.
+    select count(*) into unsure_count
+    from public.issue_clusters
+    where coalesce(admin_override, false) = false
+      and coalesce(lifecycle_reason, '') like 'Needs review:%';
+  end if;
   select coalesce(jsonb_agg(item order by item_age_seconds desc), '[]'::jsonb) into items from (
     select jsonb_build_object('title', title, 'channel', channel_label, 'state', state, 'ageSeconds', extract(epoch from item_age)::int,
       'reviewReason', case when state = 'draft_ready' then 'Publication draft ready for owner review.' else 'Video candidate awaiting owner review.' end,

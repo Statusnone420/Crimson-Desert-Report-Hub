@@ -202,6 +202,16 @@ const claimReviewPairings = [
 
 const claimReviewAuditEvents = [];
 
+/**
+ * The scanner records this marker once its first durable pass completes. The
+ * fixture ships it populated so claim review reads as available; clearing it
+ * exercises the freshly migrated hosted state, where the pairing table is
+ * empty but pre-migration lifecycle rows still hold real decisions.
+ */
+const claimReviewSyncState = [
+  { id: true, first_synced_at: isoMinutesAgo(400), last_synced_at: isoMinutesAgo(20) },
+];
+
 const signals = [
   {
     id: "signal-1",
@@ -803,6 +813,7 @@ if (previewSeedFile) {
     dossier_runs: dossierRuns,
     claim_review_pairings: claimReviewPairings,
     claim_review_audit_events: claimReviewAuditEvents,
+    claim_review_sync_state: claimReviewSyncState,
   };
   const seed = JSON.parse(readFileSync(previewSeedFile, "utf8"));
   for (const [table, rows] of Object.entries(seed)) {
@@ -845,6 +856,7 @@ const resettableTables = [
   dossierRuns,
   claimReviewPairings,
   claimReviewAuditEvents,
+  claimReviewSyncState,
 ];
 
 const pristineTables = resettableTables.map((table) => structuredClone(table));
@@ -852,6 +864,7 @@ const pristineTables = resettableTables.map((table) => structuredClone(table));
 let mockIdSeq = 0;
 let failNextApprovedExcerptInsert = false;
 let claimReviewReadUnavailable = false;
+let claimReviewSyncStateDenied = false;
 let dossierRunsUnavailable = false;
 let failNextVideoMutation = false;
 let bugReportReadsUnavailable = false;
@@ -865,6 +878,7 @@ function resetFixture() {
   mockIdSeq = 0;
   failNextApprovedExcerptInsert = false;
   claimReviewReadUnavailable = false;
+  claimReviewSyncStateDenied = false;
   dossierRunsUnavailable = false;
   failNextVideoMutation = false;
   bugReportReadsUnavailable = false;
@@ -991,6 +1005,17 @@ function filterRows(table, url) {
     if (value === "is.null") rows = rows.filter((row) => row[column] == null);
     if (value === "not.is.null") rows = rows.filter((row) => row[column] != null);
     if (column === "status" && value.startsWith("neq.")) rows = rows.filter((row) => row.status !== value.slice(4));
+    // readLegacyReadonly relies on the database to narrow clusters to unlocked
+    // engine-flagged rows. Ignoring these would hand it every cluster and make
+    // the pre-migration fallback look far larger than it is.
+    if (column === "admin_override" && value === "eq.false") rows = rows.filter((row) => !row.admin_override);
+    if (column === "lifecycle_reason" && value.startsWith("like.")) {
+      // Shape-matched to a trailing-wildcard prefix so an unrecognized pattern
+      // fails loudly instead of quietly matching every cluster.
+      const prefix = /^([^%_*]+)[%*]$/.exec(value.slice(5))?.[1];
+      if (!prefix) throw new Error(`Unsupported lifecycle_reason filter: ${value}`);
+      rows = rows.filter((row) => String(row.lifecycle_reason ?? "").startsWith(prefix));
+    }
     if (column === "progress->>llmSucceeded" && value.startsWith("gt.")) {
       rows = rows.filter((row) => Number(row.progress?.llmSucceeded ?? 0) > Number(value.slice(3)));
     }
@@ -1219,6 +1244,20 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // A freshly migrated hosted database: the pairing table exists but the
+  // scanner has not recorded its first durable pass.
+  if (url.pathname === "/__test__/claim-review-awaiting-sync" && req.method === "POST") {
+    claimReviewSyncState.splice(0, claimReviewSyncState.length);
+    sendJson(res, req.method, 200, { awaitingSync: true });
+    return;
+  }
+
+  if (url.pathname === "/__test__/claim-review-sync-state-denied" && req.method === "POST") {
+    claimReviewSyncStateDenied = true;
+    sendJson(res, req.method, 200, { denied: true });
+    return;
+  }
+
   if (url.pathname === "/__test__/dossier-runs-unavailable" && req.method === "POST") {
     dossierRunsUnavailable = true;
     sendJson(res, req.method, 200, { unavailable: true });
@@ -1303,6 +1342,15 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/claim_review_audit_events" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(claimReviewAuditEvents, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/claim_review_sync_state" && req.method === "GET") {
+    if (claimReviewSyncStateDenied) {
+      sendPgError(res, req.method, 403, "permission denied for table claim_review_sync_state", "42501");
+      return;
+    }
+    sendJson(res, req.method, 200, filterRows(claimReviewSyncState, url));
     return;
   }
 
@@ -1676,9 +1724,22 @@ const server = createServer(async (req, res) => {
       return stamps.length ? Math.max(...stamps) : null;
     };
     const flagged = bugReports.filter((row) => row.moderation_status === "pending").length;
-    const unsure = clusters.filter(
+    // Mirrors the migration: durable pairings replace the lifecycle prose only
+    // once a sync has been recorded, so a freshly migrated database keeps
+    // counting the pre-migration rows instead of reporting a false all-clear.
+    const legacyUnsure = clusters.filter(
       (row) => !row.admin_override && String(row.lifecycle_reason ?? "").startsWith("Needs review:"),
     ).length;
+    const currentPatch = officialPatchNotes.find((row) => row.is_current);
+    const unsure = claimReviewSyncState.length === 0 ? legacyUnsure : claimReviewPairings.filter((pairing) => {
+      if (!["pending", "later"].includes(pairing.state)) return false;
+      if (!currentPatch || pairing.board_no !== currentPatch.board_no || pairing.patch_version !== currentPatch.patch_version) return false;
+      const cluster = clusters.find((row) => row.id === pairing.cluster_id);
+      if (!cluster || !cluster.is_public || cluster.admin_override) return false;
+      return officialPatchClaimedFixes.some(
+        (fix) => fix.board_no === currentPatch.board_no && claimKey(currentPatch.patch_version, fix.fix_text) === pairing.claim_key,
+      );
+    }).length;
     const items = [...pending, ...drafts]
       .map((row) => ({
         title: row.title,
@@ -1704,6 +1765,7 @@ const server = createServer(async (req, res) => {
         needsYou: flagged + unsure,
         reportQueuePath: "/admin",
         scannerQueuePath: "/scanner",
+        claimReviewPath: "/operator?view=claims",
       },
     });
     return;

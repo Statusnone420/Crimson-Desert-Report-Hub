@@ -54,7 +54,7 @@ export type ClaimReviewAuditEvent = {
 
 export type ClaimReviewAvailability =
   | { status: "available" }
-  | { status: "unavailable"; reason: "missing_schema" | "error"; message: string };
+  | { status: "unavailable"; reason: "missing_schema" | "awaiting_sync" | "error"; message: string };
 
 export type ClaimReviewQueue = {
   availability: ClaimReviewAvailability;
@@ -219,7 +219,57 @@ function projectActivePairing(item: ClaimReviewItem, context: ClaimReviewCurrent
   return { ...item, isActive: item.state === "pending" || item.state === "later" };
 }
 
+function unavailableQueue(
+  reason: "missing_schema" | "awaiting_sync" | "error",
+  message: string,
+  legacy: ClaimReviewItem[] = [],
+): ClaimReviewQueue {
+  return { availability: { status: "unavailable", reason, message }, pending: [], history: [], audit: [], pendingCount: legacy.length, legacyReadonly: legacy };
+}
+
+/**
+ * The durable store is populated only after the scanner's first successful
+ * pass. Until then the pre-migration lifecycle rows are the real outstanding
+ * work, so they stay visible read-only rather than reading as an empty queue.
+ */
+async function legacyBackedQueue(
+  client: SupabaseClient,
+  reason: "missing_schema" | "awaiting_sync",
+  message: string,
+): Promise<ClaimReviewQueue> {
+  const legacy = await readLegacyReadonly(client);
+  if ("error" in legacy) {
+    return unavailableQueue("error", `claim review legacy read failed: ${legacy.error.message ?? "unknown error"}`);
+  }
+  return unavailableQueue(reason, message, legacy);
+}
+
+const MIGRATION_PENDING_MESSAGE = "Claim review is unavailable until its migration is applied.";
+const FIRST_SYNC_PENDING_MESSAGE = "Claim review is unavailable until the scanner records its first durable pass.";
+
+type ClaimReviewSyncState =
+  | { status: "synced" }
+  | { status: "missing_schema" }
+  | { status: "awaiting_sync" }
+  | { status: "error"; error: SupabaseErrorLike };
+
+async function readClaimReviewSyncState(client: SupabaseClient): Promise<ClaimReviewSyncState> {
+  const { data, error } = await client.from("claim_review_sync_state").select("first_synced_at").limit(1);
+  if (error) {
+    if (isMissingSupabaseRelation(error, "claim_review_sync_state")) return { status: "missing_schema" };
+    return { status: "error", error };
+  }
+  if (data === null) return { status: "error", error: { message: "claim review sync state read returned no data" } };
+  return data.length > 0 ? { status: "synced" } : { status: "awaiting_sync" };
+}
+
 export async function readClaimReviewQueue(client: SupabaseClient = createServiceClient()): Promise<ClaimReviewQueue> {
+  const sync = await readClaimReviewSyncState(client);
+  if (sync.status === "error") {
+    return unavailableQueue("error", `claim review sync state read failed: ${sync.error.message ?? "unknown error"}`);
+  }
+  if (sync.status === "missing_schema") return legacyBackedQueue(client, "missing_schema", MIGRATION_PENDING_MESSAGE);
+  if (sync.status === "awaiting_sync") return legacyBackedQueue(client, "awaiting_sync", FIRST_SYNC_PENDING_MESSAGE);
   const pairings = await readAll<Record<string, unknown>>((after) => {
     const query = client.from("claim_review_pairings").select("*").order("id").limit(500);
     return after === null ? query : query.gt("id", after);
@@ -227,17 +277,13 @@ export async function readClaimReviewQueue(client: SupabaseClient = createServic
   );
   if ("error" in pairings) {
     if (isMissingSupabaseRelation(pairings.error, "claim_review_pairings")) {
-      const legacy = await readLegacyReadonly(client);
-      if ("error" in legacy) {
-        return { availability: { status: "unavailable", reason: "error", message: `claim review legacy read failed: ${legacy.error.message ?? "unknown error"}` }, pending: [], history: [], audit: [], pendingCount: 0, legacyReadonly: [] };
-      }
-      return { availability: { status: "unavailable", reason: "missing_schema", message: "Claim review is unavailable until its migration is applied." }, pending: [], history: [], audit: [], pendingCount: legacy.length, legacyReadonly: legacy };
+      return legacyBackedQueue(client, "missing_schema", MIGRATION_PENDING_MESSAGE);
     }
-    return { availability: { status: "unavailable", reason: "error", message: `claim review read failed: ${pairings.error.message ?? "unknown error"}` }, pending: [], history: [], audit: [], pendingCount: 0, legacyReadonly: [] };
+    return unavailableQueue("error", `claim review read failed: ${pairings.error.message ?? "unknown error"}`);
   }
   const currentContext = await readClaimReviewCurrentContext(client);
   if ("error" in currentContext) {
-    return { availability: { status: "unavailable", reason: "error", message: `claim review eligibility read failed: ${currentContext.error.message ?? "unknown error"}` }, pending: [], history: [], audit: [], pendingCount: 0, legacyReadonly: [] };
+    return unavailableQueue("error", `claim review eligibility read failed: ${currentContext.error.message ?? "unknown error"}`);
   }
   const audits = await readAll<Record<string, unknown>>((after) => {
     const query = client.from("claim_review_audit_events").select("*").order("id").limit(500);
@@ -245,7 +291,7 @@ export async function readClaimReviewQueue(client: SupabaseClient = createServic
   },
   );
   if ("error" in audits) {
-    return { availability: { status: "unavailable", reason: "error", message: `claim review audit read failed: ${audits.error.message ?? "unknown error"}` }, pending: [], history: [], audit: [], pendingCount: 0, legacyReadonly: [] };
+    return unavailableQueue("error", `claim review audit read failed: ${audits.error.message ?? "unknown error"}`);
   }
   const items = pairings.rows.map(toItem).map((item) => projectActivePairing(item, currentContext.context));
   const pending = items.filter((item) => item.isActive);
