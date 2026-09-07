@@ -49,14 +49,14 @@ function parseCronResult(payload: unknown): CronResult {
   const automation = record.automation;
   if (!automation || typeof automation !== "object" || Array.isArray(automation)) throw new CronIncident("cron_response_invalid");
   const automationStatus = (automation as Record<string, unknown>).status;
-  if (!["success", "partial", "failed", "skipped", "running"].includes(String(automationStatus))) {
+  if (typeof automationStatus !== "string" || !["success", "partial", "failed", "skipped", "running"].includes(automationStatus)) {
     throw new CronIncident("cron_response_invalid");
   }
   const health = record.aiHealth;
   if (!health || typeof health !== "object" || Array.isArray(health)) throw new CronIncident("cron_response_invalid");
   const value = health as Record<string, unknown>;
   if (
-    !["healthy", "unavailable", "limited", "idle"].includes(String(value.state)) ||
+    typeof value.state !== "string" || !["healthy", "unavailable", "limited", "idle"].includes(value.state) ||
     !(value.code === null || typeof value.code === "string") ||
     typeof value.message !== "string" ||
     !(value.lastSuccessAt === null || typeof value.lastSuccessAt === "string")

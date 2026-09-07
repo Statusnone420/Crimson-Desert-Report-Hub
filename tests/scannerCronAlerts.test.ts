@@ -120,6 +120,20 @@ describe("scanner cron alert lifecycle", () => {
     expect(message).not.toMatch(/private\.example|Raw report|token=secret|private timestamp/i);
   });
 
+  it.each([
+    { automation: { status: ["failed"] }, aiHealth: healthy },
+    { automation: { status: "success" }, aiHealth: { ...healthy, state: ["healthy"] } },
+  ])("rejects array-valued response states without reporting recovery", async (payload) => {
+    const { env, email, read } = configuredEnv();
+    await expect(runCron(env, async () => response(limited))).rejects.toThrow("workers_ai_daily_limit");
+    email.send.mockClear();
+
+    await expect(runCron(env, async () => Response.json({ ok: true, ...payload }))).rejects.toThrow("cron_response_invalid");
+    expect(email.send).toHaveBeenCalledTimes(1);
+    expect(email.send.mock.calls[0][0].subject).toBe("[CD Report Hub] Scanner AI alert: cron_response_invalid");
+    expect(read()).toBe(JSON.stringify({ incidentCode: "cron_response_invalid" }));
+  });
+
   it("allows a healthy keepalive response after 15 seconds", async () => {
     vi.useFakeTimers();
     const { env, email } = configuredEnv();
