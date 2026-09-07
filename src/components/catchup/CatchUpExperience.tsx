@@ -2,11 +2,12 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
-import { motion, useReducedMotion, useScroll } from "motion/react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
+import { useReducedMotion } from "motion/react";
 import { CATCH_UP_COVERAGE_START, CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
 import { catchUpDate, catchUpHash, catchUpSelectionLabel, parseCatchUpChapter, parseCatchUpHash, selectCatchUpMilestones } from "@/lib/catchUp";
 import { localCalendarDay } from "@/lib/catchUpCalendar";
+import { chapterProgressExtent, scrollChildWithinContainer } from "@/lib/catchUpJourney";
 import { CatchUpMenu } from "./CatchUpMenu";
 import { useCatchUp } from "./CatchUpContext";
 
@@ -21,8 +22,9 @@ export function CatchUpExperience() {
   const briefs = milestones.filter((item) => item.kind !== "hotfix").slice(-3);
   const briefItems = briefs.length ? briefs : milestones.slice(-3);
   const journey = useRef<HTMLDivElement>(null);
+  const railLinks = useRef<HTMLDivElement>(null);
+  const progress = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
-  const { scrollYProgress } = useScroll({ target: journey, offset: ["start center", "end center"] });
   const [active, setActive] = useState("");
   const [notice, setNotice] = useState("");
   const [shareNotice, setShareNotice] = useState("");
@@ -66,6 +68,25 @@ export function CatchUpExperience() {
     journey.current?.querySelectorAll("article").forEach((article) => observer.observe(article));
     return () => observer.disconnect();
   }, [hash]);
+  useLayoutEffect(() => {
+    const rail = railLinks.current;
+    if (!rail) return;
+    const sync = () => {
+      const link = active ? rail.querySelector<HTMLAnchorElement>(`a[href*="chapter=${CSS.escape(active)}"]`) : null;
+      if (progress.current) progress.current.style.height = `${chapterProgressExtent(link)}px`;
+      if (link) scrollChildWithinContainer(rail, link, 8);
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(rail);
+    const track = rail.querySelector(".cu-rail-track");
+    if (track) observer.observe(track);
+    window.addEventListener("resize", sync);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [active, hash]);
   async function share() {
     try { await navigator.clipboard.writeText(window.location.href); setShareNotice("Link copied with your starting point."); }
     catch { setShareNotice("Copy this page’s address to share it."); }
@@ -89,7 +110,7 @@ export function CatchUpExperience() {
     <div className="cu-journey" ref={journey}>
       <div className="cu-journey-filter"><p>{catchUpSelectionLabel(selection)} · {milestones.length} entries</p>{selection.kind !== "all" && <a href="#history=all" onClick={showAllHistory}>Show all history →</a>}</div>
       {milestones.length > 0 && <>
-        <aside className="cu-rail" aria-label="Journey chapters"><p className="cu-rail-title">The journey</p><p className="cu-rail-selection">{catchUpSelectionLabel(selection)}</p>{selection.kind !== "all" && <a className="cu-show-all" href="#history=all" onClick={showAllHistory}>Show all history →</a>}<div className="cu-rail-links"><motion.div className="cu-progress" style={{ scaleY: reduced ? 1 : scrollYProgress }} aria-hidden="true"/>{milestones.map((item, index) => <a key={item.id} href={catchUpHash(selection, item.id)} aria-current={active === item.id ? "step" : undefined}><span>{String(index + 1).padStart(2, "0")}</span><span>{catchUpDate(item.publishedAt)}<small>{item.patch ? `Patch ${item.patch}` : "What’s ahead"}</small></span></a>)}</div><p className="cu-rail-footnote">Oldest to newest.<br/>Official sources at every stop.</p></aside>
+        <aside className="cu-rail" aria-label="Journey chapters"><p className="cu-rail-title">The journey</p><p className="cu-rail-selection">{catchUpSelectionLabel(selection)}</p>{selection.kind !== "all" && <a className="cu-show-all" href="#history=all" onClick={showAllHistory}>Show all history →</a>}<div className="cu-rail-links" ref={railLinks}><div className="cu-rail-track"><div className="cu-progress" ref={progress} aria-hidden="true"/>{milestones.map((item, index) => <a key={item.id} href={catchUpHash(selection, item.id)} aria-current={active === item.id ? "step" : undefined}><span>{String(index + 1).padStart(2, "0")}</span><span>{catchUpDate(item.publishedAt)}<small>{item.patch ? `Patch ${item.patch}` : "What’s ahead"}</small></span></a>)}</div></div><p className="cu-rail-footnote">Oldest to newest.<br/>Official sources at every stop.</p></aside>
         <div className="cu-chapters">{milestones.map((item, index) => <article key={item.id} id={item.id} tabIndex={-1} className={`cu-milestone cu-milestone--${item.kind}`}>
           <div className="cu-chapter-meta"><span className="cu-chapter-number">{String(index + 1).padStart(2, "0")}</span><time dateTime={item.publishedAt}>{catchUpDate(item.publishedAt, true)}</time><span>{item.patch ? `Patch ${item.patch}` : "On the horizon"}</span></div>
           <h2>{item.title}</h2>

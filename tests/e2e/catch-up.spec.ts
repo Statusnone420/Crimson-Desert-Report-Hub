@@ -17,6 +17,67 @@ async function openCatchUpMenu(page: Page) {
   return dialog;
 }
 
+const FULL_HISTORY_CHECKPOINTS = [
+  { n: 1, id: "update-1-13-00" },
+  { n: 10, id: "update-1-17-00" },
+  { n: 17, id: "charting-the-unknown-announcement" },
+  { n: 18, id: "update-2-01-00" },
+] as const;
+
+type JourneyRailState = {
+  chapter: string | null;
+  windowScrollY: number;
+  railScrollTop: number;
+  visibleInRail: boolean;
+  visibleInViewport: boolean;
+  fillEndsAtActive: boolean;
+  progressBottom: number;
+  activeBottom: number;
+  focusedRole: string;
+};
+
+async function journeyRailState(page: Page): Promise<JourneyRailState | null> {
+  return page.evaluate(() => {
+    const rail = document.querySelector<HTMLElement>(".cu-rail-links");
+    const active = document.querySelector<HTMLAnchorElement>(".cu-rail-links a[aria-current='step']");
+    const progress = document.querySelector<HTMLElement>(".cu-progress");
+    if (!rail || !active || !progress) return null;
+    const chapter = new URLSearchParams(active.hash.replace(/^#/, "")).get("chapter");
+    const railRect = rail.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    const progressRect = progress.getBoundingClientRect();
+    const slop = 2;
+    const visibleInRail =
+      activeRect.top >= railRect.top - slop &&
+      activeRect.bottom <= railRect.bottom + slop;
+    const visibleInViewport =
+      activeRect.bottom > slop &&
+      activeRect.top < window.innerHeight - slop;
+    return {
+      chapter,
+      windowScrollY: window.scrollY,
+      railScrollTop: rail.scrollTop,
+      visibleInRail,
+      visibleInViewport,
+      fillEndsAtActive: Math.abs(progressRect.bottom - activeRect.bottom) <= 4,
+      progressBottom: progressRect.bottom,
+      activeBottom: activeRect.bottom,
+      focusedRole: document.activeElement === active ? "link" : document.activeElement === document.getElementById(chapter ?? "") ? "article" : (document.activeElement as HTMLElement | null)?.tagName.toLowerCase() ?? "other",
+    };
+  });
+}
+
+async function revealJourneyChapter(page: Page, id: string) {
+  await page.locator(`#${id}`).evaluate((element) => {
+    element.scrollIntoView({ block: "start", behavior: "instant" });
+  });
+  await expect(page.locator(".cu-rail-links a[aria-current='step']")).toHaveAttribute("href", new RegExp(`chapter=${id}`));
+  await expect.poll(async () => {
+    const state = await journeyRailState(page);
+    return state && state.chapter === id && state.visibleInRail && state.visibleInViewport && state.fillEndsAtActive;
+  }).toBe(true);
+}
+
 for (const scenario of [
   { timezone: "Asia/Tokyo", now: "2026-09-06T16:00:00Z", today: "2026-09-07", tomorrow: "2026-09-08", midnight: "2026-09-06T15:00:00.000Z", label: "Since September 7", firstDayMilestones: 18 },
   { timezone: "America/Los_Angeles", now: "2026-09-07T02:00:00Z", today: "2026-09-06", tomorrow: "2026-09-07", midnight: "2026-09-06T07:00:00.000Z", label: "Since September 6", firstDayMilestones: 17 },
@@ -414,5 +475,112 @@ test.describe("public catch-up journey", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expectHealthyPage(page, problems);
+  });
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 956, height: 440 },
+  ]) {
+    test(`full-history rail tracks chapters 1, 10, and 17–18 at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name === "mobile-chromium", "Journey rail coverage runs in the desktop project.");
+      await page.setViewportSize(viewport);
+      await page.goto("/catch-up#history=all");
+      await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+
+      for (const chapter of FULL_HISTORY_CHECKPOINTS) {
+        await revealJourneyChapter(page, chapter.id);
+        await expect(page.locator(`#${chapter.id}`)).toBeInViewport();
+      }
+      for (const chapter of [...FULL_HISTORY_CHECKPOINTS].reverse()) {
+        await revealJourneyChapter(page, chapter.id);
+        await expect(page.locator(`#${chapter.id}`)).toBeInViewport();
+      }
+    });
+  }
+
+  test("rail auto-scroll stays in the chapter list and survives manual scrolling, resize, Back, and keyboard focus", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === "mobile-chromium", "Journey rail coverage runs in the desktop project.");
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/catch-up#history=all");
+    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+
+    await revealJourneyChapter(page, "update-1-17-00");
+    const pageY = await page.evaluate(() => window.scrollY);
+    await page.locator(".cu-rail-links").evaluate((rail) => {
+      rail.scrollTop = 0;
+    });
+    await expect.poll(async () => (await journeyRailState(page))?.fillEndsAtActive).toBe(true);
+    expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
+
+    await page.setViewportSize({ width: 1440, height: 820 });
+    await expect.poll(async () => {
+      const state = await journeyRailState(page);
+      return state && state.chapter === "update-1-17-00" && state.visibleInRail && state.fillEndsAtActive;
+    }).toBe(true);
+    await expect(page.locator("#update-1-17-00")).toBeInViewport();
+
+    const tenth = page.locator(".cu-rail-links a").nth(9);
+    await tenth.focus();
+    await expect(tenth).toBeFocused();
+    await expect.poll(async () => (await journeyRailState(page))?.focusedRole).toBe("link");
+
+    await page.goto("/catch-up#history=all&chapter=update-2-01-00");
+    await expect(page.locator("#update-2-01-00")).toBeFocused();
+    await expect.poll(async () => {
+      const state = await journeyRailState(page);
+      return state && state.chapter === "update-2-01-00" && state.visibleInRail && state.fillEndsAtActive;
+    }).toBe(true);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/catch-up#history=all$/);
+    await revealJourneyChapter(page, "update-1-17-00");
+  });
+
+  test("reduced motion still ends the red marker on the active chapter in both themes", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === "mobile-chromium", "Journey rail coverage runs in the desktop project.");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/catch-up#history=all");
+    await revealJourneyChapter(page, "charting-the-unknown-announcement");
+    await page.getByRole("button", { name: "Switch to dark mode" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect.poll(async () => {
+      const state = await journeyRailState(page);
+      return state && state.chapter === "charting-the-unknown-announcement" && state.visibleInRail && state.fillEndsAtActive;
+    }).toBe(true);
+    await page.getByRole("button", { name: "Switch to light mode" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect.poll(async () => (await journeyRailState(page))?.fillEndsAtActive).toBe(true);
+  });
+
+  test("Recent, Date, and Patch editions keep the rail marker on the filtered chapters", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === "mobile-chromium", "Journey rail coverage runs in the desktop project.");
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await page.goto("/catch-up");
+    await expect(page.locator("article.cu-milestone")).toHaveCount(5);
+    await revealJourneyChapter(page, "update-2-01-00");
+
+    await page.goto("/catch-up#since=2026-08-15T00%3A00%3A00.000Z");
+    await expect(page.locator("article.cu-milestone")).toHaveCount(8);
+    await revealJourneyChapter(page, "enhanced-2-00-00");
+
+    await page.goto("/catch-up#patch=1.18.02");
+    await expect(page.locator("article.cu-milestone")).toHaveCount(5);
+    await revealJourneyChapter(page, "charting-the-unknown-announcement");
+    await expect(page.locator(".cu-rail-selection")).toContainText("After patch 1.18.02");
+  });
+
+  test("portrait mobile hides the rail and keeps the journey filter readable", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile-chromium", "Portrait coverage runs in the mobile project.");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/catch-up#history=all");
+    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+    await expect(page.locator(".cu-rail")).toBeHidden();
+    await expect(page.locator(".cu-journey-filter").filter({ visible: true })).toContainText("Full history");
+    await page.locator("#update-1-17-00").evaluate((element) => {
+      element.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+    await expect(page.locator("#update-1-17-00")).toBeInViewport();
+    await expect(page.locator(".cu-journey-filter").filter({ visible: true })).toBeVisible();
   });
 });
