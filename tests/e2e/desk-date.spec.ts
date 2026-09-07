@@ -30,21 +30,26 @@ test("cached HTML cannot print a stale date when JavaScript is disabled", async 
 });
 
 test("open mastheads roll over at New York midnight and refresh on return", async ({ context }) => {
+  // One clock controls the entire context. Let navigation finish before pausing it.
+  await context.clock.install({ time: new Date("2026-09-07T03:00:00Z") });
   const pages = await Promise.all([context.newPage(), context.newPage(), context.newPage()]);
   const routes = ["/", "/issues", "/report"];
   for (const [index, page] of pages.entries()) {
-    await page.clock.install({ time: new Date("2026-09-07T03:59:50Z") });
-    await page.clock.pauseAt(new Date("2026-09-07T03:59:50Z"));
     await page.goto(routes[index]);
     await expect(page.locator(".topline > div").first()).toHaveText("Sunday, September 6, 2026");
   }
+  await context.clock.pauseAt(new Date("2026-09-07T03:59:50Z"));
+  await context.clock.runFor(10_100);
   for (const page of pages) {
-    await page.clock.runFor(10_100);
     await expect(page.locator(".topline > div").first()).toHaveText("Monday, September 7, 2026");
-    await page.clock.setSystemTime(new Date("2026-09-08T13:00:00Z"));
+  }
+  await context.clock.setSystemTime(new Date("2026-09-08T13:00:00Z"));
+  for (const page of pages) {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(page.locator(".topline > div").first()).toHaveText("Tuesday, September 8, 2026");
-    await page.clock.setSystemTime(new Date("2026-09-09T13:00:00Z"));
+  }
+  await context.clock.setSystemTime(new Date("2026-09-09T13:00:00Z"));
+  for (const page of pages) {
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect(page.locator(".topline > div").first()).toHaveText("Wednesday, September 9, 2026");
   }

@@ -87,6 +87,8 @@ The report form accepts typed details and an optional HTTP(S) evidence link. It 
 
 The theme button can store the chosen light or dark theme in the browser's localStorage. The setting is not sent to the server. If browser storage is unavailable, the theme still works for the current visit.
 
+Catch up on Pywel stores a remember preference, last-visit time and an explicitly marked caught-up time in localStorage (`crimson-catch-up-v1`). These values stay on this browser and are not sent to the server. Visits never mark the edition as read. Turning off “Remember my place on this browser” clears both dates and retains only the disabled preference. Date and patch selections use the URL fragment; copying a catch-up link shares that chosen starting point with its recipient. With storage blocked or memory disabled, readers can still choose a date, patch or the recent highlights.
+
 ## Source Radar And AI Providers
 
 The scanner may read public Pearl Abyss patch-note metadata and public web-search results through Tavily. Public-web queries may find `reddit.com` pages, but the project does not use Reddit API credentials or direct subreddit monitoring. For a small number of promising Reddit results whose search snippets are too thin, the scanner may ask Tavily for bounded basic extraction after normalizing the public URL to `old.reddit.com`.

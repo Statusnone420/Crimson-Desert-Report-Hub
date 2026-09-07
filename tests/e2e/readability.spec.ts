@@ -5,6 +5,7 @@ const E2E_NOW = new Date("2026-07-20T00:10:00.000Z");
 const PUBLIC_ROUTES = [
   "/",
   "/news",
+  "/catch-up",
   "/watch",
   "/patches",
   "/issues",

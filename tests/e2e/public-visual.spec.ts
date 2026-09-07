@@ -46,6 +46,37 @@ async function expectNewspaperContrast(page: Page) {
   expect(failures).toEqual([]);
 }
 
+async function expectLoginControlContrast(page: Page, theme: "light" | "dark") {
+  const failures = await page.locator(".np-login").evaluate((form) => {
+    function rgb(value: string) {
+      const match = value.match(/rgba?\(([^)]+)\)/);
+      if (!match) return null;
+      const parts = match[1].split(",").map((part) => Number.parseFloat(part.trim()));
+      return { channels: parts.slice(0, 3), alpha: parts[3] ?? 1 };
+    }
+    function luminance(values: number[]) {
+      const channels = values.map((channel) => {
+        const value = channel / 255;
+        return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    }
+    return ["input", "button"].flatMap((selector) => {
+      const element = form.querySelector(selector);
+      if (!element) return [`${selector} missing`];
+      const style = getComputedStyle(element);
+      const foreground = rgb(style.color);
+      const background = rgb(style.backgroundColor);
+      if (!foreground || !background) return [`${selector} colors unreadable`];
+      if (background.alpha < 1) return [`${selector} background is transparent`];
+      const ratio = (Math.max(luminance(foreground.channels), luminance(background.channels)) + 0.05) /
+        (Math.min(luminance(foreground.channels), luminance(background.channels)) + 0.05);
+      return ratio >= 4.5 ? [] : [`${selector} contrast ${ratio.toFixed(2)} is below 4.5`];
+    });
+  });
+  expect(failures, `${theme} admin sign-in controls must remain readable`).toEqual([]);
+}
+
 async function expectNoPrivateMarkers(page: Page) {
   const markup = await page.content();
   for (const marker of PRIVATE_MARKERS) expect(markup).not.toContain(marker);
@@ -248,13 +279,35 @@ test.describe("integrated newspaper public UI", () => {
     await expect(page.getByRole("heading", { name: "Frame rate falls while opening the map" })).toBeVisible();
   });
 
+  test("admin sign-in recovers from a network failure without losing the password", async ({ page }) => {
+    await page.route("**/api/admin/login", (route) => route.abort("failed"));
+    await page.goto("/admin/login");
+    const password = page.getByLabel("Password");
+    await password.fill("not-a-real-password");
+    await page.getByRole("button", { name: "Sign in" }).click();
+
+    await expect(page.locator(".np-login").getByRole("alert")).toHaveText("Could not connect. Try again.");
+    await expect(password).toHaveValue("not-a-real-password");
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  });
+
   test("operator routes keep sign-in, export recovery, and compile controls reachable", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
-    const admin = page.getByRole("contentinfo").getByRole("button", { name: "Admin" });
-    await expect(admin).toBeVisible();
-    await admin.click();
-    await page.getByLabel("Admin password").fill("admin-password");
+    const footer = page.getByRole("contentinfo");
+    await expect(footer.getByRole("button", { name: "Admin", exact: true })).toHaveCount(0);
+    await expect(footer.getByRole("link", { name: "Admin", exact: true })).toHaveCount(0);
+
+    await page.goto("/admin/login?from=%2Fadmin");
+    await expect(page.getByRole("heading", { level: 1, name: "Admin sign-in" })).toBeVisible();
+    await page.getByLabel("Password").fill("admin-password");
+    for (const theme of ["light", "dark"] as const) {
+      if (await page.locator("html").getAttribute("data-theme") !== theme) {
+        await page.getByRole("button", { name: `Switch to ${theme} mode` }).click();
+      }
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await expectLoginControlContrast(page, theme);
+    }
     await page.getByRole("button", { name: "Sign in" }).click();
     // CI compiles this client navigation on demand; wait for its document
     // transition before asserting the authenticated page and its controls.

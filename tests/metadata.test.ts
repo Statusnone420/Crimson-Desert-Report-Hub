@@ -72,6 +72,7 @@ describe("search and share metadata", () => {
     expect(entries).toEqual([
       { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
       { url: `${SITE_URL}/news`, changeFrequency: "weekly", priority: 0.9 },
+      { url: `${SITE_URL}/catch-up`, changeFrequency: "weekly", priority: 0.8 },
       {
         url: `${SITE_URL}/articles/charting-the-unknown`,
         lastModified: "2026-09-05T00:00:00Z",
