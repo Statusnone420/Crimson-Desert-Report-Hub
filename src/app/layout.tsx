@@ -4,6 +4,8 @@ import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_
 import "./globals.css";
 import "@/components/newspaper/newspaper.css";
 import "@/components/newspaper/operator.css";
+import "@/components/catchup/catchup.css";
+import { CatchUpProvider } from "@/components/catchup/CatchUpContext";
 
 // The share images come from the opengraph-image.png / twitter-image.png file
 // convention. Never set openGraph.images / twitter.images here: Next only
@@ -70,7 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         <div className="dispatch-grain" aria-hidden="true" />
-        {children}
+        <CatchUpProvider>{children}</CatchUpProvider>
       </body>
     </html>
   );

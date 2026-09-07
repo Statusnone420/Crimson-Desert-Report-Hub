@@ -6,7 +6,7 @@ import { resolveLoginReturn } from "@/lib/loginReturn";
 
 export function LoginForm() {
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(false);
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -14,46 +14,42 @@ export function LoginForm() {
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
-    setError(false);
-    const res = await fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-    setBusy(false);
-    // requireAdmin() put the interrupted destination in ?from=; sign-in
-    // resumes there instead of always dumping the operator on Report review.
-    if (res.ok) router.push(resolveLoginReturn(searchParams.get("from")));
-    else setError(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (res.ok) router.push(resolveLoginReturn(searchParams.get("from")));
+      else setError(res.status === 401 ? "Check your password and try again." : "Sign-in is unavailable. Try again shortly.");
+    } catch {
+      setError("Could not connect. Try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <form onSubmit={onSubmit} className="mx-auto mt-16 max-w-sm space-y-4">
+    <form onSubmit={onSubmit} className="np-login" aria-busy={busy}>
+      <h1>Admin sign-in</h1>
       <div>
-        <p className="dispatch-kicker dispatch-kicker--amber">Operator console</p>
-        <h1
-          className="mt-2"
-          style={{ fontFamily: "var(--font-display)", fontSize: 33, fontWeight: 400, lineHeight: 1.1 }}
-        >
-          Sign in
-        </h1>
-      </div>
-      <div className="dispatch-field">
         <label htmlFor="password">Password</label>
         <input
           id="password"
           type="password"
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
+          onChange={(event) => { setPassword(event.target.value); setError(""); }}
+          autoComplete="current-password"
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? "login-error" : undefined}
           autoFocus
         />
       </div>
       {error ? (
-        <p className="text-sm" style={{ color: "var(--crimson)" }}>
-          Wrong password.
-        </p>
+        <p id="login-error" className="np-login-error" role="alert">{error}</p>
       ) : null}
-      <button className="dispatch-btn w-full" disabled={busy || password.length === 0}>
+      <button type="submit" disabled={busy || password.length === 0}>
         {busy ? "Checking..." : "Sign in"}
       </button>
     </form>

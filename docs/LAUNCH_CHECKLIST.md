@@ -71,8 +71,8 @@ This checklist gets a new or refreshed deployment online without turning provide
 ## 4. Provider safety
 
 - [ ] Keep Tavily within the documented 1,000-credit monthly ceiling.
-- [ ] Keep high-value provider usage software-capped at $2 per UTC month and verify the provider-side limit manually.
-- [ ] Configure a dedicated OpenRouter key with a provider-side monthly limit of $2 or lower and verify that setting manually.
+- [ ] Review the saved scanner budget: $0.50 by default, configurable from $0 to the $1 UTC-month software ceiling.
+- [ ] Configure a dedicated OpenRouter key with a monthly or lifetime limit of $1 or lower. Confirm the scanner can inspect its limit, remaining credit, and monthly usage; daily, weekly, unlimited, or unverifiable limits block AI requests.
 - [ ] Keep routine AI work on a free route or deterministic fallback.
 - [ ] Confirm Reddit API credentials and direct subreddit monitoring are absent.
 

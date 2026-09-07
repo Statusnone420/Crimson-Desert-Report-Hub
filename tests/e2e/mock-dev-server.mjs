@@ -835,6 +835,10 @@ function filterRows(table, url) {
   for (const [column, value] of url.searchParams.entries()) {
     if (value === "is.null") rows = rows.filter((row) => row[column] == null);
     if (value === "not.is.null") rows = rows.filter((row) => row[column] != null);
+    if (column === "status" && value.startsWith("neq.")) rows = rows.filter((row) => row.status !== value.slice(4));
+    if (column === "progress->>llmSucceeded" && value.startsWith("gt.")) {
+      rows = rows.filter((row) => Number(row.progress?.llmSucceeded ?? 0) > Number(value.slice(3)));
+    }
   }
 
   const id = url.searchParams.get("id");
@@ -849,6 +853,16 @@ function filterRows(table, url) {
   // walk would read page one forever. Deliberately shape-matched so an
   // unrecognized cursor fails loudly instead of quietly matching everything.
   const or = url.searchParams.get("or");
+  if (or?.startsWith("(progress->>llmSucceeded.gt.0,")) {
+    const predicates = or.slice(1, -1).split(",").map((term) => {
+      if (term === "progress->>llmSucceeded.gt.0") return (row) => Number(row.progress?.llmSucceeded ?? 0) > 0;
+      const contains = /^skips\.cs\.(\[.*\])$/.exec(term);
+      if (!contains) throw new Error("Unsupported AI history filter");
+      const codes = JSON.parse(contains[1]);
+      return (row) => Array.isArray(row.skips) && codes.every((code) => row.skips.includes(code));
+    });
+    rows = rows.filter((row) => predicates.some((predicate) => predicate(row)));
+  }
   if (or?.startsWith("(created_at.lt.")) {
     const cursor = /^\(created_at\.lt\.([^,]+),and\(created_at\.eq\.[^,]+,id\.lt\.([^)]+)\)\)$/.exec(or);
     if (!cursor) throw new Error(`unsupported keyset cursor ${or}`);
@@ -984,6 +998,9 @@ function filterRows(table, url) {
   }
   if (order?.startsWith("started_at.desc")) {
     rows.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+  }
+  if (order?.startsWith("finished_at.desc")) {
+    rows.sort((a, b) => new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime());
   }
   if (order?.startsWith("observed_at.desc")) {
     rows.sort((a, b) => new Date(b.observed_at).getTime() - new Date(a.observed_at).getTime());
@@ -1145,10 +1162,12 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/rest/v1/automation_runs" && req.method === "POST") {
     const raw = await readBody(req);
     const parsed = raw ? JSON.parse(raw) : {};
-    const row = { id: nextMockId("run"), created_at: new Date(now()).toISOString(), ...parsed };
-    automationRuns.push(row);
+    const rows = (Array.isArray(parsed) ? parsed : [parsed]).map((row) => ({
+      id: nextMockId("run"), created_at: new Date(now()).toISOString(), ...row,
+    }));
+    automationRuns.push(...rows);
     const wantsObject = (req.headers.accept ?? "").includes("vnd.pgrst.object");
-    sendJson(res, req.method, 201, wantsObject ? row : [row]);
+    sendJson(res, req.method, 201, wantsObject ? rows[0] : rows);
     return;
   }
 
@@ -1572,6 +1591,23 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/automation_settings" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(automationSettings, url));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/automation_settings" && req.method === "POST") {
+    const raw = await readBody(req);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    if (rows.some((row) => !row || typeof row.key !== "string" || !Object.hasOwn(row, "value"))) {
+      sendJson(res, req.method, 400, { message: "settings require a key and value" });
+      return;
+    }
+    for (const row of rows) {
+      const existing = automationSettings.find((setting) => setting.key === row.key);
+      if (existing) Object.assign(existing, row);
+      else automationSettings.push({ ...row });
+    }
+    sendJson(res, req.method, 201, rows);
     return;
   }
 

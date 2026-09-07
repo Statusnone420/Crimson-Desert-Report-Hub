@@ -6,6 +6,7 @@ import { isVercelPreview } from "@/lib/previewGuard";
 import { OperatorNav } from "@/components/dispatch/OperatorNav";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { patchFamilyKey } from "@/lib/patchWatch";
+import { CatchUpPublicVisit } from "@/components/catchup/CatchUpContext";
 
 export type PublicNavKey = "brief" | "news" | "watch" | "issues" | "patches" | "observatory" | "method" | "report";
 export type OperatorNavKey = "overview" | "review" | "scanner" | "compile";
@@ -29,7 +30,7 @@ export function PublicShell({ active, masthead = false, children }: {
   edition?: number | null;
   children: ReactNode;
 }) {
-  return <NewspaperShell active={active} home={masthead}>{children}</NewspaperShell>;
+  return <><CatchUpPublicVisit /><NewspaperShell active={active} home={masthead}>{children}</NewspaperShell></>;
 }
 
 /** Operator chrome: amber topline, console nav, session-truthful footer. */

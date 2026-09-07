@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { CollectionHealth, CollectionHealthLane } from "@/lib/collectionHealth";
+import type { ScannerAiHealth } from "@/lib/automation/health";
 
 export type OperatorRunSummary = {
   startedAt: string;
@@ -18,6 +19,7 @@ export type OperatorOverviewData = {
   scannerFailedRuns: number | null;
   collection: CollectionHealth;
   runs: OperatorRunSummary[];
+  aiHealth?: ScannerAiHealth;
 };
 
 function captureTime(value: string | null): string {
@@ -121,6 +123,7 @@ function Services({ data }: { data: OperatorOverviewData }) {
     <section className="op-services" aria-labelledby="op-services-title">
       <div className="op-section-heading"><h2 id="op-services-title">Behind the pages</h2><span className="op-caption">Current stored readings</span></div>
       <div className="op-service"><span className="op-icon" aria-hidden="true" /><div><h3>{scannerState.label}</h3><p>{scannerState.detail}</p></div><span className={"op-status " + scannerState.tone}>{scannerState.status}</span></div>
+      {data.aiHealth ? <div className="op-service"><span className="op-icon" aria-hidden="true" /><div><h3>AI processing</h3><p>{data.aiHealth.message}{data.aiHealth.lastSuccessAt ? ` Last validated response: ${captureTime(data.aiHealth.lastSuccessAt)}.` : ""}</p></div><span className={"op-status " + (data.aiHealth.state === "unavailable" || data.aiHealth.state === "limited" ? "op-caution" : "")}>{data.aiHealth.state === "healthy" ? "Available" : data.aiHealth.state === "unavailable" ? "Unavailable" : data.aiHealth.state === "limited" ? "Limited" : "Idle"}</span></div> : null}
       {lanes.map((lane) => (
         <div className="op-service" key={lane.key}>
           <span className="op-icon" aria-hidden="true" />
@@ -141,6 +144,7 @@ function Attention({ data, unknown, attentionCount }: { data: OperatorOverviewDa
     <section className="op-attention" aria-labelledby="op-attention-title">
       <div className="op-section-heading"><div><p className="op-eyebrow">{unknown ? "Check the connection" : "Needs attention"}</p><h2 id="op-attention-title">{unknown ? "A missing read is not an empty queue." : "A few checks need a look."}</h2></div></div>
       <div className="op-exceptions">
+        {data.aiHealth && (data.aiHealth.state === "unavailable" || data.aiHealth.state === "limited") ? <article><span className="op-status op-caution">AI processing · {data.aiHealth.state === "unavailable" ? "Unavailable" : "Limited"}</span><h3>{data.aiHealth.message}</h3><p>Search and rule-based processing can continue while AI processing is unavailable.</p><Link className="op-link" href="/scanner">Review AI settings →</Link></article> : null}
         {!data.operatorReadAvailable ? <article><span className="op-status op-danger">Operator record · Unavailable</span><h3>Run history could not be read.</h3><p>The overview cannot verify current scanner outcomes. Open the scanner monitor to inspect the authenticated records.</p><Link className="op-link" href="/scanner">Open scanner monitor →</Link></article> : null}
         {!data.scannerReadAvailable ? <article><span className="op-status op-danger">Source radar · Unavailable</span><h3>The scanner aggregate could not be read.</h3><p>Lead counts and scanner health are unavailable for this page load. This does not mean the scanner is idle.</p><Link className="op-link" href="/scanner">Inspect scanner monitor →</Link></article> : null}
         {namedScannerFailures.map((failure) => <article key={failure}><span className="op-status op-caution">Scanner · Unavailable</span><h3>{failure} could not be read.</h3><p>Its value is unknown for this page load. It is not a report of zero activity.</p><Link className="op-link" href="/scanner">Inspect scanner monitor →</Link></article>)}
@@ -159,7 +163,8 @@ export function OperatorOverview({ data }: { data: OperatorOverviewData }) {
     data.collection.status === "unknown";
   const providerAttention = data.collection.attentionCount;
   const scannerAttention = data.scannerFailedRuns ?? 0;
-  const attentionCount = unknown ? null : providerAttention + scannerAttention;
+  const aiAttention = data.aiHealth?.state === "unavailable" || data.aiHealth?.state === "limited";
+  const attentionCount = unknown ? null : providerAttention + scannerAttention + Number(aiAttention);
   const quiet = attentionCount === 0;
 
   return (

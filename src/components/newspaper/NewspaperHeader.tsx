@@ -5,6 +5,7 @@ import Image from "next/image";
 import { motion, useReducedMotion } from "motion/react";
 import { DeskDate } from "./DeskDate";
 import { useNewspaperTheme } from "./useNewspaperTheme";
+import { CatchUpMenu } from "@/components/catchup/CatchUpMenu";
 
 export function ThemeToggle() {
   const theme = useNewspaperTheme();
@@ -20,5 +21,5 @@ export function ThemeToggle() {
 export function NewspaperHeader({ active, home = false }: { active?: string; home?: boolean }) {
   const reducedMotion = useReducedMotion();
   const Masthead = home ? "h1" : "div";
-  return <header><div className="topline"><div><DeskDate/></div><div className="theme"><ThemeToggle/></div></div><Masthead className="masthead"><Link href="/">Crimson Desert <em>Report Hub</em></Link></Masthead><nav aria-label="Main navigation">{[["brief", "/", "News"], ["patches", "/patches", "Patches"], ["issues", "/issues", "Player reports"], ["observatory", "/observatory", "Observatory"]].map(([key, href, label]) => <Link key={key} href={href} aria-current={(active === key || (key === "brief" && active === "news")) ? "page" : undefined}>{label}{(active === key || (key === "brief" && active === "news")) && <motion.span className="nav-indicator" layoutId="newspaper-nav" transition={{ duration: reducedMotion ? 0 : .28 }}/>}</Link>)}<Link className="file" href="/report" aria-current={active === "report" ? "page" : undefined}>File a report <span aria-hidden="true">→</span></Link></nav></header>;
+  return <header><div className="topline"><div><DeskDate/></div><div className="theme"><CatchUpMenu compact/><ThemeToggle/></div></div><Masthead className="masthead"><Link href="/">Crimson Desert <em>Report Hub</em></Link></Masthead><nav aria-label="Main navigation">{[["brief", "/", "News"], ["patches", "/patches", "Patches"], ["issues", "/issues", "Player reports"], ["observatory", "/observatory", "Observatory"]].map(([key, href, label]) => <Link key={key} href={href} aria-current={(active === key || (key === "brief" && active === "news")) ? "page" : undefined}>{label}{(active === key || (key === "brief" && active === "news")) && <motion.span className="nav-indicator" layoutId="newspaper-nav" transition={{ duration: reducedMotion ? 0 : .28 }}/>}</Link>)}<Link className="file" href="/report" aria-current={active === "report" ? "page" : undefined}>File a report <span aria-hidden="true">→</span></Link></nav></header>;
 }
