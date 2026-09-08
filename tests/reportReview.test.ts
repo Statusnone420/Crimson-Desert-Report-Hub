@@ -1,12 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { AdminClusterRow } from "@/lib/adminClusters";
-import { countNeedsYou, readReportReviewQueue, retainFlaggedReports, splitClusterExceptions } from "@/lib/reportReview";
+import { countNeedsYou, readReportReviewQueue, retainFlaggedReports, splitClusterExceptions, type FlaggedReport } from "@/lib/reportReview";
 import type { createServiceClient } from "@/lib/supabase";
 
 type CountResult = { count: number | null; error: { message: string } | null };
 type ListResult = { data: unknown[] | null; error: { message: string } | null };
 
-const OK_LIST: ListResult = { data: [{ id: "report-1" }], error: null };
+const REPORT: FlaggedReport = {
+  id: "report-1",
+  created_at: "2026-09-08T12:00:00Z",
+  patch_version: "1.13.01",
+  platform: "pc_steam",
+  category: "performance",
+  severity: "medium",
+  frequency: "often",
+  issue_title: "Invented frame-rate report",
+  description: "Private player text needed for moderation.",
+  repro_steps: "Open the map.",
+  hardware_specs: "Invented hardware details.",
+  evidence_url: "https://example.test/private-evidence",
+  cluster_id: null,
+};
+const OK_LIST: ListResult = { data: [REPORT], error: null };
 const okCount = (count: number): CountResult => ({ count, error: null });
 const FAILED = { message: "boom" };
 
@@ -19,12 +34,14 @@ function stubClient(results: {
   approved?: CountResult;
   pending?: CountResult;
   spam?: CountResult;
+  selections?: string[];
 }) {
   return {
     from: () => {
       let status = "";
       const builder = {
-        select: (_columns: string, options?: { head?: boolean }) => {
+        select: (columns: string, options?: { head?: boolean }) => {
+          results.selections?.push(columns);
           if (options?.head) builder.isCount = true;
           return builder;
         },
@@ -50,6 +67,24 @@ function stubClient(results: {
 }
 
 describe("readReportReviewQueue", () => {
+  it("projects only editor fields and strips sensitive extras even if the database overreturns", async () => {
+    const selections: string[] = [];
+    const databaseRow = {
+      ...REPORT,
+      submitter_ip_hash: "private-network-hash",
+      duplicate_fingerprint: "private-deduplication-fingerprint",
+      future_private_metadata: { credential: "must-stay-server-side" },
+    };
+    const queue = await readReportReviewQueue(stubClient({
+      flagged: { data: [databaseRow], error: null }, selections,
+    }));
+
+    expect(selections[0].split(/,\s*/).sort()).toEqual(Object.keys(REPORT).sort());
+    expect(queue.flaggedReports).toStrictEqual([REPORT]);
+    expect(queue.flaggedReports[0]).not.toBe(databaseRow);
+    expect(JSON.stringify(queue)).not.toMatch(/private-network-hash|private-deduplication-fingerprint|must-stay-server-side/);
+  });
+
   it("returns the flagged window with all four exact counts", async () => {
     const queue = await readReportReviewQueue(
       stubClient({ approved: okCount(9), pending: okCount(1), spam: okCount(3) }),

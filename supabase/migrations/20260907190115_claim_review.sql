@@ -598,6 +598,7 @@ declare
   pairing public.claim_review_pairings%rowtype;
   cluster public.issue_clusters%rowtype;
   current_patch record;
+  current_claim_keys text[];
   support_exists boolean;
   next_state text;
   prior_state text;
@@ -624,6 +625,10 @@ begin
      or not exists (select 1 from public.official_patch_claimed_fixes as fix where fix.board_no = pairing.board_no and public.claim_review_claim_key(pairing.patch_version, fix.fix_text) = pairing.claim_key) then
     raise exception 'stale_claim_review_claim' using errcode = 'P0001';
   end if;
+  select array_agg(public.claim_review_claim_key(current_patch.patch_version, fix.fix_text))
+    into current_claim_keys
+  from public.official_patch_claimed_fixes as fix
+  where fix.board_no = current_patch.board_no;
   select * into cluster from public.issue_clusters where id = pairing.cluster_id for update;
   if not found or not cluster.is_public or cluster.admin_override then
     raise exception 'stale_claim_review_cluster' using errcode = 'P0001';
@@ -676,6 +681,8 @@ begin
         select 1 from public.claim_review_pairings as owner
         where owner.cluster_id = cluster.id
           and owner.patch_version = pairing.patch_version
+          and owner.board_no = current_patch.board_no
+          and owner.claim_key = any(current_claim_keys)
           and owner.state = 'confirmed'
           and owner.claim_clock_owned
       ), cluster_lifecycle_revision = cluster.lifecycle_revision
@@ -689,6 +696,8 @@ begin
       select 1 from public.claim_review_pairings as active_pairing
       where active_pairing.cluster_id = cluster.id
         and active_pairing.patch_version = pairing.patch_version
+        and active_pairing.board_no = current_patch.board_no
+        and active_pairing.claim_key = any(current_claim_keys)
         and active_pairing.state in ('pending', 'later')
     ) and cluster.lifecycle_reason like 'Needs review:%' then
       update public.issue_clusters set lifecycle_reason = null where id = cluster.id returning * into cluster;
@@ -716,6 +725,8 @@ begin
       select 1 from public.claim_review_pairings as confirmed_pairing
       where confirmed_pairing.cluster_id = cluster.id
         and confirmed_pairing.patch_version = pairing.patch_version
+        and confirmed_pairing.board_no = current_patch.board_no
+        and confirmed_pairing.claim_key = any(current_claim_keys)
         and confirmed_pairing.state = 'confirmed'
     ) then
       update public.issue_clusters
@@ -742,15 +753,17 @@ begin
       from public.claim_review_pairings as support
       where support.cluster_id = pairing.cluster_id and support.patch_version = pairing.patch_version
         and support.state = 'confirmed' and support.id <> pairing.id
-      order by support.confirmed_at, support.id
+        and support.board_no = current_patch.board_no
+        and support.claim_key = any(current_claim_keys)
+      order by support.claim_clock_owned desc, support.confirmed_at, support.id
       limit 1
       for update;
     support_exists := supporting_pairing_id is not null;
-    if pairing.claim_clock_owned and support_exists then
+    if support_exists then
       update public.claim_review_pairings
       set claim_clock_owned = true
-      where id = supporting_pairing_id;
-    elsif pairing.claim_clock_owned then
+      where id = supporting_pairing_id and claim_clock_owned = false;
+    elsif cluster.fix_claimed_patch_version = pairing.patch_version then
       update public.issue_clusters
       set fix_status = 'reported', fix_claimed_at = null, fix_claimed_patch_version = null,
         lifecycle_reason = public.claim_review_lifecycle_reason(pairing.proposal_reason)
