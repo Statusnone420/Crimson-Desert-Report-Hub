@@ -32,10 +32,15 @@ function collectionItem(lane: CollectionHealthLane): ScannerAttentionItem {
   };
 }
 
+const COST_CIRCUIT_HEALTH_CODES = new Set([
+  "openrouter_circuit_open",
+  "openrouter_cost_unverified",
+  "openrouter_unexpected_charge",
+  "openrouter_budget_exceeded",
+]);
+
 function sameKnownCostGuard(aiHealth: ScannerAiHealth | undefined): boolean {
-  // The run ledger records this exact code only after the OpenRouter circuit
-  // opened. Other AI errors may coexist with a currently paused circuit.
-  return aiHealth?.code === "openrouter_circuit_open";
+  return aiHealth?.code !== null && aiHealth?.code !== undefined && COST_CIRCUIT_HEALTH_CODES.has(aiHealth.code);
 }
 
 /**

@@ -121,9 +121,6 @@ export default async function OperatorPage({
     now,
   });
 
-  const scannerReadAvailable = Boolean(
-    radar?.connected && scanner?.scannerConnected,
-  );
   const runs = admin ? admin.runs.map(safeRunSummary) : [];
   const aiHealth = await getScannerAiHealth(admin?.control);
 
@@ -131,7 +128,7 @@ export default async function OperatorPage({
     aiHealth,
     llmPaused: scanner?.llmPaused ?? null,
     failedRuns: radar?.connected ? radar.health.runs7d.failed : null,
-    radarAvailable: scannerReadAvailable,
+    radarAvailable: Boolean(radar?.connected),
     collection,
   });
   return (

@@ -1,5 +1,5 @@
 begin;
-select plan(93);
+select plan(95);
 
 select ok(has_function_privilege('service_role', 'public.sync_claim_review_proposals(jsonb,timestamptz)', 'EXECUTE'), 'service role can sync claim-review proposals');
 select ok(not has_function_privilege('anon', 'public.sync_claim_review_proposals(jsonb,timestamptz)', 'EXECUTE'), 'anon cannot sync claim-review proposals');
@@ -14,6 +14,15 @@ select is(
   public.claim_review_normalize('Fixe' || chr(769) || 'd'),
   'Fixéd', 'database normalization applies NFC before hashing'
 );
+
+select is(
+  public.claim_review_claim_key('1.14.00', chr(133) || 'Fixe' || chr(769) || 'd' || chr(133) || 'a crash.' || chr(133)),
+  '45389a6b14435fd9a092e30113c944f676521e5bc442c6b3cfb5b2978f3da4e8',
+  'NEL and NFC hash matches the JavaScript fixture'
+);
+select ok((select bool_and(public.claim_review_normalize(chr(cp) || 'Fixed' || chr(cp) || chr(cp) || 'crash' || chr(cp)) = 'Fixed crash')
+  from unnest(array[9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279]) as whitespace(cp)),
+  'every shared whitespace code point trims and collapses identically');
 
 insert into public.official_patch_notes (board_no, title, patch_version, official_url, observed_at, is_current)
 values ('claim-review-board', 'Claim review patch', '9.9.9', 'https://official.example/patch', '2026-09-07T12:00:00Z', true);

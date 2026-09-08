@@ -33,6 +33,23 @@ describe("getScannerAttention", () => {
     expect(attention.items).toEqual([expect.objectContaining({ id: "ai-processing", label: "AI processing unavailable" })]);
   });
 
+  it.each([
+    "openrouter_cost_unverified",
+    "openrouter_unexpected_charge",
+    "openrouter_budget_exceeded",
+  ])("deduplicates a paused circuit from its %s trigger", (code) => {
+    const attention = getScannerAttention({
+      aiHealth: { state: "unavailable", code, message: "AI processing stopped for cost safety.", lastSuccessAt: null },
+      llmPaused: true,
+      failedRuns: 0,
+      radarAvailable: true,
+      collection: healthyCollection,
+    });
+
+    expect(attention.count).toBe(1);
+    expect(attention.items.map((item) => item.id)).toEqual(["ai-processing"]);
+  });
+
   it("does not call a missing AI health read clear", () => {
     const attention = getScannerAttention({
       llmPaused: false,
@@ -71,6 +88,24 @@ describe("getScannerAttention", () => {
     expect(attention.items.map((item) => item.id)).toEqual(["ai-processing", "ai-cost-safety-paused"]);
   });
 
+  it("keeps unrelated simultaneous alerts when it deduplicates the cost circuit", () => {
+    const collection: CollectionHealth = {
+      status: "attention",
+      attentionCount: 1,
+      lanes: [{ ...healthyCollection.lanes[0], state: "delayed", labelText: "Delayed", needsAttention: true }],
+    };
+    const attention = getScannerAttention({
+      aiHealth: { state: "unavailable", code: "openrouter_unexpected_charge", message: "AI processing stopped after an unexpected charge.", lastSuccessAt: null },
+      llmPaused: true,
+      failedRuns: 2,
+      radarAvailable: true,
+      collection,
+    });
+
+    expect(attention.count).toBe(3);
+    expect(attention.items.map((item) => item.id)).toEqual(["failed-runs", "ai-processing", "collection-steam"]);
+  });
+
   it("counts a group of failed runs as one health item", () => {
     const attention = getScannerAttention({ aiHealth: { state: "healthy", code: null, message: "Validated.", lastSuccessAt: null }, llmPaused: false, failedRuns: 3, radarAvailable: true, collection: healthyCollection });
 
@@ -98,5 +133,18 @@ describe("getScannerAttention", () => {
 
     expect(attention.count).toBeNull();
     expect(attention.items).toContainEqual(expect.objectContaining({ id: "scanner-health-unavailable" }));
+  });
+
+  it("keeps a successful radar read separate from an unavailable cost-circuit read", () => {
+    const attention = getScannerAttention({
+      aiHealth: { state: "healthy", code: null, message: "Validated.", lastSuccessAt: null },
+      llmPaused: null,
+      failedRuns: 0,
+      radarAvailable: true,
+      collection: healthyCollection,
+    });
+
+    expect(attention.count).toBeNull();
+    expect(attention.items.map((item) => item.id)).toEqual(["ai-cost-safety-unavailable"]);
   });
 });

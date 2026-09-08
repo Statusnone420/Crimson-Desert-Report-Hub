@@ -162,18 +162,19 @@ function stateMutationError(error: unknown): VideoActionState | null {
 }
 
 async function recoverVideoAction(
-  run: () => Promise<void>,
+  run: () => Promise<void | number>,
   successMessage: string,
 ): Promise<VideoActionState> {
+  let savedRevision: void | number;
   try {
-    await run();
+    savedRevision = await run();
   } catch (error) {
     const state = stateMutationError(error);
     if (state) return state;
     throw error;
   }
   refreshInbox();
-  return actionSuccess(successMessage);
+  return { ...actionSuccess(successMessage), ...(savedRevision === undefined ? {} : { savedRevision }) };
 }
 
 /**
@@ -202,7 +203,7 @@ export async function saveVideoReviewCandidateState(
   const revision = Number(formText(formData, "revision"));
   if (!id || !Number.isInteger(revision)) return actionError("validation", "The video review form is incomplete. Reload and try again.");
   return recoverVideoAction(
-    async () => updateVideoReviewCandidate(createServiceClient(), id, revision, checkedCandidateFromForm(formData)).then(() => undefined),
+    async () => updateVideoReviewCandidate(createServiceClient(), id, revision, checkedCandidateFromForm(formData)).then((candidate) => candidate.revision),
     "Saved private video review.",
   );
 }

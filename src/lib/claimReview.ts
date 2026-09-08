@@ -94,8 +94,10 @@ export type ClaimReviewLifecycleDecision = {
   reason: string;
 };
 
+const CLAIM_REVIEW_WHITESPACE = /[\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+/gu;
+
 export function normalizeClaimReviewText(value: string): string {
-  return value.normalize("NFC").replace(/\0/g, "").trim().replace(/\s+/gu, " ");
+  return value.normalize("NFC").replace(CLAIM_REVIEW_WHITESPACE, " ").replace(/^ | $/g, "");
 }
 
 export function claimReviewKey(patchVersion: string, exactFixText: string): string {

@@ -228,7 +228,9 @@ begin
   limit 1
   for update;
 
-  if not found then return; end if;
+  if not found then
+    raise exception 'claim_review_current_patch_unavailable' using errcode = 'P0001';
+  end if;
 
   with retirement_candidates as (
     select pairing_row.id, pairing_row.state as prior_state, pairing_row.rejected_reason as prior_rejected_reason
@@ -316,6 +318,29 @@ begin
       and retired_owner.retired_at = p_seen_at
       and retired_owner.claim_clock_owned;
   end loop;
+
+  -- Notice placement is context, not claim identity. Refresh surviving exact
+  -- pairings even when this scan does not propose their mapping again.
+  update public.claim_review_pairings as current_pairing
+  set board_no = current_patch.board_no,
+      official_url = current_patch.official_url,
+      official_section = current_fix.section,
+      exact_official_text = current_fix.fix_text
+  from (
+    select distinct on (public.claim_review_claim_key(current_patch.patch_version, fix.fix_text))
+      public.claim_review_claim_key(current_patch.patch_version, fix.fix_text) as claim_key,
+      fix.fix_text, fix.section
+    from public.official_patch_claimed_fixes as fix
+    where fix.board_no = current_patch.board_no
+    order by public.claim_review_claim_key(current_patch.patch_version, fix.fix_text), fix.position, fix.id
+  ) as current_fix
+  where current_pairing.patch_version = current_patch.patch_version
+    and current_pairing.claim_key = current_fix.claim_key
+    and current_pairing.state <> 'retired'
+    and (current_pairing.board_no is distinct from current_patch.board_no
+      or current_pairing.official_url is distinct from current_patch.official_url
+      or current_pairing.official_section is distinct from current_fix.section
+      or current_pairing.exact_official_text is distinct from current_fix.fix_text);
 
   for proposal in select value from pg_catalog.jsonb_array_elements(p_proposals) loop
     if pg_catalog.jsonb_typeof(proposal) <> 'object'

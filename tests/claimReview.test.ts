@@ -120,8 +120,23 @@ describe("claim review identity", () => {
     expect(claimReviewKey("1.14.00", "Fixed a crash")).not.toBe(claimReviewKey("1.14.01", "Fixed a crash"));
   });
 
-  it("normalizes the Unicode whitespace set used by the database key", () => {
-    expect(normalizeClaimReviewText(`\u1680Fix\u202Fcrash\uFEFF`)).toBe("Fix crash");
+  it("normalizes exactly the 26 whitespace characters used by the database key", () => {
+    const databaseWhitespace = [
+      9, 10, 11, 12, 13, 32, 133, 160, 5760,
+      8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202,
+      8232, 8233, 8239, 8287, 12288, 65279,
+    ].map((codePoint) => String.fromCodePoint(codePoint));
+
+    for (const whitespace of databaseWhitespace) {
+      expect(normalizeClaimReviewText(`${whitespace}Fix${whitespace}${whitespace}crash${whitespace}`)).toBe("Fix crash");
+    }
+    expect(normalizeClaimReviewText("\0Fix\u200Bcrash\0")).toBe("\0Fix\u200Bcrash\0");
+  });
+
+  it("matches the database hash fixture when the claim contains NEL", () => {
+    expect(claimReviewKey("1.14.00", "\u0085Fixe\u0301d\u0085a crash.\u0085")).toBe(
+      "45389a6b14435fd9a092e30113c944f676521e5bc442c6b3cfb5b2978f3da4e8",
+    );
   });
 });
 
@@ -210,6 +225,18 @@ describe("claim review queue paging", () => {
     expect(queue.history[0]?.isActive).toBe(false);
   });
 
+  it("keeps a current NEL-separated claim eligible for review", async () => {
+    const row = pairingRow("0001");
+    row.state = "pending";
+    row.claim_key = claimReviewKey("1.14.00", "Fixed\u0085a crash.");
+    const { client } = pagingClient([row], { currentContext: true });
+
+    const queue = await readClaimReviewQueue(client);
+
+    expect(queue.pending).toHaveLength(1);
+    expect(queue.pending[0]?.derivedHistoryReason).toBeNull();
+  });
+
   it("fails closed when the current-patch validation read is null", async () => {
     const { client } = pagingClient([], { nullCurrentPatchRead: true });
 
@@ -286,6 +313,15 @@ describe("claim review RPC response validation", () => {
 
     await expect(recordClaimReviewProposals(client, { proposals: [], now: new Date("2026-09-07T12:00:00Z") }))
       .rejects.toThrow("malformed decisions");
+  });
+
+  it("rejects a no-current-patch RPC failure instead of reporting unavailable success", async () => {
+    const client = {
+      rpc: async () => ({ data: null, error: { code: "P0001", message: "claim_review_current_patch_unavailable" } }),
+    } as unknown as SupabaseClient;
+
+    await expect(recordClaimReviewProposals(client, { proposals: [], now: new Date("2026-09-07T12:00:00Z") }))
+      .rejects.toThrow("claim_review_current_patch_unavailable");
   });
 
   it("treats a missing pairing as stale work, not a retryable service error", async () => {

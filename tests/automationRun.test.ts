@@ -5728,6 +5728,26 @@ describe("runAutomationMonitor", () => {
     expect(mutations.filter((entry) => entry.table === "issue_clusters" && entry.type === "update")).toEqual([]);
   });
 
+  it("preserves legacy decisions when durable sync has no current patch", async () => {
+    resetDb({ issue_clusters: [{
+      id: "cluster-fps", slug: "performance_regression", title: "FPS regression",
+      category: "performance", description: "Frame-rate drops after the patch.",
+      fix_status: "reported", admin_override: false, is_public: true,
+      lifecycle_reason: "Needs review: legacy decision.",
+    }] });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.recordClaimReviewProposals.mockRejectedValue(new Error("claim review proposal sync failed: claim_review_current_patch_unavailable"));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.errors.join(" ")).toContain("claim_review_current_patch_unavailable");
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Needs review: legacy decision.");
+    expect(mutations.filter((entry) => entry.table === "issue_clusters" && entry.type === "update")).toEqual([]);
+  });
+
   it("skips the legacy lifecycle write for a cluster the durable store already decided", async () => {
     resetDb({
       issue_clusters: [

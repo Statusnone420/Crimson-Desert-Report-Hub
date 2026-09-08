@@ -156,8 +156,8 @@ function CandidateFields({
   );
 }
 
-function ActionFields({ candidate }: { candidate: VideoCandidate }) {
-  return <><input type="hidden" name="id" value={candidate.id} /><input type="hidden" name="revision" value={candidate.revision} /></>;
+function ActionFields({ candidate, revision = candidate.revision }: { candidate: VideoCandidate; revision?: number }) {
+  return <><input type="hidden" name="id" value={candidate.id} /><input type="hidden" name="revision" value={revision} /></>;
 }
 
 type VideoStateAction = (previous: VideoActionState, formData: FormData) => Promise<VideoActionState>;
@@ -167,17 +167,21 @@ function VideoActionForm({
   children,
   className,
   onSubmit,
+  onSaved,
   writesDisabled,
 }: {
   action: VideoStateAction;
   children: ReactNode;
   className?: string;
   onSubmit?: FormEventHandler<HTMLFormElement>;
+  onSaved?: (formData: FormData, revision: number) => void;
   writesDisabled: boolean;
 }) {
   const [state, formAction] = useActionState<VideoActionState, FormData>(async (previous, formData) => {
     try {
-      return await action(previous, formData);
+      const result = await action(previous, formData);
+      if (result.status === "success" && result.savedRevision !== undefined) onSaved?.(formData, result.savedRevision);
+      return result;
     } catch (error) {
       if (isActionTransportFailure(error)) return { status: "transport_error", code: "transport", message: ACTION_TRANSPORT_FAILURE_MESSAGE };
       throw error;
@@ -195,7 +199,7 @@ export function VideoWorkspace({ candidates, draftsByCandidateId, sources, obser
   const initialCandidate = candidates.find((candidate) => candidate.id === initialSelectedId);
   const [tab, setTab] = useState<"active" | "archived">(initialCandidate?.state === "archived" ? "archived" : "active");
   const [selectedId, setSelectedId] = useState(() => initialCandidate?.id ?? active[0]?.id ?? archived[0]?.id ?? null);
-  const [drafts, setDrafts] = useState<Record<string, CandidateFieldValues>>({});
+  const [drafts, setDrafts] = useState<Record<string, CandidateFieldValues & { revision: number }>>({});
   const shown = tab === "active" ? active : archived;
   const selected = shown.find((candidate) => candidate.id === selectedId) ?? shown[0] ?? null;
 
@@ -206,7 +210,20 @@ export function VideoWorkspace({ candidates, draftsByCandidateId, sources, obser
 
   function updateFields(candidate: VideoCandidate | undefined, patch: Partial<CandidateFieldValues>) {
     const key = candidate?.id ?? "new";
-    setDrafts((current) => ({ ...current, [key]: { ...(current[key] ?? candidateFieldValues(candidate, sources)), ...patch } }));
+    setDrafts((current) => ({ ...current, [key]: { ...(current[key] ?? { ...candidateFieldValues(candidate, sources), revision: candidate?.revision ?? 0 }), ...patch } }));
+  }
+
+  function savedDraft(formData: FormData, revision: number) {
+    const id = String(formData.get("id"));
+    const submittedRevision = Number(formData.get("revision"));
+    setDrafts((current) => {
+      const draft = current[id];
+      // A queue refresh must never advance the version attached to local edits.
+      // Only this draft's successful save can acknowledge its new base version.
+      return draft?.revision === submittedRevision
+        ? { ...current, [id]: { ...draft, revision } }
+        : current;
+    });
   }
 
   function selectTab(next: "active" | "archived") {
@@ -270,7 +287,7 @@ export function VideoWorkspace({ candidates, draftsByCandidateId, sources, obser
               </article>
             ))}
           </div>
-          {selected ? <VideoDetail candidate={selected} draft={draftsByCandidateId[selected.id]} sources={sources} values={fieldsFor(selected)} onChange={(patch) => updateFields(selected, patch)} writesDisabled={writesDisabled} /> : <section className="workspace-panel workspace-empty"><h2>No video selected</h2><p>Choose a queue item to inspect its private review details.</p></section>}
+          {selected ? <VideoDetail candidate={selected} draft={draftsByCandidateId[selected.id]} sources={sources} values={fieldsFor(selected)} revision={drafts[selected.id]?.revision ?? selected.revision} onChange={(patch) => updateFields(selected, patch)} onSaved={savedDraft} writesDisabled={writesDisabled} /> : <section className="workspace-panel workspace-empty"><h2>No video selected</h2><p>Choose a queue item to inspect its private review details.</p></section>}
         </div>
       </section>
     </div>
@@ -282,14 +299,18 @@ function VideoDetail({
   draft,
   sources,
   values,
+  revision,
   onChange,
+  onSaved,
   writesDisabled,
 }: {
   candidate: VideoCandidate;
   draft?: VideoDraft;
   sources: Source[];
   values: CandidateFieldValues;
+  revision: number;
   onChange: (patch: Partial<CandidateFieldValues>) => void;
+  onSaved: (formData: FormData, revision: number) => void;
   writesDisabled: boolean;
 }) {
   const isArchived = candidate.state === "archived";
@@ -299,8 +320,8 @@ function VideoDetail({
         <div><h2>{candidate.title}</h2><p><a href={candidate.canonicalUrl} target="_blank" rel="noreferrer noopener">Open the original YouTube video</a></p></div>
         <span className={candidate.state === "draft_ready" ? "workspace-badge workspace-badge--green" : "workspace-badge workspace-badge--amber"}>{stateLabels[candidate.state]}</span>
       </div>
-      {!isArchived ? <VideoActionForm action={saveVideoReviewCandidateState} writesDisabled={writesDisabled}>
-        <ActionFields candidate={candidate} />
+      {!isArchived ? <VideoActionForm action={saveVideoReviewCandidateState} onSaved={onSaved} writesDisabled={writesDisabled}>
+        <ActionFields candidate={candidate} revision={revision} />
         <CandidateFields candidate={candidate} sources={sources} values={values} onChange={onChange} />
         <div className="workspace-actions"><SubmitButton className="workspace-button workspace-button--primary" pendingText="Saving…">Save</SubmitButton></div>
         {candidate.state === "draft_ready" ? <p className="workspace-note">Changing the video or creator removes this private draft and requires a new approval.</p> : null}
