@@ -7,10 +7,10 @@ const PENDING_TITLE = "Fixture expansion commentary for inbox tests";
 
 test.describe("private video review inbox", () => {
   test("unauthenticated visitors cannot open the inbox", async ({ page }) => {
-    const response = await page.goto("/admin/videos");
+    const response = await page.goto("/operator?view=videos");
     expect(response?.ok()).toBeTruthy();
     await page.waitForURL(/\/admin\/login/);
-    expect(page.url()).toContain("from=%2Fadmin%2Fvideos");
+    expect(page.url()).toContain("from=%2Foperator%3Fview%3Dvideos");
     await expect(page.getByRole("heading", { name: "Admin sign-in" })).toBeVisible();
     await expect(page.getByText(PRIVATE_NOTE)).toHaveCount(0);
   });
@@ -18,31 +18,36 @@ test.describe("private video review inbox", () => {
   test("signed-in owner sees the private queue without changing Watch", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
-    await page.goto("/admin/videos");
+    await page.goto("/operator?view=videos");
     await expect(page.getByRole("heading", { name: "Video review" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Operator" }).getByRole("link", { name: "Videos" })).toHaveAttribute(
       "aria-current",
       "page",
     );
     await expect(page.getByRole("heading", { name: PENDING_TITLE })).toBeVisible();
-    await expect(page.locator("article[data-video-state='pending'] .review-item__body")).toHaveText(PRIVATE_NOTE);
+    const pending = page.locator("article[data-video-state='pending']");
+    await pending.getByRole("button", { name: PENDING_TITLE }).click();
+    const detail = page.getByRole("region", { name: /^Video details:/ });
+    await expect(detail.getByLabel("Review note")).toHaveValue(PRIVATE_NOTE);
     await expect(page.locator("article[data-video-state='pending']")).toHaveCount(1);
     await expect(page.locator("article[data-video-state='draft_ready']")).toHaveCount(1);
     await expect(page.locator("article[data-video-state='skipped']")).toHaveCount(1);
-    await expect(page.getByRole("link", { name: "Download draft" })).toBeVisible();
+    const ready = page.locator("article[data-video-state='draft_ready']");
+    await ready.locator(".workspace-queue-item__select").click();
+    await expect(detail.getByRole("link", { name: "Download draft" })).toBeVisible();
     const artifactDir = "output/playwright/video-inbox";
     mkdirSync(artifactDir, { recursive: true });
     const project = test.info().project.name;
     await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
     for (const theme of ["light", "dark"] as const) {
       await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
-      const failures = await page.locator(".video-review-inbox").evaluate((root) => {
+      const failures = await page.locator(".video-workspace").evaluate((root) => {
         const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
         const luminance = (channels: number[]) => channels.map((channel) => {
           const value = channel / 255;
           return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
         }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
-        return Array.from(root.querySelectorAll("input:not([type=hidden]):not([type=checkbox]), select, textarea, .dispatch-btn, .review-item__body, .scope-line, .video-draft-preview")).flatMap((element) => {
+        return Array.from(root.querySelectorAll("input:not([type=hidden]):not([type=checkbox]), select, textarea, .workspace-button, .workspace-queue-item, .workspace-note, .video-draft-preview")).flatMap((element) => {
           const style = getComputedStyle(element);
           let surface: Element | null = element;
           while (surface && getComputedStyle(surface).backgroundColor === "rgba(0, 0, 0, 0)") surface = surface.parentElement;
@@ -54,7 +59,7 @@ test.describe("private video review inbox", () => {
         });
       });
       expect(failures, `${theme} inbox text must remain readable`).toEqual([]);
-      await page.screenshot({ path: `${artifactDir}/${project}-queue-${theme}.png`, fullPage: true, animations: "disabled" });
+      await page.screenshot({ path: `${artifactDir}/${project}-queue-${theme}.png`, fullPage: true, animations: "disabled", caret: "initial" });
     }
     await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
 

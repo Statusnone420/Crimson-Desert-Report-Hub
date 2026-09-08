@@ -3,14 +3,18 @@
 import Link from "next/link";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { signOutAdmin } from "@/app/admin/actions";
+import { workspaceHref, type OperatorView } from "@/lib/operatorWorkspace";
+import { WorkspaceIcon } from "@/components/operator/WorkspaceIcon";
 import type { OperatorNavKey } from "@/components/dispatch/Chrome";
 
-const OPERATOR_PAGES: Array<{ key: OperatorNavKey; href: string; label: string }> = [
-  { key: "overview", href: "/operator", label: "Overview" },
-  { key: "review", href: "/admin", label: "Report review" },
-  { key: "videos", href: "/admin/videos", label: "Videos" },
-  { key: "scanner", href: "/scanner", label: "Scanner monitor" },
-  { key: "compile", href: "/admin/compile", label: "Dossiers" },
+const OPERATOR_PAGES: Array<{ key: OperatorNavKey; view: OperatorView; label: string }> = [
+  { key: "overview", view: "overview", label: "Overview" },
+  { key: "review", view: "reports", label: "Reports" },
+  { key: "claims", view: "claims", label: "Claim review" },
+  { key: "scanner", view: "scanner", label: "Scanner" },
+  { key: "videos", view: "videos", label: "Videos" },
+  { key: "compile", view: "dossiers", label: "Dossiers" },
+  { key: "settings", view: "settings", label: "Settings & tools" },
 ];
 
 /**
@@ -40,37 +44,34 @@ export function OperatorNav({ active }: { active?: OperatorNavKey }) {
 
   return (
     <>
-      <nav className="dispatch-nav dispatch-nav--operator" aria-label="Operator">
-        <div className="operator-nav__pages">
+      <nav className="workspace-nav" aria-label="Operator">
+        <div className="workspace-nav-pages">
           {OPERATOR_PAGES.map((item) => (
             <Link
               key={item.key}
-              href={item.href}
-              className="dispatch-nav__link"
+              href={workspaceHref(item.view)}
+              className="workspace-nav-link"
               aria-current={active === item.key ? "page" : undefined}
             >
-              {item.label}
+              <WorkspaceIcon name={item.view}/><span>{item.label}</span>
             </Link>
           ))}
         </div>
-        <div className="operator-utils" role="group" aria-label="Utilities">
-          <span className="operator-utils__label" aria-hidden="true">
-            Utilities
-          </span>
+        <div className="workspace-utilities" role="group" aria-label="Utilities">
           <button
             ref={exportTriggerRef}
             type="button"
-            className="operator-utils__btn"
+            className="workspace-nav-link"
             aria-expanded={confirmingExport}
             aria-controls="export-confirm"
             onClick={() => (confirmingExport ? closeExportConfirm() : setConfirmingExport(true))}
             onKeyDown={closeOnEscape}
           >
-            ↓ Export CSV…<span className="sr-only"> — confirms the private 22-field report export</span>
+            <WorkspaceIcon name="export"/><span>Export CSV…</span><span className="sr-only"> — confirms the private 22-field report export</span>
           </button>
           <form action={signOutAdmin} style={{ display: "contents" }}>
-            <button type="submit" className="operator-utils__btn operator-utils__btn--signout">
-              Sign out
+            <button type="submit" className="workspace-nav-link">
+              <WorkspaceIcon name="logout"/><span>Sign out</span>
             </button>
           </form>
         </div>
@@ -78,7 +79,7 @@ export function OperatorNav({ active }: { active?: OperatorNavKey }) {
       {confirmingExport ? (
         <div
           id="export-confirm"
-          className="export-confirm"
+          className="workspace-export-confirm"
           role="group"
           aria-labelledby="export-confirm-title"
           aria-describedby="export-confirm-detail"
@@ -91,10 +92,10 @@ export function OperatorNav({ active }: { active?: OperatorNavKey }) {
               IDs, evidence URLs, and every moderation state. Submission and deduplication hashes are excluded.
             </span>
           </p>
-          <a href="/api/admin/export" className="tap-btn" onClick={closeExportConfirm}>
+          <a href="/api/admin/export" className="workspace-button" onClick={closeExportConfirm}>
             Download CSV
           </a>
-          <button type="button" className="export-confirm__cancel" onClick={closeExportConfirm}>
+          <button type="button" className="workspace-button" onClick={closeExportConfirm}>
             Cancel
           </button>
         </div>

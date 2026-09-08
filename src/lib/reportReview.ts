@@ -26,6 +26,18 @@ export type ReportReviewQueue = {
 };
 
 export const FLAGGED_WINDOW = 50;
+const FLAGGED_REPORT_COLUMNS =
+  "id, created_at, patch_version, platform, category, severity, frequency, issue_title, description, repro_steps, hardware_specs, evidence_url, cluster_id";
+
+/** Keep every report this session has seen so a later-arriving row can still retry its excerpt. */
+export function retainFlaggedReports(
+  retained: FlaggedReport[],
+  current: FlaggedReport[],
+): FlaggedReport[] {
+  const seen = new Set(retained.map((row) => row.id));
+  const incoming = current.filter((row) => !seen.has(row.id));
+  return incoming.length === 0 ? retained : [...retained, ...incoming];
+}
 
 export type ExceptionSplit = {
   /** Everything the ledger shows: unsure claim matches plus your own locks. */
@@ -88,7 +100,7 @@ export async function readReportReviewQueue(
   const [flagged, approved, pending, spam] = await Promise.all([
     supabase
       .from("bug_reports")
-      .select("*")
+      .select(FLAGGED_REPORT_COLUMNS)
       .eq("moderation_status", "pending")
       .order("created_at", { ascending: true })
       .limit(FLAGGED_WINDOW),
@@ -102,7 +114,23 @@ export async function readReportReviewQueue(
   // proof of an empty queue, and would render a green "All clear".
   if (flagged.data === null) throw new Error("flagged reports read returned no rows");
   return {
-    flaggedReports: flagged.data as FlaggedReport[],
+    // These rows become client props. A type assertion alone does not strip
+    // database fields such as network hashes or duplicate fingerprints.
+    flaggedReports: (flagged.data as FlaggedReport[]).map((row) => ({
+      id: row.id,
+      created_at: row.created_at,
+      patch_version: row.patch_version,
+      platform: row.platform,
+      category: row.category,
+      severity: row.severity,
+      frequency: row.frequency,
+      issue_title: row.issue_title,
+      description: row.description,
+      repro_steps: row.repro_steps,
+      hardware_specs: row.hardware_specs,
+      evidence_url: row.evidence_url,
+      cluster_id: row.cluster_id,
+    })),
     approvedCount: exactCount("approved count", approved),
     pendingCount: exactCount("pending count", pending),
     spamCount: exactCount("spam count", spam),

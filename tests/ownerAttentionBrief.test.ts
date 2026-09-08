@@ -90,5 +90,6 @@ describe("owner attention brief", () => {
     const bullets = ownerBriefBullets(okBrief);
     expect(bullets.length).toBeLessThanOrEqual(5);
     expect(bullets.filter((item) => item.section === "needs_approval").length).toBeGreaterThan(0);
+    expect(bullets.find((item) => item.decision.includes("claim"))?.nextStep).toContain("/operator?view=claims");
   });
 });

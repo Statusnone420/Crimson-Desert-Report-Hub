@@ -386,6 +386,7 @@ describe("AdminScannerView", () => {
       weekReviewed?: number;
       integrations?: IntegrationStatus[];
       failedRuns7d?: number;
+      llmPaused?: boolean | null;
       pulseReadFailures?: PublicScannerData["pulseReadFailures"];
       platformContext?: PublicScannerData["platformContext"];
       steamPulse?: PublicScannerData["steamPulse"];
@@ -414,6 +415,7 @@ describe("AdminScannerView", () => {
         latestFind: null,
         scoreboard: {
           ...connectedScoreboard,
+          llmPaused: overrides.llmPaused === undefined ? false : overrides.llmPaused,
           scannerConnected: (overrides.readFailures ?? []).length === 0,
           readFailures: overrides.readFailures ?? [],
           pulseReadFailures: overrides.pulseReadFailures ?? [],
@@ -434,39 +436,38 @@ describe("AdminScannerView", () => {
       }));
     }
 
-    it("says nothing requires intervention only when both health reads succeeded", () => {
+    it("names an empty verified health list only when both health reads succeeded", () => {
       const markup = render({ radarConnected: true });
 
-      expect(markup).toContain("Nothing requires intervention.");
+      expect(markup).toContain("No named health checks require action.");
     });
 
     it("cannot claim the operator is clear when the radar run read failed", () => {
       const markup = render({ radarConnected: false });
 
-      expect(markup).not.toContain("Nothing requires intervention.");
-      expect(markup).toContain("Scanner health is unavailable");
+      expect(markup).not.toContain("No named health checks require action.");
+      expect(markup).toContain("Scanner health unavailable");
       // The band is replaced, not dropped: a missing band reads as a quiet radar.
       expect(markup).toContain("Source radar unavailable");
       expect(markup).toContain("Failed runs unavailable");
-      expect(markup).not.toContain("No scanner intervention required");
+      expect(markup).toContain("A required health read is unavailable.");
     });
 
-    it("marks only the failed register in the funnel band", () => {
-      // Scanner health comes from the radar's run reads and the circuit, not
-      // from these counters — so a failed published read greys its own cell and
-      // leaves both the headline and its neighbours alone.
+    it("names a failed register in health and marks only its funnel cell unavailable", () => {
       const markup = render({ radarConnected: true, readFailures: ["published"] });
 
-      expect(markup).toContain("Nothing requires intervention.");
+      expect(markup).not.toContain("No named health checks require action.");
+      expect(markup).toContain("A required health read is unavailable.");
+      expect(markup).toContain("Published issue total unavailable");
       expect(markup).toContain('<div class="stat-band__value stat-band__value--amber">Unavailable</div>');
-      expect(markup).toContain("Reviewed · 7d");
+      expect(markup).toContain("Automated screening events · 7d");
       expect(markup).not.toContain("The weekly read failed");
     });
 
     it("does not declare all clear when a collection read fails", () => {
       const markup = render({ radarConnected: true, pulseReadFailures: ["steam"] });
-      expect(markup).not.toContain("Nothing requires intervention.");
-      expect(markup).toContain("Collection health is unavailable");
+      expect(markup).not.toContain("No named health checks require action.");
+      expect(markup).toContain("A required health read is unavailable.");
       expect(markup).toContain("Unknown");
     });
 
@@ -480,9 +481,9 @@ describe("AdminScannerView", () => {
           steamPulse: [{ snapshotDay: "2026-07-22", collectedAt: "2026-07-22T14:00:00Z", totalReviews: 100, positivePercentage: 80, reviewCountDelta: 1, reviewsScanned: 1, issueLanguageCount: 0, leadsRetained: 0 }],
           platformContext: { capturedAt: "2026-07-22T17:00:00Z", igdbStatus: "ok", twitchStatus: "error", twitchComplete: null, releaseAt: null, platforms: [], igdbUrl: null, liveStreams: null, liveViewers: null, twitchHistory: [{ capturedAt: "2026-07-22T16:00:00Z", liveStreams: 10, liveViewers: 100 }] },
         });
-        expect(markup).not.toContain("Nothing requires intervention.");
-        expect(markup).toContain("1 health check needs a look.");
-        expect(markup).toContain("Provider unavailable");
+        expect(markup).not.toContain("No named health checks require action.");
+        expect(markup).toContain("1 named health check needs attention.");
+        expect(markup).toContain("Twitch audience: Provider unavailable");
         expect(markup).toContain("Steam reviews");
       } finally {
         vi.unstubAllEnvs();
@@ -506,11 +507,12 @@ describe("AdminScannerView", () => {
             circuitUnknown: true,
           },
         ],
+        llmPaused: null,
       });
 
-      expect(markup).not.toContain("Nothing requires intervention.");
-      expect(markup).toContain("AI EXTRACTION STATE UNKNOWN");
-      expect(markup).toContain("Scanner health is unavailable");
+      expect(markup).not.toContain("No named health checks require action.");
+      expect(markup).toContain("AI cost-safety state unavailable");
+      expect(markup).toContain("A required health read is unavailable.");
     });
 
     it("keeps the funnel bar and marks only the unread KPI beside it", () => {
@@ -519,8 +521,8 @@ describe("AdminScannerView", () => {
       // one KPI rather than the whole row.
       const markup = render({ radarConnected: true, readFailures: ["awaiting"], weekReviewed: 12 });
 
-      expect(markup).toContain("12 candidates reviewed");
-      expect(markup).toContain("Radar yield");
+      expect(markup).toContain("12 automated screening events");
+      expect(markup).toContain("Retained-lead share · 7d");
       expect(markup).toContain('<span class="mono-label">unavailable</span>');
       expect(markup).not.toContain('class="desk-funnel__num desk-funnel__num--blue"');
     });
@@ -530,9 +532,9 @@ describe("AdminScannerView", () => {
       // columns over. An unexplained duplicate reads as a second problem.
       const markup = render({ radarConnected: true, failedRuns7d: 1 });
 
-      expect(markup).toContain("1 failed run · 7d");
+      expect(markup).toContain("1 failed run in 7 days");
       expect(markup).not.toContain("Run or provider health needs a look");
-      expect(markup).toContain("1 health check needs a look.");
+      expect(markup).toContain("1 named health check needs attention.");
     });
 
     it("counts a paused provider alongside failed runs in the same caption", () => {
@@ -549,15 +551,18 @@ describe("AdminScannerView", () => {
             paused: true,
           },
         ],
+        llmPaused: true,
       });
 
-      expect(markup).toContain("2 failed runs · 7d · 1 provider paused");
+      expect(markup).toContain("2 failed runs in 7 days");
+      expect(markup).toContain("AI cost safety paused");
+      expect(markup).toContain("2 named health checks need attention.");
     });
 
     it("still says nothing is required when both parts are zero", () => {
       const markup = render({ radarConnected: true, failedRuns7d: 0 });
 
-      expect(markup).toContain("No scanner intervention required");
+      expect(markup).toContain("No named health checks require action.");
     });
   });
 

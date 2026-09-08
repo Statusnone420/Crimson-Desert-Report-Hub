@@ -1,8 +1,8 @@
 import { recordScannerDecision, rejectObservationAndTeach, setScannerPolicy, undoScannerDecision } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
 import { CollectionHealth } from "@/components/scanner/CollectionHealth";
-import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
 import { FeedbackRulesPanel, ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
+import { ScannerHealthSummary } from "@/components/operator/ScannerSections";
 import { SubmitButton } from "@/components/SubmitButton";
 import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS } from "@/lib/constants";
@@ -23,7 +23,7 @@ import type {
 import type { PatchRadarData } from "@/lib/radar.server";
 import { isBriefRenderableObservation } from "@/lib/observationDisplay";
 import { isVercelPreview } from "@/lib/previewGuard";
-import { registerUnread, type ScannerReadRegister } from "@/lib/scannerRegisters";
+import { getScannerAttention } from "@/lib/scannerAttention";
 import { SCANNER_MODEL_PRESETS } from "@/lib/automation/budget";
 import { scannerAiHealth, type ScannerAiHealth } from "@/lib/automation/health";
 
@@ -389,8 +389,7 @@ export function AdminScannerView({
   );
   const recentSignals = signals.slice(0, 6);
   const olderSignals = signals.slice(6);
-  const pausedIntegrations = integrations.filter((integration) => integration.paused);
-  const unknownCircuitIntegrations = integrations.filter((integration) => integration.circuitUnknown);
+  const aiIntegration = integrations.find((integration) => integration.key === "ai_extraction");
   const collectionInput = {
     steamPulse: scoreboard.steamPulse,
     platformContext: scoreboard.platformContext,
@@ -400,34 +399,14 @@ export function AdminScannerView({
     scheduledCadenceMinutes: control.minIntervalMinutes,
   };
   const collections = collectionHealth({ ...collectionInput, now });
-  const unreadRegister = (register: ScannerReadRegister) => registerUnread(scoreboard.readFailures, register);
-  // A disconnected radar or scoreboard means the reads behind these numbers
-  // failed, so their zeros are placeholders rather than counts. Nothing on this
-  // page may then say the operator is clear — it would be reading "no work" off
-  // a broken connection.
-  //
-  // An unreadable circuit counts too: the engine fails closed on that same
-  // failure and stops using LLM extraction, so "nothing requires intervention"
-  // would contradict both the status line above and what the scanner is doing.
-  //
-  // The scoreboard's counters are not health inputs — a failed published count
-  // says nothing about whether a run failed — so they gate their own cells
-  // rather than this headline.
-  const scannerHealthKnown = radar.connected && unknownCircuitIntegrations.length === 0;
-  const healthKnown = scannerHealthKnown && collections.status !== "unknown";
-  // Counts are checks to review, not distinct incidents: one run may affect a provider too.
-  const attentionCount = radar.health.runs7d.failed + pausedIntegrations.length + collections.attentionCount + Number(aiNeedsAttention);
-  // Name the affected checks so a repeated count does not imply a new incident.
-  const attentionParts = [
-    aiNeedsAttention ? aiHealth.message : null,
-    radar.health.runs7d.failed > 0
-      ? `${radar.health.runs7d.failed} failed run${radar.health.runs7d.failed === 1 ? "" : "s"} · 7d`
-      : null,
-    pausedIntegrations.length > 0
-      ? `${pausedIntegrations.length} provider${pausedIntegrations.length === 1 ? "" : "s"} paused`
-      : null,
-    collections.attentionCount > 0 ? `${collections.attentionCount} collection check${collections.attentionCount === 1 ? "" : "s"}` : null,
-  ].filter(Boolean);
+  const attention = getScannerAttention({
+    aiHealth,
+    llmPaused: scoreboard.llmPaused,
+    failedRuns: radar.connected ? radar.health.runs7d.failed : null,
+    radarAvailable: radar.connected,
+    scannerReadFailures: scoreboard.readFailures,
+    collection: collections,
+  });
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
   // What can reach the Brief decides how this section reads, so it says it once
   // instead of every card repeating it. This is the same complete function the
@@ -445,37 +424,42 @@ export function AdminScannerView({
   const reversibleObservations = observations.filter((observation) => observation.decision_id !== null).length;
 
   return (
-    <>
-      <header className="dispatch-pagehead" style={{ paddingBottom: 30 }}>
-        <div className="dispatch-pagehead__copy">
-          <p className="dispatch-kicker dispatch-kicker--amber">Operator · The Observatory</p>
-          <h1 className="dispatch-pagehead__title" style={{ fontSize: 44 }}>
-            Today&apos;s radar desk
-          </h1>
-          <p className="dispatch-pagehead__dek" style={{ maxWidth: "54ch" }}>
-            What changed, what keeps recurring, and what needs you — with the full review, rescue, and budget
-            workflows below.
-          </p>
+    <div className="workspace-page scanner-workspace">
+      <header className="workspace-heading">
+        <div>
+          <h1>Scanner workspace</h1>
+          <p>Check discovery, AI processing, the next eligible attempt, and the records behind each result.</p>
         </div>
-        <div className="op-actions">
+        <div className="workspace-actions">
           <ScanControls activeRunId={activeRun?.id ?? null} isPreview={isVercelPreview()} />
         </div>
       </header>
 
-      {/* Every section reachable without scrolling the whole page. Counts come
-          from reads that succeeded; a section whose read failed says so in its
-          own body rather than showing a zero here. */}
-      <nav className="op-section-nav" aria-label="Sections on this page">
-        <a href="#teach">Teach<span className="op-section-nav__count">{rejectedCandidates.length}</span></a>
-        <a href="#records">Records<span className="op-section-nav__count">{signals.length}</span></a>
-        <a href="#lanes">Context lanes<span className="op-section-nav__count">{observations.length}</span></a>
-        <a href="#lessons">
-          Lessons
-          {feedbackLearningAvailable ? <span className="op-section-nav__count">{feedbackRules.length}</span> : null}
-        </a>
-        <a href="#history">Scan history<span className="op-section-nav__count">{runs.length}</span></a>
+      <nav className="workspace-tabs" aria-label="Scanner workspace sections">
+        <a className="workspace-tab" href="#health">Health and history</a>
+        <a className="workspace-tab" href="#teach">Teach{rejectedCandidates.length > 0 ? ` (${rejectedCandidates.length})` : ""}</a>
+        <a className="workspace-tab" href="#records">Records{signals.length > 0 ? ` (${signals.length})` : ""}</a>
+        <a className="workspace-tab" href="#lanes">Context</a>
+        <a className="workspace-tab" href="#lessons">Lessons{feedbackLearningAvailable && feedbackRules.length > 0 ? ` (${feedbackRules.length})` : ""}</a>
+        <a className="workspace-tab" href="#settings">Settings</a>
       </nav>
 
+      <ScannerHealthSummary
+        attention={attention}
+        scannerStatus={status.label}
+        scannerStatusTone={status.toneClass === "is-green" ? "workspace-badge--green" : "workspace-badge--amber"}
+        nextAttempt={control.paused ? "Paused" : relativeTime(nextEligible.toISOString(), nowMs)}
+        latestRun={latestRun ? relativeTime(latestRun.started_at, nowMs) : null}
+        radarAvailable={radar.connected}
+        screened7d={radar.funnel7d.reviewed}
+        retained7d={radar.funnel7d.kept}
+        awaiting={scoreboard.readFailures.includes("awaiting") ? null : scoreboard.awaiting}
+        dateCoverage={radar.connected ? radar.dateCoverage : null}
+      />
+
+      <details className="workspace-panel scanner-workspace__telemetry">
+        <summary>Detailed scanner telemetry</summary>
+        <div className="workspace-panel-body">
       <div className="op-status-line">
         <span className={status.toneClass}>● {status.label}</span>
         {" · "}
@@ -483,20 +467,8 @@ export function AdminScannerView({
         {" · "}
         {control.paused ? "NEXT CHECK PAUSED" : `NEXT CHECK ${relativeTime(nextEligible.toISOString(), nowMs)}`}
         {latestFind ? ` · MOST RECENT KEPT LEAD ${relativeTime(latestFind.started_at, nowMs)}` : ""}
-        {pausedIntegrations.map((integration) => (
-          <span key={integration.key}>
-            {" · "}
-            <span className="is-amber">{integration.label.toUpperCase()} PAUSED</span>
-          </span>
-        ))}
-        {/* An unreadable circuit is not a paused one; saying PAUSED here would
-            state as fact something the failed read never established. */}
-        {unknownCircuitIntegrations.map((integration) => (
-          <span key={integration.key}>
-            {" · "}
-            <span className="is-amber">{integration.label.toUpperCase()} STATE UNKNOWN</span>
-          </span>
-        ))}
+        {aiIntegration?.paused ? <span className="is-amber"> · AI COST SAFETY PAUSED</span> : null}
+        {aiIntegration?.circuitUnknown ? <span className="is-amber"> · AI COST SAFETY STATE UNKNOWN</span> : null}
       </div>
 
       {radar.connected ? (
@@ -529,17 +501,17 @@ export function AdminScannerView({
             <div className="stat-band__label">Checks to review</div>
             <div
               className={
-                !healthKnown || attentionCount > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value"
+                attention.count === null || attention.count > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value"
               }
             >
-              {healthKnown ? attentionCount : "Unknown"}
+              {attention.count ?? "Unknown"}
             </div>
             <div className="stat-band__caption">
-              {!healthKnown
+              {attention.count === null
                 ? "A health read failed, so this count is unavailable"
-                : attentionParts.length > 0
-                  ? attentionParts.join(" · ")
-                  : "No scanner intervention required"}
+                : attention.items.length > 0
+                  ? attention.items.map((item) => item.label).join(" · ")
+                  : "No named health checks require action"}
             </div>
           </div>
           <div className="stat-band__cell">
@@ -552,7 +524,7 @@ export function AdminScannerView({
               {radar.health.runs7d.failed}
             </div>
             <div className="stat-band__caption">
-              {radar.health.runs7d.succeeded} ok · {radar.health.runs7d.skipped} skipped
+              {radar.health.runs7d.succeeded} completed · {radar.health.runs7d.skipped} skipped
             </div>
           </div>
           <div className="stat-band__cell">
@@ -587,21 +559,16 @@ export function AdminScannerView({
         <div className="desk-funnel" aria-label="Source radar funnel">
           <div className="desk-funnel__main">
             <div className="mono-label" style={{ marginBottom: 10 }}>
-              This week · {radar.funnel7d.reviewed} candidates reviewed
+              This week · {radar.funnel7d.reviewed} automated screening events
             </div>
-            <SegmentedFunnelBar
-              reviewed={radar.funnel7d.reviewed}
-              kept={radar.funnel7d.kept}
-              reobserved={radar.funnel7d.reobserved}
-              filtered={radar.funnel7d.filtered}
-            />
+            <p className="workspace-note">{radar.funnel7d.kept} retained · {radar.funnel7d.reobserved} re-observed · {radar.funnel7d.filtered} filtered</p>
           </div>
           {/* Each KPI names its own register: a failed published read costs the
               published number, not the two beside it. */}
           <div className="desk-funnel__kpis">
             <div className="desk-funnel__kpi">
-              <span className="mono-label">Awaiting</span>
-              {unreadRegister("awaiting") ? (
+              <span className="mono-label">Awaiting issue groups</span>
+              {scoreboard.readFailures.includes("awaiting") ? (
                 <>
                   <span className="desk-funnel__num">—</span>
                   <span className="mono-label">unavailable</span>
@@ -611,8 +578,8 @@ export function AdminScannerView({
               )}
             </div>
             <div className="desk-funnel__kpi">
-              <span className="mono-label">Published</span>
-              {unreadRegister("published") ? (
+              <span className="mono-label">Published issue groups</span>
+              {scoreboard.readFailures.includes("published") ? (
                 <>
                   <span className="desk-funnel__num">—</span>
                   <span className="mono-label">unavailable</span>
@@ -622,15 +589,15 @@ export function AdminScannerView({
               )}
             </div>
             <div className="desk-funnel__kpi">
-              <span className="mono-label">Radar yield</span>
-              {unreadRegister("week") ? (
+              <span className="mono-label">Retained-lead share · 7d</span>
+              {scoreboard.readFailures.includes("week") ? (
                 <>
                   <span className="desk-funnel__num">—</span>
                   <span className="mono-label">unavailable</span>
                 </>
               ) : (
                 <span className="desk-funnel__num">
-                  {scoreboard.reviewedThisWeek > 0 ? `${yieldPct.toFixed(1)}%` : "0%"}
+                  {scoreboard.reviewedThisWeek > 0 ? `${scoreboard.keptThisWeek} / ${scoreboard.reviewedThisWeek} (${yieldPct.toFixed(1)}%)` : "0 / 0"}
                 </span>
               )}
             </div>
@@ -639,57 +606,57 @@ export function AdminScannerView({
       ) : (
         <div className="stat-band" aria-label="Source radar funnel">
           <div className="stat-band__cell">
-            <div className="stat-band__label">Reviewed · 7d</div>
-            <div className={unreadRegister("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
-              {unreadRegister("week") ? "Unavailable" : scoreboard.reviewedThisWeek}
+            <div className="stat-band__label">Automated screening events · 7d</div>
+            <div className={scoreboard.readFailures.includes("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {scoreboard.readFailures.includes("week") ? "Unavailable" : scoreboard.reviewedThisWeek}
             </div>
-            {unreadRegister("week") ? <div className="stat-band__caption">The weekly read failed</div> : null}
+            {scoreboard.readFailures.includes("week") ? <div className="stat-band__caption">The weekly read failed</div> : <div className="stat-band__caption">Includes repeat screening; not human reviews.</div>}
           </div>
           <div className="stat-band__cell">
             <div className="stat-band__label">Filtered</div>
-            <div className={unreadRegister("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
-              {unreadRegister("week") ? "Unavailable" : scoreboard.filteredThisWeek}
+            <div className={scoreboard.readFailures.includes("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {scoreboard.readFailures.includes("week") ? "Unavailable" : scoreboard.filteredThisWeek}
             </div>
           </div>
           <div className="stat-band__cell">
-            <div className="stat-band__label">Awaiting corroboration</div>
+            <div className="stat-band__label">Awaiting issue groups</div>
             <div
               className={
-                unreadRegister("awaiting")
+                scoreboard.readFailures.includes("awaiting")
                   ? "stat-band__value stat-band__value--amber"
                   : "stat-band__value stat-band__value--blue"
               }
             >
-              {unreadRegister("awaiting") ? "Unavailable" : scoreboard.awaiting}
+              {scoreboard.readFailures.includes("awaiting") ? "Unavailable" : scoreboard.awaiting}
             </div>
           </div>
           <div className="stat-band__cell">
             <div className="stat-band__label">Published issues</div>
             <div
               className={
-                unreadRegister("published")
+                scoreboard.readFailures.includes("published")
                   ? "stat-band__value stat-band__value--amber"
                   : "stat-band__value stat-band__value--crimson"
               }
             >
-              {unreadRegister("published") ? "Unavailable" : scoreboard.published}
+              {scoreboard.readFailures.includes("published") ? "Unavailable" : scoreboard.published}
             </div>
           </div>
           <div className="stat-band__cell">
             <div className="stat-band__label">
               {/* Each figure names its own register rather than the row sharing one fate. */}
-              Live {unreadRegister("published") ? "—" : scoreboard.published} ·{" "}
-              Watching {unreadRegister("awaiting") ? "—" : scoreboard.awaiting} ·{" "}
-              Kept {unreadRegister("week") ? "—" : scoreboard.keptThisWeek}
+              Published {scoreboard.readFailures.includes("published") ? "—" : scoreboard.published} ·{" "}
+              Awaiting {scoreboard.readFailures.includes("awaiting") ? "—" : scoreboard.awaiting} ·{" "}
+              Retained {scoreboard.readFailures.includes("week") ? "—" : scoreboard.keptThisWeek}
             </div>
-            <div className={unreadRegister("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
-              {unreadRegister("week")
+            <div className={scoreboard.readFailures.includes("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {scoreboard.readFailures.includes("week")
                 ? "Unavailable"
                 : scoreboard.reviewedThisWeek > 0
                   ? `${yieldPct.toFixed(1)}%`
                   : "0%"}
             </div>
-            <div className="stat-band__caption">radar yield</div>
+            <div className="stat-band__caption">retained-lead share · 7d, not accuracy</div>
           </div>
         </div>
       )}
@@ -698,13 +665,11 @@ export function AdminScannerView({
         <div>
           <p className="operator-inbox__eyebrow">Action inbox</p>
           <h2>
-            {!scannerHealthKnown
-              ? "Scanner health is unavailable, so this page cannot tell you whether anything needs you."
-              : collections.status === "unknown"
-                ? "Collection health is unavailable. Check the affected service below."
-              : attentionCount === 0
-                ? "Nothing requires intervention."
-                : `${attentionCount} health check${attentionCount === 1 ? " needs" : "s need"} a look.`}
+            {attention.count === null
+              ? "A health read is unavailable, so this page cannot verify the current attention count."
+              : attention.count === 0
+                ? "No named health checks require action."
+                : `${attention.count} named health check${attention.count === 1 ? " needs" : "s need"} a look.`}
           </h2>
           <p>
             {feedbackLearningAvailable
@@ -724,13 +689,15 @@ export function AdminScannerView({
       </section>
 
       <CollectionHealth {...collectionInput} nowIso={nowIso} />
+        </div>
+      </details>
 
-      <div className="operator-workbench">
-        <section className="operator-workbench__main" id="teach" aria-label="Teach the scanner">
+      <div className="workspace-split scanner-workspace__workbench">
+        <section className="workspace-panel operator-workbench__main" id="teach" aria-label="Teach the scanner">
           <div className="section-heading">
             <div>
               <p className="dispatch-kicker dispatch-kicker--amber">Teach the scanner · Optional</p>
-              <h2 className="section-heading__title">Review the pattern, not a dropdown farm.</h2>
+              <h2 className="section-heading__title">Review optional candidates</h2>
             </div>
             <p className="section-heading__note">
               Keep a missed lead, or record why a page is wrong. Exact-page rules are safest; broader rules require
@@ -745,7 +712,7 @@ export function AdminScannerView({
           />
         </section>
 
-        <aside className="operator-workbench__rail" aria-label="Latest run and scanner settings">
+        <aside className="workspace-panel operator-workbench__rail" aria-label="Latest run and scanner settings">
           <div className="op-rail-block">
             <p className="mono-label">Latest run</p>
             {latestRun ? (
@@ -764,7 +731,7 @@ export function AdminScannerView({
             ) : <p className="op-rail__sentence">No completed scan yet.</p>}
           </div>
 
-          <details className="operator-disclosure" id="history">
+          <details className="operator-disclosure workspace-panel" id="history">
             <summary>Scan history and diagnostics · newest {runs.length}</summary>
             <div className="operator-disclosure__body">
               {/* The read is the newest 10 runs and there is no total behind it,
@@ -792,7 +759,7 @@ export function AdminScannerView({
             </div>
           </details>
 
-          <details className="operator-disclosure">
+          <details className="operator-disclosure workspace-panel" id="settings">
             <summary>Scanner cadence and budget</summary>
             <form action={setScannerPolicy} className="operator-disclosure__body decision-form dispatch-field">
               <input type="hidden" name="minIntervalMinutes" value={control.minIntervalMinutes} />
@@ -817,7 +784,7 @@ export function AdminScannerView({
 
       {/* A record of what the scanner did on its own — nothing here is waiting
           on the operator, so it opens on request rather than by default. */}
-      <section className="operator-records" id="records" aria-label="Automatic scanner records">
+      <section className="workspace-panel operator-records" id="records" aria-label="Automatic scanner records">
         <details className="operator-section">
           <summary className="operator-section__summary">
             <span className="dispatch-kicker">Automatic records</span>
@@ -847,7 +814,7 @@ export function AdminScannerView({
         </details>
       </section>
 
-      <section className="operator-records" id="lanes" aria-label="Scanner context archive">
+      <section className="workspace-panel operator-records" id="lanes" aria-label="Scanner context archive">
         <details className="operator-section">
           <summary className="operator-section__summary">
             <span className="dispatch-kicker">Context lanes</span>
@@ -884,7 +851,7 @@ export function AdminScannerView({
         </details>
       </section>
 
-      <section className="feedback-ledger" id="lessons" aria-label="Active scanner feedback rules">
+      <section className="workspace-panel feedback-ledger" id="lessons" aria-label="Active scanner feedback rules">
         <div className="section-heading section-heading--compact">
           <div><p className="dispatch-kicker">Active lessons</p><h2 className="section-heading__title">What the scanner will remember</h2></div>
           <p className="section-heading__note">Visibility and learning stay separate. Hiding an issue never poisons discovery; only an explicit scanner decision creates a rule.</p>
@@ -895,6 +862,6 @@ export function AdminScannerView({
           <p className="decision-empty">Scanner learning unlocks after the database schema update.</p>
         )}
       </section>
-    </>
+    </div>
   );
 }

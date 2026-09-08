@@ -40,6 +40,7 @@ type AdminTableName = TableName | "automation_settings" | "official_patch_notes"
 
 let insertFailure: { table: TableName; message: string } | null = null;
 let upsertFailure: { table: AdminTableName; message: string } | null = null;
+let beforeConditionalReportUpdate: (() => void) | null = null;
 let seedRows: Partial<Record<AdminTableName, Record<string, unknown>[]>> = {};
 const mutations: { table: AdminTableName; type: "insert" | "update" | "upsert"; row: unknown }[] = [];
 
@@ -104,8 +105,19 @@ class FakeQuery {
     }
 
     if (this.patch) {
+      const conditionalReportUpdate = this.table === "bug_reports" && this.filters.some((filter) => filter.column === "moderation_status");
+      if (conditionalReportUpdate) {
+        const hook = beforeConditionalReportUpdate;
+        beforeConditionalReportUpdate = null;
+        hook?.();
+      }
+      const rows = (seedRows[this.table] ?? []).filter((row) =>
+        this.filters.every((filter) => row[filter.column] === filter.value),
+      );
+      if (conditionalReportUpdate && rows.length === 0) return { data: [], error: null };
+      for (const row of rows) Object.assign(row, this.patch);
       mutations.push({ table: this.table, type: "update", row: { patch: this.patch, filters: this.filters } });
-      return { data: [this.patch], error: null };
+      return { data: this.selecting ? rows.map((row) => ({ id: row.id })) : [this.patch], error: null };
     }
 
     if (this.selecting) {
@@ -113,7 +125,7 @@ class FakeQuery {
         this.filters.every((filter) => row[filter.column] === filter.value),
       );
       const limited = this.limitCount !== null ? rows.slice(0, this.limitCount) : rows;
-      return { data: limited, error: null };
+      return { data: limited.map((row) => ({ ...row })), error: null };
     }
 
     return { data: [], error: null };
@@ -128,6 +140,7 @@ beforeEach(() => {
   vi.resetModules();
   insertFailure = null;
   upsertFailure = null;
+  beforeConditionalReportUpdate = null;
   seedRows = {
     bug_reports: [{ id: "report-one", moderation_status: "pending", cluster_id: null }],
   };
@@ -152,6 +165,69 @@ describe("admin action surface", () => {
 });
 
 describe("moderateReport", () => {
+  it("rejects a workspace decision when the report is already decided before the write", async () => {
+    seedRows = {
+      bug_reports: [{ id: "report-one", moderation_status: "approved", cluster_id: "cluster-old" }],
+    };
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "approved");
+    formData.set("cluster_id", "cluster-one");
+    formData.set("excerpt", "This excerpt must never be saved by a stale decision.");
+    formData.set("expected_status", "pending");
+
+    await expect(moderateReport(formData)).rejects.toThrow("stale report decision");
+    expect(mutations).toHaveLength(0);
+    expect(mocks.refreshClusterVisibility).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("uses the conditional update as the concurrency boundary", async () => {
+    beforeConditionalReportUpdate = () => {
+      const report = seedRows.bug_reports?.[0];
+      if (report) report.moderation_status = "rejected";
+    };
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "approved");
+    formData.set("cluster_id", "cluster-one");
+    formData.set("excerpt", "This excerpt must not be inserted after a concurrent decision.");
+    formData.set("expected_status", "pending");
+
+    await expect(moderateReport(formData)).rejects.toThrow("stale report decision");
+    expect(mutations).toHaveLength(0);
+    expect(mocks.refreshClusterVisibility).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("updates a still-pending workspace report and returns its selected row", async () => {
+    const { moderateReport } = await import("@/app/admin/actions");
+    const formData = new FormData();
+    formData.set("id", "report-one");
+    formData.set("decision", "approved");
+    formData.set("cluster_id", "cluster-one");
+    formData.set("expected_status", "pending");
+
+    await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
+
+    expect(mutations).toContainEqual({
+      table: "bug_reports",
+      type: "update",
+      row: {
+        patch: { moderation_status: "approved", cluster_id: "cluster-one" },
+        filters: [
+          { column: "id", value: "report-one" },
+          { column: "moderation_status", value: "pending" },
+        ],
+      },
+    });
+    expect(seedRows.bug_reports?.[0]).toMatchObject({ moderation_status: "approved", cluster_id: "cluster-one" });
+    expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-one");
+  });
+
   it("refreshes automatic visibility after approving a clustered report", async () => {
     const { moderateReport } = await import("@/app/admin/actions");
     const formData = new FormData();
@@ -160,6 +236,7 @@ describe("moderateReport", () => {
     formData.set("cluster_id", "cluster-one");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-one");
   });
@@ -178,6 +255,7 @@ describe("moderateReport", () => {
     formData.set("excerpt", "Frame rate drops after the patch.");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "bug_reports",
@@ -225,6 +303,7 @@ describe("moderateReport", () => {
     formData.set("decision", "rejected");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledTimes(1);
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-old");
@@ -241,6 +320,7 @@ describe("moderateReport", () => {
     formData.set("cluster_id", "cluster-new");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledTimes(2);
     expect(mocks.refreshClusterVisibility).toHaveBeenNthCalledWith(1, "cluster-old");
@@ -256,6 +336,7 @@ describe("setClusterFixStatus", () => {
     formData.set("fix_status", "verified_fixed");
 
     await setClusterFixStatus(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "issue_clusters",
@@ -295,6 +376,7 @@ describe("setClusterFixStatus", () => {
     formData.set("fix_status", "reported");
 
     await setClusterFixStatus(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual(
       expect.objectContaining({
@@ -316,6 +398,7 @@ describe("setClusterFixStatus", () => {
     formData.set("fix_status", "persists");
 
     await setClusterFixStatus(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual(
       expect.objectContaining({
@@ -348,6 +431,7 @@ describe("clearClusterFixStatusOverride", () => {
     formData.set("cluster_id", "cluster-one");
 
     await clearClusterFixStatusOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "issue_clusters",
@@ -375,6 +459,7 @@ describe("setClusterVisibilityOverride", () => {
     formData.set("confirm_override", "true");
 
     await setClusterVisibilityOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
@@ -393,6 +478,7 @@ describe("setClusterVisibilityOverride", () => {
     formData.set("confirm_override", "true");
 
     await setClusterVisibilityOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
@@ -409,6 +495,7 @@ describe("setClusterVisibilityOverride", () => {
     formData.set("visibility", "auto");
 
     await setClusterVisibilityOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
@@ -435,6 +522,7 @@ describe("setClusterVisibilityOverride", () => {
     formData.set("visibility", "auto");
 
     await setClusterVisibilityOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenNthCalledWith(1, "set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
@@ -512,6 +600,7 @@ describe("setAutomationPaused", () => {
     formData.set("paused", "true");
 
     await setAutomationPaused(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "automation_settings",
@@ -539,6 +628,7 @@ describe("setScannerPolicy", () => {
     formData.set("modelPreset", "expensive-model");
 
     await setScannerPolicy(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "automation_settings",
@@ -648,6 +738,7 @@ describe("recordScannerDecision", () => {
     formData.set("scope", "exact_url");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_scanner_decision",
@@ -686,6 +777,7 @@ describe("recordScannerDecision", () => {
     formData.set("confirm_broad", "true");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_scanner_decision",
@@ -707,6 +799,7 @@ describe("recordScannerDecision", () => {
     formData.set("scope", "exact_url");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rescueCandidateSignal).toHaveBeenCalledTimes(1);
     expect(mocks.rpc).toHaveBeenCalledWith(
@@ -800,6 +893,7 @@ describe("recordScannerDecision", () => {
     formData.set("scope", "exact_url");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_scanner_decision",
@@ -844,6 +938,7 @@ describe("recordScannerDecision", () => {
     formData.set("scope", "exact_url");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_scanner_decision",
@@ -908,6 +1003,7 @@ describe("undoScannerDecision", () => {
     formData.set("decision_id", "decision-one");
 
     await undoScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("undo_scanner_decision", { p_decision_id: "decision-one" });
     expect(mocks.rpc).not.toHaveBeenCalledWith("set_cluster_visibility_override", expect.anything());
@@ -924,6 +1020,7 @@ describe("undoScannerDecision", () => {
     formData.set("decision_id", "decision-signal");
 
     await undoScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-current");
     expect(mocks.from).not.toHaveBeenCalledWith("scanner_decisions");
@@ -948,6 +1045,7 @@ describe("setCurrentPatchOverride", () => {
     formData.set("patch_version", "1.13.02");
 
     await setCurrentPatchOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_current_patch_override", {
       p_observed_at: expect.any(String),

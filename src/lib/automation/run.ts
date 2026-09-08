@@ -53,7 +53,7 @@ import {
 } from "@/lib/env";
 import { computeClusterLifecycle, type LifecycleClaimDecision } from "@/lib/lifecycle";
 import {
-  getClaimedFixesForCurrentPatch,
+  readClaimedFixesForCurrentPatch,
   getCurrentPatchMetadata,
   syncOfficialPatchNote,
   type CurrentPatchMetadata,
@@ -81,6 +81,7 @@ import {
 } from "@/lib/automation/steam";
 import { createServiceClient } from "@/lib/supabase";
 import { appendOpenRouterDiagnostics, type OpenRouterDiagnostic } from "@/lib/automation/openRouterDiagnostics";
+import { recordClaimReviewProposals, type ClaimReviewLifecycleDecision, type ClaimReviewProposal } from "@/lib/claimReview";
 import { isMissingSupabaseColumn, isMissingSupabaseRelation } from "@/lib/supabaseCompatibility";
 import { fetchCrimsonDesertPlatformContext } from "@/lib/platform/igdb";
 
@@ -1832,11 +1833,13 @@ async function runLifecyclePass(
   currentPatch: CurrentPatchContext,
   now: Date,
 ): Promise<void> {
-  const [clusters, claims] = await Promise.all([
+  const [clusters, claimedRegister] = await Promise.all([
     loadLifecycleClusters(supabase),
-    getClaimedFixesForCurrentPatch(supabase),
+    readClaimedFixesForCurrentPatch(supabase),
   ]);
+  const claims = claimedRegister.fixes;
   const claimDecisionByCluster = new Map<string, ClaimMappingDecision>();
+  const claimReviewProposals: ClaimReviewProposal[] = [];
   const initialLlmCallsRemaining = remainingLlmCalls(result, budget);
   const extractionReserve = budget.allowPaidSearch
     ? Math.min(MAX_RESERVED_EXTRACTION_LLM_CALLS, Math.floor(initialLlmCallsRemaining / 2))
@@ -1861,13 +1864,37 @@ async function runLifecyclePass(
     recordOpenRouterRunSkip(result, decision.skipReason);
     claimLlmCallsRemaining = Math.max(0, claimLlmCallsRemaining - decision.llmCallsUsed);
     if (!decision.clusterId) continue;
+    if (decision.matchKind !== "none") {
+      claimReviewProposals.push({
+        fixText: claim.fixText,
+        clusterId: decision.clusterId,
+        proposalKind: decision.matchKind,
+        proposalReason: needsReviewReason(decision.reason, "Claim mapping needs review."),
+      });
+    }
     const existing = claimDecisionByCluster.get(decision.clusterId);
     if (!existing || decisionRank(decision) > decisionRank(existing)) {
       claimDecisionByCluster.set(decision.clusterId, decision);
     }
   }
 
+  // The durable resolver is the live path whenever its RPC exists. A missing
+  // function is the pre-migration rolling-deploy fallback. A claimed-fixes
+  // read failure must not look like an empty register: that would skip the
+  // resolver and let the legacy writer clear Needs review prose.
+  const durable = await recordClaimReviewProposals(supabase, { proposals: claimReviewProposals, now });
+  const durableByCluster = durable.status === "available"
+    ? new Map(durable.decisions.map((decision) => [decision.clusterId, decision]))
+    : new Map<string, ClaimReviewLifecycleDecision>();
+
   for (const cluster of clusters) {
+    const durableDecision = durableByCluster.get(cluster.id);
+    // The durable RPC already writes its matching cluster state under the same
+    // lock as its pairing/audit record. A second write here would advance the
+    // lifecycle revision after the card was issued and make every operator
+    // action stale before it reaches the desk.
+    if (durableDecision) continue;
+    const claimDecision = toLifecycleClaimDecision(claimDecisionByCluster.get(cluster.id));
     const computed = computeClusterLifecycle({
       currentStatus: cluster.fix_status,
       fixClaimedAt: cluster.fix_claimed_at ?? null,
@@ -1875,7 +1902,7 @@ async function runLifecyclePass(
       currentPatchVersion: currentPatch.version,
       adminOverride: Boolean(cluster.admin_override),
       now,
-      claimDecision: toLifecycleClaimDecision(claimDecisionByCluster.get(cluster.id)),
+      claimDecision,
     });
     await writeLifecycleResult(supabase, cluster, computed);
   }
