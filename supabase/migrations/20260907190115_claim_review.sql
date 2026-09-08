@@ -413,7 +413,15 @@ begin
         and siblings.cluster_lifecycle_revision is distinct from next_lifecycle_revision;
       update public.claim_review_pairings
       set cluster_lifecycle_revision = next_lifecycle_revision,
-          claim_clock_owned = claim_clock_owned or made_clock
+          -- Adopt a pre-migration clock without changing its age. The shared
+          -- advisory lock ensures only one confirmed support becomes owner.
+          claim_clock_owned = claim_clock_owned or made_clock or not exists (
+            select 1 from public.claim_review_pairings as owner
+            where owner.cluster_id = cluster.id
+              and owner.patch_version = current_patch.patch_version
+              and owner.state = 'confirmed'
+              and owner.claim_clock_owned
+          )
       where id = pairing.id
       returning * into pairing;
     elsif pairing.state in ('pending', 'later') and not cluster.admin_override
@@ -597,7 +605,14 @@ begin
       and siblings.id <> pairing.id
       and siblings.cluster_lifecycle_revision is distinct from cluster.lifecycle_revision;
     update public.claim_review_pairings set state = 'confirmed', confirmed_at = now(), rejected_reason = null,
-      claim_clock_owned = claim_clock_owned or made_clock, cluster_lifecycle_revision = cluster.lifecycle_revision
+      -- Manual confirmation can be the first durable support of a legacy clock.
+      claim_clock_owned = claim_clock_owned or made_clock or not exists (
+        select 1 from public.claim_review_pairings as owner
+        where owner.cluster_id = cluster.id
+          and owner.patch_version = pairing.patch_version
+          and owner.state = 'confirmed'
+          and owner.claim_clock_owned
+      ), cluster_lifecycle_revision = cluster.lifecycle_revision
     where id = pairing.id returning * into pairing;
     next_state := 'confirmed';
   elsif p_action = 'reject' then
