@@ -172,6 +172,23 @@ describe("claim review queue paging", () => {
     );
   });
 
+  it("keeps each audit event's classification snapshot when the pairing is reclassified", async () => {
+    const row = pairingRow("0001");
+    row.proposal_kind = "llm_sure";
+    const auditRows = [
+      { ...pairingRow("audit-0001"), pairing_id: row.id, proposal_kind: "keyword_proposal" },
+      { ...pairingRow("audit-0002"), pairing_id: row.id, proposal_kind: "llm_unsure" },
+      { ...pairingRow("audit-0003"), pairing_id: row.id, proposal_kind: "legacy-unknown" },
+      { ...pairingRow("audit-0004"), pairing_id: row.id, proposal_kind: undefined },
+    ];
+    const { client } = pagingClient([row], { auditRows });
+
+    const queue = await readClaimReviewQueue(client);
+
+    expect(queue.history[0]?.proposalKind).toBe("llm_sure");
+    expect(queue.audit.map((event) => event.proposalKind)).toEqual(["keyword_proposal", "llm_unsure", null, null]);
+  });
+
   it("fails the queue when any bounded audit batch fails", async () => {
     const rows = Array.from({ length: 101 }, (_, index) => pairingRow(String(index + 1).padStart(4, "0")));
     const { client, auditPairingIdChunks } = pagingClient(rows, { auditErrorForPairingId: "0101" });

@@ -87,6 +87,7 @@ create table public.claim_review_audit_events (
   patch_version text not null,
   exact_official_text text not null,
   cluster_id uuid not null,
+  proposal_kind text not null check (proposal_kind in ('llm_sure', 'llm_unsure', 'keyword_proposal')),
   reason text check (reason is null or char_length(reason) <= 500)
 );
 
@@ -257,10 +258,10 @@ begin
     returning pairing_row.*
   )
   insert into public.claim_review_audit_events (
-    pairing_id, pairing_key, action, actor, occurred_at, prior_state, state, claim_key, patch_version, exact_official_text, cluster_id, reason
+    pairing_id, pairing_key, action, actor, occurred_at, prior_state, state, claim_key, patch_version, exact_official_text, cluster_id, reason, proposal_kind
   )
   select retired.id, retired.pairing_key, 'retired', 'scanner', p_seen_at, candidates.prior_state, 'retired', retired.claim_key,
-    retired.patch_version, retired.exact_official_text, retired.cluster_id, coalesce(candidates.prior_rejected_reason, retired.retired_reason)
+    retired.patch_version, retired.exact_official_text, retired.cluster_id, coalesce(candidates.prior_rejected_reason, retired.retired_reason), retired.proposal_kind
   from retired
   join retirement_candidates as candidates on candidates.id = retired.id;
 
@@ -381,10 +382,10 @@ begin
         next_state, p_seen_at, p_seen_at, 1, case when next_state = 'confirmed' then p_seen_at else null end, false
       ) returning * into pairing;
       insert into public.claim_review_audit_events (
-        pairing_id, pairing_key, action, actor, occurred_at, prior_state, state, claim_key, patch_version, exact_official_text, cluster_id, reason
+        pairing_id, pairing_key, action, actor, occurred_at, prior_state, state, claim_key, patch_version, exact_official_text, cluster_id, reason, proposal_kind
       ) values (
         pairing.id, pairing.pairing_key, case when next_state = 'confirmed' then 'engine_confirmed' else 'proposed' end,
-        'scanner', p_seen_at, null, pairing.state, pairing.claim_key, pairing.patch_version, pairing.exact_official_text, pairing.cluster_id, pairing.proposal_reason
+        'scanner', p_seen_at, null, pairing.state, pairing.claim_key, pairing.patch_version, pairing.exact_official_text, pairing.cluster_id, pairing.proposal_reason, pairing.proposal_kind
       );
     else
       next_state := case
@@ -408,12 +409,12 @@ begin
           retired_rejection_reason = null
       where id = existing.id
       returning * into pairing;
-      if existing.state is distinct from pairing.state then
+      if existing.state is distinct from pairing.state or existing.proposal_kind is distinct from pairing.proposal_kind then
         insert into public.claim_review_audit_events (
-          pairing_id, pairing_key, action, actor, occurred_at, prior_state, state, claim_key, patch_version, exact_official_text, cluster_id, reason
+          pairing_id, pairing_key, action, actor, occurred_at, prior_state, state, claim_key, patch_version, exact_official_text, cluster_id, reason, proposal_kind
         ) values (
-          pairing.id, pairing.pairing_key, case when pairing.state = 'confirmed' then 'engine_confirmed' else 'proposed' end,
-          'scanner', p_seen_at, existing.state, pairing.state, pairing.claim_key, pairing.patch_version, pairing.exact_official_text, pairing.cluster_id, pairing.proposal_reason
+          pairing.id, pairing.pairing_key, case when pairing.state = 'confirmed' and existing.state is distinct from pairing.state then 'engine_confirmed' else 'proposed' end,
+          'scanner', p_seen_at, existing.state, pairing.state, pairing.claim_key, pairing.patch_version, pairing.exact_official_text, pairing.cluster_id, pairing.proposal_reason, pairing.proposal_kind
         );
       end if;
     end if;
@@ -771,7 +772,7 @@ begin
   end if;
 
   insert into public.claim_review_audit_events (
-    pairing_id, pairing_key, action, actor, prior_state, state, claim_key, patch_version, exact_official_text, cluster_id, reason
+    pairing_id, pairing_key, action, actor, prior_state, state, claim_key, patch_version, exact_official_text, cluster_id, reason, proposal_kind
   ) values (
     pairing.id, pairing.pairing_key,
     case
@@ -781,7 +782,7 @@ begin
       else 'later'
     end,
     p_actor, prior_state, next_state, pairing.claim_key, pairing.patch_version,
-    pairing.exact_official_text, pairing.cluster_id, case when p_action = 'reject' then pairing.rejected_reason else null end
+    pairing.exact_official_text, pairing.cluster_id, case when p_action = 'reject' then pairing.rejected_reason else null end, pairing.proposal_kind
   );
   return pairing;
 end;

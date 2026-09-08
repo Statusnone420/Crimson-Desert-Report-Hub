@@ -88,6 +88,7 @@ test.describe("operator workspace flows", () => {
     await page.getByRole("button", { name: /Map-open crash persists after fix/ }).click();
     await page.getByText("Proposal history and dates").click();
     await expect(page.getByText("Rejection reason: The exact official text describes a map crash, not this broad player issue.")).toBeVisible();
+    await expect(page.getByText("Classification: Keyword suggestion").first()).toBeVisible();
     await submitAction(page, () => page.getByRole("button", { name: "Undo decision" }).click());
     await expect(page.getByText("Decision undone. This match is waiting for review again.")).toBeVisible();
     await expectHealthyPage(page, problems);

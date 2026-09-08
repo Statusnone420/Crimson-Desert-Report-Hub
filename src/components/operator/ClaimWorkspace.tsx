@@ -16,6 +16,7 @@ import type {
   ClaimReviewItem,
   ClaimReviewQueue,
   ClaimReviewAuditEvent,
+  ClaimReviewProposalKind,
 } from "@/lib/claimReview";
 import type { AdminClusterRow } from "@/lib/adminClusters";
 import { ACTION_TRANSPORT_FAILURE_MESSAGE, isActionTransportFailure } from "@/lib/actionTransportFailure";
@@ -32,6 +33,13 @@ function dateLabel(value: string | null) {
         timeZone: "America/New_York",
       }) + " Eastern"
     : "Not recorded";
+}
+
+function proposalKindLabel(value: ClaimReviewProposalKind | null) {
+  if (value === "keyword_proposal") return "Keyword suggestion";
+  if (value === "llm_unsure") return "Uncertain AI match";
+  if (value === "llm_sure") return "Confident AI match";
+  return "Classification not recorded";
 }
 
 function ClaimCard({
@@ -118,11 +126,7 @@ function ClaimCard({
         </h2>
         <p>
           Patch {item.patchVersion} ·{" "}
-          {item.proposalKind === "keyword_proposal"
-            ? "Keyword suggestion"
-            : item.proposalKind === "llm_unsure"
-              ? "Uncertain AI match"
-              : "Confident AI match"}
+          {proposalKindLabel(item.proposalKind)}
         </p>
       </header>
       <form action={action} onReset={(event) => event.preventDefault()}>
@@ -240,6 +244,7 @@ function ClaimCard({
                         ? "Scanner"
                         : "Signed-in operator"}
                     </span>
+                    <span>Classification: {proposalKindLabel(event.proposalKind)}</span>
                     {event.reason && <p>{event.reason}</p>}
                   </li>
                 ))}

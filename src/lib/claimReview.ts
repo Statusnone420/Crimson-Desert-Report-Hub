@@ -49,6 +49,7 @@ export type ClaimReviewAuditEvent = {
   state: ClaimReviewState;
   exactOfficialText: string;
   patchVersion: string;
+  proposalKind: ClaimReviewProposalKind | null;
   reason: string | null;
 };
 
@@ -121,10 +122,13 @@ function toItem(row: Record<string, unknown>): ClaimReviewItem {
 }
 
 function toAudit(row: Record<string, unknown>): ClaimReviewAuditEvent {
+  const proposalKind = row.proposal_kind;
   return {
     id: String(row.id), pairingId: String(row.pairing_id), action: String(row.action), actor: String(row.actor),
     occurredAt: String(row.occurred_at), priorState: row.prior_state as ClaimReviewState | null, state: row.state as ClaimReviewState,
-    exactOfficialText: String(row.exact_official_text), patchVersion: String(row.patch_version), reason: row.reason as string | null,
+    exactOfficialText: String(row.exact_official_text), patchVersion: String(row.patch_version),
+    proposalKind: proposalKind === "llm_sure" || proposalKind === "llm_unsure" || proposalKind === "keyword_proposal" ? proposalKind : null,
+    reason: row.reason as string | null,
   };
 }
 

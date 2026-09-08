@@ -1732,6 +1732,7 @@ const server = createServer(async (req, res) => {
       actor: String(args.p_actor ?? "admin-session"), occurred_at: occurredAt, prior_state: priorState, state: pairing.state,
       claim_key: pairing.claim_key, patch_version: pairing.patch_version, exact_official_text: pairing.exact_official_text,
       cluster_id: pairing.cluster_id, reason: action === "reject" ? pairing.rejected_reason : null,
+      proposal_kind: pairing.proposal_kind,
     });
     sendJson(res, req.method, 200, pairing);
     return;
