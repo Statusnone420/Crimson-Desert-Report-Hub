@@ -168,6 +168,7 @@ function VideoActionForm({
   className,
   onSubmit,
   onSaved,
+  onSuccess,
   writesDisabled,
 }: {
   action: VideoStateAction;
@@ -175,12 +176,16 @@ function VideoActionForm({
   className?: string;
   onSubmit?: FormEventHandler<HTMLFormElement>;
   onSaved?: (formData: FormData, revision: number) => void;
+  onSuccess?: () => void;
   writesDisabled: boolean;
 }) {
   const [state, formAction] = useActionState<VideoActionState, FormData>(async (previous, formData) => {
     try {
       const result = await action(previous, formData);
-      if (result.status === "success" && result.savedRevision !== undefined) onSaved?.(formData, result.savedRevision);
+      if (result.status === "success") {
+        if (result.savedRevision !== undefined) onSaved?.(formData, result.savedRevision);
+        onSuccess?.();
+      }
       return result;
     } catch (error) {
       if (isActionTransportFailure(error)) return { status: "transport_error", code: "transport", message: ACTION_TRANSPORT_FAILURE_MESSAGE };
@@ -282,7 +287,7 @@ export function VideoWorkspace({ candidates, draftsByCandidateId, sources, obser
                   {candidate.state !== "archived" && candidate.state !== "draft_ready" ? <VideoActionForm action={skipVideoCandidateState} onSubmit={() => setSelectedId(candidate.id)} writesDisabled={writesDisabled}><ActionFields candidate={candidate} /><SubmitButton className="workspace-button workspace-button--danger" pendingText="Skipping…">Skip</SubmitButton></VideoActionForm> : null}
                   {candidate.state === "draft_ready" ? <VideoActionForm action={approveVideoCandidateState} onSubmit={() => setSelectedId(candidate.id)} writesDisabled={writesDisabled}><ActionFields candidate={candidate} /><SubmitButton className="workspace-button" pendingText="Checking…">Approve draft</SubmitButton></VideoActionForm> : null}
                   {candidate.state === "draft_ready" ? <VideoActionForm action={archiveVideoCandidateState} onSubmit={() => setSelectedId(candidate.id)} writesDisabled={writesDisabled}><ActionFields candidate={candidate} /><SubmitButton className="workspace-button" pendingText="Archiving…">Archive draft</SubmitButton></VideoActionForm> : null}
-                  {candidate.state === "archived" ? <VideoActionForm action={restoreVideoCandidateState} onSubmit={() => { setSelectedId(candidate.id); setTab("active"); }} writesDisabled={writesDisabled}><ActionFields candidate={candidate} /><SubmitButton className="workspace-button" pendingText="Restoring…">Restore draft</SubmitButton></VideoActionForm> : null}
+                  {candidate.state === "archived" ? <VideoActionForm action={restoreVideoCandidateState} onSuccess={() => { setSelectedId(candidate.id); setTab("active"); }} writesDisabled={writesDisabled}><ActionFields candidate={candidate} /><SubmitButton className="workspace-button" pendingText="Restoring…">Restore draft</SubmitButton></VideoActionForm> : null}
                 </div>
               </article>
             ))}
