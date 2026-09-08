@@ -475,6 +475,35 @@ begin
     end if;
   end loop;
 
+  -- Clear Lock can remove a clock between scans without removing its durable
+  -- confirmation. Reconcile all current confirmations before returning them to
+  -- the caller, which deliberately skips the legacy lifecycle writer.
+  for pairing in
+    select distinct on (support.cluster_id) support.*
+    from public.claim_review_pairings as support
+    where support.board_no = current_patch.board_no
+      and support.patch_version = current_patch.patch_version
+      and support.state = 'confirmed'
+    order by support.cluster_id, support.claim_clock_owned desc, support.confirmed_at, support.id
+  loop
+    select * into cluster from public.issue_clusters
+    where id = pairing.cluster_id and is_public = true and admin_override = false
+    for update;
+    if not found then continue; end if;
+    made_clock := cluster.fix_claimed_patch_version is distinct from current_patch.patch_version or cluster.fix_claimed_at is null;
+    if made_clock or cluster.fix_status <> 'fix_claimed' or cluster.lifecycle_reason like 'Needs review:%' then
+      update public.issue_clusters
+      set fix_status = 'fix_claimed',
+          fix_claimed_at = case when made_clock then p_seen_at else fix_claimed_at end,
+          fix_claimed_patch_version = current_patch.patch_version,
+          lifecycle_reason = case when lifecycle_reason like 'Needs review:%' then null else lifecycle_reason end
+      where id = cluster.id;
+    end if;
+    if not pairing.claim_clock_owned then
+      update public.claim_review_pairings set claim_clock_owned = true where id = pairing.id;
+    end if;
+  end loop;
+
   -- Pairings this scan did not re-propose still need a current cluster
   -- snapshot. Otherwise a rename or unrelated lifecycle write wedges every
   -- later operator action until that exact claim rotates back in.

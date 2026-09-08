@@ -53,5 +53,5 @@ export async function retryApprovedExcerpt(
   revalidatePath("/operator");
   revalidatePath("/admin");
   revalidatePublicSurfaces();
-  return { status: "saved", message: "Excerpt saved. Approval was not repeated.", reportId };
+  return { status: "saved", message: "This report has a saved excerpt. The first saved text is kept; approval was not repeated.", reportId };
 }

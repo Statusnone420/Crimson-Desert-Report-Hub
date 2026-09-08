@@ -101,8 +101,22 @@ test.describe("operator workspace flows", () => {
     const abortProblem = "error: Failed to load resource: net::ERR_FAILED";
     problems.splice(0, problems.length, ...problems.filter((problem) => problem !== abortProblem));
     await removeAbort();
+    // Model a retry that committed but whose response was lost, followed by
+    // an edited local draft. The next retry must retain the committed text.
+    const committedText = await excerpt.inputValue();
+    const committed = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/rpc/save_approved_report_excerpt`, {
+      data: { p_report_id: "00000000-0000-4000-8000-000000000101", p_excerpt: committedText },
+    });
+    expect(committed.ok()).toBe(true);
+    await excerpt.fill("An edited draft after a successful but unconfirmed retry.");
     await submitAction(page, () => page.getByRole("button", { name: "Retry excerpt only" }).click());
-    await expect(page.getByText("Excerpt saved. Approval was not repeated.")).toBeVisible();
+    await expect(page.getByText("This report has a saved excerpt. The first saved text is kept; approval was not repeated.")).toBeVisible();
+    const stored = await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/approved_excerpts?report_id=eq.00000000-0000-4000-8000-000000000101`);
+    expect(stored.ok()).toBe(true);
+    const storedRows = (await stored.json()) as { report_id: string; excerpt_text: string }[];
+    expect(storedRows.filter((row) => row.report_id === "00000000-0000-4000-8000-000000000101")).toEqual([
+      expect.objectContaining({ excerpt_text: committedText }),
+    ]);
     await expectHealthyPage(page, problems);
   });
 
@@ -214,7 +228,7 @@ test.describe("operator workspace flows", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=dossiers");
-    const redirected = page.waitForURL(/\/operator\?view=dossiers&run=mock-dossier-\d+/);
+    const redirected = page.waitForURL(/\/operator\?view=dossiers&run=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     await submitAction(page, () => page.getByRole("button", { name: "Compile now" }).click());
     await redirected;
     const output = page.getByLabel("Dossier text");

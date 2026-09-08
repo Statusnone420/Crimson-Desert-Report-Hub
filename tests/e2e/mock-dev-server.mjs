@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
@@ -1367,7 +1367,7 @@ const server = createServer(async (req, res) => {
     const raw = await readBody(req);
     const parsed = raw ? JSON.parse(raw) : {};
     const row = {
-      id: nextMockId("dossier"),
+      id: randomUUID(),
       created_at: new Date(now()).toISOString(),
       ...parsed,
     };
@@ -1707,7 +1707,7 @@ const server = createServer(async (req, res) => {
       sendPgError(res, req.method, 400, "report is missing or no longer approved", "22023");
       return;
     }
-    if (!excerpts.some((row) => row.report_id === report.id && row.excerpt_text === excerpt)) {
+    if (!excerpts.some((row) => row.report_id === report.id)) {
       excerpts.push({ id: nextMockId("excerpt"), report_id: report.id, excerpt_text: excerpt, created_at: new Date(now()).toISOString(), bug_reports: null });
     }
     sendJson(res, req.method, 200, null);

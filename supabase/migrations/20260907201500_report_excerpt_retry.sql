@@ -17,7 +17,7 @@ begin
   if not found or report_status <> 'approved' then
     raise exception 'report is missing or no longer approved' using errcode = '22023';
   end if;
-  if not exists (select 1 from public.approved_excerpts where report_id = p_report_id and excerpt_text = clean_excerpt) then
+  if not exists (select 1 from public.approved_excerpts where report_id = p_report_id) then
     insert into public.approved_excerpts (report_id, excerpt_text) values (p_report_id, clean_excerpt);
   end if;
 end;

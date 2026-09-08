@@ -272,6 +272,7 @@ async function legacyBackedQueue(
 
 const MIGRATION_PENDING_MESSAGE = "Claim review is unavailable until its migration is applied.";
 const FIRST_SYNC_PENDING_MESSAGE = "Claim review is unavailable until the scanner records its first durable pass.";
+const AUDIT_PAIRING_ID_CHUNK_SIZE = 100;
 
 type ClaimReviewSyncState =
   | { status: "synced" }
@@ -312,18 +313,22 @@ export async function readClaimReviewQueue(client: SupabaseClient = createServic
     return unavailableQueue("error", `claim review eligibility read failed: ${currentContext.error.message ?? "unknown error"}`);
   }
   const pairingIds = pairings.rows.map((row) => row.id).filter((id): id is string => typeof id === "string");
-  const audits = pairingIds.length === 0
-    ? { rows: [] as Record<string, unknown>[] }
-    : await readAll<Record<string, unknown>>((after) => {
-      const query = client.from("claim_review_audit_events").select("*").in("pairing_id", pairingIds).order("id").limit(500);
+  const auditRows: Record<string, unknown>[] = [];
+  for (let offset = 0; offset < pairingIds.length; offset += AUDIT_PAIRING_ID_CHUNK_SIZE) {
+    const pairingIdChunk = pairingIds.slice(offset, offset + AUDIT_PAIRING_ID_CHUNK_SIZE);
+    const audits = await readAll<Record<string, unknown>>((after) => {
+      const query = client.from("claim_review_audit_events").select("*").in("pairing_id", pairingIdChunk).order("id").limit(500);
       return after === null ? query : query.gt("id", after);
     });
-  if ("error" in audits) {
-    return unavailableQueue("error", `claim review audit read failed: ${audits.error.message ?? "unknown error"}`);
+    if ("error" in audits) {
+      return unavailableQueue("error", `claim review audit read failed: ${audits.error.message ?? "unknown error"}`);
+    }
+    auditRows.push(...audits.rows);
   }
+  auditRows.sort((left, right) => String(left.id).localeCompare(String(right.id)));
   const items = pairings.rows.map(toItem).map((item) => projectActivePairing(item, currentContext.context));
   const pending = items.filter((item) => item.isActive);
-  return { availability: { status: "available" }, pending, history: items.filter((item) => !item.isActive), audit: audits.rows.map(toAudit), pendingCount: pending.length, legacyReadonly: [] };
+  return { availability: { status: "available" }, pending, history: items.filter((item) => !item.isActive), audit: auditRows.map(toAudit), pendingCount: pending.length, legacyReadonly: [] };
 }
 
 function rpcMessage(error: SupabaseErrorLike): ClaimReviewMutationResult {

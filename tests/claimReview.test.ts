@@ -25,22 +25,30 @@ type PagingOptions = {
   /** Defaults to a recorded durable sync so existing reads stay available. */
   syncState?: "synced" | "awaiting" | "missing" | "denied";
   legacyRows?: Row[];
+  auditRows?: Row[];
+  auditErrorForPairingId?: string;
   clusterSnapshot?: { slug: string; title: string; category: string; lifecycle_revision: number };
 };
 
 function pagingClient(rows: Row[], options: PagingOptions = {}) {
   const cursors: (string | null)[] = [];
+  const auditPairingIdChunks: string[][] = [];
   const cap = options.cap ?? 500;
   const client = {
     from: (table: string) => {
       let after: string | null = null;
+      let includedPairingIds: string[] = [];
       const query = {
         select: () => query,
         order: () => query,
         limit: () => query,
         eq: () => query,
         like: () => query,
-        in: () => query,
+        in: (_column: string, values: string[]) => {
+          includedPairingIds = values;
+          auditPairingIdChunks.push(values);
+          return query;
+        },
         gt: (_column: string, value: string) => {
           after = value;
           return query;
@@ -66,6 +74,16 @@ function pagingClient(rows: Row[], options: PagingOptions = {}) {
             const page = rows.filter((row) => String(row.id) > (after ?? "")).slice(0, cap);
             return Promise.resolve({ data: page, error: null }).then(resolve);
           }
+          if (table === "claim_review_audit_events") {
+            if (options.auditErrorForPairingId && includedPairingIds.includes(options.auditErrorForPairingId)) {
+              return Promise.resolve({ data: null, error: { message: "audit batch failed" } }).then(resolve);
+            }
+            const page = (options.auditRows ?? [])
+              .filter((row) => includedPairingIds.includes(String(row.pairing_id)) && String(row.id) > (after ?? ""))
+              .sort((left, right) => String(left.id).localeCompare(String(right.id)))
+              .slice(0, cap);
+            return Promise.resolve({ data: page, error: null }).then(resolve);
+          }
           if (table === "official_patch_notes" && options.nullCurrentPatchRead) return Promise.resolve({ data: null, error: null }).then(resolve);
           if (options.currentContext && table === "official_patch_notes") {
             return Promise.resolve({ data: [{ board_no: "board", patch_version: "1.14.00" }], error: null }).then(resolve);
@@ -88,7 +106,7 @@ function pagingClient(rows: Row[], options: PagingOptions = {}) {
       return query;
     },
   } as unknown as SupabaseClient;
-  return { client, cursors };
+  return { client, cursors, auditPairingIdChunks };
 }
 
 describe("claim review identity", () => {
@@ -117,6 +135,36 @@ describe("claim review queue paging", () => {
     expect(queue.availability).toEqual({ status: "available" });
     expect(queue.history).toHaveLength(620);
     expect(cursors).toEqual([null, "0137", "0274", "0411", "0548", "0620"]);
+  });
+
+  it("bounds audit pairing IDs while preserving pagination and global audit order", async () => {
+    const rows = Array.from({ length: 205 }, (_, index) => pairingRow(String(index + 1).padStart(4, "0")));
+    const auditRows = rows.flatMap((row, index) => [
+      { ...pairingRow(`audit-${String(410 - index * 2).padStart(4, "0")}`), pairing_id: row.id },
+      { ...pairingRow(`audit-${String(409 - index * 2).padStart(4, "0")}`), pairing_id: row.id },
+    ]);
+    const { client, auditPairingIdChunks } = pagingClient(rows, { auditRows, cap: 37 });
+
+    const queue = await readClaimReviewQueue(client);
+
+    expect(queue.availability).toEqual({ status: "available" });
+    expect(auditPairingIdChunks.every((chunk) => chunk.length <= 100)).toBe(true);
+    expect(new Set(auditPairingIdChunks.map((chunk) => chunk.join(","))).size).toBe(3);
+    expect(auditPairingIdChunks.some((chunk) => chunk.length === 5)).toBe(true);
+    expect(queue.audit).toHaveLength(410);
+    expect(queue.audit.map((event) => event.id)).toEqual(
+      [...queue.audit.map((event) => event.id)].sort((left, right) => left.localeCompare(right)),
+    );
+  });
+
+  it("fails the queue when any bounded audit batch fails", async () => {
+    const rows = Array.from({ length: 101 }, (_, index) => pairingRow(String(index + 1).padStart(4, "0")));
+    const { client, auditPairingIdChunks } = pagingClient(rows, { auditErrorForPairingId: "0101" });
+
+    const queue = await readClaimReviewQueue(client);
+
+    expect(auditPairingIdChunks.map((chunk) => chunk.length)).toEqual([100, 1]);
+    expect(queue.availability).toMatchObject({ status: "unavailable", reason: "error", message: expect.stringContaining("audit batch failed") });
   });
 
   it("surfaces a null page as an unavailable read instead of a zero queue", async () => {
