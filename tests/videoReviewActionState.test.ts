@@ -133,5 +133,6 @@ describe("video review state actions", () => {
       message: "Private draft prepared. Watch remains unchanged.",
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/videos");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
   });
 });

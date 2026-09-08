@@ -10,7 +10,7 @@ async function archiveFixture(page: Parameters<typeof signInAsAdmin>[0]) {
   });
   expect(response.ok()).toBe(true);
   await signInAsAdmin(page);
-  await page.goto("/admin/videos?item=video-draft-1");
+  await page.goto("/operator?view=videos&item=video-draft-1");
 }
 
 for (const failure of ["database", "stale", "transport"] as const) {
@@ -56,7 +56,7 @@ test.afterEach(async ({ page }) => {
 
 test("video draft keeps its original revision after an unrelated queue refresh", async ({ page }) => {
   await signInAsAdmin(page);
-  await page.goto(`/admin/videos?item=${CANDIDATE_ID}`);
+  await page.goto(`/operator?view=videos&item=${CANDIDATE_ID}`);
   const editor = page.getByRole("region", { name: /^Video details:/ });
   await editor.getByLabel("Title").fill("Unsaved local title from revision one");
 
@@ -91,7 +91,7 @@ test("video draft keeps its original revision after an unrelated queue refresh",
 
 test("video draft advances its revision only after its own confirmed save", async ({ page }) => {
   await signInAsAdmin(page);
-  await page.goto(`/admin/videos?item=${CANDIDATE_ID}`);
+  await page.goto(`/operator?view=videos&item=${CANDIDATE_ID}`);
   const editor = page.getByRole("region", { name: /^Video details:/ });
   await editor.getByLabel("Title").fill("First confirmed title");
   await editor.getByRole("button", { name: "Save", exact: true }).click();

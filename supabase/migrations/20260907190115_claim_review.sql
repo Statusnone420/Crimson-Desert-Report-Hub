@@ -500,32 +500,44 @@ begin
     end if;
   end loop;
 
-  -- Clear Lock can remove a clock between scans without removing its durable
-  -- confirmation. Reconcile all current confirmations before returning them to
-  -- the caller, which deliberately skips the legacy lifecycle writer.
+  -- Reconcile every surviving decision, including mappings omitted from this
+  -- scan. The caller deliberately skips its legacy writer for these clusters.
   for pairing in
     select distinct on (support.cluster_id) support.*
     from public.claim_review_pairings as support
     where support.board_no = current_patch.board_no
       and support.patch_version = current_patch.patch_version
-      and support.state = 'confirmed'
-    order by support.cluster_id, support.claim_clock_owned desc, support.confirmed_at, support.id
+      and support.state <> 'retired'
+    order by support.cluster_id,
+      case support.state when 'confirmed' then 3 when 'pending' then 2 when 'later' then 2 else 1 end desc,
+      support.claim_clock_owned desc, support.last_seen_at desc, support.id desc
   loop
     select * into cluster from public.issue_clusters
     where id = pairing.cluster_id and is_public = true and admin_override = false
     for update;
     if not found then continue; end if;
-    made_clock := cluster.fix_claimed_patch_version is distinct from current_patch.patch_version or cluster.fix_claimed_at is null;
-    if made_clock or cluster.fix_status <> 'fix_claimed' or cluster.lifecycle_reason like 'Needs review:%' then
+    if pairing.state = 'confirmed' then
+      made_clock := cluster.fix_claimed_patch_version is distinct from current_patch.patch_version or cluster.fix_claimed_at is null;
+      if made_clock or cluster.fix_status <> 'fix_claimed' or cluster.lifecycle_reason like 'Needs review:%' then
+        update public.issue_clusters
+        set fix_status = 'fix_claimed',
+            fix_claimed_at = case when made_clock then p_seen_at else fix_claimed_at end,
+            fix_claimed_patch_version = current_patch.patch_version,
+            lifecycle_reason = case when lifecycle_reason like 'Needs review:%' then null else lifecycle_reason end
+        where id = cluster.id;
+      end if;
+      if not pairing.claim_clock_owned then
+        update public.claim_review_pairings set claim_clock_owned = true where id = pairing.id;
+      end if;
+    elsif pairing.state in ('pending', 'later') then
       update public.issue_clusters
-      set fix_status = 'fix_claimed',
-          fix_claimed_at = case when made_clock then p_seen_at else fix_claimed_at end,
-          fix_claimed_patch_version = current_patch.patch_version,
-          lifecycle_reason = case when lifecycle_reason like 'Needs review:%' then null else lifecycle_reason end
+      set fix_status = case when fix_claimed_patch_version = current_patch.patch_version then fix_status else 'reported' end,
+          fix_claimed_at = case when fix_claimed_patch_version = current_patch.patch_version then fix_claimed_at else null end,
+          fix_claimed_patch_version = case when fix_claimed_patch_version = current_patch.patch_version then fix_claimed_patch_version else null end,
+          lifecycle_reason = public.claim_review_lifecycle_reason(pairing.proposal_reason)
       where id = cluster.id;
-    end if;
-    if not pairing.claim_clock_owned then
-      update public.claim_review_pairings set claim_clock_owned = true where id = pairing.id;
+    elsif cluster.lifecycle_reason like 'Needs review:%' then
+      update public.issue_clusters set lifecycle_reason = null where id = cluster.id;
     end if;
   end loop;
 

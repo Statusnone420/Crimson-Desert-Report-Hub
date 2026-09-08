@@ -57,7 +57,7 @@ test.describe("operator write paths", () => {
   test("private AI settings persist Flex and a fifty-cent budget within the one-dollar ceiling", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
-    await page.goto("/scanner");
+    await page.goto("/operator?view=scanner");
     const settings = page.locator("details.operator-disclosure").filter({ has: page.getByLabel("AI model", { exact: true }) });
     await settings.locator(":scope > summary").click();
     const model = settings.getByLabel("AI model", { exact: true });
@@ -80,6 +80,7 @@ test.describe("operator write paths", () => {
     await expect(model).toHaveValue("gpt_5_6_luna_flex");
     await submitAction(page, () => settings.getByRole("button", { name: "Save settings" }).click());
     await expect(settings.getByRole("button", { name: "Save settings" })).toBeEnabled();
+    await expect(settings.getByText(/AI budget: \$0\.50\./)).toBeVisible();
 
     await page.reload();
     await settings.locator(":scope > summary").click();
@@ -222,7 +223,7 @@ test.describe("operator write paths", () => {
     await page.goto("/");
     await expect(page.getByText(ask)).toHaveCount(0);
 
-    await page.goto("/scanner");
+    await page.goto("/operator?view=scanner");
     const contextLanes = page.locator('section[aria-label="Scanner context archive"]');
     // Context lanes is a record, so it opens on request. Everything inside —
     // including the Undo this test proves — stays one click away.
@@ -250,7 +251,7 @@ test.describe("operator write paths", () => {
       expect(records.find((row: { title: string }) => row.title === ask)?.is_public).toBe(false);
     });
 
-    await page.goto("/scanner");
+    await page.goto("/operator?view=scanner");
     // A fresh load closes the record sections again; the undoable item is still
     // announced in the section summary, so it is found rather than hunted for.
     await expect(contextLanes.locator(".operator-section__count")).toContainText("2 undoable");
@@ -272,7 +273,7 @@ test.describe("operator write paths", () => {
   test("teaching on a rejected candidate clears it from the desk, and Undo returns it", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
-    await page.goto("/scanner");
+    await page.goto("/operator?view=scanner");
 
     const candidate = page.locator("article.decision-card").filter({ hasText: "Crimson Desert patch 1.13 patch notes repost" });
     await expect(candidate).toHaveCount(1);
@@ -299,7 +300,7 @@ test.describe("operator write paths", () => {
   test("keeping a candidate as relevant clears it from the desk and records a KEEP lesson", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
-    await page.goto("/scanner");
+    await page.goto("/operator?view=scanner");
 
     // The whole rescue pipeline runs before this returns: run ledger insert,
     // deterministic extraction (no OPENROUTER key in the harness), cluster

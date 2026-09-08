@@ -62,6 +62,7 @@ function checkedCandidateFromForm(formData: FormData) {
 
 function refreshInbox(): void {
   revalidatePath("/admin/videos");
+  revalidatePath("/operator");
 }
 
 export async function addVideoReviewCandidate(formData: FormData): Promise<void> {

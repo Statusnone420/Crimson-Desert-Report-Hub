@@ -211,6 +211,7 @@ describe("moderateReport", () => {
     formData.set("expected_status", "pending");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "bug_reports",
@@ -235,6 +236,7 @@ describe("moderateReport", () => {
     formData.set("cluster_id", "cluster-one");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-one");
   });
@@ -253,6 +255,7 @@ describe("moderateReport", () => {
     formData.set("excerpt", "Frame rate drops after the patch.");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "bug_reports",
@@ -300,6 +303,7 @@ describe("moderateReport", () => {
     formData.set("decision", "rejected");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledTimes(1);
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-old");
@@ -316,6 +320,7 @@ describe("moderateReport", () => {
     formData.set("cluster_id", "cluster-new");
 
     await moderateReport(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledTimes(2);
     expect(mocks.refreshClusterVisibility).toHaveBeenNthCalledWith(1, "cluster-old");
@@ -331,6 +336,7 @@ describe("setClusterFixStatus", () => {
     formData.set("fix_status", "verified_fixed");
 
     await setClusterFixStatus(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "issue_clusters",
@@ -370,6 +376,7 @@ describe("setClusterFixStatus", () => {
     formData.set("fix_status", "reported");
 
     await setClusterFixStatus(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual(
       expect.objectContaining({
@@ -391,6 +398,7 @@ describe("setClusterFixStatus", () => {
     formData.set("fix_status", "persists");
 
     await setClusterFixStatus(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual(
       expect.objectContaining({
@@ -423,6 +431,7 @@ describe("clearClusterFixStatusOverride", () => {
     formData.set("cluster_id", "cluster-one");
 
     await clearClusterFixStatusOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "issue_clusters",
@@ -450,6 +459,7 @@ describe("setClusterVisibilityOverride", () => {
     formData.set("confirm_override", "true");
 
     await setClusterVisibilityOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
@@ -468,6 +478,7 @@ describe("setClusterVisibilityOverride", () => {
     formData.set("confirm_override", "true");
 
     await setClusterVisibilityOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
@@ -484,6 +495,7 @@ describe("setClusterVisibilityOverride", () => {
     formData.set("visibility", "auto");
 
     await setClusterVisibilityOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
@@ -510,6 +522,7 @@ describe("setClusterVisibilityOverride", () => {
     formData.set("visibility", "auto");
 
     await setClusterVisibilityOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenNthCalledWith(1, "set_cluster_visibility_override", {
       p_cluster_id: "cluster-one",
@@ -587,6 +600,7 @@ describe("setAutomationPaused", () => {
     formData.set("paused", "true");
 
     await setAutomationPaused(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "automation_settings",
@@ -614,6 +628,7 @@ describe("setScannerPolicy", () => {
     formData.set("modelPreset", "expensive-model");
 
     await setScannerPolicy(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mutations).toContainEqual({
       table: "automation_settings",
@@ -723,6 +738,7 @@ describe("recordScannerDecision", () => {
     formData.set("scope", "exact_url");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_scanner_decision",
@@ -761,6 +777,7 @@ describe("recordScannerDecision", () => {
     formData.set("confirm_broad", "true");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_scanner_decision",
@@ -782,6 +799,7 @@ describe("recordScannerDecision", () => {
     formData.set("scope", "exact_url");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rescueCandidateSignal).toHaveBeenCalledTimes(1);
     expect(mocks.rpc).toHaveBeenCalledWith(
@@ -875,6 +893,7 @@ describe("recordScannerDecision", () => {
     formData.set("scope", "exact_url");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_scanner_decision",
@@ -919,6 +938,7 @@ describe("recordScannerDecision", () => {
     formData.set("scope", "exact_url");
 
     await recordScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_scanner_decision",
@@ -983,6 +1003,7 @@ describe("undoScannerDecision", () => {
     formData.set("decision_id", "decision-one");
 
     await undoScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("undo_scanner_decision", { p_decision_id: "decision-one" });
     expect(mocks.rpc).not.toHaveBeenCalledWith("set_cluster_visibility_override", expect.anything());
@@ -999,6 +1020,7 @@ describe("undoScannerDecision", () => {
     formData.set("decision_id", "decision-signal");
 
     await undoScannerDecision(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.refreshClusterVisibility).toHaveBeenCalledWith("cluster-current");
     expect(mocks.from).not.toHaveBeenCalledWith("scanner_decisions");
@@ -1023,6 +1045,7 @@ describe("setCurrentPatchOverride", () => {
     formData.set("patch_version", "1.13.02");
 
     await setCurrentPatchOverride(formData);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/operator");
 
     expect(mocks.rpc).toHaveBeenCalledWith("set_current_patch_override", {
       p_observed_at: expect.any(String),

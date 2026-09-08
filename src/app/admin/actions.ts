@@ -166,6 +166,7 @@ export async function moderateReport(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePublicSurfaces();
 }
 
@@ -202,6 +203,7 @@ export async function setClusterFixStatus(formData: FormData): Promise<void> {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePublicSurfaces();
 }
 
@@ -241,6 +243,7 @@ export async function setClusterVisibilityOverride(formData: FormData): Promise<
     if (visibility !== "force_hidden") await refreshClusterVisibility(clusterId);
   } finally {
     revalidatePath("/admin");
+    revalidatePath("/operator");
     revalidatePublicSurfaces();
   }
 }
@@ -266,6 +269,7 @@ export async function clearClusterFixStatusOverride(formData: FormData): Promise
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePublicSurfaces();
 }
 
@@ -289,6 +293,7 @@ export async function setCurrentPatchOverride(formData: FormData): Promise<void>
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePublicSurfaces();
 }
 
@@ -422,6 +427,7 @@ export async function setAutomationPaused(formData: FormData): Promise<void> {
   const paused = formData.get("paused") === "true";
   await setAutomationPausedState(createServiceClient() as unknown as AutomationSettingsClient, paused);
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
@@ -435,6 +441,7 @@ export async function setScannerPolicy(formData: FormData): Promise<void> {
     scannerPolicyFromFormData(formData),
   );
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
@@ -512,6 +519,7 @@ export async function recordScannerDecision(formData: FormData): Promise<void> {
     } | undefined)?.affected_cluster_id ?? null;
     if (affectedClusterId) await refreshClusterVisibility(affectedClusterId);
     revalidatePath("/admin");
+    revalidatePath("/operator");
     revalidatePath("/scanner");
     revalidatePath("/admin/source-monitor");
     revalidatePublicSurfaces();
@@ -579,6 +587,7 @@ export async function recordScannerDecision(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
@@ -664,6 +673,7 @@ export async function rejectObservationAndTeach(formData: FormData): Promise<voi
   }
 
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
@@ -698,6 +708,7 @@ export async function undoScannerDecision(formData: FormData): Promise<void> {
   if (outcome?.undone !== true) throw new Error("scanner decision was already undone or not found");
   if (outcome.affected_cluster_id) await refreshClusterVisibility(outcome.affected_cluster_id);
   revalidatePath("/admin");
+  revalidatePath("/operator");
   revalidatePath("/scanner");
   revalidatePath("/admin/source-monitor");
   revalidatePublicSurfaces();
