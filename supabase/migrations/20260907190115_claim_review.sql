@@ -599,6 +599,7 @@ declare
   cluster public.issue_clusters%rowtype;
   current_patch record;
   current_claim_keys text[];
+  remaining_review_reason text;
   support_exists boolean;
   next_state text;
   prior_state text;
@@ -692,15 +693,27 @@ begin
     if pairing.state not in ('pending', 'later') then raise exception 'claim_review_reject_invalid_state' using errcode = 'P0001'; end if;
     update public.claim_review_pairings set state = 'rejected', rejected_reason = pg_catalog.btrim(p_reason), seen_by_operator_at = now()
     where id = pairing.id returning * into pairing;
-    if not exists (
-      select 1 from public.claim_review_pairings as active_pairing
+    select public.claim_review_lifecycle_reason(active_pairing.proposal_reason)
+      into remaining_review_reason
+      from public.claim_review_pairings as active_pairing
       where active_pairing.cluster_id = cluster.id
         and active_pairing.patch_version = pairing.patch_version
         and active_pairing.board_no = current_patch.board_no
         and active_pairing.claim_key = any(current_claim_keys)
         and active_pairing.state in ('pending', 'later')
-    ) and cluster.lifecycle_reason like 'Needs review:%' then
-      update public.issue_clusters set lifecycle_reason = null where id = cluster.id returning * into cluster;
+        and not exists (
+          select 1 from public.claim_review_pairings as confirmed_pairing
+          where confirmed_pairing.cluster_id = cluster.id
+            and confirmed_pairing.patch_version = pairing.patch_version
+            and confirmed_pairing.board_no = current_patch.board_no
+            and confirmed_pairing.claim_key = any(current_claim_keys)
+            and confirmed_pairing.state = 'confirmed'
+        )
+      order by active_pairing.last_seen_at desc, active_pairing.id desc
+      limit 1;
+    if (remaining_review_reason is not null or cluster.lifecycle_reason like 'Needs review:%')
+       and cluster.lifecycle_reason is distinct from remaining_review_reason then
+      update public.issue_clusters set lifecycle_reason = remaining_review_reason where id = cluster.id returning * into cluster;
       update public.claim_review_pairings as siblings
       set cluster_lifecycle_revision = cluster.lifecycle_revision
       where siblings.cluster_id = cluster.id
