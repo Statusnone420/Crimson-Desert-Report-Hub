@@ -28,16 +28,18 @@ async function runClaimReviewAction(
   }
   const pairingId = formText(formData, "pairing_id");
   const revision = Number(formText(formData, "revision"));
+  const lifecycleRevisionText = formText(formData, "cluster_lifecycle_revision");
+  const clusterLifecycleRevision = lifecycleRevisionText === "" ? undefined : Number(lifecycleRevisionText);
   const reason = formText(formData, "reason");
-  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(pairingId) || !Number.isInteger(revision) || revision < 1 || (action === "reject" && (reason.length < 3 || reason.length > 500))) {
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(pairingId) || !Number.isInteger(revision) || revision < 1 || (clusterLifecycleRevision !== undefined && (!Number.isSafeInteger(clusterLifecycleRevision) || clusterLifecycleRevision < 0)) || (action === "reject" && (reason.length < 3 || reason.length > 500))) {
     return { status: "validation_error", message: action === "reject" ? "Give a reason between 3 and 500 characters." : "The review card is invalid or out of date.", itemId: pairingId || null, revision: Number.isInteger(revision) ? revision : null };
   }
-  const result = await applyClaimReviewDecision(createServiceClient(), { pairingId, revision, action, reason: reason || null, actor: "admin-session" });
+  const result = await applyClaimReviewDecision(createServiceClient(), { pairingId, revision, clusterLifecycleRevision, action, reason: reason || null, actor: "admin-session" });
   if (result.status !== "success") return { status: result.status, message: result.message, itemId: pairingId, revision };
   revalidatePath("/operator");
   revalidatePath("/admin");
   revalidatePublicSurfaces();
-  return { status: "success", message: "Saved.", itemId: result.item.id, revision: result.item.revision };
+  return { status: "success", message: "Saved.", itemId: result.item.id, revision: result.item.revision, clusterLifecycleRevision: result.item.clusterLifecycleRevision };
 }
 
 export async function confirmClaimReview(previousState: ClaimReviewActionState, formData: FormData): Promise<ClaimReviewActionState> {

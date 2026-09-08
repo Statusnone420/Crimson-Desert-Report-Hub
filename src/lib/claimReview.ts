@@ -68,6 +68,7 @@ export type ClaimReviewQueue = {
 export type ClaimReviewMutation = {
   pairingId: string;
   revision: number;
+  clusterLifecycleRevision?: number;
   action: ClaimReviewAction;
   reason?: string | null;
   actor: string;
@@ -349,6 +350,7 @@ export async function applyClaimReviewDecision(
   const { data, error } = await client.rpc("mutate_claim_review_pairing", {
     p_pairing_id: input.pairingId, p_revision: input.revision, p_action: input.action,
     p_reason: input.reason ?? null, p_actor: input.actor,
+    ...(input.clusterLifecycleRevision === undefined ? {} : { p_cluster_lifecycle_revision: input.clusterLifecycleRevision }),
   });
   if (error) {
     if (isMissingSupabaseRpc(error, "mutate_claim_review_pairing")) return { status: "unavailable", message: "Claim review is unavailable until its migration is applied." };

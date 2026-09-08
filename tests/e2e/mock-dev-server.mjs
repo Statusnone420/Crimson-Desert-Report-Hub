@@ -102,6 +102,7 @@ const clusters = [
     admin_visibility_changed_at: isoMinutesAgo(95),
   },
 ];
+for (const cluster of clusters) cluster.lifecycle_revision = 1;
 
 const reportSeed = [
   [clusterIds.fps, "performance", "pc_steam", 18],
@@ -868,6 +869,7 @@ let claimReviewSyncStateDenied = false;
 let dossierRunsUnavailable = false;
 let failNextVideoMutation = false;
 let bugReportReadsUnavailable = false;
+let automationAdminHistoryUnavailable = false;
 /** Stable ids per server run: production returns uuids, but nothing reads their shape. */
 const nextMockId = (prefix) => `mock-${prefix}-${(mockIdSeq += 1)}`;
 
@@ -882,6 +884,7 @@ function resetFixture() {
   dossierRunsUnavailable = false;
   failNextVideoMutation = false;
   bugReportReadsUnavailable = false;
+  automationAdminHistoryUnavailable = false;
 }
 
 /**
@@ -1276,6 +1279,12 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/__test__/automation-admin-history-unavailable" && req.method === "POST") {
+    automationAdminHistoryUnavailable = true;
+    sendJson(res, req.method, 200, { unavailable: true });
+    return;
+  }
+
   if (url.pathname === "/rest/v1/issue_clusters" && req.method === "GET") {
     sendJson(res, req.method, 200, filterRows(clusters, url));
     return;
@@ -1285,7 +1294,23 @@ const server = createServer(async (req, res) => {
     const raw = await readBody(req);
     const patch = raw ? JSON.parse(raw) : {};
     const rows = filterRows(clusters, url);
-    for (const row of rows) Object.assign(row, patch);
+    const lifecycleFields = [
+      "fix_status",
+      "fix_claimed_at",
+      "fix_claimed_patch_version",
+      "lifecycle_reason",
+      "admin_override",
+      "is_public",
+      "category",
+      "description",
+    ];
+    for (const row of rows) {
+      const lifecycleChanged = lifecycleFields.some(
+        (field) => Object.hasOwn(patch, field) && (row[field] ?? null) !== (patch[field] ?? null),
+      );
+      Object.assign(row, patch);
+      if (lifecycleChanged) row.lifecycle_revision = Number(row.lifecycle_revision ?? 0) + 1;
+    }
     sendJson(res, req.method, 200, rows);
     return;
   }
@@ -1534,6 +1559,10 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/rest/v1/automation_runs" && req.method === "GET") {
+    if (automationAdminHistoryUnavailable && url.searchParams.get("limit") === "10") {
+      sendPgError(res, req.method, 500, "fixture automation history read unavailable", "XX000");
+      return;
+    }
     sendJson(res, req.method, 200, filterRows(automationRuns, url));
     return;
   }
@@ -1663,6 +1692,14 @@ const server = createServer(async (req, res) => {
       sendPgError(res, req.method, 400, "claim_review_pairing_stale", "P0001");
       return;
     }
+    const cluster = clusters.find((row) => row.id === pairing.cluster_id);
+    const expectedClusterRevision = args.p_cluster_lifecycle_revision === null || args.p_cluster_lifecycle_revision === undefined
+      ? Number(pairing.cluster_lifecycle_revision)
+      : Number(args.p_cluster_lifecycle_revision);
+    if (!cluster || Number(cluster.lifecycle_revision) !== expectedClusterRevision) {
+      sendPgError(res, req.method, 400, "stale_claim_review_cluster", "P0001");
+      return;
+    }
     const action = String(args.p_action ?? "");
     const priorState = pairing.state;
     const reason = typeof args.p_reason === "string" ? args.p_reason.trim() : "";
@@ -1687,6 +1724,7 @@ const server = createServer(async (req, res) => {
     if (action === "reject") Object.assign(pairing, { state: "rejected", rejected_reason: reason, seen_by_operator_at: occurredAt });
     if (action === "later") Object.assign(pairing, { state: "later", seen_by_operator_at: occurredAt });
     if (action === "undo") Object.assign(pairing, { state: "pending", rejected_reason: null, confirmed_at: null, seen_by_operator_at: null });
+    pairing.cluster_lifecycle_revision = Number(cluster.lifecycle_revision);
     pairing.revision += 1;
     claimReviewAuditEvents.push({
       id: nextMockId("claim-audit"), pairing_id: pairing.id,

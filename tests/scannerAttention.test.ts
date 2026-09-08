@@ -147,4 +147,30 @@ describe("getScannerAttention", () => {
     expect(attention.count).toBeNull();
     expect(attention.items.map((item) => item.id)).toEqual(["ai-cost-safety-unavailable"]);
   });
+
+  it("names each unread scanner register once without hiding independent alerts", () => {
+    const collection: CollectionHealth = {
+      status: "unknown",
+      attentionCount: 1,
+      lanes: [{ ...healthyCollection.lanes[0], state: "unknown", labelText: "Unknown", needsAttention: false }],
+    };
+    const attention = getScannerAttention({
+      aiHealth: { state: "unavailable", code: "openrouter_budget_exceeded", message: "An AI request exceeded its allowed cost.", lastSuccessAt: null },
+      llmPaused: true,
+      failedRuns: 0,
+      radarAvailable: true,
+      scannerReadFailures: ["week", "week", "heartbeat", "awaiting", "published"],
+      collection,
+    });
+
+    expect(attention.count).toBeNull();
+    expect(attention.items.map((item) => item.id)).toEqual([
+      "scanner-week-unavailable",
+      "scanner-heartbeat-unavailable",
+      "scanner-awaiting-unavailable",
+      "scanner-published-unavailable",
+      "ai-processing",
+      "collection-steam",
+    ]);
+  });
 });

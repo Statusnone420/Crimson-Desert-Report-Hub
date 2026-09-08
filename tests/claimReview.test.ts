@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyClaimReviewDecision, claimReviewKey, normalizeClaimReviewText, readClaimReviewQueue, recordClaimReviewProposals } from "@/lib/claimReview";
 
@@ -301,6 +301,14 @@ describe("claim review durable-sync fallback", () => {
 });
 
 describe("claim review RPC response validation", () => {
+  it("sends the lifecycle revision loaded by the operator", async () => {
+    const rpc = vi.fn(async () => ({ data: null, error: { message: "stale_claim_review_cluster" } }));
+    const client = { rpc } as unknown as SupabaseClient;
+    await expect(applyClaimReviewDecision(client, { pairingId: "00000000-0000-4000-8000-000000000001", revision: 1, clusterLifecycleRevision: 17, action: "confirm", actor: "test" }))
+      .resolves.toMatchObject({ status: "stale" });
+    expect(rpc).toHaveBeenCalledWith("mutate_claim_review_pairing", expect.objectContaining({ p_cluster_lifecycle_revision: 17 }));
+  });
+
   it("does not convert a null mutation response into success", async () => {
     const client = { rpc: async () => ({ data: null, error: null }) } as unknown as SupabaseClient;
 

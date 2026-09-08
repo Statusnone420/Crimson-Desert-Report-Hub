@@ -453,13 +453,12 @@ describe("AdminScannerView", () => {
       expect(markup).toContain("A required health read is unavailable.");
     });
 
-    it("marks only the failed register in the funnel band", () => {
-      // Scanner health comes from the radar's run reads and the circuit, not
-      // from these counters — so a failed published read greys its own cell and
-      // leaves both the headline and its neighbours alone.
+    it("names a failed register in health and marks only its funnel cell unavailable", () => {
       const markup = render({ radarConnected: true, readFailures: ["published"] });
 
-      expect(markup).toContain("No named health checks require action.");
+      expect(markup).not.toContain("No named health checks require action.");
+      expect(markup).toContain("A required health read is unavailable.");
+      expect(markup).toContain("Published issue total unavailable");
       expect(markup).toContain('<div class="stat-band__value stat-band__value--amber">Unavailable</div>');
       expect(markup).toContain("Automated screening events · 7d");
       expect(markup).not.toContain("The weekly read failed");

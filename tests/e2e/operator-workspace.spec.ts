@@ -52,6 +52,19 @@ test.describe("operator workspace flows", () => {
     expect(response.ok()).toBe(true);
   });
 
+  test("overview distinguishes unavailable automation history from an empty history", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const armed = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/automation-admin-history-unavailable`);
+    expect(armed.ok()).toBe(true);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+
+    await expect(page.getByRole("heading", { name: "Recent activity unavailable" })).toBeVisible();
+    await expect(page.getByText("The automation history read failed. Reload to try again.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "No recent activity recorded" })).toHaveCount(0);
+    await expectHealthyPage(page, problems);
+  });
+
   test("claim rejection retains its reason through reload and undo, and stale input stays local", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);

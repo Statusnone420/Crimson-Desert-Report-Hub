@@ -18,8 +18,6 @@ begin
      or new.admin_override is distinct from old.admin_override
      or new.lifecycle_reason is distinct from old.lifecycle_reason
      or new.is_public is distinct from old.is_public
-     or new.slug is distinct from old.slug
-     or new.title is distinct from old.title
      or new.category is distinct from old.category
      or new.description is distinct from old.description then
     new.lifecycle_revision := old.lifecycle_revision + 1;
@@ -587,7 +585,8 @@ $$;
 -- Routine operator decisions use one CAS transaction. It validates the exact
 -- currently stored official text before touching a cluster or audit record.
 create or replace function public.mutate_claim_review_pairing(
-  p_pairing_id uuid, p_revision integer, p_action text, p_reason text, p_actor text
+  p_pairing_id uuid, p_revision integer, p_action text, p_reason text, p_actor text,
+  p_cluster_lifecycle_revision bigint default null
 )
 returns public.claim_review_pairings
 language plpgsql
@@ -628,12 +627,12 @@ begin
   if not found or not cluster.is_public or cluster.admin_override then
     raise exception 'stale_claim_review_cluster' using errcode = 'P0001';
   end if;
-  -- Identity and lifecycle_revision are cached on the pairing so a concurrent
-  -- card cannot apply against a cluster the operator has not seen. A later
-  -- rename, description edit, or unrelated lifecycle write must not wedge the
-  -- card: refresh the snapshot under the row lock, then apply against the
-  -- current issue. Pairing.revision was already checked, and FOR UPDATE
-  -- serializes a second operator onto a stale pairing revision.
+  -- Compare the state the operator actually loaded before refreshing identity
+  -- metadata. A fresh read can acknowledge a changed lifecycle without waiting
+  -- for a scanner pass; an old card cannot acknowledge it implicitly.
+  if cluster.lifecycle_revision is distinct from coalesce(p_cluster_lifecycle_revision, pairing.cluster_lifecycle_revision) then
+    raise exception 'stale_claim_review_cluster' using errcode = 'P0001';
+  end if;
   if cluster.slug is distinct from pairing.cluster_slug
      or cluster.title is distinct from pairing.cluster_title
      or cluster.category is distinct from pairing.cluster_category
@@ -788,8 +787,8 @@ begin
 end;
 $$;
 
-revoke all on function public.sync_claim_review_proposals(jsonb, timestamptz), public.mutate_claim_review_pairing(uuid, integer, text, text, text) from public, anon, authenticated;
-grant execute on function public.sync_claim_review_proposals(jsonb, timestamptz), public.mutate_claim_review_pairing(uuid, integer, text, text, text) to service_role;
+revoke all on function public.sync_claim_review_proposals(jsonb, timestamptz), public.mutate_claim_review_pairing(uuid, integer, text, text, text, bigint) from public, anon, authenticated;
+grant execute on function public.sync_claim_review_proposals(jsonb, timestamptz), public.mutate_claim_review_pairing(uuid, integer, text, text, text, bigint) to service_role;
 
 -- Keep the existing private brief shape. Durable pending/later pairings replace
 -- the old lifecycle prose count, so one pairing is never counted twice.

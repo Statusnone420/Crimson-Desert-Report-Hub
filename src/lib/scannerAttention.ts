@@ -1,5 +1,6 @@
 import type { ScannerAiHealth } from "@/lib/automation/health";
 import type { CollectionHealth, CollectionHealthLane } from "@/lib/collectionHealth";
+import type { ScannerReadRegister } from "@/lib/scannerRegisters";
 
 export type ScannerAttentionItem = {
   id: string;
@@ -21,6 +22,8 @@ export type ScannerAttentionInput = {
   /** The seven-day failed-run aggregate. Null means the radar health read failed. */
   failedRuns: number | null;
   radarAvailable: boolean;
+  /** Public scanner registers whose values are placeholders because their reads failed. */
+  scannerReadFailures?: readonly ScannerReadRegister[];
   collection: CollectionHealth;
 };
 
@@ -39,6 +42,29 @@ const COST_CIRCUIT_HEALTH_CODES = new Set([
   "openrouter_budget_exceeded",
 ]);
 
+const UNREAD_REGISTER_ITEMS: Record<ScannerReadRegister, ScannerAttentionItem> = {
+  week: {
+    id: "scanner-week-unavailable",
+    label: "Scanner weekly totals unavailable",
+    detail: "The seven-day screening, filtered, and retained totals could not be read.",
+  },
+  heartbeat: {
+    id: "scanner-heartbeat-unavailable",
+    label: "Scanner heartbeat unavailable",
+    detail: "The latest completed scanner run could not be read.",
+  },
+  awaiting: {
+    id: "scanner-awaiting-unavailable",
+    label: "Awaiting issue-group total unavailable",
+    detail: "The current-patch private-lead total could not be read.",
+  },
+  published: {
+    id: "scanner-published-unavailable",
+    label: "Published issue total unavailable",
+    detail: "The published issue-card total could not be read.",
+  },
+};
+
 function sameKnownCostGuard(aiHealth: ScannerAiHealth | undefined): boolean {
   return aiHealth?.code !== null && aiHealth?.code !== undefined && COST_CIRCUIT_HEALTH_CODES.has(aiHealth.code);
 }
@@ -50,7 +76,8 @@ function sameKnownCostGuard(aiHealth: ScannerAiHealth | undefined): boolean {
  */
 export function getScannerAttention(input: ScannerAttentionInput): ScannerAttention {
   const items: ScannerAttentionItem[] = [];
-  let unknown = !input.radarAvailable || input.failedRuns === null || input.llmPaused === null || input.aiHealth === undefined || input.collection.status === "unknown";
+  const unreadRegisters = new Set(input.scannerReadFailures ?? []);
+  let unknown = !input.radarAvailable || input.failedRuns === null || input.llmPaused === null || input.aiHealth === undefined || input.collection.status === "unknown" || unreadRegisters.size > 0;
 
   if (!input.radarAvailable || input.failedRuns === null) {
     items.push({
@@ -64,6 +91,10 @@ export function getScannerAttention(input: ScannerAttentionInput): ScannerAttent
       label: `${input.failedRuns} failed run${input.failedRuns === 1 ? "" : "s"} in 7 days`,
       detail: "Open scan history to inspect the recorded failure details.",
     });
+  }
+
+  for (const register of unreadRegisters) {
+    items.push(UNREAD_REGISTER_ITEMS[register]);
   }
 
   if (!input.aiHealth) {

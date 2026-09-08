@@ -31,6 +31,7 @@ export type WorkspaceOverviewProps = {
   availability: Record<WorkspaceDecisionView, WorkspaceAvailability>;
   health: ReactNode;
   recentActivity: WorkspaceActivityRow[];
+  recentActivityAvailable: boolean;
 };
 
 const viewLabels: Record<WorkspaceDecisionView, string> = {
@@ -63,6 +64,7 @@ export function WorkspaceOverview({
   availability,
   health,
   recentActivity,
+  recentActivityAvailable,
 }: WorkspaceOverviewProps) {
   const decisionStatusUnknown = (
     ["reports", "claims", "videos"] as WorkspaceDecisionView[]
@@ -197,10 +199,15 @@ export function WorkspaceOverview({
           </div>
         </div>
         <div className="workspace-queue">
-          {recentActivity.length === 0 ? (
+          {!recentActivityAvailable ? (
             <div className="workspace-empty">
-              <h3>No recent activity is available</h3>
-              <p>The activity read returned no records for this page load.</p>
+              <h3>Recent activity unavailable</h3>
+              <p>The automation history read failed. Reload to try again.</p>
+            </div>
+          ) : recentActivity.length === 0 ? (
+            <div className="workspace-empty">
+              <h3>No recent activity recorded</h3>
+              <p>The automation history read succeeded and returned no records.</p>
             </div>
           ) : (
             recentActivity.map((activity) => {

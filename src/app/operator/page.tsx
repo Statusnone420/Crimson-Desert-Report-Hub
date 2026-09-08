@@ -20,6 +20,7 @@ import { safeRunSummary } from "@/lib/operatorOverview";
 import { getAutomationAdminData, getPublicScannerData } from "@/lib/queries";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getScannerAiHealth } from "@/lib/automation/health.server";
+import { SCANNER_READ_REGISTERS } from "@/lib/scannerRegisters";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
@@ -129,6 +130,7 @@ export default async function OperatorPage({
     llmPaused: scanner?.llmPaused ?? null,
     failedRuns: radar?.connected ? radar.health.runs7d.failed : null,
     radarAvailable: Boolean(radar?.connected),
+    scannerReadFailures: scanner?.readFailures ?? SCANNER_READ_REGISTERS,
     collection,
   });
   return (
@@ -184,6 +186,7 @@ export default async function OperatorPage({
           detail: run.skipSummary,
           occurredAt: run.finishedAt ?? run.startedAt,
         }))}
+        recentActivityAvailable={admin !== null}
       />
     </OperatorShell>
   );

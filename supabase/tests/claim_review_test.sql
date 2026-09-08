@@ -3,7 +3,7 @@ select plan(95);
 
 select ok(has_function_privilege('service_role', 'public.sync_claim_review_proposals(jsonb,timestamptz)', 'EXECUTE'), 'service role can sync claim-review proposals');
 select ok(not has_function_privilege('anon', 'public.sync_claim_review_proposals(jsonb,timestamptz)', 'EXECUTE'), 'anon cannot sync claim-review proposals');
-select ok(not has_function_privilege('authenticated', 'public.mutate_claim_review_pairing(uuid,integer,text,text,text)', 'EXECUTE'), 'authenticated cannot mutate claim review');
+select ok(not has_function_privilege('authenticated', 'public.mutate_claim_review_pairing(uuid,integer,text,text,text,bigint)', 'EXECUTE'), 'authenticated cannot mutate claim review');
 select ok(not has_table_privilege('anon', 'public.claim_review_pairings', 'SELECT'), 'anon cannot read private pairings');
 select ok(not has_table_privilege('authenticated', 'public.claim_review_audit_events', 'SELECT'), 'authenticated cannot read private audit');
 select is(

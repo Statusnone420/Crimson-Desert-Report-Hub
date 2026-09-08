@@ -404,6 +404,7 @@ export function AdminScannerView({
     llmPaused: scoreboard.llmPaused,
     failedRuns: radar.connected ? radar.health.runs7d.failed : null,
     radarAvailable: radar.connected,
+    scannerReadFailures: scoreboard.readFailures,
     collection: collections,
   });
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);

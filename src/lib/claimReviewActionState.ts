@@ -3,6 +3,7 @@ export type ClaimReviewActionState = {
   message: string | null;
   itemId: string | null;
   revision: number | null;
+  clusterLifecycleRevision?: number;
 };
 
 export const initialClaimReviewActionState: ClaimReviewActionState = {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { externalWebHref } from "@/lib/externalWebHref";
 import {
   confirmClaimReview,
@@ -51,7 +50,7 @@ function ClaimCard({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const reasonRef = useRef<HTMLTextAreaElement>(null);
-  const router = useRouter();
+  const [reviewRevision, setReviewRevision] = useState(() => ({ pairing: item.revision, lifecycle: item.clusterLifecycleRevision }));
   const [result, action, pending] = useActionState<ClaimReviewActionState, FormData>(
     async (previous, form) => {
       const decision = form.get("decision");
@@ -81,6 +80,9 @@ function ClaimCard({
         throw error;
       }
       if (next.status === "success") {
+        if (next.revision !== null && next.clusterLifecycleRevision !== undefined) {
+          setReviewRevision({ pairing: next.revision, lifecycle: next.clusterLifecycleRevision });
+        }
         setRejecting(false);
         onSaved(String(decision));
       }
@@ -125,7 +127,8 @@ function ClaimCard({
       </header>
       <form action={action} onReset={(event) => event.preventDefault()}>
         <input type="hidden" name="pairing_id" value={item.id} />
-        <input type="hidden" name="revision" value={item.revision} />
+        <input type="hidden" name="revision" value={reviewRevision.pairing} />
+        <input type="hidden" name="cluster_lifecycle_revision" value={reviewRevision.lifecycle} />
         <div className="workspace-panel-body">
           {item.derivedHistoryReason && (
             <p className="workspace-notice">
@@ -156,7 +159,7 @@ function ClaimCard({
                 <button
                   type="button"
                   className="workspace-button"
-                  onClick={() => router.refresh()}
+                  onClick={() => window.location.reload()}
                 >
                   Reload current records
                 </button>
