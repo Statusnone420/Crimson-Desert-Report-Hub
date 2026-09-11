@@ -47,6 +47,16 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
+        source: "/feeds",
+        destination: "/feed.xml",
+        permanent: true,
+      },
+      {
+        source: "/feeds/sitemap",
+        destination: "/sitemap.xml",
+        permanent: true,
+      },
+      {
         source: "/:path*",
         has: [
           {

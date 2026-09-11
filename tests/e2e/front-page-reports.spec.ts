@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { patch20200 } from "../../src/lib/editorialArticles";
 import { collectConsoleProblems, expectHealthyPage } from "./helpers";
 
 test("front-page readers can open the patch report and then the DLC report", async ({ page }) => {
@@ -6,13 +7,15 @@ test("front-page readers can open the patch report and then the DLC report", asy
   await page.goto("/");
   const reports = page.getByRole("region", { name: "Original Hub reports" });
   await expect(reports.getByRole("heading")).toHaveText([
-    "The base game keeps moving",
+    "Patch 2.02.00 adds Mac cross-save",
     "Beyond Pywel’s familiar shores",
   ]);
   await expect(reports.locator("time")).toHaveText(["September 11, 2026", "September 5, 2026"]);
+  await expect(reports.locator("#lead .dek")).toHaveText(patch20200.description);
   await reports.getByRole("article").first().getByRole("link", { name: "Read the report →" }).click();
   await expect(page).toHaveURL(/\/articles\/patch-2-02-00$/);
-  await expect(page.getByRole("heading", { name: "The base game keeps moving" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Patch 2.02.00 adds Mac cross-save" })).toBeVisible();
+  await expect(page.locator(".article-heading .article-deck")).toHaveText(patch20200.description);
 
   await page.goto("/");
   await reports.getByRole("article").nth(1).getByRole("link", { name: "Read the report →" }).click();

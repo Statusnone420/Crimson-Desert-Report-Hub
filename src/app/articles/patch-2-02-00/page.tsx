@@ -46,7 +46,7 @@ export default function Patch20200Article() {
             <Link className="back-link" href="/news">← Back to the news desk</Link>
             <p className="kicker">Patch 2.02.00 · News</p>
             <h1>{patch20200.title}</h1>
-            <p className="article-deck">After the Charting the Unknown reveal, Patch 2.02.00 adds Mac cross-save and targets broken quests, missing items and a crash when starting a new game.</p>
+            <p className="article-deck">{patch20200.description}</p>
             <div className="article-meta">
               <time dateTime={patch20200.publishedAt}>September 11, 2026</time>
               <span>Sources: Pearl Abyss</span>
@@ -98,7 +98,7 @@ export default function Patch20200Article() {
               </div>
             </aside>
             <div id="article-body" className="article-body">
-              <p className="opening">Eight days after announcing <em>Charting the Unknown</em>, Pearl Abyss has released Patch 2.02.00. The update adds Mac cross-save and targets problems with quests, housing, stored items and starting a new game.</p>
+              <p className="opening">There is plenty to look forward to in <em>Charting the Unknown</em>, and it is good to see Pywel getting attention right now. Eight days after the expansion reveal, Patch 2.02.00 brings Mac cross-save alongside fixes for a startup crash, blocked quests, housing and missing stored items.</p>
 
               <h2 id="mac">Mac cross-save</h2>
               <p>The <a href={patchNotes.url} target="_blank" rel="noreferrer noopener">September 11 notes</a> add cross-save support on Mac. At publication, the update was available on Steam for PC and Mac, PlayStation, Xbox and Epic Games Store. The Mac App Store update was still in progress, with no release time given.</p>

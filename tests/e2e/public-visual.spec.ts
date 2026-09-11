@@ -119,7 +119,7 @@ test.describe("integrated newspaper public UI", () => {
     } else {
       await expect(page.getByRole("contentinfo").getByRole("link", { name: /File a report/ })).toHaveAttribute("href", "/report");
     }
-    await expect(page.locator("#lead").getByRole("link", { name: "The base game keeps moving" })).toHaveAttribute("href", "/articles/patch-2-02-00");
+    await expect(page.locator("#lead").getByRole("link", { name: "Patch 2.02.00 adds Mac cross-save" })).toHaveAttribute("href", "/articles/patch-2-02-00");
     await expect(page.getByText(/Individual reports stay on the issue board/)).toBeVisible();
     await expect(page.getByRole("link", { name: /All \d+ published issues/ })).toHaveAttribute("href", "/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toHaveCount(0);
