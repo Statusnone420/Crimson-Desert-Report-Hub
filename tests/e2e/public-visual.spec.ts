@@ -160,7 +160,7 @@ test.describe("integrated newspaper public UI", () => {
     await expectHealthyPage(page, problems);
   });
 
-  test("observatory is public at both routes and never turns context into player evidence", async ({ page }) => {
+  test("observatory stays canonical and never turns context into player evidence", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/observatory");
     await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
@@ -176,6 +176,7 @@ test.describe("integrated newspaper public UI", () => {
     await expectHealthyPage(page, problems);
 
     await page.goto("/scanner");
+    await expect(page).toHaveURL(/\/observatory$/);
     await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Observatory" })).toHaveAttribute("aria-current", "page");
     await expectNoPrivateMarkers(page);

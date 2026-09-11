@@ -4,6 +4,8 @@ import { ClaimsRecord } from "@/components/newspaper/ClaimsRecord";
 import { ClaimVerdicts } from "@/components/newspaper/ClaimVerdicts";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { uniqueClaimAttributions } from "@/lib/claims";
+import { editorialArticles } from "@/lib/editorialArticles";
+import { matchesPatchVersion } from "@/lib/patchWatch";
 import { getDashboardData } from "@/lib/queries";
 import { routeMetadata } from "@/lib/site";
 
@@ -21,6 +23,7 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
 export default async function PatchesPage() {
   const data = await getDashboardData();
   const patch = data.currentPatch;
+  const report = editorialArticles.find((article) => "patchVersion" in article && matchesPatchVersion(article.patchVersion, patch.version));
   const verifying = data.topClusters.filter((cluster) => cluster.fix_claimed_patch_version === patch.version);
   const attributed = uniqueClaimAttributions(data.claimedFixes, verifying);
   const contested = [...attributed.values()].filter((cluster) => {
@@ -43,7 +46,10 @@ export default async function PatchesPage() {
           <h1>Patch {patch.version}</h1>
           <p className="patch-deck">What changed. What players are seeing.</p>
           {patch.summary ? <p className="patch-intro">{patch.summary}</p> : null}
-          <a className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">Read Pearl Abyss’s complete notes ↗</a>
+          <div className="patch-heading-actions">
+            {report ? <Link className="action" href={report.path}>Read the report →</Link> : null}
+            <a className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">Read Pearl Abyss’s complete notes ↗</a>
+          </div>
         </section>
         <div className="patch-register" aria-label="Patch summary">
           <div><strong>{data.claimsUnavailable ? "unreadable" : data.claimedFixes.length}</strong><span>Official fix claims{data.claimedFixTotal !== null && data.claimedFixTotal > data.claimedFixes.length ? " stored" : ""}</span></div>

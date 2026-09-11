@@ -187,7 +187,8 @@ test.describe("public catch-up journey", () => {
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
     await page.getByLabel("Password", { exact: true }).fill("admin-password");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await waitForClientPath(page, "/scanner");
+    await waitForClientPath(page, "/operator");
+    await expect(page).toHaveURL(/\/operator\?view=scanner$/);
     await expect(page.locator(".operator-newspaper")).toBeVisible();
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
     await page.reload();
@@ -208,6 +209,7 @@ test.describe("public catch-up journey", () => {
 
   test("anonymous scanner visits still record the public Observatory visit", async ({ page }) => {
     await page.goto("/scanner");
+    await expect(page).toHaveURL(/\/observatory$/);
     await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
     await expect(page.locator(".operator-newspaper")).toHaveCount(0);
     await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: NOW.toISOString(), caughtUpThrough: null });

@@ -55,6 +55,7 @@ test("missing services stay unavailable instead of becoming a false zero", async
   await expectNoSyntheticCrowd(page);
 
   await page.goto("/scanner");
+  await expect(page).toHaveURL(/\/observatory$/);
   await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Observatory" })).toHaveAttribute("aria-current", "page");
   await expectNoSyntheticCrowd(page);

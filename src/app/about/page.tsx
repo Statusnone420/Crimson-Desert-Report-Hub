@@ -119,7 +119,7 @@ export default async function AboutPage() {
               <p>
                 Teaching the scanner changes what it keeps next time. It can&rsquo;t put a link past the
                 publishing bar. The{" "}
-                <Link href="/scanner" className="dispatch-link">
+                <Link href="/observatory" className="dispatch-link">
                   Observatory
                 </Link>{" "}
                 shows the whole flow.

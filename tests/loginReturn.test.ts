@@ -13,7 +13,7 @@ describe("resolveLoginReturn", () => {
     expect(resolveLoginReturn("/admin")).toBe("/admin");
     expect(resolveLoginReturn("/admin/compile")).toBe("/admin/compile");
     expect(resolveLoginReturn("/admin/videos")).toBe("/admin/videos");
-    expect(resolveLoginReturn("/scanner")).toBe("/scanner");
+    expect(resolveLoginReturn("/scanner")).toBe("/operator?view=scanner");
     expect(resolveLoginReturn("/operator")).toBe("/operator");
   });
 

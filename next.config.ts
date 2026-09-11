@@ -47,6 +47,11 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
+        source: "/scanner",
+        destination: "/observatory",
+        permanent: true,
+      },
+      {
         source: "/feeds",
         destination: "/feed.xml",
         permanent: true,

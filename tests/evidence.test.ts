@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
+import { displayDescription, hasClusterEvidence, monitoredAreasNote, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
+
+describe("displayDescription", () => {
+  it.each([
+    "crashes to desktop/home and launch hangs",
+    "frame-rate drops, stutter, and frame-pacing issues",
+  ])("dates the original watchlist note for %s without claiming a current regression", (subject) => {
+    const description = `Watchlist item for ${subject} after patch 1.13.00. It remains unverified until approved reports or public signals confirm it.`;
+    expect(displayDescription("Issue title", description)).toBe(
+      `Historical watchlist note (Patch 1.13.00): ${subject}. It remains unverified until approved reports or public signals confirm it.`,
+    );
+  });
+
+  it("preserves ordinary issue descriptions and removes internal review notes", () => {
+    expect(displayDescription("Issue title", " A current issue.  (body retained for 48h moderator review) ")).toBe("A current issue.");
+    expect(displayDescription("Issue title", "Players report a crash after patch 2.02.00.")).toBe("Players report a crash after patch 2.02.00.");
+    expect(displayDescription("Issue title", " issue   title ")).toBeNull();
+    expect(displayDescription("Issue title", null)).toBeNull();
+  });
+});
 
 describe("hasClusterEvidence", () => {
   it("treats approved player reports as evidence and other signals separately", () => {

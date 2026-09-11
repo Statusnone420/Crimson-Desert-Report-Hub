@@ -27,8 +27,8 @@ const expectedDescriptions = {
     "How Crimson Desert Report Hub sources its journalism, credits creators, and keeps news separate from player reports and official fix claims.",
   "/privacy":
     "No accounts, no email field, no ads or analytics trackers. Reports stay private unless a moderator approves a short excerpt.",
-  "/scanner":
-    "Crimson Desert review trends, Twitch audience activity and source radar in the Observatory.",
+  "/observatory":
+    "Recorded Steam review movement, Twitch audience activity, and the current public-source radar for Crimson Desert.",
 } as const;
 
 function pngSize(file: string): { width: number; height: number } {
@@ -111,6 +111,11 @@ describe("search and share metadata", () => {
         permanent: true,
       },
       {
+        source: "/scanner",
+        destination: "/observatory",
+        permanent: true,
+      },
+      {
         source: "/feeds",
         destination: "/feed.xml",
         permanent: true,
@@ -159,12 +164,12 @@ describe("search and share metadata", () => {
   });
 
   it("gives each route a distinct title, matching canonical and og:url, and keeps the parent's share images", async () => {
-    const [issues, report, about, privacy, scanner, news, watch, patches] = await Promise.all([
+    const [issues, report, about, privacy, observatory, news, watch, patches] = await Promise.all([
       import("@/app/issues/page"),
       import("@/app/report/page"),
       import("@/app/about/page"),
       import("@/app/privacy/page"),
-      import("@/app/scanner/page"),
+      import("@/app/observatory/page"),
       import("@/app/news/page"),
       import("@/app/watch/page"),
       import("@/app/patches/page"),
@@ -194,7 +199,7 @@ describe("search and share metadata", () => {
       [report, "File a Report", "/report", expectedDescriptions["/report"]],
       [about, "Method", "/about", expectedDescriptions["/about"]],
       [privacy, "Privacy", "/privacy", expectedDescriptions["/privacy"]],
-      [scanner, "The Observatory", "/observatory", expectedDescriptions["/scanner"]],
+      [observatory, "The Observatory", "/observatory", expectedDescriptions["/observatory"]],
       [news, "Crimson Desert news", "/news", expectedDescriptions["/news"]],
       [watch, "Crimson Desert videos", "/watch", expectedDescriptions["/watch"]],
       [patches, "Crimson Desert patch notes: what changed", "/patches", expectedDescriptions["/patches"]],
@@ -232,8 +237,8 @@ describe("search and share metadata", () => {
       title: SITE_NAME,
       description: SITE_OG_DESCRIPTION,
     });
-    const scannerMetadata = await scanner.generateMetadata({}, parent);
-    expect(scannerMetadata.robots).toEqual({ index: false, follow: false });
+    const { metadata: operatorMetadata } = await import("@/app/operator/page");
+    expect(operatorMetadata.robots).toEqual({ index: false, follow: false });
   });
 
   it("gives the patch report absolute article images and sourced NewsArticle data", async () => {
