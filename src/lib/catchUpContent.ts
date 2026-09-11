@@ -13,7 +13,7 @@ export type CatchUpMilestone = {
   related?: { label: string; url: string }[];
 };
 
-// Patch history begins at 1.13.00. Times are official notice publication times in UTC.
+// Patch history begins at 1.13.00. publishedAt uses official notice times in UTC.
 // Both August 28 hotfix notices display 00:00; their version order breaks that tie.
 export const CATCH_UP_MILESTONES: readonly CatchUpMilestone[] = [
   {
