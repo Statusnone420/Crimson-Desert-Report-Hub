@@ -273,6 +273,11 @@ html[data-theme="dark"] .operator-workspace {
 .operator-workspace .workspace-overview .workspace-queue-item { padding-block: 20px; }
 @media (max-width: 1100px) { .operator-workspace .workspace-overview-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 960px) { .operator-workspace .workspace-overview-health-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 650px) {
+  .operator-workspace .workspace-overview-health .workspace-health-facts > div { grid-template-columns: minmax(0, 1fr); }
+  .operator-workspace .workspace-overview-health .workspace-health-facts dd { text-align: left; }
+  .operator-workspace .workspace-overview-health .workspace-health-facts dd small { max-width: none; }
+}
 
 .operator-workspace .workspace-review-list > .workspace-queue { max-height: calc(100vh - 300px); min-height: 160px; overflow-y: auto; }
 .operator-workspace .workspace-audit-list { list-style: none; margin: 18px 0 0; padding: 0; }
