@@ -63,6 +63,8 @@ describe("AdminScannerView", () => {
       observationPatch: { version: "unknown", publishedAt: null },
       observationModerationAvailable: true, feedbackRules: [], feedbackLearningAvailable: true,
       control: { paused: false, minIntervalMinutes: 60, scheduledSearchCreditsPerRun: 1, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 1, modelPreset: "gpt_5_6_luna", updatedAt: null },
+      // Shared fixture field required when the companion scanner-health PR lands.
+      ...{ budgetCapped: false },
       activeRun: null, latestRealRun: null, latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "unknown", publishedAt: null }),
