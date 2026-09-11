@@ -1,7 +1,7 @@
 import { CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES, type CatchUpMilestone } from "./catchUpContent";
 import { catchUpLocalMidnight } from "./catchUpCalendar";
 
-export type CatchUpSelection = { kind: "highlights" } | { kind: "all" } | { kind: "since"; value: string } | { kind: "patch"; value: string };
+export type CatchUpSelection = { kind: "highlights" } | { kind: "all" } | { kind: "since"; value: string; remembered?: true } | { kind: "patch"; value: string };
 
 export function parseCatchUpHash(hash: string, now = new Date()): CatchUpSelection {
   const params = new URLSearchParams(hash.replace(/^#/, ""));
@@ -9,14 +9,15 @@ export function parseCatchUpHash(hash: string, now = new Date()): CatchUpSelecti
   const patch = params.get("patch");
   if (patch && CATCH_UP_MILESTONES.some((item) => item.patch === patch)) return { kind: "patch", value: patch };
   const since = params.get("since");
+  const remembered = params.get("remembered") === "1" ? { remembered: true as const } : {};
   if (since && /^\d{4}-\d{2}-\d{2}$/.test(since)) {
     const midnight = catchUpLocalMidnight(since, now);
-    return midnight ? { kind: "since", value: midnight } : { kind: "highlights" };
+    return midnight ? { kind: "since", value: midnight, ...remembered } : { kind: "highlights" };
   }
   if (since && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(since)) {
     const time = Date.parse(since);
     if (Number.isFinite(time) && time <= now.getTime() && new Date(time).toISOString().slice(0, 10) === since.slice(0, 10)) {
-      return { kind: "since", value: new Date(time).toISOString() };
+      return { kind: "since", value: new Date(time).toISOString(), ...remembered };
     }
   }
   return { kind: "highlights" };
@@ -26,6 +27,7 @@ export function catchUpHash(selection: CatchUpSelection, chapter?: string) {
   const params = new URLSearchParams();
   if (selection.kind === "all") params.set("history", "all");
   else if (selection.kind !== "highlights") params.set(selection.kind, selection.value);
+  if (selection.kind === "since" && selection.remembered) params.set("remembered", "1");
   if (chapter) params.set("chapter", chapter);
   return params.size ? `#${params}` : "";
 }
@@ -42,7 +44,9 @@ export function selectCatchUpMilestones(selection: CatchUpSelection, milestones:
     const index = milestones.findIndex((item) => item.patch === selection.value);
     return index < 0 ? [...milestones] : milestones.slice(index + 1);
   }
-  return milestones.filter((item) => Date.parse(item.publishedAt) > Date.parse(selection.value));
+  const since = Date.parse(selection.value);
+  return milestones.filter((item) => Date.parse(item.publishedAt) > since
+    || (selection.remembered === true && item.availableAt !== undefined && Date.parse(item.availableAt) > since));
 }
 
 export function catchUpDate(value: string, year = false) {

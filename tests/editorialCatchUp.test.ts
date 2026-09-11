@@ -15,6 +15,8 @@ describe("published patch reports and Catch Up", () => {
       expect(milestone.source.url).toBe(article.sources[0].url);
       expect(milestone.related?.some((link) => link.url === article.path)).toBe(true);
       expect(Date.parse(milestone.publishedAt)).toBeLessThanOrEqual(Date.parse(article.publishedAt));
+      expect(Number.isFinite(Date.parse(milestone.availableAt ?? "")), `${article.path} needs its first Hub availability time`).toBe(true);
+      expect(Date.parse(milestone.availableAt!)).toBeGreaterThanOrEqual(Date.parse(milestone.publishedAt));
     }
   });
 });

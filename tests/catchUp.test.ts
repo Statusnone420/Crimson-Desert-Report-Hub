@@ -66,6 +66,13 @@ describe("catch-up selection URLs", () => {
     expect(parseCatchUpHash(hash, NOW)).toEqual({ kind: "all" });
   });
 
+  it("retains remembered reading dates in shared chapter links", () => {
+    const hash = "#since=2026-08-28T00%3A00%3A00.000Z&remembered=1&chapter=update-2-02-00";
+    const selection = parseCatchUpHash(hash, NOW);
+    expect(selection).toEqual({ kind: "since", value: "2026-08-28T00:00:00.000Z", remembered: true });
+    expect(catchUpHash(selection, "update-2-02-00")).toBe(hash);
+  });
+
   it.each(["", "#history=all", "#chapter=missing", "#chapter=cu-title", "#chapter=%3Cscript%3E"])("ignores unknown chapter targets: %s", (hash) => {
     expect(parseCatchUpChapter(hash)).toBeNull();
   });
@@ -131,6 +138,21 @@ describe("catch-up milestone selection", () => {
       { ...CATCH_UP_MILESTONES[1], id: "after", publishedAt: "2026-08-28T00:00:00.001Z" },
     ];
     expect(selectCatchUpMilestones({ kind: "since", value: "2026-08-28T00:00:00.000Z" }, milestones).map((item) => item.id)).toEqual(["after"]);
+  });
+
+  it("includes later additions for remembered dates while explicit dates keep the official chronology", () => {
+    const milestones = [
+      { ...CATCH_UP_MILESTONES[0], id: "older", publishedAt: "2026-09-10T05:30:00Z" },
+      { ...CATCH_UP_MILESTONES[0], id: "added-later", publishedAt: "2026-09-11T05:30:00Z", availableAt: "2026-09-13T00:00:00Z" },
+      { ...CATCH_UP_MILESTONES[0], id: "new-patch", publishedAt: "2026-09-13T05:30:00Z" },
+    ];
+    const now = new Date("2026-09-14T00:00:00Z");
+    const since = "#since=2026-09-12T12:00:00Z";
+    expect(selectCatchUpMilestones(parseCatchUpHash(since, now), milestones).map((item) => item.id)).toEqual(["new-patch"]);
+    const remembered = parseCatchUpHash(`${since}&remembered=1`, now);
+    expect(selectCatchUpMilestones(remembered, milestones).map((item) => item.id)).toEqual(["added-later", "new-patch"]);
+    const completed = parseCatchUpHash("#since=2026-09-13T05:30:00Z&remembered=1", now);
+    expect(selectCatchUpMilestones(completed, milestones)).toEqual([]);
   });
 });
 
