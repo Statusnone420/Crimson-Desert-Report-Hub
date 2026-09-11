@@ -197,6 +197,15 @@ describe("buildOverviewScannerHealth", () => {
     expect(health.statusLabel).toBe("AI UNAVAILABLE");
     expect(overviewHealthHeadline(health.attention)).toBe("1 named health check needs attention.");
   });
+
+  it.each(["unavailable", "limited"] as const)("keeps an unread admin record unverified when AI is %s too", (state) => {
+    const health = buildOverviewScannerHealth(input({
+      adminAvailable: false,
+      control: null,
+      aiHealth: { state, code: "openrouter_no_route", message: "The AI health record could not be verified.", lastSuccessAt: null },
+    }));
+    expect(health.statusLabel).toBe("UNVERIFIED");
+  });
 });
 
 describe("OverviewScannerHealth", () => {

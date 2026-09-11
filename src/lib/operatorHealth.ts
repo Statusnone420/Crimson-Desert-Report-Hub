@@ -81,14 +81,14 @@ function scheduleStatus(input: OverviewScannerHealthInput): {
   label: string;
   tone: "green" | "amber" | "red";
 } {
+  if (!input.adminAvailable || !input.control) {
+    return { label: "UNVERIFIED", tone: "amber" };
+  }
   if (input.aiHealth?.state === "unavailable" || input.aiHealth?.state === "limited") {
     return {
       label: input.aiHealth.state === "unavailable" ? "AI UNAVAILABLE" : "AI LIMITED",
       tone: "amber",
     };
-  }
-  if (!input.adminAvailable || !input.control) {
-    return { label: "UNVERIFIED", tone: "amber" };
   }
   return scannerScheduleStatus(input.control, input.activeRun, input.lastScheduled);
 }
