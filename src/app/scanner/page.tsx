@@ -21,9 +21,9 @@ export async function generateMetadata(_props: object, parent: ResolvingMetadata
 
 export const dynamic = "force-dynamic";
 
-// /operator?view=scanner imports this implementation after its admin guard.
-// Direct /scanner requests redirect in next.config.ts; the anonymous fallback
-// is retained for callers that render this module without the workspace guard.
+// One implementation, two audiences. isAdmin() is a non-throwing boolean check (unlike
+// requireAdmin(), which redirects), so anonymous visitors render the public
+// transparency view instead of being bounced to the login page.
 export default async function ScannerPage({ searchParams }: { searchParams?: Promise<{ section?: string }> } = {}) {
   const admin = await isAdmin();
   if (!admin) return <ObservatoryPage />;
