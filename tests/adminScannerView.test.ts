@@ -629,7 +629,9 @@ describe("AdminScannerView", () => {
 
       expect(markup.match(/class="op-history-row"/g)).toHaveLength(10);
       // The raw-code disclosure was sliced to 8 too, so it lost the same two.
-      expect(markup.match(/Jul \d+, 2026, /g)).toHaveLength(10);
+      // Health summary also prints Eastern times; this count is the disclosure.
+      const rawDiagnostics = markup.slice(markup.indexOf("Raw funnel"));
+      expect(rawDiagnostics.match(/Jul \d+, 2026, /g)).toHaveLength(10);
       expect(markup).toContain("Scan history and diagnostics · newest 10");
     });
 

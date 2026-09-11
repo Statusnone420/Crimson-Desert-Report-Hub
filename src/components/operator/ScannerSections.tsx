@@ -1,3 +1,4 @@
+import { retainedLeadShareLabel } from "@/lib/operatorHealth";
 import type { ScannerAttention } from "@/lib/scannerAttention";
 
 type ScannerHealthSummaryProps = {
@@ -29,11 +30,7 @@ export function ScannerHealthSummary({
   awaiting,
   dateCoverage,
 }: ScannerHealthSummaryProps) {
-  const retainedShare = radarAvailable && screened7d > 0
-    ? `${retained7d} / ${screened7d} (${((retained7d / screened7d) * 100).toFixed(1)}%)`
-    : radarAvailable
-      ? "0 / 0"
-      : "Unknown";
+  const retainedShare = retainedLeadShareLabel(radarAvailable, screened7d, retained7d);
 
   return (
     <section id="health" className="workspace-panel" aria-labelledby="scanner-health-title">
@@ -45,6 +42,7 @@ export function ScannerHealthSummary({
         <div className="workspace-actions">
           <span className={`workspace-badge ${scannerStatusTone}`}>{scannerStatus}</span>
           <span className="workspace-note">Next eligible attempt: {nextAttempt}</span>
+          <a className="workspace-text-link" href="/operator">Also on Overview</a>
         </div>
       </div>
       <div className="workspace-panel-body">

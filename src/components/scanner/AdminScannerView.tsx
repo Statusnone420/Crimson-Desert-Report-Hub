@@ -8,8 +8,9 @@ import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { platformContextConfigured, steamPulseEnabled, type IntegrationStatus } from "@/lib/env";
 import { collectionHealth } from "@/lib/collectionHealth";
-import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
+import { formatEasternDateTime, formatRelativeOperatorTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
+import { scannerScheduleStatus } from "@/lib/scannerScheduleStatus";
 import type { AutomationControlState } from "@/lib/automation/settings";
 import { displayCandidateCount, radarYieldPct } from "@/lib/observatoryMetrics";
 import type {
@@ -39,22 +40,12 @@ function projectedMonthlyCredits(control: AutomationControlState): number {
   return Math.ceil((30 * 24 * 60 * control.scheduledSearchCreditsPerRun) / control.minIntervalMinutes);
 }
 
-function runHasCapSkip(run: { status: string; skips: string[] } | null): boolean {
-  return Boolean(
-    run?.status === "skipped" &&
-      run.skips.some((skip) => skip.includes("tavily_credit_cap") || skip.includes("llm_budget_capped")),
-  );
-}
-
 function scannerStatus(
   control: AutomationControlState,
   activeRun: { id: string } | null,
   lastScheduled: { status: string; skips: string[] } | null,
 ): { label: string; toneClass: string } {
-  if (activeRun) return { label: "RUNNING", toneClass: "is-amber" };
-  if (control.paused) return { label: "PAUSED", toneClass: "is-amber" };
-  if (runHasCapSkip(lastScheduled)) return { label: "CAPPED", toneClass: "is-crimson" };
-  return { label: "ACTIVE", toneClass: "is-green" };
+  return scannerScheduleStatus(control, activeRun, lastScheduled);
 }
 
 function aiCostLabel(run: AutomationRunRow): string {
@@ -448,8 +439,16 @@ export function AdminScannerView({
         attention={attention}
         scannerStatus={status.label}
         scannerStatusTone={status.toneClass === "is-green" ? "workspace-badge--green" : "workspace-badge--amber"}
-        nextAttempt={control.paused ? "Paused" : relativeTime(nextEligible.toISOString(), nowMs)}
-        latestRun={latestRun ? relativeTime(latestRun.started_at, nowMs) : null}
+        nextAttempt={
+          control.paused
+            ? "Paused"
+            : `${formatRelativeOperatorTime(nextEligible.toISOString(), nowMs)} · ${formatEasternDateTime(nextEligible.toISOString())}`
+        }
+        latestRun={
+          latestRun
+            ? `${formatRelativeOperatorTime(latestRun.started_at, nowMs)} · ${formatEasternDateTime(latestRun.started_at)}`
+            : null
+        }
         radarAvailable={radar.connected}
         screened7d={radar.funnel7d.reviewed}
         retained7d={radar.funnel7d.kept}

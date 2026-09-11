@@ -21,7 +21,7 @@ Every public surface remains complete at N=0. Empty and unavailable states state
 ## Operator Surfaces
 
 - Authenticated pages use a warm paper console with an amber top rule, compact nameplate, signed-in status, persistent theme control, destination navigation, and separate export/sign-out utilities.
-- The overview prioritizes the current attention count, exceptions, service status, schedule, recent run record, and direct links to operator tools.
+- The overview prioritizes the current attention count, exceptions, service status, last completed run, next eligible attempt, provider health, screening counters, recent run record, and a direct link to scanner diagnostics.
 - Report review, scanner monitoring, visibility overrides, feedback rules, and dossier compilation use dense workbench layouts. Rules, columns, disclosure sections, ledgers, and limited tonal fills carry hierarchy.
 - Status color is paired with text, counts, or state names. Green marks healthy or completed states, amber marks caution or partial states, and red marks failures, destructive actions, or attention.
 - The private CSV export opens a disclosure that names its sensitive contents before download. Preview notices and disabled-write states stay visible in the console.

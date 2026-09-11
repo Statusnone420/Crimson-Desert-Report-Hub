@@ -52,6 +52,33 @@ test.describe("operator workspace flows", () => {
     expect(response.ok()).toBe(true);
   });
 
+  test("overview shows scanner schedule, providers, counters, and a diagnostics path", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+
+    const health = page.locator(".workspace-overview-health");
+    await expect(health.getByRole("heading", { name: "Scanner health" })).toBeVisible();
+    await expect(health.getByText("Last completed run")).toBeVisible();
+    await expect(health.getByText("30m ago", { exact: true })).toBeVisible();
+    await expect(health.getByText("Next eligible run")).toBeVisible();
+    await expect(health.getByText("in 30m", { exact: true })).toBeVisible();
+    await expect(health.getByText("Steam reviews")).toBeVisible();
+    await expect(health.getByText("Twitch audience")).toBeVisible();
+    await expect(health.getByText("IGDB platform metadata")).toBeVisible();
+    await expect(health.getByText("Automated screening events · 7d")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open diagnostics" })).toHaveAttribute("href", "/operator?view=scanner#health");
+    await expect(page.locator(".workspace-overview")).not.toContainText("No recorded health checks need action");
+    const recentActivity = page.locator("section").filter({ has: page.getByRole("heading", { name: "Recent activity" }) });
+    await expect(recentActivity).not.toContainText(/2026-07-\d{2}T/);
+
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page).toHaveURL(/\/operator\?view=scanner#health$/);
+    await expect(page.locator("#health")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Also on Overview" })).toBeVisible();
+    await expectHealthyPage(page, problems);
+  });
+
   test("overview distinguishes unavailable automation history from an empty history", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     const armed = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/automation-admin-history-unavailable`);

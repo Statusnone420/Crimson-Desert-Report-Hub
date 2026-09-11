@@ -2,10 +2,13 @@ import AdminPage from "@/app/admin/page";
 import ScannerPage from "@/app/scanner/page";
 import VideoReviewPage from "@/app/admin/videos/page";
 import CompilePage from "@/app/admin/compile/page";
+import { OverviewScannerHealth } from "@/components/operator/OverviewScannerHealth";
 import {
   WorkspaceOverview,
   type WorkspaceDecisionRow,
 } from "@/components/operator/WorkspaceOverview";
+import { formatEasternDateTime } from "@/lib/automation/runDisplay";
+import { buildOverviewScannerHealth, OVERVIEW_SCANNER_DIAGNOSTICS_HREF } from "@/lib/operatorHealth";
 import { operatorView, workspaceHref } from "@/lib/operatorWorkspace";
 import { readReportReviewQueue } from "@/lib/reportReview";
 import { readClaimReviewQueue } from "@/lib/claimReview";
@@ -133,6 +136,30 @@ export default async function OperatorPage({
     scannerReadFailures: scanner?.readFailures ?? SCANNER_READ_REGISTERS,
     collection,
   });
+  const health = buildOverviewScannerHealth({
+    now,
+    adminAvailable: admin !== null,
+    radarAvailable: Boolean(radar?.connected),
+    control: admin?.control ?? null,
+    activeRun: admin?.activeRun ?? null,
+    runs: admin?.runs ?? [],
+    lastScheduled: admin?.runs.find((run) => run.mode === "scheduled") ?? null,
+    latestRealRun: admin?.latestRealRun ?? null,
+    radarHealth: radar
+      ? {
+          lastScanAt: radar.health.lastScanAt,
+          nextEligibleAt: radar.health.nextEligibleAt,
+          paused: radar.health.paused,
+          runs7d: radar.health.runs7d,
+        }
+      : null,
+    funnel7d: radar?.connected ? radar.funnel7d : null,
+    dateCoverage: radar?.connected ? radar.dateCoverage : null,
+    awaiting: scanner && !scanner.readFailures.includes("awaiting") ? scanner.awaiting : null,
+    collection,
+    attention,
+    aiHealth,
+  });
   return (
     <OperatorShell active="overview">
       <WorkspaceOverview
@@ -152,29 +179,7 @@ export default async function OperatorPage({
           },
           dossiers: { available: true, total: 0 },
         }}
-        health={
-          <div>
-            <p>
-              {attention.count === null
-                ? "Some health records could not be read."
-                : attention.count === 0
-                  ? "No recorded health checks need action."
-                  : `${attention.count} checks need attention`}
-            </p>
-            <div>
-              {attention.items.map((item) => (
-                <article key={item.id} className="workspace-health-item">
-                  <strong>{item.label}</strong>
-                  <p>{item.detail}</p>
-                </article>
-              ))}
-              <p className="workspace-note">
-                Scanner health is separate from decisions waiting for you.
-                Collection totals are available inside Scanner.
-              </p>
-            </div>
-          </div>
-        }
+        health={<OverviewScannerHealth health={health} />}
         recentActivity={runs.slice(0, 5).map((run, index) => ({
           id: `${run.startedAt}-${index}`,
           title:
@@ -184,7 +189,8 @@ export default async function OperatorPage({
                 ? "Scan completed with limits"
                 : `Scan ${run.status}`,
           detail: run.skipSummary,
-          occurredAt: run.finishedAt ?? run.startedAt,
+          occurredAt: formatEasternDateTime(run.finishedAt ?? run.startedAt),
+          href: OVERVIEW_SCANNER_DIAGNOSTICS_HREF,
         }))}
         recentActivityAvailable={admin !== null}
       />
