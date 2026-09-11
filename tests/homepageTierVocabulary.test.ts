@@ -98,6 +98,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
     expect(readingOrder).toEqual([...readingOrder].sort((a, b) => a - b));
     expect(markup).toContain("September 11, 2026");
     expect(markup).toContain("September 5, 2026");
+    expect(markup).toContain("No claimed fixes are recorded for this patch yet.");
   });
 
   it("keeps the dated report separate from a later live patch", async () => {
@@ -112,6 +113,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
     expect(lead).toContain("September 11, 2026");
     expect(lead).not.toContain("2.03.00");
     expect(markup).toContain("Listed in the official notes for 2.03.00.");
+    expect(markup).not.toContain("The current patch could not be verified.");
   });
 
   it("does not promote a watchlist title after a patch rollover", async () => {
@@ -144,8 +146,32 @@ describe("homepage keeps issue publication separate from headline selection", ()
     const markup = renderToStaticMarkup(await HomePage());
     expect(markup).toContain("The current patch could not be verified.");
     expect(markup).toContain('href="/patches"');
+    expect(markup).toContain("No claimed fixes were returned.");
     expect(markup).toContain(patch20200.title);
     expect(markup).toContain(chartingTheUnknown.title);
+  });
+
+  it("warns when the patch lookup fails even if independently read claims are available", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([], {
+      currentPatch: { ...currentPatch, source: "fallback" },
+      claimedFixes: [{ fixText: "An independently recorded fix.", section: "Content" }],
+    }));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("The current patch could not be verified.");
+    expect(markup).toContain("An independently recorded fix.");
+    expect(markup.indexOf("The current patch could not be verified.")).toBeLessThan(markup.indexOf("An independently recorded fix."));
+    expect(markup).not.toContain(`Listed in the official notes for ${currentPatch.version}.`);
+  });
+
+  it("keeps patch lookup and claims failures visible together", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([], {
+      currentPatch: { ...currentPatch, source: "fallback" },
+      claimsUnavailable: true,
+    }));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("The current patch could not be verified.");
+    expect(markup).toContain("Official claims are unavailable.");
+    expect(markup).not.toContain("No claimed fixes are recorded for this patch yet.");
   });
 
   it("keeps legacy raw observations and unrelated signal registers off the newspaper", async () => {

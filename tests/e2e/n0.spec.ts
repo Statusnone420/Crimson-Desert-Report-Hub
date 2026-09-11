@@ -71,7 +71,9 @@ test("connected empty tables render honest zero states", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "0 reports this patch" })).toBeVisible();
   await expect(page.getByText("Published issues").locator("+ dd")).toHaveText("0");
-  await expect(page.getByText("No claimed fixes are recorded for this patch yet.")).toBeVisible();
+  // Empty tables have no verified patch row, even though their counts are known zeros.
+  await expect(page.getByText("The current patch could not be verified.")).toBeVisible();
+  await expect(page.getByText("No claimed fixes were returned.")).toBeVisible();
   await expect(page.getByText("0 scanner leads · not confirmed bugs")).toBeVisible();
   await expect(page.getByText("No Steam review captures are available yet.")).toBeVisible();
   await expect(page.getByText(/unavailable|could not be read/i)).toHaveCount(0);
