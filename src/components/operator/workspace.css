@@ -261,6 +261,7 @@ html[data-theme="dark"] .operator-workspace {
 .operator-workspace .workspace-overview-health .workspace-health-facts { display: grid; gap: 12px; margin: 0; grid-template-columns: minmax(0, 1fr); }
 .operator-workspace .workspace-overview-health .workspace-health-facts > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
 .operator-workspace .workspace-overview-health .workspace-health-facts dd { text-align: right; }
+.operator-workspace .workspace-overview-health .workspace-health-facts dd strong { display: block; font-weight: 600; }
 .operator-workspace .workspace-overview-health .workspace-health-facts dd small { display: block; font-weight: 400; color: var(--ws-muted); margin-top: 3px; max-width: 36ch; }
 .operator-workspace .workspace-overview-health .is-caution dd { color: var(--ws-amber); }
 .operator-workspace .workspace-overview-health .is-danger dd { color: var(--ws-accent); }

@@ -59,9 +59,9 @@ test.describe("operator workspace flows", () => {
 
     const health = page.locator(".workspace-overview-health");
     await expect(health.getByRole("heading", { name: "Scanner health" })).toBeVisible();
-    await expect(health.getByText("Last completed run")).toBeVisible();
+    await expect(health.getByText("Last completed run", { exact: true })).toBeVisible();
     await expect(health.getByText("30m ago", { exact: true })).toBeVisible();
-    await expect(health.getByText("Next eligible run")).toBeVisible();
+    await expect(health.getByText("Next eligible run", { exact: true })).toBeVisible();
     await expect(health.getByText("in 30m", { exact: true })).toBeVisible();
     await expect(health.getByText("Steam reviews")).toBeVisible();
     await expect(health.getByText("Twitch audience")).toBeVisible();

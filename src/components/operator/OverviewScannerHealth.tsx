@@ -20,7 +20,7 @@ function FactList({
           <div key={fact.id} className={factClass(fact.tone).trim()}>
             <dt>{fact.label}</dt>
             <dd>
-              {fact.value}
+              <strong>{fact.value}</strong>
               <small>{fact.detail}</small>
             </dd>
           </div>
