@@ -60,7 +60,7 @@ test.describe("operator workspace flows", () => {
     const health = page.locator(".workspace-overview-health");
     await expect(health.getByRole("heading", { name: "Scanner health" })).toBeVisible();
     await expect(health.getByText("Last completed run", { exact: true })).toBeVisible();
-    await expect(health.getByText("30m ago", { exact: true })).toBeVisible();
+    await expect(health.getByText("28m ago", { exact: true })).toBeVisible();
     await expect(health.getByText("Next eligible run", { exact: true })).toBeVisible();
     await expect(health.getByText("in 30m", { exact: true })).toBeVisible();
     await expect(health.getByText("Steam reviews")).toBeVisible();
@@ -76,6 +76,12 @@ test.describe("operator workspace flows", () => {
     await expect(page).toHaveURL(/\/operator\?view=scanner#health$/);
     await expect(page.locator("#health")).toBeVisible();
     await expect(page.getByRole("link", { name: "Also on Overview" })).toBeVisible();
+    await page.getByRole("link", { name: "Also on Overview" }).click();
+    await page.getByRole("link", { name: "Collection records", exact: true }).click();
+    await expect(page).toHaveURL(/\/operator\?view=scanner&section=collection#collection-health$/);
+    await expect(page.locator("#collection-health")).toBeVisible();
+    await page.reload();
+    await expect(page.locator("#collection-health")).toBeVisible();
     await expectHealthyPage(page, problems);
   });
 
@@ -89,6 +95,41 @@ test.describe("operator workspace flows", () => {
     await expect(page.getByRole("heading", { name: "Recent activity unavailable" })).toBeVisible();
     await expect(page.getByText("The automation history read failed. Reload to try again.")).toBeVisible();
     await expect(page.getByRole("heading", { name: "No recent activity recorded" })).toHaveCount(0);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("Overview and Scanner retain a daily cadence after ten recent skip records", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const fixtureNow = Date.parse(process.env.PLAYWRIGHT_NOW ?? "2026-07-20T00:10:00.000Z");
+    const startedAt = new Date(fixtureNow - 12 * 3_600_000).toISOString();
+    const finishedAt = new Date(fixtureNow - 12 * 3_600_000 + 120_000).toISOString();
+    const settings = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
+      data: { key: "scanner", value: { paused: false, minIntervalMinutes: 1440 } },
+    });
+    expect(settings.ok()).toBe(true);
+    const changed = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?id=eq.run-1`, {
+      data: { started_at: startedAt, finished_at: finishedAt },
+    });
+    expect(changed.ok()).toBe(true);
+    const realRun = (await changed.json())[0];
+    const inserted = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: Array.from({ length: 10 }, (_, index) => ({
+        ...realRun,
+        id: `cadence-skip-${index}`,
+        mode: "scheduled",
+        status: "skipped",
+        started_at: new Date(fixtureNow - (index + 1) * 3_600_000).toISOString(),
+        finished_at: new Date(fixtureNow - (index + 1) * 3_600_000).toISOString(),
+        skips: ["recent_run"],
+      })),
+    });
+    expect(inserted.ok()).toBe(true);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health").getByText("in 12h", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health")).toContainText("Next eligible attempt: in 12h");
+    await expect(page.getByText("Scan history and diagnostics · newest 10", { exact: true })).toBeVisible();
     await expectHealthyPage(page, problems);
   });
 

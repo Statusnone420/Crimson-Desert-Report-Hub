@@ -31,24 +31,26 @@ export const metadata = { robots: { index: false, follow: false } };
 export default async function OperatorPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ view?: string; item?: string; run?: string }>;
+  searchParams?: Promise<{ view?: string; item?: string; run?: string; section?: string }>;
 } = {}) {
   const rawParams = await searchParams;
   const params = {
     view: typeof rawParams?.view === "string" ? rawParams.view : undefined,
     item: typeof rawParams?.item === "string" ? rawParams.item : undefined,
     run: typeof rawParams?.run === "string" ? rawParams.run : undefined,
+    section: rawParams?.section === "collection" ? "collection" : undefined,
   };
   const view = operatorView(params?.view);
   await requireAdmin(
     workspaceHref(view, {
       ...(params.item ? { item: params.item } : {}),
       ...(params.run ? { run: params.run } : {}),
+      ...(view === "scanner" && params.section ? { section: params.section } : {}),
     }),
   );
   if (view === "reports" || view === "claims" || view === "settings")
     return <AdminPage searchParams={Promise.resolve({ ...params, view })} />;
-  if (view === "scanner") return <ScannerPage />;
+  if (view === "scanner") return <ScannerPage searchParams={Promise.resolve({ section: params.section })} />;
   if (view === "videos")
     return (
       <VideoReviewPage searchParams={Promise.resolve({ item: params?.item })} />

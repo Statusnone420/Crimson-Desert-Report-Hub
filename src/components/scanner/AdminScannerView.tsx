@@ -344,6 +344,7 @@ export function AdminScannerView({
   integrations,
   nowIso,
   aiHealth: suppliedAiHealth,
+  collectionExpanded = false,
 }: {
   runs: AutomationRunRow[];
   signals: AdminSignalRow[];
@@ -363,11 +364,12 @@ export function AdminScannerView({
   integrations: IntegrationStatus[];
   nowIso: string;
   aiHealth?: ScannerAiHealth;
+  collectionExpanded?: boolean;
 }) {
   const now = new Date(nowIso);
   const nowMs = now.getTime();
   const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
-  const nextEligible = nextEligibleScheduledScanAt(runs, now, control.minIntervalMinutes);
+  const nextEligible = nextEligibleScheduledScanAt(latestRealRun ? [...runs, latestRealRun] : runs, now, control.minIntervalMinutes);
   const aiHealth = suppliedAiHealth ?? scannerAiHealth(runs, control);
   const aiNeedsAttention = aiHealth.state === "unavailable" || aiHealth.state === "limited";
   const status = aiNeedsAttention
@@ -375,6 +377,7 @@ export function AdminScannerView({
     : scannerStatus(control, activeRun, lastScheduled);
   const projectedCredits = projectedMonthlyCredits(control);
   const latestRun = latestRealRun;
+  const completedAt = latestRun ? latestRun.finished_at ?? latestRun.started_at : null;
   const optionalCandidates = rejectedCandidates.filter(
     (candidate) => !candidate.rescued_at && !candidate.decision_id && !candidate.feedback_rule_id,
   );
@@ -445,8 +448,8 @@ export function AdminScannerView({
             : `${formatRelativeOperatorTime(nextEligible.toISOString(), nowMs)} · ${formatEasternDateTime(nextEligible.toISOString())}`
         }
         latestRun={
-          latestRun
-            ? `${formatRelativeOperatorTime(latestRun.started_at, nowMs)} · ${formatEasternDateTime(latestRun.started_at)}`
+          completedAt
+            ? `${formatRelativeOperatorTime(completedAt, nowMs)} · ${formatEasternDateTime(completedAt)}`
             : null
         }
         radarAvailable={radar.connected}
@@ -456,7 +459,7 @@ export function AdminScannerView({
         dateCoverage={radar.connected ? radar.dateCoverage : null}
       />
 
-      <details className="workspace-panel scanner-workspace__telemetry">
+      <details className="workspace-panel scanner-workspace__telemetry" open={collectionExpanded}>
         <summary>Detailed scanner telemetry</summary>
         <div className="workspace-panel-body">
       <div className="op-status-line">

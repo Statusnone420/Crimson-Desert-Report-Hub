@@ -40,7 +40,7 @@ function input(overrides: Partial<OverviewScannerHealthInput> = {}): OverviewSca
     activeRun: null,
     runs: [{ mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z" }],
     lastScheduled: { status: "success", skips: [] },
-    latestRealRun: { started_at: "2026-09-11T17:30:00.000Z", finished_at: "2026-09-11T17:32:00.000Z" },
+    latestRealRun: { mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z", finished_at: "2026-09-11T17:32:00.000Z" },
     radarHealth: {
       lastScanAt: "2026-09-11T17:30:00.000Z",
       nextEligibleAt: "2026-09-11T18:30:00.000Z",
@@ -78,6 +78,20 @@ describe("retainedLeadShareLabel", () => {
 });
 
 describe("buildOverviewScannerHealth", () => {
+  it.each(["scheduled", "manual"])("uses the independently read %s scan when ten skips hide it", (mode) => {
+    const health = buildOverviewScannerHealth(input({
+      control: { paused: false, minIntervalMinutes: 1440 },
+      runs: Array.from({ length: 10 }, (_, index) => ({ mode: "scheduled", status: "skipped", started_at: new Date(now.getTime() - (index + 1) * 3_600_000).toISOString() })),
+      latestRealRun: { mode, status: "success", started_at: "2026-09-11T06:00:00.000Z", finished_at: "2026-09-11T06:02:00.000Z" },
+    }));
+    expect(health.schedule.find((fact) => fact.id === "next-run")).toMatchObject({ value: "in 12h", detail: "Sep 12, 2026, 2:00:00 AM EDT" });
+  });
+
+  it("uses the completion instant for both last-completed-run labels", () => {
+    const health = buildOverviewScannerHealth(input());
+    expect(health.schedule.find((fact) => fact.id === "last-run")).toMatchObject({ value: "28m ago", detail: "Sep 11, 2026, 1:32:00 PM EDT" });
+  });
+
   it("surfaces last run, next eligible attempt, providers, and core counters", () => {
     const health = buildOverviewScannerHealth(input());
 
@@ -86,7 +100,7 @@ describe("buildOverviewScannerHealth", () => {
     expect(health.schedule).toEqual([
       expect.objectContaining({
         id: "last-run",
-        value: "30m ago",
+        value: "28m ago",
         detail: "Sep 11, 2026, 1:32:00 PM EDT",
       }),
       expect.objectContaining({
@@ -108,7 +122,7 @@ describe("buildOverviewScannerHealth", () => {
       expect.objectContaining({ id: "failed-runs", value: "0", tone: "ok" }),
     ]);
     expect(health.diagnosticsHref).toBe("/operator?view=scanner#health");
-    expect(health.collectionHref).toBe("/operator?view=scanner#collection-health");
+    expect(health.collectionHref).toBe("/operator?view=scanner&section=collection#collection-health");
   });
 
   it("says paused instead of inventing a next eligible time", () => {
@@ -191,7 +205,7 @@ describe("OverviewScannerHealth", () => {
       createElement(OverviewScannerHealth, { health: buildOverviewScannerHealth(input()) }),
     );
     expect(markup).toContain("Last completed run");
-    expect(markup).toContain("30m ago");
+    expect(markup).toContain("28m ago");
     expect(markup).toContain("Next eligible run");
     expect(markup).toContain("in 30m");
     expect(markup).toContain("Steam reviews");
@@ -199,7 +213,7 @@ describe("OverviewScannerHealth", () => {
     expect(markup).toContain("IGDB platform metadata");
     expect(markup).toContain("Automated screening events · 7d");
     expect(markup).toContain("href=\"/operator?view=scanner#health\"");
-    expect(markup).toContain("href=\"/operator?view=scanner#collection-health\"");
+    expect(markup).toContain("href=\"/operator?view=scanner&amp;section=collection#collection-health\"");
     expect(markup).not.toContain("No recorded health checks need action");
     expect(markup).not.toContain("Collection totals are available inside Scanner");
   });

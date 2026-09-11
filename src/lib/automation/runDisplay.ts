@@ -270,11 +270,11 @@ export function formatRelativeOperatorTime(iso: string | null, nowMs: number): s
   if (!iso) return "not scheduled";
   const timestamp = new Date(iso).getTime();
   if (!Number.isFinite(timestamp) || !Number.isFinite(nowMs)) return "Unknown time";
-  const mins = Math.floor((nowMs - timestamp) / 60000);
-  const abs = Math.abs(mins);
-  const prefix = mins < 0 ? "in " : "";
-  const suffix = mins < 0 ? "" : " ago";
-  if (abs < 1) return mins < 0 ? "in less than a minute" : "just now";
+  const future = timestamp > nowMs;
+  const abs = Math.floor(Math.abs(nowMs - timestamp) / 60000);
+  const prefix = future ? "in " : "";
+  const suffix = future ? "" : " ago";
+  if (abs < 1) return future ? "in less than a minute" : "just now";
   if (abs < 60) return `${prefix}${abs}m${suffix}`;
   const hours = Math.floor(abs / 60);
   if (hours < 24) return `${prefix}${hours}h${suffix}`;

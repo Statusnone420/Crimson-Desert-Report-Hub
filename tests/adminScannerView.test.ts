@@ -592,7 +592,7 @@ describe("AdminScannerView", () => {
       };
     }
 
-    function renderWithRuns(runs: AutomationRunRow[]) {
+    function renderWithRuns(runs: AutomationRunRow[], latestRealRun = runs[0] ?? null, minIntervalMinutes: 60 | 1440 = 60) {
       return renderToStaticMarkup(createElement(AdminScannerView, {
         runs,
         signals: [],
@@ -604,7 +604,7 @@ describe("AdminScannerView", () => {
         feedbackLearningAvailable: true,
         control: {
           paused: false,
-          minIntervalMinutes: 60,
+          minIntervalMinutes,
           scheduledSearchCreditsPerRun: 1,
           monthlyTavilyCreditCap: 1000,
           monthlyLlmUsdCap: 2,
@@ -612,7 +612,7 @@ describe("AdminScannerView", () => {
           updatedAt: null,
         },
         activeRun: null,
-        latestRealRun: runs[0] ?? null,
+        latestRealRun,
         latestFind: null,
         scoreboard: healthyScoreboard,
         radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -620,6 +620,19 @@ describe("AdminScannerView", () => {
         nowIso: "2026-07-22T18:00:00.000Z",
       }));
     }
+
+    it.each(["scheduled", "manual"] as const)("keeps the next attempt accurate when ten skips hide the last %s scan", (mode) => {
+      const realRun = { ...run(0), mode, started_at: "2026-07-22T06:00:00.000Z", finished_at: "2026-07-22T06:02:00.000Z" };
+      const skips = Array.from({ length: 10 }, (_, index) => ({ ...run(index), status: "skipped" as const, skips: ["recent_run"], started_at: new Date(Date.parse("2026-07-22T18:00:00.000Z") - (index + 1) * 3_600_000).toISOString() }));
+      const markup = renderWithRuns(skips, realRun, 1440);
+      expect(markup).toContain("Next eligible attempt: in 12h · Jul 23, 2026, 2:00:00 AM EDT");
+      expect(markup.match(/class="op-history-row"/g)).toHaveLength(10);
+    });
+
+    it("uses the completion instant for the latest-completed-run labels", () => {
+      const realRun = { ...run(0), started_at: "2026-07-22T17:30:00.000Z", finished_at: "2026-07-22T17:32:00.000Z" };
+      expect(renderWithRuns([realRun])).toContain("Latest completed run: 28m ago · Jul 22, 2026, 1:32:00 PM EDT");
+    });
 
     it("renders every run the read returned, not a shorter slice of it", () => {
       // The query asks for the newest 10; rendering 8 dropped two reads on the

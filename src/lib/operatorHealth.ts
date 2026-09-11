@@ -7,7 +7,7 @@ import type { ScannerAttention } from "@/lib/scannerAttention";
 import { scannerScheduleStatus } from "@/lib/scannerScheduleStatus";
 
 export const OVERVIEW_SCANNER_DIAGNOSTICS_HREF = `${workspaceHref("scanner")}#health`;
-export const OVERVIEW_SCANNER_COLLECTION_HREF = `${workspaceHref("scanner")}#collection-health`;
+export const OVERVIEW_SCANNER_COLLECTION_HREF = `${workspaceHref("scanner", { section: "collection" })}#collection-health`;
 
 export type OverviewHealthTone = "ok" | "caution" | "danger" | "unknown";
 
@@ -39,7 +39,7 @@ export type OverviewScannerHealthInput = {
   activeRun: { id: string } | null;
   runs: RecentRunLike[];
   lastScheduled: { status: string; skips: string[] } | null;
-  latestRealRun: { started_at: string; finished_at: string | null } | null;
+  latestRealRun: RecentRunLike & { started_at: string; finished_at: string | null } | null;
   radarHealth: {
     lastScanAt: string | null;
     nextEligibleAt: string | null;
@@ -96,11 +96,12 @@ function scheduleStatus(input: OverviewScannerHealthInput): {
 function lastCompletedRun(input: OverviewScannerHealthInput, nowMs: number): OverviewHealthFact {
   if (input.adminAvailable) {
     if (input.latestRealRun) {
+      const completedAt = input.latestRealRun.finished_at ?? input.latestRealRun.started_at;
       return {
         id: "last-run",
         label: "Last completed run",
-        value: formatRelativeOperatorTime(input.latestRealRun.started_at, nowMs),
-        detail: formatEasternDateTime(input.latestRealRun.finished_at ?? input.latestRealRun.started_at),
+        value: formatRelativeOperatorTime(completedAt, nowMs),
+        detail: formatEasternDateTime(completedAt),
         tone: "ok",
       };
     }
@@ -141,8 +142,9 @@ function nextEligibleRun(input: OverviewScannerHealthInput, nowMs: number): Over
         tone: "caution",
       };
     }
+    // Hourly skip rows can push the last real scan outside the ten-row history.
     const nextAt = nextEligibleScheduledScanAt(
-      input.runs,
+      input.latestRealRun ? [...input.runs, input.latestRealRun] : input.runs,
       input.now,
       input.control.minIntervalMinutes,
     ).toISOString();

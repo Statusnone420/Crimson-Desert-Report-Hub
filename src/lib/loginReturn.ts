@@ -17,7 +17,10 @@ export function resolveLoginReturn(from: string | null | undefined): string {
         const value = query.get(key);
         if (value && value.length <= 200 && query.getAll(key).length === 1) extra[key] = value;
       }
-      return workspaceHref(view as OperatorView, extra);
+      if (view === "scanner" && query.get("section") === "collection" && query.getAll("section").length === 1) {
+        extra.section = "collection";
+      }
+      return `${workspaceHref(view as OperatorView, extra)}${extra.section ? "#collection-health" : ""}`;
     }
   }
   return (RETURN_TARGETS as readonly string[]).includes(from ?? "") ? (from as string) : "/admin";

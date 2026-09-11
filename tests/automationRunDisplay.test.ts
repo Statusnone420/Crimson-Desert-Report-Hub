@@ -13,6 +13,13 @@ describe("source monitor run display", () => {
     expect(formatRelativeOperatorTime(null, nowMs)).toBe("not scheduled");
   });
 
+  it("does not round a future second into a whole minute", () => {
+    const nowMs = Date.parse("2026-09-11T18:00:00.000Z");
+    expect(formatRelativeOperatorTime("2026-09-11T18:00:01.000Z", nowMs)).toBe("in less than a minute");
+    expect(formatRelativeOperatorTime("2026-09-11T18:00:59.000Z", nowMs)).toBe("in less than a minute");
+    expect(formatRelativeOperatorTime("2026-09-11T17:59:59.000Z", nowMs)).toBe("just now");
+  });
+
   it("groups raw skip codes into operator-readable summaries", () => {
     const summary = summarizeRunMessages(
       [

@@ -24,9 +24,10 @@ export const dynamic = "force-dynamic";
 // One route, two audiences. isAdmin() is a non-throwing boolean check (unlike
 // requireAdmin(), which redirects), so anonymous visitors render the public
 // transparency view instead of being bounced to the login page.
-export default async function ScannerPage() {
+export default async function ScannerPage({ searchParams }: { searchParams?: Promise<{ section?: string }> } = {}) {
   const admin = await isAdmin();
   if (!admin) return <ObservatoryPage />;
+  const collectionExpanded = (await searchParams)?.section === "collection";
   const [scoreboard, radar] = await Promise.all([getPublicScannerData(), getPatchRadarData()]);
   const integrations = applyLlmCircuitToStatuses(integrationStatuses(), scoreboard.llmPaused);
 
@@ -54,6 +55,7 @@ export default async function ScannerPage() {
           integrations={integrations}
           nowIso={nowIso}
           aiHealth={aiHealth}
+          collectionExpanded={collectionExpanded}
         />
       </div>
     </OperatorShell>
