@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import sitemap from "@/app/sitemap";
-import { chartingTheUnknown } from "@/lib/editorialArticles";
+import { chartingTheUnknown, editorialArticles, patch20200 } from "@/lib/editorialArticles";
 import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL, siteFeedAlternateTypes } from "@/lib/site";
 import { newsArticleJsonLd, serializeJsonLd, webSiteJsonLd } from "@/lib/structuredData";
 import nextConfig from "../next.config";
@@ -15,6 +15,8 @@ const expectedDescriptions = {
     "Crimson Desert Report Hub is an unofficial newspaper for Crimson Desert news, expansion reports, official updates, and player records.",
   "/news":
     "Source-backed Crimson Desert news and expansion reports from the Crimson Desert Report Hub.",
+  "/patches":
+    "Follow the latest Crimson Desert patch notes, official fix claims, and player reports. See what changed and what still needs checking.",
   "/watch":
     "The Crimson Desert reveal trailer and selected creator coverage of Charting the Unknown, with links to the original videos.",
   "/issues":
@@ -56,6 +58,7 @@ describe("search and share metadata", () => {
     expect(og.equals(twitter)).toBe(true);
     expect(og.equals(approved)).toBe(true);
     expect(pngSize(path.join(appDir, "opengraph-image.png"))).toEqual({ width: 1200, height: 630 });
+    expect(twitter.length).toBeLessThan(5_000_000);
   });
 
   it("describes the card identically for both share alt files", () => {
@@ -63,16 +66,22 @@ describe("search and share metadata", () => {
     const twitterAlt = readFileSync(path.join(appDir, "twitter-image.alt.txt"), "utf8").trim();
     expect(ogAlt).toBe(twitterAlt);
     expect(ogAlt).toContain(SITE_NAME);
-    expect(ogAlt).toContain("What changed. What players are reporting. What matters now.");
+    expect(ogAlt).toContain("The stories behind the updates.");
     expect(ogAlt.toLowerCase()).toContain("unofficial");
   });
 
-  it("lists editorial routes ahead of supporting records and dates only the original report", () => {
+  it("lists editorial routes ahead of supporting records and dates only original reports", () => {
     const entries = sitemap();
     expect(entries).toEqual([
       { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
       { url: `${SITE_URL}/news`, changeFrequency: "weekly", priority: 0.9 },
       { url: `${SITE_URL}/catch-up`, changeFrequency: "weekly", priority: 0.8 },
+      {
+        url: `${SITE_URL}/articles/patch-2-02-00`,
+        lastModified: patch20200.publishedAt,
+        changeFrequency: "monthly",
+        priority: 0.8,
+      },
       {
         url: `${SITE_URL}/articles/charting-the-unknown`,
         lastModified: "2026-09-05T00:00:00Z",
@@ -89,7 +98,7 @@ describe("search and share metadata", () => {
       { url: `${SITE_URL}/rss.xml`, changeFrequency: "weekly", priority: 0.2 },
       { url: `${SITE_URL}/privacy`, changeFrequency: "monthly", priority: 0.3 },
     ]);
-    for (const entry of entries.filter((entry) => entry.url !== `${SITE_URL}${chartingTheUnknown.path}`)) {
+    for (const entry of entries.filter((entry) => !editorialArticles.some((article) => entry.url === `${SITE_URL}${article.path}`))) {
       expect(entry).not.toHaveProperty("lastModified");
     }
   });
@@ -140,7 +149,7 @@ describe("search and share metadata", () => {
   });
 
   it("gives each route a distinct title, matching canonical and og:url, and keeps the parent's share images", async () => {
-    const [issues, report, about, privacy, scanner, news, watch] = await Promise.all([
+    const [issues, report, about, privacy, scanner, news, watch, patches] = await Promise.all([
       import("@/app/issues/page"),
       import("@/app/report/page"),
       import("@/app/about/page"),
@@ -148,6 +157,7 @@ describe("search and share metadata", () => {
       import("@/app/scanner/page"),
       import("@/app/news/page"),
       import("@/app/watch/page"),
+      import("@/app/patches/page"),
     ]);
     // The resolved root openGraph as Next hands it to generateMetadata: it
     // already carries the file-convention share image. A route override must
@@ -175,8 +185,9 @@ describe("search and share metadata", () => {
       [about, "Method", "/about", expectedDescriptions["/about"]],
       [privacy, "Privacy", "/privacy", expectedDescriptions["/privacy"]],
       [scanner, "The Observatory", "/observatory", expectedDescriptions["/scanner"]],
-      [news, "News", "/news", expectedDescriptions["/news"]],
+      [news, "Crimson Desert news", "/news", expectedDescriptions["/news"]],
       [watch, "Crimson Desert videos", "/watch", expectedDescriptions["/watch"]],
+      [patches, "Crimson Desert patch notes: what changed", "/patches", expectedDescriptions["/patches"]],
     ] as const;
     const descriptions: string[] = [SITE_DESCRIPTION];
     for (const [page, title, path, description] of expectations) {
@@ -213,6 +224,39 @@ describe("search and share metadata", () => {
     });
     const scannerMetadata = await scanner.generateMetadata({}, parent);
     expect(scannerMetadata.robots).toEqual({ index: false, follow: false });
+  });
+
+  it("gives the patch report absolute article images and sourced NewsArticle data", async () => {
+    const { metadata } = await import("@/app/articles/patch-2-02-00/page");
+    const image = {
+      url: `${SITE_URL}${patch20200.shareImage.src}`,
+      width: 1200,
+      height: 630,
+      alt: patch20200.shareImage.alt,
+    };
+    expect(metadata).toMatchObject({
+      title: patch20200.searchTitle,
+      description: patch20200.description,
+      alternates: { canonical: patch20200.path, types: siteFeedAlternateTypes },
+      openGraph: { type: "article", url: patch20200.path, publishedTime: patch20200.publishedAt, images: [image] },
+      twitter: { card: "summary_large_image", title: patch20200.searchTitle, description: patch20200.description, images: [image] },
+    });
+    expect(patch20200.searchTitle.length).toBeLessThanOrEqual(70);
+    expect(patch20200.description.length).toBeLessThanOrEqual(160);
+    const file = path.join(process.cwd(), "public", patch20200.shareImage.src);
+    expect(pngSize(file)).toEqual({ width: image.width, height: image.height });
+    expect(readFileSync(file).length).toBeLessThan(5_000_000);
+    expect(readFileSync(file).equals(readFileSync(path.join(process.cwd(), "docs/share-card/preview-patch-2-02-00.png")))).toBe(true);
+    const data = newsArticleJsonLd(patch20200);
+    expect(data).toMatchObject({
+      "@type": "NewsArticle",
+      headline: patch20200.title,
+      datePublished: patch20200.publishedAt,
+      mainEntityOfPage: `${SITE_URL}${patch20200.path}`,
+      citation: patch20200.sources.map((source) => source.url),
+    });
+    expect(data).not.toHaveProperty("author");
+    expect(data).not.toHaveProperty("dateModified");
   });
 
   it("gives the original expansion report its own canonical metadata and sourced NewsArticle data", async () => {

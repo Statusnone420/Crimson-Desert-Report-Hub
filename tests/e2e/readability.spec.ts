@@ -155,7 +155,7 @@ test.describe("public newspaper readability", () => {
     const lead = page.locator("#lead");
     const leadHeading = lead.getByRole("heading");
     await expect(leadHeading).toHaveCount(1);
-    await expect(leadHeading.getByRole("link")).toHaveAttribute("href", "/patches");
+    await expect(leadHeading.getByRole("link")).toHaveAttribute("href", "/articles/patch-2-02-00");
 
     const officialStories = page.locator(".stories article");
     expect(await officialStories.count()).toBeGreaterThan(0);

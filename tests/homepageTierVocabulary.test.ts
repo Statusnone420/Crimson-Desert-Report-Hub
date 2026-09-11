@@ -22,6 +22,7 @@ vi.mock("@/lib/queries", () => ({
 vi.mock("@/lib/radar.server", () => ({ getPatchRadarData: mocks.getPatchRadarData }));
 
 import HomePage from "@/app/page";
+import { chartingTheUnknown, patch20200 } from "@/lib/editorialArticles";
 
 const currentPatch = {
   version: "1.13.01",
@@ -68,10 +69,8 @@ function dashboardData(topClusters: unknown[], overrides: Record<string, unknown
 
 describe("homepage keeps issue publication separate from headline selection", () => {
   beforeEach(() => {
-    // The expansion article intentionally takes over on September 5. These
-    // assertions exercise the still-supported current-patch fallback.
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
+    vi.setSystemTime(new Date("2026-09-11T09:00:00.000Z"));
     mocks.getPublicScannerData.mockResolvedValue({ steamPulse: [], pulseReadFailures: [] });
     mocks.getPatchRadarData.mockResolvedValue({ connected: false });
   });
@@ -81,9 +80,40 @@ describe("homepage keeps issue publication separate from headline selection", ()
   it("keeps a published issue title on the board instead of promoting it", async () => {
     mocks.getDashboardData.mockResolvedValue(dashboardData([publishedCluster()]));
     const markup = renderToStaticMarkup(await HomePage());
-    expect(markup).toContain("Patch 1.13.01: the official fixes and player record.");
+    expect(markup).toContain(patch20200.title);
     expect(markup).toContain("All 1 published issue →");
     expect(markup).not.toContain("FPS regression since 1.13");
+  });
+
+  it("puts the patch report and DLC report before outside coverage and the live record", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([]));
+    const markup = renderToStaticMarkup(await HomePage());
+    const readingOrder = [
+      `href="${patch20200.path}"`,
+      `href="${chartingTheUnknown.path}"`,
+      'aria-label="Selected press coverage"',
+      'id="patches"',
+    ].map((entry) => markup.indexOf(entry));
+    expect(readingOrder.every((position) => position >= 0)).toBe(true);
+    expect(readingOrder).toEqual([...readingOrder].sort((a, b) => a - b));
+    expect(markup).toContain("September 11, 2026");
+    expect(markup).toContain("September 5, 2026");
+    expect(markup).toContain("No claimed fixes are recorded for this patch yet.");
+  });
+
+  it("keeps the dated report separate from a later live patch", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([], {
+      currentPatch: { ...currentPatch, version: "2.03.00", publishedAt: "2026-09-18T05:30:00Z" },
+      claimedFixes: [{ fixText: "A later official fix.", section: "Content" }],
+    }));
+    const markup = renderToStaticMarkup(await HomePage());
+    const lead = markup.match(/<article id="lead"[\s\S]*?<\/article>/)?.[0] ?? "";
+    expect(lead).toContain(patch20200.title);
+    expect(lead).toContain("Patch 2.02.00");
+    expect(lead).toContain("September 11, 2026");
+    expect(lead).not.toContain("2.03.00");
+    expect(markup).toContain("Listed in the official notes for 2.03.00.");
+    expect(markup).not.toContain("The current patch could not be verified.");
   });
 
   it("does not promote a watchlist title after a patch rollover", async () => {
@@ -116,7 +146,32 @@ describe("homepage keeps issue publication separate from headline selection", ()
     const markup = renderToStaticMarkup(await HomePage());
     expect(markup).toContain("The current patch could not be verified.");
     expect(markup).toContain('href="/patches"');
-    expect(markup).not.toContain("Beyond Pywel’s");
+    expect(markup).toContain("No claimed fixes were returned.");
+    expect(markup).toContain(patch20200.title);
+    expect(markup).toContain(chartingTheUnknown.title);
+  });
+
+  it("warns when the patch lookup fails even if independently read claims are available", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([], {
+      currentPatch: { ...currentPatch, source: "fallback" },
+      claimedFixes: [{ fixText: "An independently recorded fix.", section: "Content" }],
+    }));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("The current patch could not be verified.");
+    expect(markup).toContain("An independently recorded fix.");
+    expect(markup.indexOf("The current patch could not be verified.")).toBeLessThan(markup.indexOf("An independently recorded fix."));
+    expect(markup).not.toContain(`Listed in the official notes for ${currentPatch.version}.`);
+  });
+
+  it("keeps patch lookup and claims failures visible together", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData([], {
+      currentPatch: { ...currentPatch, source: "fallback" },
+      claimsUnavailable: true,
+    }));
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("The current patch could not be verified.");
+    expect(markup).toContain("Official claims are unavailable.");
+    expect(markup).not.toContain("No claimed fixes are recorded for this patch yet.");
   });
 
   it("keeps legacy raw observations and unrelated signal registers off the newspaper", async () => {

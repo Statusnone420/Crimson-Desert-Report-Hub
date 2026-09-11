@@ -11,9 +11,9 @@ export const revalidate = 300;
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
   return routeMetadata(
-    "Patch Desk",
+    "Crimson Desert patch notes: what changed",
     "/patches",
-    "The official Crimson Desert patch record alongside the player reports that can verify a claimed fix.",
+    "Follow the latest Crimson Desert patch notes, official fix claims, and player reports. See what changed and what still needs checking.",
     parent,
   );
 }
@@ -65,8 +65,16 @@ export default async function PatchesPage() {
             evidenceUnavailable={data.evidenceUnavailable}
           />
         ) : null}
-        <section className="patch-player-record"><div><p className="kicker">The player record</p><h2>A claimed fix starts a question.</h2><p>{data.evidenceUnavailable ? "The player record could not be read right now." : "A quiet board does not mean every issue is fixed."}</p></div><div className="patch-player-actions"><Link href="/issues">View player reports →</Link><Link href="/report">Report what you’re seeing →</Link></div></section>
-        <div className="article-bottom"><Link href="/issues">Next: The player record →</Link><a href="#patch-top">Back to top ↑</a></div>
+        <section className="patch-player-record" aria-labelledby="player-record-heading">
+          <div>
+            <h2 id="player-record-heading">The player record</h2>
+            <p>{data.evidenceUnavailable ? "The player record could not be read right now." : "A quiet board does not mean every issue is fixed."}</p>
+          </div>
+          <div className="patch-player-actions">
+            <Link href="/issues">View player reports →</Link>
+            <a href="#patch-top">Back to top ↑</a>
+          </div>
+        </section>
       </div>
     </PublicShell>
   );

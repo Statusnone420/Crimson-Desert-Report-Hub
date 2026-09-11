@@ -11,12 +11,12 @@ Every public surface remains complete at N=0. Empty and unavailable states state
 ## Public Newspaper
 
 - The page is a centered paper up to 1440px wide. A double top rule, dateline, theme control, large serif masthead, ruled navigation, and compact trust footer frame every public route.
-- The front page leads with a large image-and-headline spread. It then moves through reviewed publication coverage, official patch claims, a separate player-report summary, game-context charts, and reviewed video coverage. Missing modules close ranks instead of leaving empty shells.
+- The front page leads with the newest published original report in a large image-and-headline spread, followed immediately by the next original report in a smaller ruled row. Both use the News catalog's titles, publication dates, artwork, and reading links. Reviewed publication coverage, official patch claims, a separate player-report summary, game-context charts, and reviewed video coverage follow. Missing modules close ranks instead of leaving empty shells.
 - News and article pages use centered editorial headings, wide hero imagery, source lists, readable serif story copy, related stories, and an optional sticky reading rail on wide screens.
 - The Patch Desk separates official fix claims, the player record, and claim verdicts. The Issue Board separates published reports from watched scanner leads and keeps report counts, check-ins, public excerpts, source leads, and fix-poll results distinct.
 - The Observatory presents Steam review movement, Twitch audience activity, and public-source radar as recorded context. Charts use labeled readouts and source notes; they do not style these aggregates as player evidence.
 - The report flow is a compact editorial form with category choices, expandable optional details, an explicit review step, and a separate send action.
-- Layouts collapse into single-column mobile compositions at their defined breakpoints. At 650px and below, the masthead wraps, the navigation omits its separate report link, editorial grids stack, and the footer supplies the report route. The front page is tested at 320px wide without document-level horizontal scrolling.
+- Layouts collapse into single-column mobile compositions at their defined breakpoints. The front-page lead places its headline, description, and reading link before the artwork at 900px and below. At 650px and below, the masthead wraps, the navigation omits its separate report link, editorial grids stack, and the footer supplies the report route; the secondary original report keeps a small image beside its heading and places its summary below. The front page is tested at 320px wide without document-level horizontal scrolling.
 
 ## Operator Surfaces
 
@@ -38,7 +38,7 @@ Every public surface remains complete at N=0. Empty and unavailable states state
 
 ## Imagery and Icons
 
-- The front-page and article heroes use official Pearl Abyss screenshots. Official content, combat, interface, graphics, localization, and other images also illustrate patch categories and issue groups.
+- The front-page and article heroes use official Pearl Abyss imagery, including screenshots and artwork. Official content, combat, interface, graphics, localization, and other images also illustrate patch categories and issue groups.
 - Game imagery is editorial or categorical illustration. It is not evidence that a specific issue or fix exists. Visible captions attribute Pearl Abyss, and the footer states that the site is unofficial, names the image copyright, and links to the source page.
 - Locally stored SVG icons identify categories and the theme control. The warrior mark supplies the favicon and installed-app icons. The share card is a repository-owned 1200×630 newspaper render with matching alt text.
 - Images use descriptive alt text when they carry content. Repeated decorative category imagery uses empty alt text where the surrounding heading already supplies the meaning.

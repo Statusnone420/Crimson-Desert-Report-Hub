@@ -4,6 +4,17 @@
   "terms": "https://crimsondesert.pearlabyss.com/en-US/Policy?_policyNo=130",
   "assets": [
     {
+      "file": "/official/patch-2-02-00.png",
+      "source": "https://s1.pearlcdn.com/cd/brand/board/2026/09/10/7a3cc1c17e920260910014739452.png",
+      "sourcePage": "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=130",
+      "checked": "2026-09-11",
+      "width": 923,
+      "height": 522,
+      "sha256": "3849c8eb824d90fa98b29a964718463135a994da0ad04abe1e51c5038843c796",
+      "bytes": 925025,
+      "context": "Unmodified official Patch 2.02.00 announcement artwork; editorial illustration, not evidence of a specific fix."
+    },
+    {
       "file": "/official/coast.jpg",
       "source": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2025/03/19/9cbf291adb320250319045031861.jpg",
       "downloadOriginal": "https://s1.pearlcdn.com/cd/brand/media_GLOBAL/2025/03/19/372ad62f16320250319045034575.jpg",
