@@ -87,7 +87,9 @@ test("the new report is readable from News and is present in RSS and Atom", asyn
   await expect(page.locator("#article-body")).toContainText("At publication, the update was available");
   await expect(page.locator("#article-body")).toContainText("Mac App Store update was still in progress");
   await expect(page.getByRole("heading", { name: "What is still unconfirmed?", exact: true })).toBeVisible();
-  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", `${SITE_URL}${patch20200.path}`);
+  // Wait for navigation metadata to settle; still require exactly one canonical URL.
+  await expect.poll(() => page.locator('link[rel="canonical"]').evaluateAll((links) => links.map((link) => link.getAttribute("href"))))
+    .toEqual([`${SITE_URL}${patch20200.path}`]);
   const schema = JSON.parse(await page.locator('script[type="application/ld+json"]').innerText());
   expect(schema).toMatchObject({ "@type": "NewsArticle", headline: patch20200.title, datePublished: patch20200.publishedAt });
   for (const source of patch20200.sources) {
