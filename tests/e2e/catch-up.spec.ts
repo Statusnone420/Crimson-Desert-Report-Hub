@@ -292,13 +292,44 @@ test.describe("public catch-up journey", () => {
     await expect(dialog.getByRole("button", { name: /Where I left off/ })).toContainText("August 29");
     await expect(dialog.getByRole("button", { name: /Since my last visit/ })).toContainText("August 27");
     await dialog.getByRole("button", { name: /Since my last visit/ }).click();
-    await expect(page).toHaveURL(/#since=2026-08-27T12%3A00%3A00\.000Z$/);
+    await expect(page).toHaveURL(/#since=2026-08-27T12%3A00%3A00\.000Z&remembered=1$/);
     await expect(page.locator("article.cu-milestone")).toHaveCount(5);
 
     dialog = await openCatchUpMenu(page);
     await dialog.getByRole("button", { name: /Where I left off/ }).click();
-    await expect(page).toHaveURL(/#since=2026-08-29T12%3A00%3A00\.000Z$/);
+    await expect(page).toHaveURL(/#since=2026-08-29T12%3A00%3A00\.000Z&remembered=1$/);
     await expect(page.locator("article.cu-milestone")).toHaveCount(3);
+  });
+
+  test("saved reading dates include a later-added summary without changing its official date", async ({ page }) => {
+    const cursor = "2026-09-11T12:00:00.000Z";
+    const now = "2026-09-11T14:00:00.000Z";
+    await page.clock.setFixedTime(new Date(now));
+    await page.addInitScript(({ key, cursor }) => {
+      localStorage.setItem(key, JSON.stringify({ remember: true, lastVisit: cursor, caughtUpThrough: cursor }));
+    }, { key: CATCH_UP_STORAGE_KEY, cursor });
+    await page.goto("/catch-up");
+
+    for (const label of [/Where I left off/, /Since my last visit/]) {
+      const dialog = await openCatchUpMenu(page);
+      await dialog.getByRole("button", { name: label }).click();
+      await expect(page).toHaveURL(/&remembered=1$/);
+      const milestone = page.locator("article.cu-milestone");
+      await expect(milestone).toHaveCount(1);
+      await expect(milestone).toHaveAttribute("id", "update-2-02-00");
+      await expect(milestone.locator(".cu-chapter-meta time")).toHaveAttribute("datetime", "2026-09-11T05:30:00Z");
+      await expect(milestone.getByRole("link", { name: /Pearl Abyss/ })).toHaveAttribute("href", "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=130");
+      await expect(page.locator(".cu-brief-grid h3 a")).toHaveAttribute("href", /&remembered=1&chapter=update-2-02-00$/);
+    }
+
+    await page.getByRole("button", { name: "Mark me caught up" }).click();
+    await expect.poll(() => storedPreferences(page)).toMatchObject({ caughtUpThrough: now });
+    const dialog = await openCatchUpMenu(page);
+    await dialog.getByRole("button", { name: /Where I left off/ }).click();
+    await expect(page.locator("article.cu-milestone")).toHaveCount(0);
+
+    await page.goto(`/catch-up#since=${encodeURIComponent(cursor)}`);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(0);
   });
 
   test("date selection and explicit completion update the edition", async ({ page }) => {

@@ -1,6 +1,8 @@
 export type CatchUpMilestone = {
   id: string;
   publishedAt: string;
+  // First availability on the Hub, separate from the official notice date.
+  availableAt?: string;
   patch?: string;
   kind: "update" | "hotfix" | "announcement";
   title: string;
@@ -11,7 +13,7 @@ export type CatchUpMilestone = {
   related?: { label: string; url: string }[];
 };
 
-// Patch history begins at 1.13.00. Times are official notice publication times in UTC.
+// Patch history begins at 1.13.00. publishedAt uses official notice times in UTC.
 // Both August 28 hotfix notices display 00:00; their version order breaks that tie.
 export const CATCH_UP_MILESTONES: readonly CatchUpMilestone[] = [
   {
@@ -328,6 +330,7 @@ export const CATCH_UP_MILESTONES: readonly CatchUpMilestone[] = [
   {
     id: "update-2-02-00",
     publishedAt: "2026-09-11T05:30:00Z",
+    availableAt: "2026-09-11T13:49:21.448Z",
     patch: "2.02.00",
     kind: "update",
     title: "Mac cross-save and fixes for progress and storage",
