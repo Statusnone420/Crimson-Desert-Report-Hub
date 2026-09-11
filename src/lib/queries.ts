@@ -8,13 +8,13 @@ import {
 import { unstable_cache } from "next/cache";
 import { countBy, rankClusters } from "@/lib/aggregates";
 import { needsFullIssueCard } from "@/lib/evidence";
-import { readCurrentScannerBudgetCapped } from "@/lib/automation/budgetState.server";
 import { isProviderContextSource } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
 import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
 import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
+import { readCurrentScannerBudgetCapped } from "@/lib/automation/budgetState.server";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
 import { getCurrentPatchMetadata, readClaimedFixesForCurrentPatch } from "@/lib/officialPatch.server";
