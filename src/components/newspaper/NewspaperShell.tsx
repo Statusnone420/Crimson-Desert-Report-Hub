@@ -18,24 +18,22 @@ export function NewspaperShell({ children, active, home = false }: { children: R
         )}
         <main id="main-content">{children}</main>
         <footer className="np-footer">
-          <p className="np-trust">
-            No ads · No trackers ·{" "}
-            <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener">
-              Open source
+          <div className="np-footer-top">
+            <p className="np-trust">No ads · No trackers</p>
+            <div className="np-footer-links" role="navigation" aria-label="Footer navigation">
+              <Link href="/about">About</Link>
+              <Link href="/privacy">Privacy</Link>
+              <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener">Open source</a>
+              <Link href="/report">File a report →</Link>
+            </div>
+          </div>
+          <p className="media-notice">
+            Unofficial fan site. Game imagery © Pearl Abyss. Not affiliated with or endorsed by Pearl Abyss.{" "}
+            <a href="https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1" target="_blank" rel="noreferrer noopener">
+              Image source ↗
             </a>
           </p>
-          <div className="np-footer-links">
-            <Link href="/about">About</Link>
-            <Link href="/privacy">Privacy</Link>
-            <Link href="/report">File a report →</Link>
-          </div>
         </footer>
-        <p className="media-notice">
-          Unofficial fan site. Game imagery © Pearl Abyss. Not affiliated with or endorsed by Pearl Abyss.{" "}
-          <a href="https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1" target="_blank" rel="noreferrer noopener">
-            Image source ↗
-          </a>
-        </p>
       </div>
     </div>
   );

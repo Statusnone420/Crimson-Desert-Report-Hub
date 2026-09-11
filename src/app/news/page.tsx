@@ -9,7 +9,7 @@ export const revalidate = 300;
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
   return routeMetadata(
-    "News",
+    "Crimson Desert news",
     "/news",
     "Source-backed Crimson Desert news and expansion reports from the Crimson Desert Report Hub.",
     parent,

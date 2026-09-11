@@ -2,7 +2,7 @@
 
 **Historical record: approved 2026-07-24 (stacked v2), with implementation recorded at that time.** The proposal below preserves the earlier copy and layout decisions; it is not the current metadata specification. Read [`src/lib/site.ts`](../../src/lib/site.ts), [`src/app/layout.tsx`](../../src/app/layout.tsx), and [`tests/metadata.test.ts`](../../tests/metadata.test.ts) before changing search or share presentation.
 
-The checked-in share images match `preview-1200x630.png`, enforced by the metadata test. The asset recipe is `node docs/share-card/render.mjs`, followed by copying the output into `src/app/`. It reproduces the recorded card; it does not update that card to match later website design changes.
+The September 11 newspaper card supersedes this historical design. See [the current recipe and verification notes](README.md). The checked-in root share images still match `preview-1200x630.png`, enforced by the metadata test.
 
 ## The card
 

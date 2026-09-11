@@ -18,6 +18,12 @@ export type EditorialArticle = {
     height: number;
     alt: string;
   };
+  shareImage?: {
+    src: `/${string}`;
+    width: number;
+    height: number;
+    alt: string;
+  };
   sources: readonly EditorialSource[];
 };
 
@@ -49,4 +55,46 @@ export const chartingTheUnknown = {
   ],
 } as const satisfies EditorialArticle;
 
-export const editorialArticles = [chartingTheUnknown] as const;
+export const patch20200 = {
+  slug: "patch-2-02-00",
+  path: "/articles/patch-2-02-00",
+  section: "Patch report",
+  title: "The base game keeps moving",
+  searchTitle: "Crimson Desert 2.02.00: Mac cross-save and stability",
+  description:
+    "Patch 2.02.00 brings Mac cross-save and targeted fixes after the DLC reveal. Steam Mac is live; Mac App Store is still pending. Here is what is confirmed.",
+  publishedAt: "2026-09-11T07:30:00Z",
+  sourceNote: "Based on Pearl Abyss’s patch notes, expansion pages and current cross-save account guidance.",
+  heroImage: {
+    src: "/official/patch-2-02-00.png",
+    width: 923,
+    height: 522,
+    alt: "Crimson Desert Enhanced patch artwork: an armored warrior faces a stone gateway breaking apart",
+  },
+  shareImage: {
+    src: "/share/patch-2-02-00.png",
+    width: 1200,
+    height: 630,
+    alt: "Crimson Desert Report Hub newspaper: Patch 2.02.00 — The base game keeps moving. Mac cross-save and stability fixes, with official Pearl Abyss artwork.",
+  },
+  sources: [
+    {
+      label: "Pearl Abyss — Patch Notes Version 2.02.00 and platform rollout",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=130",
+    },
+    {
+      label: "Pearl Abyss — Charting the Unknown announcement and release times",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=129",
+    },
+    {
+      label: "Pearl Abyss Account — Cross-Save information",
+      url: "https://account.pearlabyss.com/en-US/Member/Linking/CrimsonDesert",
+    },
+    {
+      label: "Pearl Abyss — Charting the Unknown feature overview",
+      url: "https://crimsondesert.pearlabyss.com/en-us/Game/DLC/charting-the-unknown",
+    },
+  ],
+} as const satisfies EditorialArticle;
+
+export const editorialArticles = [patch20200, chartingTheUnknown] as const;
