@@ -1704,6 +1704,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     let awaiting = 0;
     try {
       const currentPatch = await getCurrentPatchMetadata(supabase);
+      if (!isCurrentPatchVerified(currentPatch)) throw new Error("current patch unavailable");
       const publicSignalClusters = await getPublicSignalClusterIdsForCurrentPatch(supabase, currentPatch);
       const privateSignalClusters = new Set(
         Object.keys(await getCandidateSignalCountsByCluster(supabase, currentPatch)),
