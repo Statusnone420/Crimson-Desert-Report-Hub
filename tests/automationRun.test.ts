@@ -652,6 +652,69 @@ afterEach(() => {
 });
 
 describe("runAutomationMonitor", () => {
+  it.each(["unknown", "1.13.01"])("refuses shared visibility refreshes against fallback patch %s", async (version) => {
+    const signalBase = {
+      cluster_id: "cluster-provenance",
+      source: "web_search",
+      source_type: "web_search",
+      category: "performance",
+      confidence: "high",
+      observed_at: "2026-07-05T11:00:00.000Z",
+      source_published_at: "2026-07-05T11:00:00.000Z",
+      extracted_facts: {},
+    };
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-provenance", category: "performance", is_public: true,
+        auto_public: true, admin_visibility_override: null, visibility_revision: 4,
+        signal_count: 2, public_signal_count: 1,
+      }],
+      bug_reports: [{
+        id: "report-provenance", cluster_id: "cluster-provenance", category: "performance",
+        platform: "pc_steam", issue_title: "Crimson Desert frame-rate drops", moderation_status: "approved",
+      }],
+      source_signals: [
+        {
+          ...signalBase, id: "versioned", public_status: "public",
+          source_url: "https://reddit.com/r/CrimsonDesert/comments/versioned", source_domain: "reddit.com",
+          title: "Crimson Desert patch 1.13.00 stutter", summary: "Frame-rate drops after patch 1.13.00.",
+        },
+        {
+          ...signalBase, id: "dated", public_status: "private",
+          source_url: "https://steamcommunity.com/app/3321460/discussions/0/dated", source_domain: "steamcommunity.com",
+          title: "Crimson Desert stutters in combat", summary: "Frame-rate drops during fights.",
+        },
+      ],
+    });
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ ...officialPatchFixture, version, source: "fallback", publishedAt: null });
+    const before = structuredClone({ clusters: tables.issue_clusters, signals: tables.source_signals });
+    const { refreshClusterVisibility } = await importRunner();
+    await expect(refreshClusterVisibility("cluster-provenance", new Date("2026-07-05T12:00:00.000Z"))).rejects.toThrow(/current patch unavailable/i);
+    expect(mocks.rpc).not.toHaveBeenCalledWith("apply_cluster_visibility_refresh", expect.anything());
+    expect(mutations).toEqual([]);
+    expect({ clusters: tables.issue_clusters, signals: tables.source_signals }).toEqual(before);
+  });
+
+  it.each(["unknown", "1.13.01"])("refuses candidate rescue before providers or writes against fallback patch %s", async (version) => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ ...officialPatchFixture, version, source: "fallback", publishedAt: null });
+    const { rescueCandidateSignal } = await importRunner();
+    await expect(rescueCandidateSignal({ from: mocks.from, rpc: mocks.rpc } as never, {
+      title: "Crimson Desert stutters in combat",
+      url: "https://reddit.com/r/CrimsonDesert/comments/needs-review",
+      sourceDomain: "reddit.com",
+      snippet: "Frame-rate drops during fights.",
+    })).rejects.toThrow(/current patch unavailable/i);
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(mocks.getAutomationControlState).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mutations).toEqual([]);
+    expect(tables.automation_runs).toEqual([]);
+    expect(sourceSignalRows()).toEqual([]);
+  });
+
   it.each(["manual", "scheduled", "dry_run"] as const)("skips %s scanning when the current patch remains unverified", async (mode) => {
     const unavailable = { ...officialPatchFixture, version: "unknown", publishedAt: null, source: "fallback" };
     mocks.getCurrentPatchMetadata.mockResolvedValue(unavailable);

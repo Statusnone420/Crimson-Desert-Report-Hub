@@ -2200,6 +2200,9 @@ async function refreshClusterStats(
       loadApprovedExcerpts(supabase),
       getCurrentPatchMetadata(supabase),
     ]);
+    if (!isCurrentPatchVerified(activeCurrentPatch)) {
+      throw new Error("Current patch unavailable; issue visibility was not refreshed.");
+    }
     const feedbackRules = await loadActiveScannerFeedbackRules(supabase);
     // Broad path/domain lessons gate future intake only. Re-evaluating stored
     // evidence may honor an exact reviewed URL, but must not retroactively
@@ -3113,6 +3116,10 @@ export async function rescueCandidateSignal(
   supabase: ReturnType<typeof createServiceClient>,
   candidate: { title: string; url: string; sourceDomain: string | null; sourcePublishedAt?: string | null; snippet: string },
 ): Promise<void> {
+  const currentPatch = await getCurrentPatchMetadata(supabase);
+  if (!isCurrentPatchVerified(currentPatch)) {
+    throw new Error("Current patch unavailable; candidate rescue was not started.");
+  }
   const now = new Date();
   const canonicalUrl = canonicalizeUrl(candidate.url);
   const source: SourceInput = {
