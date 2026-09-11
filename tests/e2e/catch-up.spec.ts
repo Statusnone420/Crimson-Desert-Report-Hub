@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { CATCH_UP_STORAGE_KEY, type CatchUpPreferences } from "../../src/lib/catchUpPreferences";
 import { collectConsoleProblems, expectHealthyPage } from "./helpers";
 
-const NOW = new Date("2026-09-06T12:00:00.000Z");
+const NOW = new Date("2026-09-11T12:00:00.000Z");
 const PREVIOUS_VISIT = "2026-08-27T12:00:00.000Z";
 const CAUGHT_UP_THROUGH = "2026-08-29T12:00:00.000Z";
 
@@ -22,6 +22,7 @@ const FULL_HISTORY_CHECKPOINTS = [
   { n: 10, id: "update-1-17-00" },
   { n: 17, id: "charting-the-unknown-announcement" },
   { n: 18, id: "update-2-01-00" },
+  { n: 19, id: "update-2-02-00" },
 ] as const;
 
 type JourneyRailState = {
@@ -85,8 +86,8 @@ async function waitForClientPath(page: Page, pathname: string) {
 }
 
 for (const scenario of [
-  { timezone: "Asia/Tokyo", now: "2026-09-06T16:00:00Z", today: "2026-09-07", tomorrow: "2026-09-08", midnight: "2026-09-06T15:00:00.000Z", label: "Since September 7", firstDayMilestones: 18 },
-  { timezone: "America/Los_Angeles", now: "2026-09-07T02:00:00Z", today: "2026-09-06", tomorrow: "2026-09-07", midnight: "2026-09-06T07:00:00.000Z", label: "Since September 6", firstDayMilestones: 17 },
+  { timezone: "Asia/Tokyo", now: "2026-09-06T16:00:00Z", today: "2026-09-07", tomorrow: "2026-09-08", midnight: "2026-09-06T15:00:00.000Z", label: "Since September 7", firstDayMilestones: 19 },
+  { timezone: "America/Los_Angeles", now: "2026-09-07T02:00:00Z", today: "2026-09-06", tomorrow: "2026-09-07", midnight: "2026-09-06T07:00:00.000Z", label: "Since September 6", firstDayMilestones: 18 },
 ]) {
   test.describe(`catch-up calendar in ${scenario.timezone}`, () => {
     test.use({ timezoneId: scenario.timezone });
@@ -200,7 +201,7 @@ test.describe("public catch-up journey", () => {
     await expect.poll(() => storedPreferences(page)).toEqual({ ...previous, lastVisit: NOW.toISOString() });
     await page.goBack();
     await expect(page.locator(".operator-newspaper")).toBeVisible();
-    await page.clock.setFixedTime(new Date("2026-09-06T13:00:00.000Z"));
+    await page.clock.setFixedTime(new Date("2026-09-11T13:00:00.000Z"));
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     await expect.poll(() => storedPreferences(page)).toEqual({ ...previous, lastVisit: NOW.toISOString() });
   });
@@ -211,7 +212,7 @@ test.describe("public catch-up journey", () => {
     await expect(page.locator(".operator-newspaper")).toHaveCount(0);
     await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: NOW.toISOString(), caughtUpThrough: null });
 
-    const departed = "2026-09-06T13:00:00.000Z";
+    const departed = "2026-09-11T13:00:00.000Z";
     await page.clock.setFixedTime(new Date(departed));
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     await expect.poll(() => storedPreferences(page)).toEqual({ remember: true, lastVisit: departed, caughtUpThrough: null });
@@ -236,9 +237,48 @@ test.describe("public catch-up journey", () => {
 
     await expect(page).toHaveURL(/\/catch-up#patch=2\.00\.01$/);
     const milestones = page.locator("article.cu-milestone");
-    await expect(milestones).toHaveCount(3);
+    await expect(milestones).toHaveCount(4);
     await expect(milestones.first()).toContainText("Quarry controls and horse travel get a follow-up");
     await expect(page.getByText("An early hotfix targets text and performance")).toHaveCount(0);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("the latest patch appears after 2.01.00, opens its report, and can be selected as the starting point", async ({ page }, testInfo) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/catch-up#patch=2.01.00");
+    const milestone = page.locator("article.cu-milestone");
+    await expect(milestone).toHaveCount(1);
+    await expect(milestone).toHaveAttribute("id", "update-2-02-00");
+    await expect(milestone.getByRole("heading", { name: "Mac cross-save and fixes for progress and storage" })).toBeVisible();
+    await expect(milestone.locator("time")).toHaveAttribute("datetime", "2026-09-11T05:30:00Z");
+    await expect(milestone.getByRole("link", { name: "Pearl Abyss · 2.02.00 patch notes" })).toHaveAttribute("href", "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=130");
+    await expect(milestone.locator("img")).toBeVisible();
+    await expect.poll(() => milestone.locator("img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect.poll(() => page.locator(".newspaper").evaluate((element) => {
+      for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+        if (Number(getComputedStyle(ancestor).opacity) < 1) return false;
+      }
+      return true;
+    })).toBe(true);
+    await page.screenshot({ path: `output/playwright/catch-up-2-02-00-${testInfo.project.name}.png`, fullPage: true, scale: "css" });
+
+    const opened = page.waitForEvent("popup");
+    await milestone.getByRole("link", { name: "Read the Patch 2.02.00 report" }).click();
+    const report = await opened;
+    try {
+      await expect(report).toHaveURL(/\/articles\/patch-2-02-00$/);
+      await expect(report.getByRole("heading", { level: 1, name: "The base game keeps moving" })).toBeVisible();
+    } finally {
+      await report.close();
+    }
+
+    const dialog = await openCatchUpMenu(page);
+    await dialog.getByRole("tab", { name: "Patch" }).click();
+    await dialog.getByRole("radio", { name: /^2\.02\.00/ }).check();
+    await dialog.getByRole("button", { name: "Show updates" }).click();
+    await expect(page).toHaveURL(/#patch=2\.02\.00$/);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "You’re up to date with this edition" })).toBeVisible();
     await expectHealthyPage(page, problems);
   });
 
@@ -253,12 +293,12 @@ test.describe("public catch-up journey", () => {
     await expect(dialog.getByRole("button", { name: /Since my last visit/ })).toContainText("August 27");
     await dialog.getByRole("button", { name: /Since my last visit/ }).click();
     await expect(page).toHaveURL(/#since=2026-08-27T12%3A00%3A00\.000Z$/);
-    await expect(page.locator("article.cu-milestone")).toHaveCount(4);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(5);
 
     dialog = await openCatchUpMenu(page);
     await dialog.getByRole("button", { name: /Where I left off/ }).click();
     await expect(page).toHaveURL(/#since=2026-08-29T12%3A00%3A00\.000Z$/);
-    await expect(page.locator("article.cu-milestone")).toHaveCount(2);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(3);
   });
 
   test("date selection and explicit completion update the edition", async ({ page }) => {
@@ -269,7 +309,7 @@ test.describe("public catch-up journey", () => {
     await dialog.getByRole("button", { name: "Show updates" }).click();
 
     await expect(page).toHaveURL(/#since=2026-09-03T00%3A00%3A00\.000Z$/);
-    await expect(page.locator("article.cu-milestone")).toHaveCount(2);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(3);
     await page.getByRole("button", { name: "Mark me caught up" }).click();
     await expect.poll(() => storedPreferences(page)).toMatchObject({
       remember: true,
@@ -279,14 +319,14 @@ test.describe("public catch-up journey", () => {
 
   test("an early date and patch expose the full history while keeping the brief short", async ({ page }) => {
     await page.goto("/catch-up");
-    await expect(page.locator(".cu-edition")).toContainText("History: July 3 – September 4, 2026");
+    await expect(page.locator(".cu-edition")).toContainText("History: July 3 – September 11, 2026");
 
     let dialog = await openCatchUpMenu(page);
     await dialog.getByRole("tab", { name: "Date" }).click();
     await dialog.getByLabel("Last played").fill("2026-07-03");
     await dialog.getByRole("button", { name: "Show updates" }).click();
     await expect(page).toHaveURL(/#since=2026-07-03T00%3A00%3A00\.000Z$/);
-    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(19);
     await expect(page.locator(".cu-coverage")).toHaveCount(0);
 
     dialog = await openCatchUpMenu(page);
@@ -297,7 +337,7 @@ test.describe("public catch-up journey", () => {
     await dialog.getByRole("button", { name: "Show updates" }).click();
 
     await expect(page).toHaveURL(/#patch=1\.13\.00$/);
-    await expect(page.locator("article.cu-milestone")).toHaveCount(17);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
     await expect(page.locator(".cu-brief-grid > li")).toHaveCount(3);
     await expect(page.locator("article.cu-milestone").first()).toContainText("Patch 1.13.01");
     await expect(page.locator(".cu-chapter-meta").getByText("Patch 1.13.00", { exact: true })).toHaveCount(0);
@@ -341,7 +381,7 @@ test.describe("public catch-up journey", () => {
   });
 
   test("pagehide preserves a newer caught-up timestamp from storage", async ({ page }) => {
-    const newerCaughtUpThrough = "2026-09-06T11:59:00.000Z";
+    const newerCaughtUpThrough = "2026-09-11T11:59:00.000Z";
     await page.goto("/catch-up");
     await expect.poll(() => storedPreferences(page)).toMatchObject({ remember: true });
 
@@ -364,7 +404,7 @@ test.describe("public catch-up journey", () => {
   test("journey links keep the chosen edition and focus their chapter", async ({ page }) => {
     await page.goto("/catch-up#patch=2.00.01");
     const milestones = page.locator("article.cu-milestone");
-    await expect(milestones).toHaveCount(3);
+    await expect(milestones).toHaveCount(4);
     const journeyLink = page.getByRole("link", { name: "In the journey" }).first();
     const targetId = new URLSearchParams((await journeyLink.getAttribute("href"))?.slice(1)).get("chapter");
     expect(targetId).toBeTruthy();
@@ -372,7 +412,7 @@ test.describe("public catch-up journey", () => {
     await journeyLink.click();
 
     await expect(page).toHaveURL(/\/catch-up#patch=2\.00\.01$/);
-    await expect(milestones).toHaveCount(3);
+    await expect(milestones).toHaveCount(4);
     await expect(page.locator(`#${targetId}`)).toBeFocused();
     await expect(page.locator(`#${targetId}`)).toHaveAttribute("tabindex", "-1");
   });
@@ -380,7 +420,7 @@ test.describe("public catch-up journey", () => {
   test("middle-clicking an older chapter opens its full edition in a new tab", async ({ page, context }, testInfo) => {
     test.skip(testInfo.project.name === "mobile-chromium", "A physical mouse middle-click is covered by the desktop project.");
     await page.goto("/catch-up#history=all");
-    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(19);
     const chapterLink = page.locator(".cu-rail-links a").first();
     await expect(chapterLink).toHaveAttribute("href", "#history=all&chapter=update-1-13-00");
     const opened = context.waitForEvent("page");
@@ -389,7 +429,7 @@ test.describe("public catch-up journey", () => {
     try {
       await newTab.bringToFront();
       await expect(newTab).toHaveURL(/\/catch-up#history=all&chapter=update-1-13-00$/);
-      await expect(newTab.locator("article.cu-milestone")).toHaveCount(18);
+      await expect(newTab.locator("article.cu-milestone")).toHaveCount(19);
       await expect(newTab.locator("#update-1-13-00")).toBeFocused();
       await expect(newTab.locator("#update-1-13-00")).toBeInViewport();
       await expect(page).toHaveURL(/\/catch-up#history=all$/);
@@ -399,8 +439,8 @@ test.describe("public catch-up journey", () => {
   });
 
   for (const edition of [
-    { hash: "#patch=1.13.00", count: 17, chapter: "hotfix-1-13-01" },
-    { hash: "#since=2026-07-03T00%3A00%3A00.000Z", count: 18, chapter: "update-1-13-00" },
+    { hash: "#patch=1.13.00", count: 18, chapter: "hotfix-1-13-01" },
+    { hash: "#since=2026-07-03T00%3A00%3A00.000Z", count: 19, chapter: "update-1-13-00" },
   ]) {
     test(`a copied chapter link preserves ${edition.hash} on direct load and reload`, async ({ page, context }) => {
       await page.goto(`/catch-up${edition.hash}`);
@@ -430,7 +470,7 @@ test.describe("public catch-up journey", () => {
   test("a visible filter explains a patch selection and opens the full history", async ({ page }) => {
     await page.goto("/catch-up#patch=1.18.02");
     const milestones = page.locator("article.cu-milestone");
-    await expect(milestones).toHaveCount(5);
+    await expect(milestones).toHaveCount(6);
     await expect(page.locator(".cu-journey-filter p, .cu-rail-selection").filter({ visible: true }).first()).toContainText("After patch 1.18.02");
 
     const showAll = page.getByRole("link", { name: "Show all history →" }).filter({ visible: true }).first();
@@ -438,7 +478,7 @@ test.describe("public catch-up journey", () => {
     await showAll.click();
 
     await expect(page).toHaveURL(/\/catch-up#history=all$/);
-    await expect(milestones).toHaveCount(18);
+    await expect(milestones).toHaveCount(19);
     await expect(milestones.first()).toContainText("Patch 1.13.00");
     await expect(milestones.first()).toBeFocused();
     await expect(milestones.first()).toHaveAttribute("tabindex", "-1");
@@ -469,7 +509,7 @@ test.describe("public catch-up journey", () => {
     await all.click();
     await dialog.getByRole("button", { name: "Show updates" }).click();
     await expect(page).toHaveURL(/\/catch-up#history=all$/);
-    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(19);
   });
 
   test("Escape closes the menu and the phone layout does not scroll sideways", async ({ page }, testInfo) => {
@@ -487,11 +527,11 @@ test.describe("public catch-up journey", () => {
     { width: 1440, height: 900 },
     { width: 956, height: 440 },
   ]) {
-    test(`full-history rail tracks chapters 1, 10, and 17–18 at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+    test(`full-history rail tracks chapters 1, 10, and 17–19 at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
       test.skip(testInfo.project.name === "mobile-chromium", "Journey rail coverage runs in the desktop project.");
       await page.setViewportSize(viewport);
       await page.goto("/catch-up#history=all");
-      await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+      await expect(page.locator("article.cu-milestone")).toHaveCount(19);
 
       for (const chapter of FULL_HISTORY_CHECKPOINTS) {
         await revealJourneyChapter(page, chapter.id);
@@ -508,7 +548,7 @@ test.describe("public catch-up journey", () => {
     test.skip(testInfo.project.name === "mobile-chromium", "Journey rail coverage runs in the desktop project.");
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/catch-up#history=all");
-    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(19);
 
     await revealJourneyChapter(page, "update-1-17-00");
     const pageY = await page.evaluate(() => window.scrollY);
@@ -563,15 +603,15 @@ test.describe("public catch-up journey", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
 
     await page.goto("/catch-up");
-    await expect(page.locator("article.cu-milestone")).toHaveCount(5);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(6);
     await revealJourneyChapter(page, "update-2-01-00");
 
     await page.goto("/catch-up#since=2026-08-15T00%3A00%3A00.000Z");
-    await expect(page.locator("article.cu-milestone")).toHaveCount(8);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(9);
     await revealJourneyChapter(page, "enhanced-2-00-00");
 
     await page.goto("/catch-up#patch=1.18.02");
-    await expect(page.locator("article.cu-milestone")).toHaveCount(5);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(6);
     await revealJourneyChapter(page, "charting-the-unknown-announcement");
     await expect(page.locator(".cu-rail-selection")).toContainText("After patch 1.18.02");
   });
@@ -580,7 +620,7 @@ test.describe("public catch-up journey", () => {
     test.skip(testInfo.project.name !== "mobile-chromium", "Portrait coverage runs in the mobile project.");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/catch-up#history=all");
-    await expect(page.locator("article.cu-milestone")).toHaveCount(18);
+    await expect(page.locator("article.cu-milestone")).toHaveCount(19);
     await expect(page.locator(".cu-rail")).toBeHidden();
     await expect(page.locator(".cu-journey-filter").filter({ visible: true })).toContainText("Full history");
     await page.locator("#update-1-17-00").evaluate((element) => {
