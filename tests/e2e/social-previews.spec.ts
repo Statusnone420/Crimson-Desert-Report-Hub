@@ -84,7 +84,8 @@ test("the new report is readable from News and is present in RSS and Atom", asyn
   await expect(page.getByRole("heading", { name: patch20200.title, exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "News", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".article-hero img")).toBeVisible();
-  await expect(page.locator("#article-body")).toContainText("Mac App Store update is still in progress");
+  await expect(page.locator("#article-body")).toContainText("At publication, the update was available");
+  await expect(page.locator("#article-body")).toContainText("Mac App Store update was still in progress");
   await expect(page.getByRole("heading", { name: "What is still unconfirmed?", exact: true })).toBeVisible();
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", `${SITE_URL}${patch20200.path}`);
   const schema = JSON.parse(await page.locator('script[type="application/ld+json"]').innerText());

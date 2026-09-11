@@ -62,7 +62,7 @@ export const patch20200 = {
   title: "The base game keeps moving",
   searchTitle: "Crimson Desert 2.02.00: Mac cross-save and stability",
   description:
-    "Patch 2.02.00 brings Mac cross-save and targeted fixes after the DLC reveal. Steam Mac is live; Mac App Store is still pending. Here is what is confirmed.",
+    "Patch 2.02.00 adds Mac cross-save and targeted fixes following the reveal of Charting the Unknown.",
   publishedAt: "2026-09-11T07:30:00Z",
   sourceNote: "Based on Pearl Abyss’s patch notes, expansion pages and current cross-save account guidance.",
   heroImage: {
@@ -97,4 +97,5 @@ export const patch20200 = {
   ],
 } as const satisfies EditorialArticle;
 
+// Published original reports, newest first. Shared by the front page, News and feeds.
 export const editorialArticles = [patch20200, chartingTheUnknown] as const;
