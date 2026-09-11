@@ -11,8 +11,23 @@ function metaContent(head: string, property: string): string {
   expect(tags, `${property} must occur once in the server-rendered head`).toHaveLength(1);
   const content = tags[0].match(/content="([^"]+)"/)?.[1];
   expect(content, `${property} must not be empty`).toBeTruthy();
-  return content!.replaceAll("&amp;", "&").replaceAll("&quot;", '"').replaceAll("&#x27;", "'");
+  // Decode ampersands last so nested entities remain literal after one layer.
+  return content!.replaceAll("&quot;", '"').replaceAll("&#x27;", "'").replaceAll("&amp;", "&");
 }
+
+test("metadata extraction decodes exactly one HTML entity layer", () => {
+  const cases = [
+    ["Plain title", "Plain title"],
+    ["A &amp; B &quot;C&quot; &#x27;D&#x27;", `A & B "C" 'D'`],
+    ["&amp;quot; &amp;#x27; &amp;amp;", "&quot; &#x27; &amp;"],
+    ["&amp;amp;quot; &amp;lt;script&amp;gt;", "&amp;quot; &lt;script&gt;"],
+    ["https://example.com/card?q=&amp;quot;&amp;size=large", "https://example.com/card?q=&quot;&size=large"],
+  ];
+  for (const [encoded, decoded] of cases) {
+    const head = `<meta name="twitter:title" content="${encoded}"/>`;
+    expect(metaContent(head, "twitter:title")).toBe(decoded);
+  }
+});
 
 test("X and messaging crawlers receive complete cards and publicly readable image bytes", async ({ request, baseURL }) => {
   for (const userAgent of ["Twitterbot/1.0", "facebookexternalhit/1.1"]) {
