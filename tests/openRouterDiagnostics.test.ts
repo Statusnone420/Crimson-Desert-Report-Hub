@@ -59,6 +59,8 @@ describe("OpenRouter cost diagnostics", () => {
     ["malformed JSON", () => ({ ok: true, status: 200, json: async () => { throw new Error("bad json"); } }), "generation_lookup_decode_failure"],
     ["transport exception", () => { throw new Error("network down"); }, "generation_lookup_transport_failure"],
   ] as const)("distinguishes %s from missing cost", async (_label, response, expected) => {
+    // Keep the 1ms deadline from expiring before the injected failure runs.
+    vi.useFakeTimers();
     const diagnostics: OpenRouterDiagnostic[] = [];
     const deadlineAtMs = Date.now() + 1;
 
