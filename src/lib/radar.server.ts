@@ -12,6 +12,7 @@ import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/auto
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
 import { classifyRadarRecency, type RadarRecencyBandId } from "@/lib/radarDisplay";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
@@ -516,6 +517,7 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
   try {
     const supabase = createServiceClient();
     const currentPatch = await radarPatchContext(supabase);
+    if (!isCurrentPatchVerified(currentPatch)) return emptyPatchRadarData(currentPatch);
     const signalSelect =
       "cluster_id, source, source_type, category, confidence, public_status, first_seen_at, last_seen_at, observed_at, seen_count, source_published_at, title, summary, source_url, extracted_facts";
     const runSelect =

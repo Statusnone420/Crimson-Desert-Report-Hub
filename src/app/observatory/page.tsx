@@ -5,6 +5,7 @@ import { Observatory } from "@/components/newspaper/Observatory";
 import { getPublicScannerData } from "@/lib/queries";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { routeMetadata } from "@/lib/site";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
   return routeMetadata(
@@ -26,7 +27,7 @@ export default async function ObservatoryPage() {
         <a className="skip" href="#review-record">Skip to the charts</a>
         <section className="observatory-heading">
           <Link className="back-link" href="/">← Back to the front page</Link>
-          <p className="kicker">The Observatory · Patch {radar.patch.version}</p>
+          <p className="kicker">The Observatory · {isCurrentPatchVerified(radar.patch) ? `Patch ${radar.patch.version}` : "Current patch unverified"}</p>
           <h1>The game, in context.</h1>
           <p>Recorded reviews, audience activity, and the signals coming in from across the web.</p>
         </section>

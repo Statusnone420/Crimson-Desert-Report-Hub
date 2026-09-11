@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   getAutomationControlState: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -17,6 +18,10 @@ vi.mock("@/lib/supabase", () => ({
 }));
 vi.mock("@/lib/automation/settings", () => ({
   getAutomationControlState: mocks.getAutomationControlState,
+}));
+vi.mock("@/lib/officialPatch.server", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/officialPatch.server")>(),
+  getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
 }));
 
 type QueryTrace = { table: string; columns: string; operations: string[] };
@@ -138,6 +143,7 @@ const weeklyRunRow = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
+  mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "1.13.01", source: "official", publishedAt: "2026-07-08T05:51:00.000Z" });
   resolveQuery = () => ({ data: [], error: null });
   mocks.from.mockImplementation((table: string) => new FakeQuery(table));
   mocks.getAutomationControlState.mockResolvedValue({
@@ -148,6 +154,40 @@ beforeEach(() => {
 });
 
 describe("getPublicScannerData read failures", () => {
+  it.each(["unknown", "1.13.01"])("keeps awaiting unavailable for fallback patch %s without erasing readable counters", async (version) => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version, source: "fallback", publishedAt: null });
+    const traces: QueryTrace[] = [];
+    resolveQuery = (trace) => {
+      traces.push(trace);
+      if (isWeeklyRunRead(trace)) return { data: [weeklyRunRow], error: null };
+      if (isHeartbeatRead(trace)) return { data: [heartbeatRow], error: null };
+      if (trace.table === "source_signals" && trace.operations.includes("eq:public_status:private")) {
+        return { data: [{
+          id: "historical-private-lead", cluster_id: "historical-cluster", source: "web_search", source_type: "web_search",
+          title: "Crimson Desert combat stutters", summary: "Frame-rate drops during combat.",
+          source_url: "https://steamcommunity.com/app/3321460/discussions/0/historical",
+          source_published_at: "2026-07-02T12:00:00.000Z",
+        }], error: null };
+      }
+      return { data: [], error: null };
+    };
+    const { getPublicScannerData } = await import("@/lib/queries");
+    const data = await getPublicScannerData();
+    expect(data.awaiting).toBe(0);
+    expect(data.readFailures).toEqual(["awaiting", "published"]);
+    expect(data.reviewedThisWeek).toBe(10);
+    expect(data.keptThisWeek).toBe(3);
+    expect(data.lastCheckedAt).toBe(heartbeatRow.finished_at);
+    expect(traces.filter((trace) => trace.table === "source_signals" || trace.table === "bug_reports")).toEqual([]);
+  });
+
+  it("marks the published count unavailable when the current patch is missing", async () => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "unknown", source: "fallback", publishedAt: null });
+    const { getPublicScannerData } = await import("@/lib/queries");
+    const data = await getPublicScannerData();
+    expect(data.readFailures).toContain("published");
+    expect(data.scannerConnected).toBe(false);
+  });
   it("loses only the week when the weekly run read fails", async () => {
     resolveQuery = (trace) => {
       if (isWeeklyRunRead(trace)) return { data: null, error: denied };

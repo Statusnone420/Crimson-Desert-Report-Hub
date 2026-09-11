@@ -1,7 +1,6 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
 import { domainTier, isOfficialDomain } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
-import { CURRENT_PATCH } from "@/lib/constants";
 
 export type RelevanceSkipReason =
   | "category_other"
@@ -378,7 +377,7 @@ function isFixAnnouncement(text: string): boolean {
  */
 export function preScreenCandidate(
   input: CandidatePreScreenInput,
-  options: { currentPatchVersion?: string; currentPatchPublishedAt?: string | null } = {},
+  options: { currentPatchVersion: string; currentPatchPublishedAt?: string | null },
 ): SignalRelevanceDecision {
   const sourceText = compact(`${input.title} ${input.snippet}`);
   if (!hasCrimsonDesertContext(input)) {
@@ -387,12 +386,12 @@ export function preScreenCandidate(
   if (hasUnsupportedSourceContext(input)) {
     return { keep: false, reason: "source_not_issue_report" };
   }
-  if (mentionsOnlyOtherPatch(sourceText, options.currentPatchVersion ?? CURRENT_PATCH)) {
+  if (mentionsOnlyOtherPatch(sourceText, options.currentPatchVersion)) {
     return { keep: false, reason: "wrong_patch" };
   }
   const patchEligibility = evaluateCurrentPatchEligibility(
     { title: input.title, snippet: input.snippet, sourcePublishedAt: input.sourcePublishedAt },
-    { version: options.currentPatchVersion ?? CURRENT_PATCH, publishedAt: options.currentPatchPublishedAt ?? null },
+    { version: options.currentPatchVersion, publishedAt: options.currentPatchPublishedAt ?? null },
   );
   if (!patchEligibility.canStore) {
     return { keep: false, reason: patchEligibility.reason === "wrong_patch" ? "wrong_patch" : "stale_source" };

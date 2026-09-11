@@ -40,6 +40,25 @@ describe("patch desk", () => {
     expect(markup).not.toContain("September");
   });
 
+  it("links the matching patch to its newspaper report alongside the official notes", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData({
+      currentPatch: { version: "2.02.00", officialUrl: "https://example.com/official", summary: null },
+    }));
+    const markup = renderToStaticMarkup(await PatchesPage());
+    expect(markup).toContain('href="/articles/patch-2-02-00"');
+    expect(markup).toContain("Read the report →");
+    expect(markup).toContain('href="https://example.com/official"');
+  });
+
+  it.each(["1.13.01", "2.03.00", "Unknown"])("does not offer an unrelated report for patch %s", async (version) => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData({
+      currentPatch: { version, officialUrl: "https://example.com/official", summary: null },
+    }));
+    const markup = renderToStaticMarkup(await PatchesPage());
+    expect(markup).not.toContain('href="/articles/patch-2-02-00"');
+    expect(markup).not.toContain("Read the report →");
+  });
+
   it("does not turn an unread official register into zero claims", async () => {
     mocks.getDashboardData.mockResolvedValue(dashboardData({ claimedFixes: [], claimsUnavailable: true }));
     const markup = renderToStaticMarkup(await PatchesPage());

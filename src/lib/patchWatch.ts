@@ -42,6 +42,11 @@ export function patchFamilyKey(version: string): string | null {
   return major && minor ? `${major}.${minor}` : null;
 }
 
+/** A fallback is unavailable even if an older cached value still names a patch. */
+export function isCurrentPatchVerified(patch: { version: string; source?: string }): boolean {
+  return patch.source !== "fallback" && patchFamilyKey(patch.version) !== null;
+}
+
 export function belongsToPatchFamily(version: string, currentVersion: string): boolean {
   const versionFamily = patchFamilyKey(version);
   const currentFamily = patchFamilyKey(currentVersion);

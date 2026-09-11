@@ -17,3 +17,10 @@ it("keeps the authenticated capped production diagnostic available", async () =>
   expect(response.status).toBe(200);
   expect(mocks.preview).toHaveBeenCalledWith({ maxQueries: 2 });
 });
+it("returns unavailable when the current patch cannot be verified", async () => {
+  mocks.isPreview.mockReturnValue(false);
+  mocks.preview.mockResolvedValue({ unavailableReason: "current_patch_unavailable", queriesUsed: 0 });
+  const response = await GET(new Request("https://example.com/api/cron/source-preview", { headers: { authorization: "Bearer fixture-secret" } }));
+  expect(response.status).toBe(503);
+  expect(await response.json()).toMatchObject({ ok: false, error: "current_patch_unavailable" });
+});

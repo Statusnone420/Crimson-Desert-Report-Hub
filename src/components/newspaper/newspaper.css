@@ -101,6 +101,10 @@ html[data-theme=dark] .newspaper .theme-icon img{filter:invert(1)}
 @media(max-width:750px){.newspaper .patch-heading{margin:20px 0 28px}.newspaper .patch-heading h1{font-size:57px}.newspaper .patch-deck{font-size:29px}.newspaper .patch-intro{font-size:15px}.newspaper .patch-register{grid-template-columns:repeat(3,1fr);gap:15px;text-align:center}.newspaper .patch-register strong{font-size:43px}.newspaper .patch-register p{grid-column:1/-1;font-size:12px}.newspaper .patch-brief{grid-template-columns:1fr;gap:25px;padding:28px 0}.newspaper .patch-brief>div+div{border-left:0;padding:25px 0 0;border-top:1px solid var(--line)}.newspaper .patch-brief h2{font-size:30px}.newspaper .claims-heading{display:block;text-align:center}.newspaper .claims-heading h2{font-size:36px}.newspaper .claims-heading>p{max-width:none;font-size:13px}.newspaper .claims-controls{display:block}.newspaper .claim-search{margin-top:20px}.newspaper .claim-search input{flex:1;min-width:0;width:auto}.newspaper .patch-player-record{grid-template-columns:1fr;gap:8px;margin-top:24px}.newspaper .patch-player-actions{justify-content:space-between;gap:16px}.newspaper .patch-player-record h2{font-size:30px;text-align:left}.newspaper .patch-player-record .kicker{text-align:center}}
 
 
+.newspaper .patch-heading-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 28px;margin-top:24px}
+.newspaper .patch-heading-actions .action{margin-top:0}
+.newspaper .patch-register .patch-count-unavailable{font-size:clamp(20px,3vw,36px);line-height:1.2}
+
 /* Category ink remains legible on both paper and OLED black. */
 .newspaper .category-content{--category-ink:#82601e}
 .newspaper .category-combat{--category-ink:#a51e23}

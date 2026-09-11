@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const cacheMocks = vi.hoisted(() => ({
   revalidateTag: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
+  hasSupabaseServiceConfig: vi.fn(() => true),
 }));
 
 const state = {
@@ -12,6 +14,7 @@ const state = {
 const confirmationRpc = vi.fn(async () => ({ data: state.rpcOutcome, error: state.rpcError }));
 
 vi.mock("@/lib/supabase", () => ({
+  hasSupabaseServiceConfig: cacheMocks.hasSupabaseServiceConfig,
   createServiceClient: () => ({
     rpc: confirmationRpc,
   }),
@@ -20,14 +23,17 @@ vi.mock("@/lib/supabase", () => ({
 vi.mock("next/cache", () => ({ revalidateTag: cacheMocks.revalidateTag }));
 
 vi.mock("@/lib/officialPatch.server", () => ({
-  getCurrentPatchMetadata: vi.fn(async () => ({
+  getCurrentPatchMetadata: cacheMocks.getCurrentPatchMetadata,
+}));
+
+const knownPatch = {
     version: "1.13.01",
     title: "Patch Notes 1.13.01",
     officialUrl: "https://example.com/notes",
     summary: null,
     publishedAt: "2026-07-08T00:00:00Z",
-  })),
-}));
+    source: "official",
+};
 
 process.env.SESSION_SECRET = "0123456789abcdef0123456789abcdef";
 
@@ -60,11 +66,30 @@ beforeEach(() => {
   delete process.env.VERCEL_ENV;
   cacheMocks.revalidateTag.mockClear();
   confirmationRpc.mockClear();
+  cacheMocks.getCurrentPatchMetadata.mockResolvedValue(knownPatch);
+  cacheMocks.hasSupabaseServiceConfig.mockReturnValue(true);
   state.rpcOutcome = "recorded";
   state.rpcError = null;
 });
 
 describe("POST /api/confirmations", () => {
+  it("returns an explicit unavailable response when database credentials are absent", async () => {
+    cacheMocks.hasSupabaseServiceConfig.mockReturnValue(false);
+    const response = await POST(makeRequest(valid));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "current_patch_unavailable" });
+    expect(confirmationRpc).not.toHaveBeenCalled();
+  });
+  it("refuses to attribute a check-in to an unknown or stale fallback patch", async () => {
+    for (const version of ["unknown", "1.13.01"]) {
+      cacheMocks.getCurrentPatchMetadata.mockResolvedValue({ ...knownPatch, version, source: "fallback" });
+      const response = await POST(makeRequest(valid));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "current_patch_unavailable" });
+    }
+    expect(confirmationRpc).not.toHaveBeenCalled();
+    expect(cacheMocks.revalidateTag).not.toHaveBeenCalled();
+  });
   it("403 in Vercel preview without persisting", async () => {
     process.env.VERCEL_ENV = "preview";
     const res = await POST(makeRequest(valid));

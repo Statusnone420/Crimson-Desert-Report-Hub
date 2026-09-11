@@ -12,6 +12,10 @@ const valid = {
 };
 
 describe("report draft review contract", () => {
+  it.each(["unknown", "1.13.01"])("does not prefill the fallback version %s as a player report's patch", (version) => {
+    const draft = blankReportDraft({ version, title: "Current patch unavailable", officialUrl: "https://example.com/updates", source: "fallback" });
+    expect(draft.patch_version).toBe("other");
+  });
   it("uses the application schema and preserves an explicit false checkbox", () => {
     const result = validateReportDraft({ ...valid, issue_title: "  " + valid.issue_title + "  " });
 

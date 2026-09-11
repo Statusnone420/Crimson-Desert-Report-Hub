@@ -1579,7 +1579,7 @@ describe("automation relevance", () => {
           title: "Crimson Desert patch notes",
           snippet: "Official update notes and balance changes.",
           sourceDomain: "example.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
@@ -1631,7 +1631,7 @@ describe("automation relevance", () => {
           title: "Cross-save not working? : r/CrimsonDesert",
           snippet: "Tried linking my account and my save never shows up on PS5.",
           sourceDomain: "reddit.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toEqual({ keep: true });
     });
 
@@ -1641,7 +1641,7 @@ describe("automation relevance", () => {
           title: "Cross Save error PS5 Pro : r/CDguides",
           snippet: "",
           sourceDomain: "reddit.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toEqual({ keep: true });
     });
 
@@ -1683,7 +1683,7 @@ describe("automation relevance", () => {
         },
       ]) {
         expect(
-          preScreenCandidate({ ...candidate, sourceDomain: "reddit.com" }),
+          preScreenCandidate({ ...candidate, sourceDomain: "reddit.com" }, { currentPatchVersion: "1.13.01" }),
         ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
       }
     });
@@ -1740,7 +1740,7 @@ describe("automation relevance", () => {
           snippet: "R still has errors and crashes in some IDE workflows.",
           url: "https://r-statistics.co/r-worth-learning",
           sourceDomain: "r-statistics.co",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toMatchObject({ keep: false, reason: "off_topic" });
     });
 
@@ -1752,7 +1752,7 @@ describe("automation relevance", () => {
             snippet: "Stutters whenever I enter the city.",
             url: `https://forum.example.com/${slug}-fps-drops`,
             sourceDomain: "forum.example.com",
-          }),
+          }, { currentPatchVersion: "1.13.01" }),
         ).toEqual({ keep: true });
       }
     });
@@ -1764,7 +1764,7 @@ describe("automation relevance", () => {
           snippet: "Crashes to desktop every time I open the map.",
           url: "https://steamcommunity.com/app/3321460/discussions/0/1",
           sourceDomain: "steamcommunity.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toEqual({ keep: true });
     });
 
@@ -1774,7 +1774,7 @@ describe("automation relevance", () => {
           title: "Nice scenery tour",
           snippet: "beautiful vistas",
           sourceDomain: "reddit.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
@@ -1784,7 +1784,7 @@ describe("automation relevance", () => {
           title: "FPS drops hard in combat",
           snippet: "since 1.13 stutters constantly",
           sourceDomain: "reddit.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toEqual({ keep: true });
     });
 
@@ -1807,7 +1807,7 @@ describe("automation relevance", () => {
           title: "No crashes for me",
           snippet: "runs without issues",
           sourceDomain: "reddit.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
@@ -1817,7 +1817,7 @@ describe("automation relevance", () => {
           title: "How To Fix Crimson Desert Low FPS, Lag, Stuttering & FPS Drops",
           snippet: "A troubleshooting guide for Windows settings.",
           sourceDomain: "youtube.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     });
 
@@ -1842,7 +1842,7 @@ describe("automation relevance", () => {
           title: "RTX 5080 Ruined After 1.04 Patch - Sudden FPS Drops & Heavy Stuttering",
           snippet: "Steam discussion about patch 1.04.",
           sourceDomain: "steamcommunity.com",
-        }),
+        }, { currentPatchVersion: "1.13.01" }),
       ).toMatchObject({ keep: false, reason: "wrong_patch" });
     });
 
@@ -2738,19 +2738,19 @@ describe("automation relevance", () => {
 
 describe("search planning", () => {
   it("never emits more queries than the cap", () => {
-    expect(buildSearchQueries(3)).toHaveLength(3);
-    expect(buildSearchQueries(0)).toHaveLength(0);
+    expect(buildSearchQueries(3, "1.13.01")).toHaveLength(3);
+    expect(buildSearchQueries(0, "1.13.01")).toHaveLength(0);
   });
 
   it("leads with the official notes and the anchored open web, not a second community forum", () => {
-    expect(buildSearchQueries(2)).toEqual([
+    expect(buildSearchQueries(2, "1.13.01")).toEqual([
       "site:crimsondesert.pearlabyss.com Crimson Desert patch 1.13.01 notes known issues",
       "Crimson Desert game Pearl Abyss patch 1.13.01 players stutter crash bug report",
     ]);
   });
 
   it("caps query planning to the fixed query pack", () => {
-    expect(buildSearchQueries(999)).toHaveLength(7);
+    expect(buildSearchQueries(999, "1.13.01")).toHaveLength(7);
   });
 
   it("can target a server-derived patch version", () => {

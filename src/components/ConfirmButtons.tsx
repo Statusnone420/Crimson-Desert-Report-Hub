@@ -105,6 +105,8 @@ export function ConfirmButtons({
       setMessage(
         errorCode === "preview_writes_disabled"
           ? "This preview is read-only. Confirmations work on the production site."
+          : errorCode === "current_patch_unavailable"
+          ? "The current patch could not be verified. Try again later."
           : res.status === 429
           ? "Too many taps from this network — try again later."
           : "Didn't count. Try again.",
