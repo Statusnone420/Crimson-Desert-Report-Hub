@@ -17,6 +17,11 @@ type MessageMeta = {
 const EASTERN_TIME_ZONE = "America/New_York";
 
 const SKIP_META: Record<string, MessageMeta> = {
+  current_patch_unavailable: {
+    label: "Current patch unavailable",
+    detail: "The current patch could not be verified, so this run did not search, extract, or change issue records.",
+    summaryLabel: "current patch unavailable",
+  },
   budget_capped: {
     label: "Budget capped",
     detail: "The monthly automation budget was reached, so paid extraction stopped while free maintenance continues.",

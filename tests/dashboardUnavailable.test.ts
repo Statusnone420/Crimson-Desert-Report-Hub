@@ -10,6 +10,7 @@ import { needsFullIssueCard } from "@/lib/evidence";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
   claimedFixes: vi.fn(
     async (): Promise<{
       fixes: { fixText: string; category: string | null; section: string | null }[];
@@ -32,12 +33,7 @@ vi.mock("@/lib/supabase", () => ({
   hasSupabaseServiceConfig: () => true,
 }));
 vi.mock("@/lib/officialPatch.server", () => ({
-  getCurrentPatchMetadata: async () => ({
-    version: "1.13.01",
-    publishedAt: "2026-07-08T05:51:00.000Z",
-    title: "Hotfix 1.13.01",
-    sourceUrl: null,
-  }),
+  getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
   getClaimedFixesForCurrentPatch: async () => (await mocks.claimedFixes()).fixes,
   readClaimedFixesForCurrentPatch: mocks.claimedFixes,
 }));
@@ -82,12 +78,25 @@ function pendingFailingBugReports() {
 
 describe("dashboard loader under a failed read", () => {
   beforeEach(() => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z", title: "Hotfix 1.13.01", source: "official" });
     mocks.from.mockReset();
     mocks.from.mockImplementation(() => failingQuery("permission denied for table bug_reports"));
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("keeps patch-scoped records unavailable when the database has no current patch", async () => {
+    mocks.from.mockImplementation(() => okQuery());
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "unknown", source: "fallback", publishedAt: null });
+    const { getDashboardData, getIssuesData } = await import("@/lib/queries");
+    const dashboard = await getDashboardData();
+    expect(dashboard.evidenceUnavailable).toBe(true);
+    expect(dashboard.claimsUnavailable).toBe(true);
+    expect(dashboard.sourceLeadsUnavailable).toBe(true);
+    expect((await getIssuesData()).boardReadFailed).toBe(true);
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
   it("returns the unavailable state instead of fabricated zeros, loudly", async () => {

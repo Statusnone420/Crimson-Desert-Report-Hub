@@ -44,6 +44,7 @@ import { resolveBurstState } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient, type ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import {
   automationBudgetUsd,
   features,
@@ -2836,6 +2837,12 @@ async function executeAutomationRun(
     result.status = "skipped";
     result.skips.push("budget_read_failed");
     result.errors.push(budgetReadError);
+    await finalizeRunLedgerSafely(supabase, runId, result);
+    return result;
+  }
+  if (!isCurrentPatchVerified(patchMetadata)) {
+    result.status = "skipped";
+    result.skips.push("current_patch_unavailable");
     await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }

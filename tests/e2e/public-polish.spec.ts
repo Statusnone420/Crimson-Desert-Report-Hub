@@ -25,6 +25,16 @@ test("the Method page links directly to the public Observatory", async ({ page }
   await expect(link).toHaveAttribute("href", "/observatory");
 });
 
+test("the report hint follows the selected patch instead of always claiming the current patch", async ({ page }) => {
+  await page.goto("/report");
+  const patch = page.getByLabel("Patch version");
+  await expect(page.locator("#patch_version-hint")).toContainText("current patch 1.13.01");
+  await patch.selectOption("other");
+  await expect(page.locator("#patch_version-hint")).toHaveText("Patch version not specified.");
+  await patch.selectOption("1.13.01");
+  await expect(page.locator("#patch_version-hint")).toContainText("current patch 1.13.01");
+});
+
 test("old scanner bookmarks preserve the authenticated workspace destination", async ({ page }) => {
   const legacy = await page.request.get("/admin/source-monitor", { maxRedirects: 0 });
   expect(legacy.status()).toBe(307);

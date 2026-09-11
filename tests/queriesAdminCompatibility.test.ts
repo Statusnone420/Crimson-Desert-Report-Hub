@@ -4,6 +4,7 @@ import { matchesOrExpression } from "./fixtures/postgrestOr";
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   getAutomationControlState: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -13,6 +14,10 @@ vi.mock("@/lib/supabase", () => ({
 }));
 vi.mock("@/lib/automation/settings", () => ({
   getAutomationControlState: mocks.getAutomationControlState,
+}));
+vi.mock("@/lib/officialPatch.server", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/officialPatch.server")>(),
+  getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
 }));
 
 type QueryTrace = {
@@ -95,6 +100,7 @@ class FakeQuery {
 beforeEach(() => {
   vi.clearAllMocks();
   traces = [];
+  mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "1.13.01", source: "official", publishedAt: "2026-07-08T05:51:00.000Z" });
   resolveQuery = () => ({ data: [], error: null });
   mocks.from.mockImplementation((table: string) => new FakeQuery(table));
   mocks.getAutomationControlState.mockResolvedValue({
@@ -109,6 +115,14 @@ beforeEach(() => {
 });
 
 describe("getAutomationAdminData rolling migration compatibility", () => {
+  it("does not query observations against a fabricated patch when metadata is unavailable", async () => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "unknown", source: "fallback", publishedAt: null });
+    const { getAutomationAdminData } = await import("@/lib/queries");
+    const data = await getAutomationAdminData();
+    expect(data.observationPatch.source).toBe("fallback");
+    expect(data.observations).toEqual([]);
+    expect(traces.some((trace) => trace.table === "patch_observations")).toBe(false);
+  });
   it("selects the first-seen clock required by the public Community Asks fallback", async () => {
     const { getAutomationAdminData } = await import("@/lib/queries");
 

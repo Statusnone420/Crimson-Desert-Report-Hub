@@ -9,6 +9,7 @@ import {
 } from "@/lib/automation/relevance";
 import { buildSearchQueries, tavilySearch } from "@/lib/automation/search";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 
 const SEARCH_QUERY_COST_USD = 0.008;
 const MAX_PREVIEW_QUERIES = 2;
@@ -21,6 +22,7 @@ export type AutomationSourcePreview = {
   queriesUsed: number;
   resultsSeen: number;
   estimatedCostUsd: number;
+  unavailableReason?: "current_patch_unavailable";
   previews: {
     query: string;
     title: string;
@@ -42,6 +44,9 @@ export async function previewAutomationSearch(input: { maxQueries: number }): Pr
   let queriesUsed = 0;
   let resultsSeen = 0;
   const currentPatch = await getCurrentPatchMetadata();
+  if (!isCurrentPatchVerified(currentPatch)) {
+    return { mode: "preview", patchVersion: currentPatch.version, maxQueries, queriesUsed: 0, resultsSeen: 0, estimatedCostUsd: 0, previews: [], unavailableReason: "current_patch_unavailable" };
+  }
 
   for (const query of buildSearchQueries(maxQueries, currentPatch.version)) {
     queriesUsed += 1;

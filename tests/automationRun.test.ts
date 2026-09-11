@@ -652,6 +652,22 @@ afterEach(() => {
 });
 
 describe("runAutomationMonitor", () => {
+  it.each(["manual", "scheduled", "dry_run"] as const)("skips %s scanning when the current patch remains unverified", async (mode) => {
+    const unavailable = { ...officialPatchFixture, version: "unknown", publishedAt: null, source: "fallback" };
+    mocks.getCurrentPatchMetadata.mockResolvedValue(unavailable);
+    mocks.syncOfficialPatchNote.mockResolvedValue({ status: "skipped", reason: "not_found", patch: unavailable });
+    const { runAutomationMonitor } = await import("@/lib/automation/run");
+    const result = await runAutomationMonitor({ mode, now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.status).toBe("skipped");
+    expect(result.skips).toContain("current_patch_unavailable");
+    expect(result.searchQueriesUsed).toBe(0);
+    expect(result.signalsInserted).toBe(0);
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(mutations.every((mutation) => mutation.table === "automation_runs")).toBe(true);
+    expect(tables.automation_runs[0].status).toBe("skipped");
+  });
   it.each(["extraction", "claim mapping"] as const)("persists bounded %s diagnostics without marking failed AI healthy", async (lane) => {
     const diagnostic = { code: "request_timeout", elapsedMs: 20_000, httpStatus: null, attempts: 1 };
     const privateMarker = "PRIVATE-DO-NOT-PERSIST-IN-DIAGNOSTICS";

@@ -57,6 +57,21 @@ const healthyScoreboard = {
 } satisfies PublicScannerData;
 
 describe("AdminScannerView", () => {
+  it("keeps an unavailable observation patch separate from a recorded empty desk", () => {
+    const markup = renderToStaticMarkup(AdminScannerView({
+      runs: [], signals: [], rejectedCandidates: [], observations: [],
+      observationPatch: { version: "unknown", publishedAt: null },
+      observationModerationAvailable: true, feedbackRules: [], feedbackLearningAvailable: true,
+      control: { paused: false, minIntervalMinutes: 60, scheduledSearchCreditsPerRun: 1, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 1, modelPreset: "gpt_5_6_luna", updatedAt: null },
+      activeRun: null, latestRealRun: null, latestFind: null,
+      scoreboard: healthyScoreboard,
+      radar: emptyPatchRadarData({ version: "unknown", publishedAt: null }),
+      integrations: [], nowIso: "2026-09-11T18:00:00.000Z",
+    }));
+    expect(markup).toContain("The current patch could not be verified. Observation records are unavailable.");
+    expect(markup).not.toContain("No observations recorded for this patch yet.");
+    expect(markup).not.toContain("newest 0 this patch");
+  });
   it("keeps the one-dollar AI limit and saved model choices inside the private form", () => {
     const view = AdminScannerView({
       runs: [],

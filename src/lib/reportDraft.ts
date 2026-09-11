@@ -1,9 +1,11 @@
 import { reportSchema, type ReportInput } from "@/lib/reportSchema";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 
 export type ReportPatchMetadata = {
   version: string;
   title: string;
   officialUrl: string;
+  source?: "official" | "manual" | "fallback";
 };
 
 export type ReportDraft = {
@@ -31,7 +33,7 @@ export type ReportDraftErrors = Record<string, string>;
 
 export function blankReportDraft(currentPatch: ReportPatchMetadata): ReportDraft {
   return {
-    patch_version: currentPatch.version,
+    patch_version: isCurrentPatchVerified(currentPatch) ? currentPatch.version : "other",
     platform: "",
     category: "",
     severity: "medium",

@@ -186,7 +186,7 @@ export function buildRightNowReadout(input: RightNowInput): RightNowReadout {
       { label: "Official patch notes", href: input.currentPatch.officialUrl, external: true },
       { label: "Pearl Abyss support", href: input.supportUrl, external: true },
       { label: "Known issues", href: "/issues" },
-      { label: "Source radar", href: "/scanner" },
+      { label: "Source radar", href: "/observatory" },
       { label: "Open-source code", href: input.sourceUrl, external: true },
     ],
     trustNotes: [

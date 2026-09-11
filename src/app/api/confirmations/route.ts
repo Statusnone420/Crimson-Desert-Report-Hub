@@ -7,9 +7,9 @@ import { PLATFORMS } from "@/lib/constants";
 import { hashIp } from "@/lib/crypto";
 import { requiredEnv } from "@/lib/env";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { patchFamilyKey } from "@/lib/patchWatch";
+import { isCurrentPatchVerified, patchFamilyKey } from "@/lib/patchWatch";
 import { isVercelPreview } from "@/lib/previewGuard";
-import { createServiceClient } from "@/lib/supabase";
+import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 const confirmationSchema = z.object({
   cluster_id: z.uuid(),
@@ -53,6 +53,9 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "validation" }, { status: 400 });
   }
+  if (!hasSupabaseServiceConfig()) {
+    return NextResponse.json({ error: "current_patch_unavailable" }, { status: 503 });
+  }
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
   if (!ip) {
@@ -64,6 +67,9 @@ export async function POST(req: Request) {
   const supabase = createServiceClient();
 
   const currentPatch = await getCurrentPatchMetadata(supabase);
+  if (!isCurrentPatchVerified(currentPatch)) {
+    return NextResponse.json({ error: "current_patch_unavailable" }, { status: 503 });
+  }
   const patchFamily = patchFamilyKey(currentPatch.version) ?? currentPatch.version;
 
   const { data: outcome, error: recordError } = await supabase.rpc("record_issue_confirmation", {

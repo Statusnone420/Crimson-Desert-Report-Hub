@@ -103,6 +103,7 @@ html[data-theme=dark] .newspaper .theme-icon img{filter:invert(1)}
 
 .newspaper .patch-heading-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 28px;margin-top:24px}
 .newspaper .patch-heading-actions .action{margin-top:0}
+.newspaper .patch-register .patch-count-unavailable{font-size:clamp(20px,3vw,36px);line-height:1.2}
 
 /* Category ink remains legible on both paper and OLED black. */
 .newspaper .category-content{--category-ink:#82601e}

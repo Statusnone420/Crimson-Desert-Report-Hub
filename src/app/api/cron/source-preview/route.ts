@@ -21,5 +21,8 @@ export async function GET(req: Request) {
 
   if (isVercelPreview()) return NextResponse.json({ error: "preview_search_disabled" }, { status: 403 });
   const preview = await previewAutomationSearch({ maxQueries: requestedQueries(req) });
+  if (preview.unavailableReason) {
+    return NextResponse.json({ ok: false, error: preview.unavailableReason, preview }, { status: 503 });
+  }
   return NextResponse.json({ ok: true, preview });
 }

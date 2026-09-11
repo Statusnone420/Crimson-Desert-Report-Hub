@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { CollectionHealth, CollectionHealthLane } from "@/lib/collectionHealth";
 import type { ScannerAiHealth } from "@/lib/automation/health";
+import { workspaceHref } from "@/lib/operatorWorkspace";
 
 export type OperatorRunSummary = {
   startedAt: string;
@@ -144,12 +145,12 @@ function Attention({ data, unknown, attentionCount }: { data: OperatorOverviewDa
     <section className="op-attention" aria-labelledby="op-attention-title">
       <div className="op-section-heading"><div><p className="op-eyebrow">{unknown ? "Check the connection" : "Needs attention"}</p><h2 id="op-attention-title">{unknown ? "A missing read is not an empty queue." : "A few checks need a look."}</h2></div></div>
       <div className="op-exceptions">
-        {data.aiHealth && (data.aiHealth.state === "unavailable" || data.aiHealth.state === "limited") ? <article><span className="op-status op-caution">AI processing · {data.aiHealth.state === "unavailable" ? "Unavailable" : "Limited"}</span><h3>{data.aiHealth.message}</h3><p>Search and rule-based processing can continue while AI processing is unavailable.</p><Link className="op-link" href="/scanner">Review AI settings →</Link></article> : null}
-        {!data.operatorReadAvailable ? <article><span className="op-status op-danger">Operator record · Unavailable</span><h3>Run history could not be read.</h3><p>The overview cannot verify current scanner outcomes. Open the scanner monitor to inspect the authenticated records.</p><Link className="op-link" href="/scanner">Open scanner monitor →</Link></article> : null}
-        {!data.scannerReadAvailable ? <article><span className="op-status op-danger">Source radar · Unavailable</span><h3>The scanner aggregate could not be read.</h3><p>Lead counts and scanner health are unavailable for this page load. This does not mean the scanner is idle.</p><Link className="op-link" href="/scanner">Inspect scanner monitor →</Link></article> : null}
-        {namedScannerFailures.map((failure) => <article key={failure}><span className="op-status op-caution">Scanner · Unavailable</span><h3>{failure} could not be read.</h3><p>Its value is unknown for this page load. It is not a report of zero activity.</p><Link className="op-link" href="/scanner">Inspect scanner monitor →</Link></article>)}
-        {providerFailures.map((lane) => <article key={lane.key}><span className={"op-status " + laneTone(lane)}>{lane.label} · {lane.labelText}</span><h3>{lane.nextAction ?? "Check the latest provider capture."}</h3><p>{lane.detail}</p><Link className="op-link" href="/scanner">Inspect scanner monitor →</Link></article>)}
-        {!unknown && data.scannerFailedRuns !== null && data.scannerFailedRuns > 0 ? <article><span className="op-status op-danger">Scanner · Failed run</span><h3>Recent scan failures need review.</h3><p>The scanner has {data.scannerFailedRuns} failed run{data.scannerFailedRuns === 1 ? "" : "s"} in its seven-day aggregate.</p><Link className="op-link" href="/scanner">Inspect scanner monitor →</Link></article> : null}
+        {data.aiHealth && (data.aiHealth.state === "unavailable" || data.aiHealth.state === "limited") ? <article><span className="op-status op-caution">AI processing · {data.aiHealth.state === "unavailable" ? "Unavailable" : "Limited"}</span><h3>{data.aiHealth.message}</h3><p>Search and rule-based processing can continue while AI processing is unavailable.</p><Link className="op-link" href={workspaceHref("scanner")}>Review AI settings →</Link></article> : null}
+        {!data.operatorReadAvailable ? <article><span className="op-status op-danger">Operator record · Unavailable</span><h3>Run history could not be read.</h3><p>The overview cannot verify current scanner outcomes. Open the scanner monitor to inspect the authenticated records.</p><Link className="op-link" href={workspaceHref("scanner")}>Open scanner monitor →</Link></article> : null}
+        {!data.scannerReadAvailable ? <article><span className="op-status op-danger">Source radar · Unavailable</span><h3>The scanner aggregate could not be read.</h3><p>Lead counts and scanner health are unavailable for this page load. This does not mean the scanner is idle.</p><Link className="op-link" href={workspaceHref("scanner")}>Inspect scanner monitor →</Link></article> : null}
+        {namedScannerFailures.map((failure) => <article key={failure}><span className="op-status op-caution">Scanner · Unavailable</span><h3>{failure} could not be read.</h3><p>Its value is unknown for this page load. It is not a report of zero activity.</p><Link className="op-link" href={workspaceHref("scanner")}>Inspect scanner monitor →</Link></article>)}
+        {providerFailures.map((lane) => <article key={lane.key}><span className={"op-status " + laneTone(lane)}>{lane.label} · {lane.labelText}</span><h3>{lane.nextAction ?? "Check the latest provider capture."}</h3><p>{lane.detail}</p><Link className="op-link" href={workspaceHref("scanner")}>Inspect scanner monitor →</Link></article>)}
+        {!unknown && data.scannerFailedRuns !== null && data.scannerFailedRuns > 0 ? <article><span className="op-status op-danger">Scanner · Failed run</span><h3>Recent scan failures need review.</h3><p>The scanner has {data.scannerFailedRuns} failed run{data.scannerFailedRuns === 1 ? "" : "s"} in its seven-day aggregate.</p><Link className="op-link" href={workspaceHref("scanner")}>Inspect scanner monitor →</Link></article> : null}
       </div>
     </section>
   );
@@ -186,7 +187,7 @@ export function OperatorOverview({ data }: { data: OperatorOverviewData }) {
       <RunRecord runs={data.runs} unavailable={!data.operatorReadAvailable} />
       <section className="op-tools" aria-labelledby="op-tools-title">
         <div><p className="op-eyebrow">Operator tools</p><h2 id="op-tools-title">Inspect first. Act in the right console.</h2><p>These links open existing authenticated controls. This overview does not change reports, scanner state, providers, or dossiers.</p></div>
-        <div className="op-tool-links"><Link className="op-link" href="/scanner">Scanner monitor →</Link><Link className="op-link" href="/admin">Report review →</Link><Link className="op-link" href="/admin/compile">Dossiers →</Link></div>
+        <div className="op-tool-links"><Link className="op-link" href={workspaceHref("scanner")}>Scanner monitor →</Link><Link className="op-link" href="/admin">Report review →</Link><Link className="op-link" href="/admin/compile">Dossiers →</Link></div>
       </section>
       <div className="op-footer"><Link href="/">← Back to the paper</Link><a href="#operator-top">Back to top ↑</a></div>
     </div>

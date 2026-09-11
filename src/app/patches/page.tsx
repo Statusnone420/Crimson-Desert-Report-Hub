@@ -5,7 +5,7 @@ import { ClaimVerdicts } from "@/components/newspaper/ClaimVerdicts";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { uniqueClaimAttributions } from "@/lib/claims";
 import { editorialArticles } from "@/lib/editorialArticles";
-import { matchesPatchVersion } from "@/lib/patchWatch";
+import { isCurrentPatchVerified, matchesPatchVersion } from "@/lib/patchWatch";
 import { getDashboardData } from "@/lib/queries";
 import { routeMetadata } from "@/lib/site";
 
@@ -23,7 +23,8 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
 export default async function PatchesPage() {
   const data = await getDashboardData();
   const patch = data.currentPatch;
-  const report = editorialArticles.find((article) => "patchVersion" in article && matchesPatchVersion(article.patchVersion, patch.version));
+  const patchVerified = isCurrentPatchVerified(patch);
+  const report = patchVerified ? editorialArticles.find((article) => "patchVersion" in article && matchesPatchVersion(article.patchVersion, patch.version)) : undefined;
   const verifying = data.topClusters.filter((cluster) => cluster.fix_claimed_patch_version === patch.version);
   const attributed = uniqueClaimAttributions(data.claimedFixes, verifying);
   const contested = [...attributed.values()].filter((cluster) => {
@@ -43,18 +44,19 @@ export default async function PatchesPage() {
         <section className="patch-heading">
           <Link className="back-link" href="/">← Back to the front page</Link>
           <p className="kicker">The patch desk</p>
-          <h1>Patch {patch.version}</h1>
+          <h1>{patchVerified ? `Patch ${patch.version}` : "Current patch unavailable"}</h1>
           <p className="patch-deck">What changed. What players are seeing.</p>
+          {!patchVerified ? <p className="patch-intro">The current patch could not be verified. Check Pearl Abyss’s updates or try again shortly.</p> : null}
           {patch.summary ? <p className="patch-intro">{patch.summary}</p> : null}
           <div className="patch-heading-actions">
             {report ? <Link className="action" href={report.path}>Read the report →</Link> : null}
-            <a className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">Read Pearl Abyss’s complete notes ↗</a>
+            <a className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">{patchVerified ? "Read Pearl Abyss’s complete notes ↗" : "Browse Pearl Abyss’s updates ↗"}</a>
           </div>
         </section>
         <div className="patch-register" aria-label="Patch summary">
-          <div><strong>{data.claimsUnavailable ? "unreadable" : data.claimedFixes.length}</strong><span>Official fix claims{data.claimedFixTotal !== null && data.claimedFixTotal > data.claimedFixes.length ? " stored" : ""}</span></div>
-          <div><strong>{data.evidenceUnavailable ? "unreadable" : data.total}</strong><span>{reportLabel}</span></div>
-          <div><strong>{verdictsUnavailable ? "unreadable" : contested}</strong><span>{contestedLabel}</span></div>
+          <div><strong className={data.claimsUnavailable ? "patch-count-unavailable" : undefined}>{data.claimsUnavailable ? "unreadable" : data.claimedFixes.length}</strong><span>Official fix claims{data.claimedFixTotal !== null && data.claimedFixTotal > data.claimedFixes.length ? " stored" : ""}</span></div>
+          <div><strong className={data.evidenceUnavailable ? "patch-count-unavailable" : undefined}>{data.evidenceUnavailable ? "unreadable" : data.total}</strong><span>{reportLabel}</span></div>
+          <div><strong className={verdictsUnavailable ? "patch-count-unavailable" : undefined}>{verdictsUnavailable ? "unreadable" : contested}</strong><span>{contestedLabel}</span></div>
           <p>These are different records. An official fix claim does not establish that a player’s issue is resolved.</p>
         </div>
         <ClaimsRecord claims={data.claimedFixes} claimsUnavailable={data.claimsUnavailable} sourceTotal={data.claimedFixTotal} officialUrl={patch.officialUrl} />
