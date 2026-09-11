@@ -1,7 +1,14 @@
 import "server-only";
 
-import { computeAutomationBudget, evaluateOpenRouterKeyBudget, readOpenRouterKeyBudget, type ScannerModelPreset, type AutomationBudget } from "@/lib/automation/budget";
-import { circuitReadStartIso, openRouterCircuitOpenFromRuns } from "@/lib/automation/circuit";
+import {
+  computeAutomationBudget,
+  evaluateOpenRouterKeyBudget,
+  readOpenRouterKeyBudget,
+  SEARCH_QUERY_COST_USD,
+  type ScannerModelPreset,
+  type AutomationBudget,
+} from "@/lib/automation/budget";
+import { applyAutomationBudgetCeiling, loadMonthSpend } from "@/lib/automation/budgetState.server";
 import {
   mapClaimToClusterWithOpenRouter,
   type ClaimMappingCluster,
@@ -46,7 +53,6 @@ import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import {
-  automationBudgetUsd,
   features,
   platformContextConfigured,
   steamPlayerCountsEnabled,
@@ -129,13 +135,6 @@ export type RunProgress = {
   kept: number;
   promoted: number;
 };
-
-function applyAutomationBudgetCeiling(scannerPolicy: ScannerPolicy): ScannerPolicy {
-  return {
-    ...scannerPolicy,
-    monthlyLlmUsdCap: Math.min(scannerPolicy.monthlyLlmUsdCap, automationBudgetUsd()),
-  };
-}
 
 function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): number {
   if (
@@ -360,7 +359,6 @@ type ApprovedExcerptRow = {
   report_id: string;
 };
 
-const SEARCH_QUERY_COST_USD = 0.008;
 const SEARCH_ROTATION_WINDOW_MS = 60 * 60 * 1000;
 const MAX_RESERVED_EXTRACTION_LLM_CALLS = 2;
 const MAX_RESCUE_LLM_CALLS = 1;
@@ -738,41 +736,6 @@ async function loadScanMemory(
     rejectedCandidates,
     targetClusterTitles,
     recentRuns,
-  };
-}
-
-async function loadMonthSpend(
-  supabase: ReturnType<typeof createServiceClient>,
-  now: Date,
-): Promise<{ estimatedCostUsd: number; tavilyCredits: number; llmCostUsd: number; openRouterCircuitOpen: boolean }> {
-  const monthStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
-  // circuitReadStartIso reaches into the previous month during a month's first
-  // 24h (rolling blip window); spend accounting stays month-scoped below.
-  const { data, error } = await supabase
-    .from("automation_runs")
-    .select("estimated_cost_usd, search_queries_used, skips, started_at")
-    .gte("started_at", circuitReadStartIso(now));
-  if (error) throw new Error(`automation spend read failed: ${error.message}`);
-  const rows = (data ?? []) as {
-    estimated_cost_usd?: number | string | null;
-    search_queries_used?: number | string | null;
-    skips?: unknown;
-    started_at?: string | null;
-  }[];
-  const monthRows = rows.filter(
-    (row) => typeof row.started_at === "string" && new Date(row.started_at).getTime() >= monthStartMs,
-  );
-  const usage = monthRows.reduce(
-    (sum, row) => ({
-      estimatedCostUsd: sum.estimatedCostUsd + Number(row.estimated_cost_usd ?? 0),
-      tavilyCredits: sum.tavilyCredits + Number(row.search_queries_used ?? 0),
-    }),
-    { estimatedCostUsd: 0, tavilyCredits: 0 },
-  );
-  return {
-    ...usage,
-    llmCostUsd: Math.max(0, usage.estimatedCostUsd - usage.tavilyCredits * SEARCH_QUERY_COST_USD),
-    openRouterCircuitOpen: openRouterCircuitOpenFromRuns(rows, now),
   };
 }
 

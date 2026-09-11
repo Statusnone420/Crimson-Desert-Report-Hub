@@ -253,10 +253,31 @@ html[data-theme="dark"] .operator-workspace {
 
 .operator-workspace .workspace-fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
 
+.operator-workspace .workspace-overview-health { margin-bottom: 30px; }
+.operator-workspace .workspace-overview-health-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 18px; }
+.operator-workspace .workspace-overview-health-status .workspace-note { margin: 0; }
+.operator-workspace .workspace-overview-health-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 30px; }
+.operator-workspace .workspace-overview-health-grid h3 { font-size: 13px; margin: 0 0 10px; color: var(--ws-muted); font-weight: 600; }
+.operator-workspace .workspace-overview-health .workspace-health-facts { display: grid; gap: 12px; margin: 0; grid-template-columns: minmax(0, 1fr); }
+.operator-workspace .workspace-overview-health .workspace-health-facts > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.operator-workspace .workspace-overview-health .workspace-health-facts dd { text-align: right; }
+.operator-workspace .workspace-overview-health .workspace-health-facts dd strong { display: block; font-weight: 600; }
+.operator-workspace .workspace-overview-health .workspace-health-facts dd small { display: block; font-weight: 400; color: var(--ws-muted); margin-top: 3px; max-width: 36ch; }
+.operator-workspace .workspace-overview-health .is-caution dd { color: var(--ws-amber); }
+.operator-workspace .workspace-overview-health .is-danger dd { color: var(--ws-accent); }
+.operator-workspace .workspace-overview-health .is-unknown dd { color: var(--ws-amber); }
+.operator-workspace .workspace-overview-health .workspace-queue { margin-top: 18px; }
+.operator-workspace .workspace-overview-health-links { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 8px; }
 .operator-workspace .workspace-overview-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(310px, 1fr); gap: 30px; align-items: start; }
 .operator-workspace .workspace-overview-rail { display: grid; gap: 30px; }
 .operator-workspace .workspace-overview .workspace-queue-item { padding-block: 20px; }
 @media (max-width: 1100px) { .operator-workspace .workspace-overview-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 960px) { .operator-workspace .workspace-overview-health-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 650px) {
+  .operator-workspace .workspace-overview-health .workspace-health-facts > div { grid-template-columns: minmax(0, 1fr); }
+  .operator-workspace .workspace-overview-health .workspace-health-facts dd { text-align: left; }
+  .operator-workspace .workspace-overview-health .workspace-health-facts dd small { max-width: none; }
+}
 
 .operator-workspace .workspace-review-list > .workspace-queue { max-height: calc(100vh - 300px); min-height: 160px; overflow-y: auto; }
 .operator-workspace .workspace-audit-list { list-style: none; margin: 18px 0 0; padding: 0; }

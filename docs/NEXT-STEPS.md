@@ -21,7 +21,7 @@ This is the maintainer handoff. It describes the repository's current product sh
 3. Compare the shared masthead date after hydration on direct loads and navigation. It uses the current New York day; initial HTML intentionally says `Eastern Time`.
 4. Confirm the patch desk links to the current official patch. Check source dates and attribution on editorial coverage separately from the masthead date.
 5. Confirm empty states remain honest and unavailable reads are not presented as zero. The separate N=0 browser suite checks both empty fixture data and missing service configuration without creating production data.
-6. With the required access, inspect `/operator` and `/scanner`; check collection health, the latest scheduled run, and budget accounting. Do not infer private health from a successful public page load.
+6. With the required access, inspect `/operator` and `/operator?view=scanner`. Overview shows the last completed run, next eligible attempt, provider health, and screening counters; Scanner holds diagnostics and collection records. Do not infer private health from a successful public page load.
 7. Exercise report submission, check-ins, or moderation only with authorization for those production writes. Check that confirmations refresh from server totals.
 
 ## Ranked follow-up

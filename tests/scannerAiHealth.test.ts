@@ -76,6 +76,35 @@ describe("private scanner AI health", () => {
     expect(scannerAiHealth([run()], { paused: true }).state).toBe("idle");
     expect(scannerAiHealth([run()], { monthlyLlmUsdCap: 0 }).state).toBe("idle");
   });
+  it("does not let a stale LLM cap conceal the earlier provider failure after the limit is raised", () => {
+    const currentLlmFree = { llmBudgetCapped: false };
+    const health = scannerAiHealth([
+      run({ started_at: "2026-09-11T12:00:00Z", skips: ["llm_budget_capped"], progress: { llmSucceeded: 0 } }),
+      run({ started_at: "2026-09-11T11:00:00Z", skips: ["openrouter_provider_failure"], progress: { llmSucceeded: 0 } }),
+    ], currentLlmFree);
+
+    expect(health).toMatchObject({ state: "unavailable", code: "openrouter_provider_failure" });
+  });
+  it("keeps a provider failure relevant when the same stale run also carries the old cap", () => {
+    const health = scannerAiHealth([
+      run({ skips: ["llm_budget_capped", "openrouter_provider_failure"], progress: { llmSucceeded: 0 } }),
+    ], { llmBudgetCapped: false });
+
+    expect(health).toMatchObject({ state: "unavailable", code: "openrouter_provider_failure" });
+  });
+  it("does not limit a validated historical success because its old LLM cap is no longer current", () => {
+    expect(scannerAiHealth([
+      run({ skips: ["llm_budget_capped"] }),
+    ], { llmBudgetCapped: false })).toMatchObject({ state: "healthy", code: null });
+  });
+  it("keeps circuit and time-limit outcomes relevant when an old LLM cap is no longer current", () => {
+    expect(scannerAiHealth([
+      run({ skips: ["llm_budget_capped", "openrouter_circuit_open"], progress: { llmSucceeded: 0 } }),
+    ], { llmBudgetCapped: false })).toMatchObject({ state: "unavailable", code: "openrouter_circuit_open" });
+    expect(scannerAiHealth([
+      run({ skips: ["llm_budget_capped", "llm_time_limit"], progress: { llmSucceeded: 0 } }),
+    ], { llmBudgetCapped: false })).toMatchObject({ state: "limited", code: "llm_time_limit" });
+  });
   it("does not infer success from historical attempted-call counts or unreadable records", () => {
     expect(scannerAiHealth([run({ progress: null })]).state).toBe("idle");
     expect(scannerAiHealth([], { readAvailable: false }).state).toBe("unavailable");

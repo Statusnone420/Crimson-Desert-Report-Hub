@@ -15,6 +15,7 @@ import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } fro
 import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
 import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/automation/relevance";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
+import { readCurrentScannerBudgetCapped } from "@/lib/automation/budgetState.server";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
 import { getCurrentPatchMetadata, readClaimedFixesForCurrentPatch } from "@/lib/officialPatch.server";
@@ -1215,7 +1216,8 @@ export type AdminObservationRow = {
 
 export async function getAutomationAdminData() {
   const supabase = createServiceClient();
-  const nowIso = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
 
   // Every read below surfaces its own failure. A swallowed error here would
   // render as an empty Records band, a green ACTIVE badge, or a clear action
@@ -1299,6 +1301,7 @@ export async function getAutomationAdminData() {
     : [];
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+  const budgetCapped = await readCurrentScannerBudgetCapped(supabase, control, now);
 
   const activeRunResult = await supabase
     .from("automation_runs")
@@ -1320,6 +1323,44 @@ export async function getAutomationAdminData() {
     .limit(1);
   if (latestRealResult.error) throw new Error(`latest run read failed: ${latestRealResult.error.message}`);
   const latestRealRows = latestRealResult.data;
+  // Completion order can differ from start order when scans overlap. Keep the
+  // legacy clock as a separate candidate so null timestamps do not hide it.
+  const [latestCompletedFinishedResult, latestCompletedLegacyResult] = await Promise.all([
+    supabase
+      .from("automation_runs")
+      .select(RUN_COLUMNS)
+      .neq("mode", "dry_run")
+      .in("status", ["success", "partial", "failed"])
+      .not("finished_at", "is", null)
+      .order("finished_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("automation_runs")
+      .select(RUN_COLUMNS)
+      .neq("mode", "dry_run")
+      .in("status", ["success", "partial", "failed"])
+      .is("finished_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1),
+  ]);
+  if (latestCompletedFinishedResult.error) {
+    throw new Error(`latest completed run read failed: ${latestCompletedFinishedResult.error.message}`);
+  }
+  if (latestCompletedLegacyResult.error) {
+    throw new Error(`latest completed legacy run read failed: ${latestCompletedLegacyResult.error.message}`);
+  }
+  const latestCompletedCandidates = [
+    ((latestCompletedFinishedResult.data ?? []) as AutomationRunRow[])[0] ?? null,
+    ((latestCompletedLegacyResult.data ?? []) as AutomationRunRow[])[0] ?? null,
+  ];
+  const completedAt = (run: AutomationRunRow) => new Date(run.finished_at ?? run.started_at).getTime();
+  const latestCompletedRun = latestCompletedCandidates.reduce<AutomationRunRow | null>(
+    (latest, candidate) => {
+      if (!candidate) return latest;
+      return !latest || completedAt(candidate) > completedAt(latest) ? candidate : latest;
+    },
+    null,
+  );
   // success/partial only: signalsInserted is bumped during screening (before
   // persistSignals writes to the DB), so a failed run can report inserts that never
   // landed — it must not pose as the most recent find.
@@ -1404,8 +1445,10 @@ export async function getAutomationAdminData() {
     feedbackLearningAvailable,
     feedbackRules,
     control,
+    budgetCapped,
     activeRun: ((activeRunRows ?? []) as { id: string; status: string; mode: string; started_at: string }[])[0] ?? null,
     latestRealRun: ((latestRealRows ?? []) as AutomationRunRow[])[0] ?? null,
+    latestCompletedRun,
     latestFind: ((latestFindRows ?? []) as AutomationRunRow[])[0] ?? null,
   };
 }

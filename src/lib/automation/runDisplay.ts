@@ -270,6 +270,22 @@ export function formatEasternDateTime(iso: string | null): string {
   );
 }
 
+/** Compact relative label for operator schedule facts. Future times use "in". */
+export function formatRelativeOperatorTime(iso: string | null, nowMs: number): string {
+  if (!iso) return "not scheduled";
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp) || !Number.isFinite(nowMs)) return "Unknown time";
+  const future = timestamp > nowMs;
+  const abs = Math.floor(Math.abs(nowMs - timestamp) / 60000);
+  const prefix = future ? "in " : "";
+  const suffix = future ? "" : " ago";
+  if (abs < 1) return future ? "in less than a minute" : "just now";
+  if (abs < 60) return `${prefix}${abs}m${suffix}`;
+  const hours = Math.floor(abs / 60);
+  if (hours < 24) return `${prefix}${hours}h${suffix}`;
+  return `${prefix}${Math.floor(hours / 24)}d${suffix}`;
+}
+
 export function summarizeRunMessages(skips: string[], errors: string[]) {
   const skipGroups = groupMessages(skips);
   return {

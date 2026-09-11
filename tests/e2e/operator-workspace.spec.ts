@@ -52,6 +52,39 @@ test.describe("operator workspace flows", () => {
     expect(response.ok()).toBe(true);
   });
 
+  test("overview shows scanner schedule, providers, counters, and a diagnostics path", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+
+    const health = page.locator(".workspace-overview-health");
+    await expect(health.getByRole("heading", { name: "Scanner health" })).toBeVisible();
+    await expect(health.getByText("Last completed run", { exact: true })).toBeVisible();
+    await expect(health.getByText("28m ago", { exact: true })).toBeVisible();
+    await expect(health.getByText("Next eligible run", { exact: true })).toBeVisible();
+    await expect(health.getByText("in 30m", { exact: true })).toBeVisible();
+    await expect(health.getByText("Steam reviews")).toBeVisible();
+    await expect(health.getByText("Twitch audience")).toBeVisible();
+    await expect(health.getByText("IGDB platform metadata")).toBeVisible();
+    await expect(health.getByText("Automated screening events · 7d")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open diagnostics" })).toHaveAttribute("href", "/operator?view=scanner#health");
+    await expect(page.locator(".workspace-overview")).not.toContainText("No recorded health checks need action");
+    const recentActivity = page.locator("section").filter({ has: page.getByRole("heading", { name: "Recent activity" }) });
+    await expect(recentActivity).not.toContainText(/2026-07-\d{2}T/);
+
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page).toHaveURL(/\/operator\?view=scanner#health$/);
+    await expect(page.locator("#health")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Also on Overview" })).toBeVisible();
+    await page.getByRole("link", { name: "Also on Overview" }).click();
+    await page.getByRole("link", { name: "Collection records", exact: true }).click();
+    await expect(page).toHaveURL(/\/operator\?view=scanner&section=collection#collection-health$/);
+    await expect(page.locator("#collection-health")).toBeVisible();
+    await page.reload();
+    await expect(page.locator("#collection-health")).toBeVisible();
+    await expectHealthyPage(page, problems);
+  });
+
   test("overview distinguishes unavailable automation history from an empty history", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     const armed = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/automation-admin-history-unavailable`);
@@ -62,6 +95,102 @@ test.describe("operator workspace flows", () => {
     await expect(page.getByRole("heading", { name: "Recent activity unavailable" })).toBeVisible();
     await expect(page.getByText("The automation history read failed. Reload to try again.")).toBeVisible();
     await expect(page.getByRole("heading", { name: "No recent activity recorded" })).toHaveCount(0);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("Overview and Scanner retain cadence and cap state after ten recent skip records", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const fixtureNow = Date.parse(process.env.PLAYWRIGHT_NOW ?? "2026-07-20T00:10:00.000Z");
+    const startedAt = new Date(fixtureNow - 12 * 3_600_000).toISOString();
+    const finishedAt = new Date(fixtureNow - 12 * 3_600_000 + 120_000).toISOString();
+    const settings = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
+      data: { key: "scanner", value: { paused: false, minIntervalMinutes: 1440, monthlyTavilyCreditCap: 2 } },
+    });
+    expect(settings.ok()).toBe(true);
+    const changed = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?id=eq.run-1`, {
+      data: { started_at: startedAt, finished_at: finishedAt, mode: "scheduled", skips: ["tavily_credit_cap"] },
+    });
+    expect(changed.ok()).toBe(true);
+    const realRun = (await changed.json())[0];
+    const inserted = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: Array.from({ length: 10 }, (_, index) => ({
+        ...realRun,
+        id: `cadence-skip-${index}`,
+        mode: "scheduled",
+        status: "skipped",
+        search_queries_used: 0,
+        estimated_cost_usd: 0,
+        started_at: new Date(fixtureNow - (index + 1) * 3_600_000).toISOString(),
+        finished_at: new Date(fixtureNow - (index + 1) * 3_600_000).toISOString(),
+        skips: ["recent_run"],
+      })),
+    });
+    expect(inserted.ok()).toBe(true);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health").getByText("in 12h", { exact: true })).toBeVisible();
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("CAPPED");
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health")).toContainText("Next eligible attempt: in 12h");
+    await expect(page.locator("#health .workspace-badge")).toHaveText("CAPPED");
+    await expect(page.getByText("Scan history and diagnostics · newest 10", { exact: true })).toBeVisible();
+    const recovered = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
+      data: { key: "scanner", value: { paused: false, minIntervalMinutes: 1440, monthlyTavilyCreditCap: 3 } },
+    });
+    expect(recovered.ok()).toBe(true);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("ACTIVE");
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health .workspace-badge")).toHaveText("ACTIVE");
+    await expectHealthyPage(page, problems);
+  });
+
+  test("Overview and Scanner distinguish latest completion from latest start", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const now = Date.parse(process.env.PLAYWRIGHT_NOW ?? "2026-07-20T00:10:00.000Z");
+    const changed = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?id=eq.run-1`, {
+      data: { started_at: new Date(now - 30 * 60_000).toISOString(), finished_at: new Date(now - 60_000).toISOString(), status: "success", skips: [] },
+    });
+    expect(changed.ok()).toBe(true);
+    const [earlierRun] = await changed.json();
+    const inserted = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: { ...earlierRun, id: "later-started-overlap", started_at: new Date(now - 10 * 60_000).toISOString(), finished_at: new Date(now - 5 * 60_000).toISOString(), search_queries_used: 0, estimated_cost_usd: 0 },
+    });
+    expect(inserted.ok()).toBe(true);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health").getByText("1m ago", { exact: true })).toBeVisible();
+    await expect(page.locator(".workspace-overview-health").getByText("in 50m", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health")).toContainText("Latest completed run: 1m ago");
+    await expect(page.locator("#health")).toContainText("Next eligible attempt: in 50m");
+    await expectHealthyPage(page, problems);
+  });
+
+  test("Overview and Scanner clear a historical AI cap after the limit increases", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const settings = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
+      data: { key: "scanner", value: { paused: false, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 0.05 } },
+    });
+    expect(settings.ok()).toBe(true);
+    const changed = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?id=eq.run-1`, {
+      data: { status: "partial", search_queries_used: 2, estimated_cost_usd: 0.116, llm_calls_used: 1, skips: ["llm_budget_capped"], progress: { llmSucceeded: 0, llmCostUsd: 0.1 } },
+    });
+    expect(changed.ok()).toBe(true);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("AI LIMITED");
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health .workspace-badge")).toHaveText("AI LIMITED");
+
+    const raised = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
+      data: { key: "scanner", value: { paused: false, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 0.25 } },
+    });
+    expect(raised.ok()).toBe(true);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("ACTIVE");
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health .workspace-badge")).toHaveText("ACTIVE");
     await expectHealthyPage(page, problems);
   });
 

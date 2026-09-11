@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { resolveLoginReturn } from "@/lib/loginReturn";
 
 describe("resolveLoginReturn", () => {
+  it("restores only the recognized scanner collection section", () => {
+    expect(resolveLoginReturn("/operator?view=scanner&section=collection")).toBe("/operator?view=scanner&section=collection#collection-health");
+    expect(resolveLoginReturn("/operator?view=scanner&section=collection&section=other")).toBe("/operator?view=scanner");
+    expect(resolveLoginReturn("/operator?view=reports&section=collection")).toBe("/operator?view=reports");
+    expect(resolveLoginReturn("/operator?view=scanner&section=https://evil.example")).toBe("/operator?view=scanner");
+  });
   it("restores an exact workspace destination while dropping unrelated redirect parameters", () => {
     expect(resolveLoginReturn("/operator?view=claims&item=claim-1")).toBe("/operator?view=claims&item=claim-1");
     expect(resolveLoginReturn("/operator?view=dossiers&run=run-1&redirect=https://evil.example")).toBe("/operator?view=dossiers&run=run-1");

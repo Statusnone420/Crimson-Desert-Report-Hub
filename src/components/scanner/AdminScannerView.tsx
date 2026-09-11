@@ -8,8 +8,9 @@ import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { platformContextConfigured, steamPulseEnabled, type IntegrationStatus } from "@/lib/env";
 import { collectionHealth } from "@/lib/collectionHealth";
-import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
+import { formatEasternDateTime, formatRelativeOperatorTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
+import { scannerScheduleStatus } from "@/lib/scannerScheduleStatus";
 import type { AutomationControlState } from "@/lib/automation/settings";
 import { displayCandidateCount, radarYieldPct } from "@/lib/observatoryMetrics";
 import type {
@@ -38,24 +39,6 @@ function cadenceLabel(minutes: number): string {
 function projectedMonthlyCredits(control: AutomationControlState): number {
   if (control.paused) return 0;
   return Math.ceil((30 * 24 * 60 * control.scheduledSearchCreditsPerRun) / control.minIntervalMinutes);
-}
-
-function runHasCapSkip(run: { status: string; skips: string[] } | null): boolean {
-  return Boolean(
-    run?.status === "skipped" &&
-      run.skips.some((skip) => skip.includes("tavily_credit_cap") || skip.includes("llm_budget_capped")),
-  );
-}
-
-function scannerStatus(
-  control: AutomationControlState,
-  activeRun: { id: string } | null,
-  lastScheduled: { status: string; skips: string[] } | null,
-): { label: string; toneClass: string } {
-  if (activeRun) return { label: "RUNNING", toneClass: "is-amber" };
-  if (control.paused) return { label: "PAUSED", toneClass: "is-amber" };
-  if (runHasCapSkip(lastScheduled)) return { label: "CAPPED", toneClass: "is-crimson" };
-  return { label: "ACTIVE", toneClass: "is-green" };
 }
 
 function aiCostLabel(run: AutomationRunRow): string {
@@ -346,14 +329,17 @@ export function AdminScannerView({
   feedbackRules,
   feedbackLearningAvailable,
   control,
+  budgetCapped,
   activeRun,
   latestRealRun,
+  latestCompletedRun,
   latestFind,
   scoreboard,
   radar,
   integrations,
   nowIso,
   aiHealth: suppliedAiHealth,
+  collectionExpanded = false,
 }: {
   runs: AutomationRunRow[];
   signals: AdminSignalRow[];
@@ -365,26 +351,32 @@ export function AdminScannerView({
   feedbackRules: ScannerFeedbackRuleRow[];
   feedbackLearningAvailable: boolean;
   control: AutomationControlState;
+  budgetCapped: boolean;
   activeRun: { id: string } | null;
   latestRealRun: AutomationRunRow | null;
+  latestCompletedRun: AutomationRunRow | null;
   latestFind: AutomationRunRow | null;
   scoreboard: PublicScannerData;
   radar: PatchRadarData;
   integrations: IntegrationStatus[];
   nowIso: string;
   aiHealth?: ScannerAiHealth;
+  collectionExpanded?: boolean;
 }) {
   const now = new Date(nowIso);
   const nowMs = now.getTime();
-  const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
-  const nextEligible = nextEligibleScheduledScanAt(runs, now, control.minIntervalMinutes);
-  const aiHealth = suppliedAiHealth ?? scannerAiHealth(runs, control);
+  const nextEligible = nextEligibleScheduledScanAt(latestRealRun ? [...runs, latestRealRun] : runs, now, control.minIntervalMinutes);
+  const aiHealth = suppliedAiHealth ?? scannerAiHealth(runs, {
+    ...control,
+    llmBudgetCapped: budgetCapped ? undefined : false,
+  });
   const aiNeedsAttention = aiHealth.state === "unavailable" || aiHealth.state === "limited";
   const status = aiNeedsAttention
     ? { label: aiHealth.state === "unavailable" ? "AI UNAVAILABLE" : "AI LIMITED", toneClass: "is-amber" }
-    : scannerStatus(control, activeRun, lastScheduled);
+    : scannerScheduleStatus(control, activeRun, budgetCapped);
   const projectedCredits = projectedMonthlyCredits(control);
-  const latestRun = latestRealRun;
+  const latestRun = latestCompletedRun;
+  const completedAt = latestRun ? latestRun.finished_at ?? latestRun.started_at : null;
   const optionalCandidates = rejectedCandidates.filter(
     (candidate) => !candidate.rescued_at && !candidate.decision_id && !candidate.feedback_rule_id,
   );
@@ -449,8 +441,16 @@ export function AdminScannerView({
         attention={attention}
         scannerStatus={status.label}
         scannerStatusTone={status.toneClass === "is-green" ? "workspace-badge--green" : "workspace-badge--amber"}
-        nextAttempt={control.paused ? "Paused" : relativeTime(nextEligible.toISOString(), nowMs)}
-        latestRun={latestRun ? relativeTime(latestRun.started_at, nowMs) : null}
+        nextAttempt={
+          control.paused
+            ? "Paused"
+            : `${formatRelativeOperatorTime(nextEligible.toISOString(), nowMs)} · ${formatEasternDateTime(nextEligible.toISOString())}`
+        }
+        latestRun={
+          completedAt
+            ? `${formatRelativeOperatorTime(completedAt, nowMs)} · ${formatEasternDateTime(completedAt)}`
+            : null
+        }
         radarAvailable={radar.connected}
         screened7d={radar.funnel7d.reviewed}
         retained7d={radar.funnel7d.kept}
@@ -458,13 +458,13 @@ export function AdminScannerView({
         dateCoverage={radar.connected ? radar.dateCoverage : null}
       />
 
-      <details className="workspace-panel scanner-workspace__telemetry">
+      <details className="workspace-panel scanner-workspace__telemetry" open={collectionExpanded}>
         <summary>Detailed scanner telemetry</summary>
         <div className="workspace-panel-body">
       <div className="op-status-line">
         <span className={status.toneClass}>● {status.label}</span>
         {" · "}
-        {latestRun ? `LAST SCAN ${relativeTime(latestRun.started_at, nowMs)}` : "NO COMPLETED SCAN YET"}
+        {completedAt ? `LAST SCAN ${relativeTime(completedAt, nowMs)}` : "NO COMPLETED SCAN YET"}
         {" · "}
         {control.paused ? "NEXT CHECK PAUSED" : `NEXT CHECK ${relativeTime(nextEligible.toISOString(), nowMs)}`}
         {latestFind ? ` · MOST RECENT KEPT LEAD ${relativeTime(latestFind.started_at, nowMs)}` : ""}

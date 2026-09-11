@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { formatEasternDateTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
+import { formatEasternDateTime, formatRelativeOperatorTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 
 describe("source monitor run display", () => {
   it("formats persisted UTC run times as explicit Eastern time", () => {
     expect(formatEasternDateTime("2026-07-06T03:28:37.000Z")).toBe("Jul 5, 2026, 11:28:37 PM EDT");
+  });
+
+  it("labels past and future operator times relative to now", () => {
+    const nowMs = Date.parse("2026-09-11T18:00:00.000Z");
+    expect(formatRelativeOperatorTime("2026-09-11T17:30:00.000Z", nowMs)).toBe("30m ago");
+    expect(formatRelativeOperatorTime("2026-09-11T18:30:00.000Z", nowMs)).toBe("in 30m");
+    expect(formatRelativeOperatorTime(null, nowMs)).toBe("not scheduled");
+  });
+
+  it("does not round a future second into a whole minute", () => {
+    const nowMs = Date.parse("2026-09-11T18:00:00.000Z");
+    expect(formatRelativeOperatorTime("2026-09-11T18:00:01.000Z", nowMs)).toBe("in less than a minute");
+    expect(formatRelativeOperatorTime("2026-09-11T18:00:59.000Z", nowMs)).toBe("in less than a minute");
+    expect(formatRelativeOperatorTime("2026-09-11T17:59:59.000Z", nowMs)).toBe("just now");
   });
 
   it("groups raw skip codes into operator-readable summaries", () => {

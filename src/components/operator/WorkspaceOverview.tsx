@@ -23,6 +23,7 @@ export type WorkspaceActivityRow = {
   title: string;
   detail: string;
   occurredAt: string | null;
+  href?: string;
   view?: WorkspaceDecisionView;
 };
 
@@ -90,6 +91,22 @@ export function WorkspaceOverview({
         </div>
       </header>
 
+      <section
+        className="workspace-panel workspace-overview-health"
+        aria-labelledby="scanner-health-title"
+      >
+        <div className="workspace-panel-header">
+          <div>
+            <h2 id="scanner-health-title">Scanner health</h2>
+            <p>Last completed run, next eligible attempt, provider status, and screening totals.</p>
+          </div>
+          <a className="workspace-button" href={`${workspaceHref("scanner")}#health`}>
+            Open diagnostics
+          </a>
+        </div>
+        <div className="workspace-panel-body">{health}</div>
+      </section>
+
       <div className="workspace-overview-grid">
         <section
           className="workspace-panel"
@@ -101,7 +118,9 @@ export function WorkspaceOverview({
               <p>
                 {decisionStatusUnknown
                   ? "Some queues could not be read. Available decisions are shown below."
-                  : `Showing ${visibleDecisions.length} of ${knownTotal} pending decisions. Open a queue for its full list.`}
+                  : knownTotal === 0
+                    ? "No pending decisions. The review queues are clear."
+                    : `Showing ${visibleDecisions.length} of ${knownTotal} pending decisions. Open a queue for its full list.`}
               </p>
             </div>
           </div>
@@ -141,22 +160,6 @@ export function WorkspaceOverview({
         </section>
 
         <div className="workspace-overview-rail">
-          <section
-            className="workspace-panel"
-            aria-labelledby="scanner-health-title"
-          >
-            <div className="workspace-panel-header">
-              <div>
-                <h2 id="scanner-health-title">Scanner health</h2>
-                <p>Current stored service and run records.</p>
-              </div>
-              <a className="workspace-button" href={workspaceHref("scanner")}>
-                Open scanner
-              </a>
-            </div>
-            <div className="workspace-panel-body">{health}</div>
-          </section>
-
           <section
             className="workspace-panel"
             aria-labelledby="workspace-availability-title"
@@ -220,11 +223,12 @@ export function WorkspaceOverview({
                   </small>
                 </>
               );
-              return activity.view ? (
+              const href = activity.href ?? (activity.view ? workspaceHref(activity.view) : null);
+              return href ? (
                 <a
                   key={activity.id}
                   className="workspace-queue-item"
-                  href={workspaceHref(activity.view)}
+                  href={href}
                 >
                   {content}
                 </a>

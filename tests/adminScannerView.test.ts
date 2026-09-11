@@ -65,7 +65,7 @@ describe("AdminScannerView", () => {
       control: { paused: false, minIntervalMinutes: 60, scheduledSearchCreditsPerRun: 1, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 1, modelPreset: "gpt_5_6_luna", updatedAt: null },
       // Shared fixture field required when the companion scanner-health PR lands.
       ...{ budgetCapped: false },
-      activeRun: null, latestRealRun: null, latestFind: null,
+      activeRun: null, latestRealRun: null, latestCompletedRun: null, latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "unknown", publishedAt: null }),
       integrations: [], nowIso: "2026-09-11T18:00:00.000Z",
@@ -93,8 +93,10 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -182,8 +184,10 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -233,8 +237,10 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -292,8 +298,10 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -363,8 +371,10 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -427,8 +437,10 @@ describe("AdminScannerView", () => {
           modelPreset: "gpt_5_6_luna",
           updatedAt: null,
         },
+        budgetCapped: false,
         activeRun: null,
         latestRealRun: null,
+        latestCompletedRun: null,
         latestFind: null,
         scoreboard: {
           ...connectedScoreboard,
@@ -609,7 +621,7 @@ describe("AdminScannerView", () => {
       };
     }
 
-    function renderWithRuns(runs: AutomationRunRow[]) {
+    function renderWithRuns(runs: AutomationRunRow[], latestRealRun = runs[0] ?? null, minIntervalMinutes: 60 | 1440 = 60, budgetCapped = false, latestCompletedRun = latestRealRun) {
       return renderToStaticMarkup(createElement(AdminScannerView, {
         runs,
         signals: [],
@@ -621,15 +633,17 @@ describe("AdminScannerView", () => {
         feedbackLearningAvailable: true,
         control: {
           paused: false,
-          minIntervalMinutes: 60,
+          minIntervalMinutes,
           scheduledSearchCreditsPerRun: 1,
           monthlyTavilyCreditCap: 1000,
           monthlyLlmUsdCap: 2,
           modelPreset: "gpt_5_6_luna",
           updatedAt: null,
         },
+        budgetCapped,
         activeRun: null,
-        latestRealRun: runs[0] ?? null,
+        latestRealRun,
+        latestCompletedRun,
         latestFind: null,
         scoreboard: healthyScoreboard,
         radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -637,6 +651,43 @@ describe("AdminScannerView", () => {
         nowIso: "2026-07-22T18:00:00.000Z",
       }));
     }
+
+    it.each(["scheduled", "manual"] as const)("keeps the next attempt accurate when ten skips hide the last %s scan", (mode) => {
+      const realRun = { ...run(0), mode, started_at: "2026-07-22T06:00:00.000Z", finished_at: "2026-07-22T06:02:00.000Z" };
+      const skips = Array.from({ length: 10 }, (_, index) => ({ ...run(index), status: "skipped" as const, skips: ["recent_run"], started_at: new Date(Date.parse("2026-07-22T18:00:00.000Z") - (index + 1) * 3_600_000).toISOString() }));
+      const markup = renderWithRuns(skips, realRun, 1440);
+      expect(markup).toContain("Next eligible attempt: in 12h · Jul 23, 2026, 2:00:00 AM EDT");
+      expect(markup.match(/class="op-history-row"/g)).toHaveLength(10);
+    });
+
+    it("uses the completion instant for the latest-completed-run labels", () => {
+      const realRun = { ...run(0), started_at: "2026-07-22T17:30:00.000Z", finished_at: "2026-07-22T17:32:00.000Z" };
+      expect(renderWithRuns([realRun])).toContain("Latest completed run: 28m ago · Jul 22, 2026, 1:32:00 PM EDT");
+    });
+
+    it("shows the last completion without changing the next attempt after overlapping runs", () => {
+      const latestStart = { ...run(0), started_at: "2026-07-22T17:50:00.000Z", finished_at: "2026-07-22T17:55:00.000Z" };
+      const latestCompletion = { ...run(1), started_at: "2026-07-22T17:30:00.000Z", finished_at: "2026-07-22T17:59:00.000Z" };
+      const markup = renderWithRuns([latestStart, latestCompletion], latestStart, 60, false, latestCompletion);
+      expect(markup).toContain("Latest completed run: 1m ago");
+      expect(markup).toContain("LAST SCAN 1m ago");
+      expect(markup).toContain("Next eligible attempt: in 50m");
+    });
+
+    it("shows the current cap despite newer skips and clears it without a new scan", () => {
+      const realRun = { ...run(0), skips: ["tavily_credit_cap"] };
+      const skips = Array.from({ length: 10 }, (_, index) => ({ ...run(index + 1), status: "skipped" as const, skips: ["recent_run"] }));
+      expect(renderWithRuns(skips, realRun, 60, true)).toContain(">CAPPED</span>");
+      expect(renderWithRuns(skips, realRun, 60, false)).toContain(">ACTIVE</span>");
+    });
+
+    it("does not let a historical AI cap override a verified available budget", () => {
+      const cappedRun = { ...run(0), llm_calls_used: 1, skips: ["llm_budget_capped"] };
+      expect(renderWithRuns([cappedRun], cappedRun, 60, false)).toContain(">ACTIVE</span>");
+      expect(renderWithRuns([cappedRun], cappedRun, 60, true)).toContain(">AI LIMITED</span>");
+      const failedRun = { ...cappedRun, skips: ["openrouter_no_route"] };
+      expect(renderWithRuns([failedRun], failedRun, 60, false)).toContain(">AI UNAVAILABLE</span>");
+    });
 
     it("renders every run the read returned, not a shorter slice of it", () => {
       // The query asks for the newest 10; rendering 8 dropped two reads on the
@@ -646,7 +697,9 @@ describe("AdminScannerView", () => {
 
       expect(markup.match(/class="op-history-row"/g)).toHaveLength(10);
       // The raw-code disclosure was sliced to 8 too, so it lost the same two.
-      expect(markup.match(/Jul \d+, 2026, /g)).toHaveLength(10);
+      // Health summary also prints Eastern times; this count is the disclosure.
+      const rawDiagnostics = markup.slice(markup.indexOf("Raw funnel"));
+      expect(rawDiagnostics.match(/Jul \d+, 2026, /g)).toHaveLength(10);
       expect(markup).toContain("Scan history and diagnostics · newest 10");
     });
 
@@ -721,8 +774,10 @@ describe("AdminScannerView", () => {
           modelPreset: "gpt_5_6_luna",
           updatedAt: null,
         },
+        budgetCapped: false,
         activeRun: null,
         latestRealRun: null,
+        latestCompletedRun: null,
         latestFind: null,
         scoreboard: healthyScoreboard,
         radar: emptyPatchRadarData(overrides.radarPatch ?? observationPatch),
