@@ -325,6 +325,35 @@ export const CATCH_UP_MILESTONES: readonly CatchUpMilestone[] = [
       url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=128",
     },
   },
+  {
+    id: "update-2-02-00",
+    publishedAt: "2026-09-11T05:30:00Z",
+    patch: "2.02.00",
+    kind: "update",
+    title: "Mac cross-save and fixes for progress and storage",
+    summary: "Patch 2.02 adds Mac cross-save. Pearl Abyss also lists fixes for housing, quest progress, missing stored items and a crash when starting a new game.",
+    highlights: [
+      "The notes target housing unlocks at Howling Hill Camp and liberation at Thornbriar Fortress.",
+      "Other listed fixes concern Trade Goods Storage items and the letter in The Words of Alustin.",
+      "The startup crash fix applies to a new game with DLSS Frame Generation enabled.",
+    ],
+    image: {
+      src: "/official/patch-2-02-00.png",
+      alt: "An armored warrior faces a stone gateway breaking apart in official Patch 2.02.00 artwork",
+      width: 923,
+      height: 522,
+    },
+    source: {
+      label: "Pearl Abyss · 2.02.00 patch notes",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=130",
+    },
+    related: [
+      {
+        label: "Read the Patch 2.02.00 report",
+        url: "/articles/patch-2-02-00",
+      },
+    ],
+  },
 ];
 
 export const CATCH_UP_COVERAGE_START = CATCH_UP_MILESTONES[0].publishedAt;
