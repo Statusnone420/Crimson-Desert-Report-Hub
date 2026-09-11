@@ -98,7 +98,7 @@ test.describe("operator workspace flows", () => {
     await expectHealthyPage(page, problems);
   });
 
-  test("Overview and Scanner retain a daily cadence after ten recent skip records", async ({ page }) => {
+  test("Overview and Scanner retain cadence and cap state after ten recent skip records", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     const fixtureNow = Date.parse(process.env.PLAYWRIGHT_NOW ?? "2026-07-20T00:10:00.000Z");
     const startedAt = new Date(fixtureNow - 12 * 3_600_000).toISOString();
@@ -108,7 +108,7 @@ test.describe("operator workspace flows", () => {
     });
     expect(settings.ok()).toBe(true);
     const changed = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?id=eq.run-1`, {
-      data: { started_at: startedAt, finished_at: finishedAt },
+      data: { started_at: startedAt, finished_at: finishedAt, mode: "scheduled", skips: ["tavily_credit_cap"] },
     });
     expect(changed.ok()).toBe(true);
     const realRun = (await changed.json())[0];
@@ -127,9 +127,19 @@ test.describe("operator workspace flows", () => {
     await signInAsAdmin(page);
     await page.goto("/operator");
     await expect(page.locator(".workspace-overview-health").getByText("in 12h", { exact: true })).toBeVisible();
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("CAPPED");
     await page.getByRole("link", { name: "Open diagnostics" }).click();
     await expect(page.locator("#health")).toContainText("Next eligible attempt: in 12h");
+    await expect(page.locator("#health .workspace-badge")).toHaveText("CAPPED");
     await expect(page.getByText("Scan history and diagnostics · newest 10", { exact: true })).toBeVisible();
+    const recovered = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: { ...realRun, id: "uncapped-completed-run", skips: [], started_at: new Date(fixtureNow - 30 * 60_000).toISOString(), finished_at: new Date(fixtureNow - 28 * 60_000).toISOString() },
+    });
+    expect(recovered.ok()).toBe(true);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("ACTIVE");
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health .workspace-badge")).toHaveText("ACTIVE");
     await expectHealthyPage(page, problems);
   });
 

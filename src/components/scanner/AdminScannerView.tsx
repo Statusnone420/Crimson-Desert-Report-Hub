@@ -374,7 +374,7 @@ export function AdminScannerView({
   const aiNeedsAttention = aiHealth.state === "unavailable" || aiHealth.state === "limited";
   const status = aiNeedsAttention
     ? { label: aiHealth.state === "unavailable" ? "AI UNAVAILABLE" : "AI LIMITED", toneClass: "is-amber" }
-    : scannerStatus(control, activeRun, lastScheduled);
+    : scannerStatus(control, activeRun, latestRealRun ?? lastScheduled);
   const projectedCredits = projectedMonthlyCredits(control);
   const latestRun = latestRealRun;
   const completedAt = latestRun ? latestRun.finished_at ?? latestRun.started_at : null;

@@ -634,6 +634,12 @@ describe("AdminScannerView", () => {
       expect(renderWithRuns([realRun])).toContain("Latest completed run: 28m ago · Jul 22, 2026, 1:32:00 PM EDT");
     });
 
+    it("keeps a completed cap visible when ten newer attempts only record recent-run skips", () => {
+      const realRun = { ...run(0), skips: ["tavily_credit_cap"] };
+      const skips = Array.from({ length: 10 }, (_, index) => ({ ...run(index + 1), status: "skipped" as const, skips: ["recent_run"] }));
+      expect(renderWithRuns(skips, realRun)).toContain(">CAPPED</span>");
+    });
+
     it("renders every run the read returned, not a shorter slice of it", () => {
       // The query asks for the newest 10; rendering 8 dropped two reads on the
       // floor and the page said nothing about it.

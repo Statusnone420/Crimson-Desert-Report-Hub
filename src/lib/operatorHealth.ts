@@ -39,7 +39,7 @@ export type OverviewScannerHealthInput = {
   activeRun: { id: string } | null;
   runs: RecentRunLike[];
   lastScheduled: { status: string; skips: string[] } | null;
-  latestRealRun: RecentRunLike & { started_at: string; finished_at: string | null } | null;
+  latestRealRun: RecentRunLike & { started_at: string; finished_at: string | null; skips: string[] } | null;
   radarHealth: {
     lastScanAt: string | null;
     nextEligibleAt: string | null;
@@ -90,7 +90,7 @@ function scheduleStatus(input: OverviewScannerHealthInput): {
       tone: "amber",
     };
   }
-  return scannerScheduleStatus(input.control, input.activeRun, input.lastScheduled);
+  return scannerScheduleStatus(input.control, input.activeRun, input.latestRealRun ?? input.lastScheduled);
 }
 
 function lastCompletedRun(input: OverviewScannerHealthInput, nowMs: number): OverviewHealthFact {
