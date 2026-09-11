@@ -145,7 +145,7 @@ export default async function OperatorPage({
     control: admin?.control ?? null,
     activeRun: admin?.activeRun ?? null,
     runs: admin?.runs ?? [],
-    lastScheduled: admin?.runs.find((run) => run.mode === "scheduled") ?? null,
+    budgetCapped: admin?.budgetCapped ?? null,
     latestRealRun: admin?.latestRealRun ?? null,
     radarHealth: radar
       ? {

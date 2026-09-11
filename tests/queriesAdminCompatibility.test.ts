@@ -46,6 +46,11 @@ class FakeQuery {
     return this;
   }
 
+  gte(column: string, value: unknown) {
+    this.trace.operations.push(`gte:${column}:${String(value)}`);
+    return this;
+  }
+
   is(column: string, value: unknown) {
     this.trace.operations.push(`is:${column}:${String(value)}`);
     return this;
@@ -176,6 +181,11 @@ describe("getAutomationAdminData rolling migration compatibility", () => {
   // action inbox with nothing in it — "no scanner work" read off a broken
   // connection. They belong in the error boundary instead.
   const swallowedReads: { name: string; matches: (trace: QueryTrace) => boolean; message: string }[] = [
+    {
+      name: "current-month budget",
+      matches: (trace) => trace.columns === "estimated_cost_usd, search_queries_used, skips, started_at",
+      message: "automation spend read failed",
+    },
     {
       name: "source-signal window",
       matches: (trace) => trace.table === "source_signals",

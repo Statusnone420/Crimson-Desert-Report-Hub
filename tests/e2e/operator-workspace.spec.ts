@@ -104,7 +104,7 @@ test.describe("operator workspace flows", () => {
     const startedAt = new Date(fixtureNow - 12 * 3_600_000).toISOString();
     const finishedAt = new Date(fixtureNow - 12 * 3_600_000 + 120_000).toISOString();
     const settings = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
-      data: { key: "scanner", value: { paused: false, minIntervalMinutes: 1440 } },
+      data: { key: "scanner", value: { paused: false, minIntervalMinutes: 1440, monthlyTavilyCreditCap: 2 } },
     });
     expect(settings.ok()).toBe(true);
     const changed = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?id=eq.run-1`, {
@@ -118,6 +118,8 @@ test.describe("operator workspace flows", () => {
         id: `cadence-skip-${index}`,
         mode: "scheduled",
         status: "skipped",
+        search_queries_used: 0,
+        estimated_cost_usd: 0,
         started_at: new Date(fixtureNow - (index + 1) * 3_600_000).toISOString(),
         finished_at: new Date(fixtureNow - (index + 1) * 3_600_000).toISOString(),
         skips: ["recent_run"],
@@ -132,8 +134,8 @@ test.describe("operator workspace flows", () => {
     await expect(page.locator("#health")).toContainText("Next eligible attempt: in 12h");
     await expect(page.locator("#health .workspace-badge")).toHaveText("CAPPED");
     await expect(page.getByText("Scan history and diagnostics · newest 10", { exact: true })).toBeVisible();
-    const recovered = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
-      data: { ...realRun, id: "uncapped-completed-run", skips: [], started_at: new Date(fixtureNow - 30 * 60_000).toISOString(), finished_at: new Date(fixtureNow - 28 * 60_000).toISOString() },
+    const recovered = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
+      data: { key: "scanner", value: { paused: false, minIntervalMinutes: 1440, monthlyTavilyCreditCap: 3 } },
     });
     expect(recovered.ok()).toBe(true);
     await page.goto("/operator");

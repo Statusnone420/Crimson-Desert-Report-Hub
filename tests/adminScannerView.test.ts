@@ -76,6 +76,7 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
@@ -165,6 +166,7 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
@@ -216,6 +218,7 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
@@ -275,6 +278,7 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
@@ -346,6 +350,7 @@ describe("AdminScannerView", () => {
         modelPreset: "gpt_5_6_luna",
         updatedAt: null,
       },
+      budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
       latestFind: null,
@@ -410,6 +415,7 @@ describe("AdminScannerView", () => {
           modelPreset: "gpt_5_6_luna",
           updatedAt: null,
         },
+        budgetCapped: false,
         activeRun: null,
         latestRealRun: null,
         latestFind: null,
@@ -592,7 +598,7 @@ describe("AdminScannerView", () => {
       };
     }
 
-    function renderWithRuns(runs: AutomationRunRow[], latestRealRun = runs[0] ?? null, minIntervalMinutes: 60 | 1440 = 60) {
+    function renderWithRuns(runs: AutomationRunRow[], latestRealRun = runs[0] ?? null, minIntervalMinutes: 60 | 1440 = 60, budgetCapped = false) {
       return renderToStaticMarkup(createElement(AdminScannerView, {
         runs,
         signals: [],
@@ -611,6 +617,7 @@ describe("AdminScannerView", () => {
           modelPreset: "gpt_5_6_luna",
           updatedAt: null,
         },
+        budgetCapped,
         activeRun: null,
         latestRealRun,
         latestFind: null,
@@ -634,10 +641,11 @@ describe("AdminScannerView", () => {
       expect(renderWithRuns([realRun])).toContain("Latest completed run: 28m ago · Jul 22, 2026, 1:32:00 PM EDT");
     });
 
-    it("keeps a completed cap visible when ten newer attempts only record recent-run skips", () => {
+    it("shows the current cap despite newer skips and clears it without a new scan", () => {
       const realRun = { ...run(0), skips: ["tavily_credit_cap"] };
       const skips = Array.from({ length: 10 }, (_, index) => ({ ...run(index + 1), status: "skipped" as const, skips: ["recent_run"] }));
-      expect(renderWithRuns(skips, realRun)).toContain(">CAPPED</span>");
+      expect(renderWithRuns(skips, realRun, 60, true)).toContain(">CAPPED</span>");
+      expect(renderWithRuns(skips, realRun, 60, false)).toContain(">ACTIVE</span>");
     });
 
     it("renders every run the read returned, not a shorter slice of it", () => {
@@ -725,6 +733,7 @@ describe("AdminScannerView", () => {
           modelPreset: "gpt_5_6_luna",
           updatedAt: null,
         },
+        budgetCapped: false,
         activeRun: null,
         latestRealRun: null,
         latestFind: null,

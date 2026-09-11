@@ -40,14 +40,6 @@ function projectedMonthlyCredits(control: AutomationControlState): number {
   return Math.ceil((30 * 24 * 60 * control.scheduledSearchCreditsPerRun) / control.minIntervalMinutes);
 }
 
-function scannerStatus(
-  control: AutomationControlState,
-  activeRun: { id: string } | null,
-  lastScheduled: { status: string; skips: string[] } | null,
-): { label: string; toneClass: string } {
-  return scannerScheduleStatus(control, activeRun, lastScheduled);
-}
-
 function aiCostLabel(run: AutomationRunRow): string {
   const recorded = run.progress?.llmCostUsd;
   const value = typeof recorded === "number" && Number.isFinite(recorded)
@@ -336,6 +328,7 @@ export function AdminScannerView({
   feedbackRules,
   feedbackLearningAvailable,
   control,
+  budgetCapped,
   activeRun,
   latestRealRun,
   latestFind,
@@ -356,6 +349,7 @@ export function AdminScannerView({
   feedbackRules: ScannerFeedbackRuleRow[];
   feedbackLearningAvailable: boolean;
   control: AutomationControlState;
+  budgetCapped: boolean;
   activeRun: { id: string } | null;
   latestRealRun: AutomationRunRow | null;
   latestFind: AutomationRunRow | null;
@@ -368,13 +362,12 @@ export function AdminScannerView({
 }) {
   const now = new Date(nowIso);
   const nowMs = now.getTime();
-  const lastScheduled = runs.find((run) => run.mode === "scheduled") ?? null;
   const nextEligible = nextEligibleScheduledScanAt(latestRealRun ? [...runs, latestRealRun] : runs, now, control.minIntervalMinutes);
   const aiHealth = suppliedAiHealth ?? scannerAiHealth(runs, control);
   const aiNeedsAttention = aiHealth.state === "unavailable" || aiHealth.state === "limited";
   const status = aiNeedsAttention
     ? { label: aiHealth.state === "unavailable" ? "AI UNAVAILABLE" : "AI LIMITED", toneClass: "is-amber" }
-    : scannerStatus(control, activeRun, latestRealRun ?? lastScheduled);
+    : scannerScheduleStatus(control, activeRun, budgetCapped);
   const projectedCredits = projectedMonthlyCredits(control);
   const latestRun = latestRealRun;
   const completedAt = latestRun ? latestRun.finished_at ?? latestRun.started_at : null;

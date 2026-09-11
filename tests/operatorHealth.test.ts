@@ -39,8 +39,8 @@ function input(overrides: Partial<OverviewScannerHealthInput> = {}): OverviewSca
     control: { paused: false, minIntervalMinutes: 60 },
     activeRun: null,
     runs: [{ mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z" }],
-    lastScheduled: { status: "success", skips: [] },
-    latestRealRun: { mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z", finished_at: "2026-09-11T17:32:00.000Z", skips: [] },
+    budgetCapped: false,
+    latestRealRun: { mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z", finished_at: "2026-09-11T17:32:00.000Z" },
     radarHealth: {
       lastScanAt: "2026-09-11T17:30:00.000Z",
       nextEligibleAt: "2026-09-11T18:30:00.000Z",
@@ -57,18 +57,19 @@ function input(overrides: Partial<OverviewScannerHealthInput> = {}): OverviewSca
 }
 
 describe("scannerScheduleStatus", () => {
-  it.each(["success", "partial"])("detects a credit cap on a %s run", (status) => {
-    expect(scannerScheduleStatus({ paused: false }, null, { status, skips: ["tavily_credit_cap"] })).toMatchObject({ label: "CAPPED" });
-  });
-  it("marks a standing schedule active and a credit-cap skip capped", () => {
-    expect(scannerScheduleStatus({ paused: false }, null, { status: "success", skips: [] })).toEqual({
+  it("marks the schedule from the current budget state", () => {
+    expect(scannerScheduleStatus({ paused: false }, null, false)).toEqual({
       label: "ACTIVE",
       tone: "green",
       toneClass: "is-green",
     });
     expect(
-      scannerScheduleStatus({ paused: false }, null, { status: "skipped", skips: ["tavily_credit_cap"] }),
+      scannerScheduleStatus({ paused: false }, null, true),
     ).toMatchObject({ label: "CAPPED", tone: "red" });
+  });
+  it("preserves running and paused priority over a cap", () => {
+    expect(scannerScheduleStatus({ paused: true }, { id: "running" }, true)).toMatchObject({ label: "RUNNING" });
+    expect(scannerScheduleStatus({ paused: true }, null, true)).toMatchObject({ label: "PAUSED" });
   });
 });
 
@@ -81,25 +82,30 @@ describe("retainedLeadShareLabel", () => {
 });
 
 describe("buildOverviewScannerHealth", () => {
-  it.each(["success", "partial"])("keeps a %s credit-cap result visible after scheduling skips", (status) => {
+  it.each(["success", "partial"])("shows a current cap with a %s run and newer scheduling skips", (status) => {
     const current = input();
     const health = buildOverviewScannerHealth({
       ...current,
-      lastScheduled: { status: "skipped", skips: ["recent_run"] },
-      latestRealRun: { ...current.latestRealRun!, status, skips: ["tavily_credit_cap"] },
+      budgetCapped: true,
+      runs: [{ mode: "scheduled", status: "skipped", started_at: "2026-09-11T17:50:00.000Z" }],
+      latestRealRun: { ...current.latestRealRun!, status },
     });
     expect(health.statusLabel).toBe("CAPPED");
   });
 
-  it("clears an older cap when a newer completed run has no cap", () => {
-    const health = buildOverviewScannerHealth(input({ lastScheduled: { status: "success", skips: ["tavily_credit_cap"] } }));
+  it("clears an older cap without requiring another completed run", () => {
+    const cappedRun = { ...input().latestRealRun!, skips: ["tavily_credit_cap"] };
+    const health = buildOverviewScannerHealth(input({ budgetCapped: false, latestRealRun: cappedRun }));
     expect(health.statusLabel).toBe("ACTIVE");
+  });
+  it("leaves an unread current budget unverified", () => {
+    expect(buildOverviewScannerHealth(input({ budgetCapped: null })).statusLabel).toBe("UNVERIFIED");
   });
   it.each(["scheduled", "manual"])("uses the independently read %s scan when ten skips hide it", (mode) => {
     const health = buildOverviewScannerHealth(input({
       control: { paused: false, minIntervalMinutes: 1440 },
       runs: Array.from({ length: 10 }, (_, index) => ({ mode: "scheduled", status: "skipped", started_at: new Date(now.getTime() - (index + 1) * 3_600_000).toISOString() })),
-      latestRealRun: { mode, status: "success", started_at: "2026-09-11T06:00:00.000Z", finished_at: "2026-09-11T06:02:00.000Z", skips: [] },
+      latestRealRun: { mode, status: "success", started_at: "2026-09-11T06:00:00.000Z", finished_at: "2026-09-11T06:02:00.000Z" },
     }));
     expect(health.schedule.find((fact) => fact.id === "next-run")).toMatchObject({ value: "in 12h", detail: "Sep 12, 2026, 2:00:00 AM EDT" });
   });
@@ -186,7 +192,7 @@ describe("buildOverviewScannerHealth", () => {
       adminAvailable: false,
       control: null,
       latestRealRun: null,
-      lastScheduled: null,
+      budgetCapped: null,
       runs: [],
     }));
 

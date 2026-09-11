@@ -8,6 +8,7 @@ import {
 import { unstable_cache } from "next/cache";
 import { countBy, rankClusters } from "@/lib/aggregates";
 import { needsFullIssueCard } from "@/lib/evidence";
+import { readCurrentScannerBudgetCapped } from "@/lib/automation/budgetState.server";
 import { isProviderContextSource } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
@@ -1203,7 +1204,8 @@ export type AdminObservationRow = {
 
 export async function getAutomationAdminData() {
   const supabase = createServiceClient();
-  const nowIso = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
 
   // Every read below surfaces its own failure. A swallowed error here would
   // render as an empty Records band, a green ACTIVE badge, or a clear action
@@ -1287,6 +1289,7 @@ export async function getAutomationAdminData() {
     : [];
 
   const control = await getAutomationControlState(supabase as unknown as AutomationSettingsClient);
+  const budgetCapped = await readCurrentScannerBudgetCapped(supabase, control, now);
 
   const activeRunResult = await supabase
     .from("automation_runs")
@@ -1392,6 +1395,7 @@ export async function getAutomationAdminData() {
     feedbackLearningAvailable,
     feedbackRules,
     control,
+    budgetCapped,
     activeRun: ((activeRunRows ?? []) as { id: string; status: string; mode: string; started_at: string }[])[0] ?? null,
     latestRealRun: ((latestRealRows ?? []) as AutomationRunRow[])[0] ?? null,
     latestFind: ((latestFindRows ?? []) as AutomationRunRow[])[0] ?? null,

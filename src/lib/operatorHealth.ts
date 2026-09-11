@@ -38,8 +38,8 @@ export type OverviewScannerHealthInput = {
   control: { paused: boolean; minIntervalMinutes: number } | null;
   activeRun: { id: string } | null;
   runs: RecentRunLike[];
-  lastScheduled: { status: string; skips: string[] } | null;
-  latestRealRun: RecentRunLike & { started_at: string; finished_at: string | null; skips: string[] } | null;
+  budgetCapped: boolean | null;
+  latestRealRun: RecentRunLike & { started_at: string; finished_at: string | null } | null;
   radarHealth: {
     lastScanAt: string | null;
     nextEligibleAt: string | null;
@@ -81,7 +81,7 @@ function scheduleStatus(input: OverviewScannerHealthInput): {
   label: string;
   tone: "green" | "amber" | "red";
 } {
-  if (!input.adminAvailable || !input.control) {
+  if (!input.adminAvailable || !input.control || input.budgetCapped === null) {
     return { label: "UNVERIFIED", tone: "amber" };
   }
   if (input.aiHealth?.state === "unavailable" || input.aiHealth?.state === "limited") {
@@ -90,7 +90,7 @@ function scheduleStatus(input: OverviewScannerHealthInput): {
       tone: "amber",
     };
   }
-  return scannerScheduleStatus(input.control, input.activeRun, input.latestRealRun ?? input.lastScheduled);
+  return scannerScheduleStatus(input.control, input.activeRun, input.budgetCapped);
 }
 
 function lastCompletedRun(input: OverviewScannerHealthInput, nowMs: number): OverviewHealthFact {

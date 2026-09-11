@@ -47,6 +47,7 @@ export default async function ScannerPage({ searchParams }: { searchParams?: Pro
           feedbackRules={adminData.feedbackRules}
           feedbackLearningAvailable={adminData.feedbackLearningAvailable}
           control={adminData.control}
+          budgetCapped={adminData.budgetCapped}
           activeRun={adminData.activeRun}
           latestRealRun={adminData.latestRealRun}
           latestFind={adminData.latestFind}
