@@ -8,6 +8,7 @@ import {
 import { unstable_cache } from "next/cache";
 import { countBy, rankClusters } from "@/lib/aggregates";
 import { needsFullIssueCard } from "@/lib/evidence";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { isProviderContextSource } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { circuitReadStartIso, llmPausedFromCircuitRead, type CircuitRunRow } from "@/lib/automation/circuit";
@@ -819,10 +820,8 @@ function latestAutomationRunOrNull(result: {
 }
 
 /**
- * One shape for both "this environment has no database" and "the database
- * could not be read". Only the flag differs: an unconfigured preview renders
- * a quiet board on purpose, while a failed read must render as unavailable —
- * fabricated zeros would tell readers the board is quiet when it is blind.
+ * One unavailable shape for missing configuration, unreadable evidence, or an
+ * unverified current patch. Empty arrays here are placeholders, never counts.
  *
  * Official claims and patch facts live in their own tables, independent of
  * the evidence store, so an evidence outage re-reads them through their own
@@ -830,18 +829,19 @@ function latestAutomationRunOrNull(result: {
  * an explicit availability flag keeps that failure distinct from a successful
  * zero-claim read.
  */
-async function dashboardFallbackData(evidenceUnavailable: boolean) {
-  let currentPatch: Awaited<ReturnType<typeof getCurrentPatchMetadata>> | null = null;
+async function dashboardUnavailableData(patchOverride?: Awaited<ReturnType<typeof getCurrentPatchMetadata>>) {
+  let currentPatch: Awaited<ReturnType<typeof getCurrentPatchMetadata>> | null = patchOverride ?? null;
   let claims: Awaited<ReturnType<typeof readDashboardClaims>> = {
     claimedFixes: [],
     claimedFixTotal: null,
     claimsUnavailable: false,
   };
-  if (evidenceUnavailable && hasSupabaseServiceConfig()) {
+  if (hasSupabaseServiceConfig() && !patchOverride) {
     const supabase = createServiceClient();
     currentPatch = await getCurrentPatchMetadata(supabase).catch(() => null);
     claims = await readDashboardClaims(supabase);
   }
+  const resolvedPatch = currentPatch ?? (await getCurrentPatchMetadata());
   return {
     total: 0,
     communitySignals: 0,
@@ -857,25 +857,26 @@ async function dashboardFallbackData(evidenceUnavailable: boolean) {
     latestReportAt: null,
     scanner: { paused: false, updatedAt: null },
     latestAutomationRun: null,
-    currentPatch: currentPatch ?? (await getCurrentPatchMetadata()),
+    currentPatch: resolvedPatch,
     ...claims,
+    claimsUnavailable: claims.claimsUnavailable || !isCurrentPatchVerified(resolvedPatch),
     observations: EMPTY_OBSERVATION_LANES,
     publicFindings: [],
-    evidenceUnavailable,
+    evidenceUnavailable: true,
     // A full evidence outage leaves the lead fields unread too; an
     // unconfigured environment reads neither, deliberately.
-    sourceLeadsUnavailable: evidenceUnavailable,
-    publicLeadsUnavailable: evidenceUnavailable,
+    sourceLeadsUnavailable: true,
+    publicLeadsUnavailable: true,
   };
 }
 
 async function getDashboardDataUncached() {
-  if (!hasSupabaseServiceConfig()) return { ...(await dashboardFallbackData(true)), claimsUnavailable: true };
+  if (!hasSupabaseServiceConfig()) return dashboardUnavailableData();
   try {
     return await readDashboardData();
   } catch (error) {
     console.error("[dashboard] evidence read failed; rendering the unavailable state, not zeros", error);
-    return dashboardFallbackData(true);
+    return dashboardUnavailableData();
   }
 }
 
@@ -899,6 +900,8 @@ async function readDashboardClaims(supabase: ReturnType<typeof createServiceClie
 
 async function readDashboardData() {
   const supabase = createServiceClient();
+  const currentPatch = await getCurrentPatchMetadata(supabase);
+  if (!isCurrentPatchVerified(currentPatch)) return dashboardUnavailableData(currentPatch);
 
   const rows = requireRows(
     "approved reports",
@@ -947,7 +950,7 @@ async function readDashboardData() {
   }
   const pendingCount = pendingRes.error ? null : pendingRes.count ?? 0;
 
-  const [scanner, latestAutomation, currentPatch, claims] = await Promise.all([
+  const [scanner, latestAutomation, claims] = await Promise.all([
     // Scanner configuration is provider context: its failure degrades to the
     // neutral control state (logged) instead of blanking the evidence board.
     getAutomationControlState(supabase as unknown as AutomationSettingsClient).catch((error: unknown) => {
@@ -963,7 +966,6 @@ async function readDashboardData() {
       .in("status", ["success", "partial", "failed"])
       .order("started_at", { ascending: false })
       .limit(1),
-    getCurrentPatchMetadata(supabase),
     readDashboardClaims(supabase),
   ]);
   // Candidate counts read the same lead register; their failure folds into
@@ -1048,7 +1050,7 @@ async function readDashboardData() {
   };
 }
 
-export const getDashboardData = unstable_cache(getDashboardDataUncached, ["dashboard-data"], {
+export const getDashboardData = unstable_cache(getDashboardDataUncached, ["dashboard-data", "patch-availability-v1"], {
   revalidate: 300,
   tags: [PUBLIC_DASHBOARD_TAG],
 });
@@ -1065,6 +1067,17 @@ async function getIssuesDataUncached() {
   }
 
   const supabase = createServiceClient();
+
+  const currentPatch = await getCurrentPatchMetadata(supabase);
+  if (!isCurrentPatchVerified(currentPatch)) {
+    return {
+      clusters: [] as DecoratedCluster[],
+      excerptsByCluster: {} as Record<string, { text: string; platform: string }[]>,
+      signalsByCluster: {} as Record<string, SignalRow[]>,
+      currentPatch,
+      boardReadFailed: true,
+    };
+  }
 
   // These three reads have always degraded to an empty board rather than
   // throwing, and changing that would alter how /issues and the homepage
@@ -1088,7 +1101,6 @@ async function getIssuesDataUncached() {
     .eq("public_status", "public")
     .order("observed_at", { ascending: false });
   const boardReadFailed = Boolean(clusterError || reportsError || signalsError);
-  const currentPatch = await getCurrentPatchMetadata(supabase);
   const signalRows = filterPublicCurrentPatchSignals((signals ?? []) as SignalRow[], currentPatch);
   const currentReportRows = filterPatchFamilyReports(reportRows, currentPatch);
   const publicClusters = (clusterData ?? []) as ClusterRow[];
@@ -1326,7 +1338,7 @@ export async function getAutomationAdminData() {
   // The decision join doubles as the schema probe — a missing observation_id
   // column means the moderation migration has not been applied yet.
   const currentPatch = await getCurrentPatchMetadata(supabase);
-  const observationRowsResult = await supabase
+  const observationRowsResult = !isCurrentPatchVerified(currentPatch) ? { data: [], error: null } : await supabase
     .from("patch_observations")
     .select("id, kind, title, url, source_domain, snippet, source_published_at, created_at, observed_at, seen_count, is_public")
     .eq("patch_version", currentPatch.version)
@@ -1692,6 +1704,7 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     let awaiting = 0;
     try {
       const currentPatch = await getCurrentPatchMetadata(supabase);
+      if (!isCurrentPatchVerified(currentPatch)) throw new Error("current patch unavailable");
       const publicSignalClusters = await getPublicSignalClusterIdsForCurrentPatch(supabase, currentPatch);
       const privateSignalClusters = new Set(
         Object.keys(await getCandidateSignalCountsByCluster(supabase, currentPatch)),

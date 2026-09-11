@@ -1,5 +1,3 @@
-export const CURRENT_PATCH = "1.13.01";
-
 export const PLATFORMS = [
   "pc_steam",
   "ps5",

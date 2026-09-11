@@ -21,7 +21,7 @@ export async function generateMetadata(_props: object, parent: ResolvingMetadata
 
 export const dynamic = "force-dynamic";
 
-// One route, two audiences. isAdmin() is a non-throwing boolean check (unlike
+// One implementation, two audiences. isAdmin() is a non-throwing boolean check (unlike
 // requireAdmin(), which redirects), so anonymous visitors render the public
 // transparency view instead of being bounced to the login page.
 export default async function ScannerPage() {

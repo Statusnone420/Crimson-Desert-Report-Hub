@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -21,12 +22,7 @@ vi.mock("@/lib/supabase", () => ({
   hasSupabaseServiceConfig: () => true,
 }));
 vi.mock("@/lib/officialPatch.server", () => ({
-  getCurrentPatchMetadata: async () => ({
-    version: "1.13.01",
-    publishedAt: "2026-07-08T05:51:00.000Z",
-    title: "Hotfix 1.13.01",
-    sourceUrl: null,
-  }),
+  getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
 }));
 vi.mock("@/lib/automation/settings", () => ({
   getAutomationControlState: async () => ({ paused: false, updatedAt: null, minIntervalMinutes: 60 }),
@@ -43,8 +39,18 @@ function stubQuery(result: { data: unknown[] | null; error: { message: string } 
 
 describe("radar under failed evidence counts", () => {
   beforeEach(() => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z", source: "official" });
     mocks.from.mockReset();
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("does not publish patch-scoped radar counts without a verified current patch", async () => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "unknown", publishedAt: null, source: "fallback" });
+    const { getPatchRadarData } = await import("@/lib/radar.server");
+    const radar = await getPatchRadarData();
+    expect(radar.connected).toBe(false);
+    expect(radar.evidence).toBeNull();
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
   it("stays connected with evidence null when only the count reads fail", async () => {

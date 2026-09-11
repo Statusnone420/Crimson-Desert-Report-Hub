@@ -5,9 +5,10 @@ import { OPERATOR_VIEWS, workspaceHref, type OperatorView } from "@/lib/operator
  * so the value is attacker-suppliable; anything outside this exact list falls
  * back to the console home rather than turning sign-in into an open redirect.
  */
-const RETURN_TARGETS = ["/admin", "/admin/compile", "/admin/videos", "/scanner", "/operator"] as const;
+const RETURN_TARGETS = ["/admin", "/admin/compile", "/admin/videos", "/operator"] as const;
 
 export function resolveLoginReturn(from: string | null | undefined): string {
+  if (from === "/scanner") return workspaceHref("scanner");
   if (from?.startsWith("/operator?")) {
     const query = new URLSearchParams(from.slice("/operator?".length));
     const view = query.get("view");

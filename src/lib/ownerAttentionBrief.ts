@@ -3,6 +3,7 @@ import "server-only";
 import { isMissingSupabaseRpc } from "@/lib/supabaseCompatibility";
 import type { createServiceClient } from "@/lib/supabase";
 import { isVideoReviewSchemaMissing } from "@/lib/videoReviewStore";
+import { workspaceHref } from "@/lib/operatorWorkspace";
 
 export const OWNER_ATTENTION_BRIEF_QUERY = "select public.owner_attention_brief();";
 
@@ -32,7 +33,7 @@ export type OwnerAttentionBrief = {
     unsureClaimMatches: number;
     needsYou: number;
     reportQueuePath: "/admin";
-    scannerQueuePath: "/scanner";
+    scannerQueuePath: "/operator?view=scanner";
     claimReviewPath?: "/operator?view=claims";
   } | null;
 };
@@ -95,6 +96,14 @@ export function parseOwnerAttentionBrief(value: unknown, observedAt = new Date()
       videoInbox: null,
       adminAttention: null,
     };
+  }
+  // A rolling deployment can still read the old stored function's link.
+  // Normalize only that exact legacy address and preserve the private payload.
+  if (typeof adminAttention === "object" && !Array.isArray(adminAttention) && (adminAttention as Record<string, unknown>).scannerQueuePath === "/scanner") {
+    return {
+      ...record,
+      adminAttention: { ...adminAttention, scannerQueuePath: workspaceHref("scanner") },
+    } as OwnerAttentionBrief;
   }
   return value as OwnerAttentionBrief;
 }

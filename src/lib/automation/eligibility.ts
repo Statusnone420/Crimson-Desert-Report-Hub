@@ -1,4 +1,3 @@
-import { CURRENT_PATCH } from "@/lib/constants";
 import { belongsToPatchFamily } from "@/lib/patchWatch";
 
 export type CurrentPatchContext = {
@@ -52,7 +51,7 @@ export function explicitPatchVersions(text: string): string[] {
   return [...new Set(versions)];
 }
 
-export function mentionsOnlyOtherPatch(text: string, currentPatchVersion = CURRENT_PATCH): boolean {
+export function mentionsOnlyOtherPatch(text: string, currentPatchVersion: string): boolean {
   const versions = explicitPatchVersions(text);
   if (versions.length === 0) return false;
   return versions.every((version) => !belongsToPatchFamily(version, currentPatchVersion));

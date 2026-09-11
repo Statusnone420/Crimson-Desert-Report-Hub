@@ -3,10 +3,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { unstable_cache } from "next/cache";
 import { CURRENT_PATCH_TAG } from "@/lib/cacheTags";
-import { CURRENT_PATCH } from "@/lib/constants";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import {
   fetchLatestOfficialPatchNote,
-  OFFICIAL_NOTICE_DETAIL_URL,
+  OFFICIAL_NOTICE_LIST_URL,
   type OfficialPatchFetchLike,
   type OfficialPatchNote,
 } from "@/lib/officialPatch";
@@ -23,7 +23,7 @@ export type CurrentPatchMetadata = {
   observedAt: string | null;
   summary: string | null;
   // official: scraped Pearl Abyss notes; manual: the break-glass override row
-  // (board_no "manual-…"); fallback: hardcoded constant when no row is readable.
+  // (board_no "manual-…"); fallback: current patch unavailable.
   source: "official" | "manual" | "fallback";
 };
 
@@ -44,9 +44,9 @@ type SyncOfficialPatchResult =
 
 export function fallbackCurrentPatchMetadata(): CurrentPatchMetadata {
   return {
-    version: CURRENT_PATCH,
-    title: `Patch Notes Version ${CURRENT_PATCH}`,
-    officialUrl: `${OFFICIAL_NOTICE_DETAIL_URL}?_boardNo=105`,
+    version: "unknown",
+    title: "Current patch unavailable",
+    officialUrl: OFFICIAL_NOTICE_LIST_URL,
     publishedAt: null,
     observedAt: null,
     summary: null,
@@ -88,7 +88,8 @@ async function readCurrentPatchUncached(supabase: SupabaseClient): Promise<Curre
       .limit(1);
     if (error) return fallbackCurrentPatchMetadata();
     const row = ((data ?? []) as OfficialPatchRow[])[0];
-    return row ? rowToCurrent(row) : fallbackCurrentPatchMetadata();
+    const patch = row ? rowToCurrent(row) : fallbackCurrentPatchMetadata();
+    return isCurrentPatchVerified(patch) ? patch : fallbackCurrentPatchMetadata();
   } catch {
     return fallbackCurrentPatchMetadata();
   }
@@ -101,8 +102,10 @@ export const getCachedCurrentPatchMetadata = unstable_cache(
   { revalidate: 300, tags: [CURRENT_PATCH_TAG] },
 );
 
-export function getCurrentPatchMetadata(supabase?: SupabaseClient): Promise<CurrentPatchMetadata> {
-  return supabase ? readCurrentPatchUncached(supabase) : getCachedCurrentPatchMetadata();
+export async function getCurrentPatchMetadata(supabase?: SupabaseClient): Promise<CurrentPatchMetadata> {
+  const patch = await (supabase ? readCurrentPatchUncached(supabase) : getCachedCurrentPatchMetadata());
+  // Normalize cached fallback objects from a previous deployment too.
+  return isCurrentPatchVerified(patch) ? patch : fallbackCurrentPatchMetadata();
 }
 
 export function patchVersionOptions(currentVersion: string, previousVersion: string | null): string[] {
@@ -136,6 +139,7 @@ export type ReportPatchContext = { currentPatch: CurrentPatchMetadata; patchVers
 
 async function readReportPatchContextUncached(supabase: SupabaseClient): Promise<ReportPatchContext> {
   const currentPatch = await readCurrentPatchUncached(supabase);
+  if (!isCurrentPatchVerified(currentPatch)) return { currentPatch, patchVersions: ["other"] };
   const previousVersion = await readPreviousPatchVersionUncached(supabase, currentPatch.version);
   return { currentPatch, patchVersions: patchVersionOptions(currentPatch.version, previousVersion) };
 }
@@ -152,6 +156,7 @@ export async function getReportPatchContext(supabase?: SupabaseClient): Promise<
   // The report form and masthead share the current-patch cache. The previous
   // option is cached separately, keyed by that same current version.
   const currentPatch = await getCurrentPatchMetadata();
+  if (!isCurrentPatchVerified(currentPatch)) return { currentPatch, patchVersions: ["other"] };
   const previousVersion = await getCachedPreviousPatchVersion(currentPatch.version);
   return { currentPatch, patchVersions: patchVersionOptions(currentPatch.version, previousVersion) };
 }

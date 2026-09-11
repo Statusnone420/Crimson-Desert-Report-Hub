@@ -1,4 +1,3 @@
-import { CURRENT_PATCH } from "@/lib/constants";
 
 type EnvLike = Record<string, string | undefined>;
 
@@ -165,7 +164,7 @@ export function buildWireNewsQuery(): string {
 
 export function buildSearchQueries(
   maxQueries: number,
-  patchVersion = CURRENT_PATCH,
+  patchVersion: string,
   options: BuildSearchQueryOptions = {},
 ): string[] {
   const QUERY_PACK = queryPack(patchVersion);

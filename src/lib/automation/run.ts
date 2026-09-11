@@ -44,6 +44,7 @@ import { resolveBurstState } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient, type ScannerPolicy } from "@/lib/automation/settings";
 import type { Category, Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import {
   automationBudgetUsd,
   features,
@@ -2199,6 +2200,9 @@ async function refreshClusterStats(
       loadApprovedExcerpts(supabase),
       getCurrentPatchMetadata(supabase),
     ]);
+    if (!isCurrentPatchVerified(activeCurrentPatch)) {
+      throw new Error("Current patch unavailable; issue visibility was not refreshed.");
+    }
     const feedbackRules = await loadActiveScannerFeedbackRules(supabase);
     // Broad path/domain lessons gate future intake only. Re-evaluating stored
     // evidence may honor an exact reviewed URL, but must not retroactively
@@ -2839,6 +2843,12 @@ async function executeAutomationRun(
     await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }
+  if (!isCurrentPatchVerified(patchMetadata)) {
+    result.status = "skipped";
+    result.skips.push("current_patch_unavailable");
+    await finalizeRunLedgerSafely(supabase, runId, result);
+    return result;
+  }
   const report = (stage: RunProgress["stage"]) =>
     writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
 
@@ -3106,6 +3116,10 @@ export async function rescueCandidateSignal(
   supabase: ReturnType<typeof createServiceClient>,
   candidate: { title: string; url: string; sourceDomain: string | null; sourcePublishedAt?: string | null; snippet: string },
 ): Promise<void> {
+  const currentPatch = await getCurrentPatchMetadata(supabase);
+  if (!isCurrentPatchVerified(currentPatch)) {
+    throw new Error("Current patch unavailable; candidate rescue was not started.");
+  }
   const now = new Date();
   const canonicalUrl = canonicalizeUrl(candidate.url);
   const source: SourceInput = {

@@ -61,6 +61,14 @@ beforeEach(() => {
 });
 
 describe("previewAutomationSearch", () => {
+  it("does not buy searches or extract results when the current patch is unavailable", async () => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "unknown", source: "fallback", publishedAt: null });
+    const { previewAutomationSearch } = await import("@/lib/automation/preview");
+    const result = await previewAutomationSearch({ maxQueries: 2 });
+    expect(result).toMatchObject({ unavailableReason: "current_patch_unavailable", queriesUsed: 0, resultsSeen: 0, estimatedCostUsd: 0, previews: [] });
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+  });
   it("runs a capped no-write source preview and canonicalizes URLs", async () => {
     const { previewAutomationSearch } = await import("@/lib/automation/preview");
 

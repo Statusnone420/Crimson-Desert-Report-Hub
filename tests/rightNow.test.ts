@@ -117,6 +117,7 @@ describe("buildRightNowReadout", () => {
       "Source radar",
       "Open-source code",
     ]);
+    expect(readout.usefulLinks.find((link) => link.label === "Source radar")?.href).toBe("/observatory");
     expect(JSON.stringify(readout)).not.toContain("source_url");
     expect(JSON.stringify(readout)).not.toContain("reject");
   });

@@ -30,7 +30,7 @@ const okBrief: OwnerAttentionBrief = {
     unsureClaimMatches: 1,
     needsYou: 2,
     reportQueuePath: "/admin",
-    scannerQueuePath: "/scanner",
+    scannerQueuePath: "/operator?view=scanner",
   },
 };
 
@@ -46,6 +46,14 @@ function stubRpc(result: { data: unknown; error: { code?: string; message: strin
 describe("owner attention brief", () => {
   it("documents the exact connector query", () => {
     expect(OWNER_ATTENTION_BRIEF_QUERY).toBe("select public.owner_attention_brief();");
+  });
+
+  it.each(["/scanner", "/operator?view=scanner"])("keeps %s private across the migration rollout", (scannerQueuePath) => {
+    const payload = { ...okBrief, adminAttention: { ...okBrief.adminAttention!, scannerQueuePath } };
+    const parsed = parseOwnerAttentionBrief(payload);
+    expect(parsed.adminAttention).toEqual({ ...okBrief.adminAttention, scannerQueuePath: "/operator?view=scanner" });
+    expect(parsed.videoInbox).toEqual(payload.videoInbox);
+    expect(payload.adminAttention.scannerQueuePath).toBe(scannerQueuePath);
   });
 
   it("keeps the JSON free of report bodies, evidence URLs, and video IDs", () => {

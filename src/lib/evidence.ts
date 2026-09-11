@@ -18,6 +18,7 @@ export function needsFullIssueCard(cluster: {
 }
 
 const PIPELINE_NOTE = /\s*\(body retained for 48h moderator review\)\s*$/i;
+const LEGACY_WATCHLIST_NOTE = /^Watchlist item for (.+?) after patch (\d+\.\d+\.\d+)\./i;
 
 export function displayDescription(
   title: string,
@@ -26,7 +27,9 @@ export function displayDescription(
   const cleaned = (description ?? "").replace(PIPELINE_NOTE, "").replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
   if (cleaned.toLowerCase() === title.replace(/\s+/g, " ").trim().toLowerCase()) return null;
-  return cleaned;
+  // Keep the original seed's patch context explicit when its issue later moves
+  // onto a newer patch's board. This changes display copy, never stored evidence.
+  return cleaned.replace(LEGACY_WATCHLIST_NOTE, "Historical watchlist note (Patch $2): $1.");
 }
 
 export function splitWatchlistByCandidates<T extends { candidateSignalCount: number }>(

@@ -586,14 +586,25 @@ describe("getReportPatchContext", () => {
     expect(context.patchVersions).toEqual(["1.13.01", "other"]);
   });
 
-  it("falls back to the hardcoded floor when reads fail", async () => {
+  it("keeps the current patch unknown and offers only Other when reads fail", async () => {
     selectFailure = "official_patch_notes";
 
     const { getReportPatchContext } = await import("@/lib/officialPatch.server");
     const context = await getReportPatchContext(fakeSupabase());
 
     expect(context.currentPatch.source).toBe("fallback");
-    expect(context.patchVersions).toEqual(["1.13.01", "other"]);
+    expect(context.currentPatch.version).toBe("unknown");
+    expect(context.currentPatch.title).toBe("Current patch unavailable");
+    expect(context.currentPatch.officialUrl).not.toContain("_boardNo=105");
+    expect(context.patchVersions).toEqual(["other"]);
+  });
+
+  it("does not promote a historical row when the current patch row is missing", async () => {
+    tables.official_patch_notes.push(officialRow({ patch_version: "1.13.01", is_current: false }));
+    const { getReportPatchContext } = await import("@/lib/officialPatch.server");
+    const context = await getReportPatchContext(fakeSupabase());
+    expect(context.currentPatch.version).toBe("unknown");
+    expect(context.patchVersions).toEqual(["other"]);
   });
 
   it("reports a break-glass row as manual, never as synced", async () => {

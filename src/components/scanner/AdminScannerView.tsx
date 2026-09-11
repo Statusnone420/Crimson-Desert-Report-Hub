@@ -25,6 +25,7 @@ import { isBriefRenderableObservation } from "@/lib/observationDisplay";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { getScannerAttention } from "@/lib/scannerAttention";
 import { SCANNER_MODEL_PRESETS } from "@/lib/automation/budget";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { scannerAiHealth, type ScannerAiHealth } from "@/lib/automation/health";
 
 function cadenceLabel(minutes: number): string {
@@ -828,8 +829,7 @@ export function AdminScannerView({
                   window, not the total — and all three figures count only what
                   is inside it. Matches how the neighbouring record sections
                   label their own capped reads. */}
-              <span>newest {observations.length} this patch</span>{" "}
-              <span>· {publishableObservations} eligible under legacy rules</span>
+              {isCurrentPatchVerified(observationPatch) ? <><span>newest {observations.length} this patch</span>{" "}<span>· {publishableObservations} eligible under legacy rules</span></> : <span>Current patch unavailable</span>}
               {reversibleObservations > 0 ? <> <span>· {reversibleObservations} undoable</span></> : null}
             </span>
           </summary>
@@ -841,7 +841,9 @@ export function AdminScannerView({
               These search records no longer supply homepage articles. Keep them for optional scanner diagnostics. Reject and teach changes future discovery; Undo restores the record and revokes the rule.
             </p>
             <div className="lead-record-grid">
-              {observations.length > 0
+              {!isCurrentPatchVerified(observationPatch)
+                ? <p className="decision-empty">The current patch could not be verified. Observation records are unavailable.</p>
+                : observations.length > 0
                 ? observations.map((observation) =>
                     observationRow(observation, observationModerationAvailable, observationPatch, nowMs),
                   )

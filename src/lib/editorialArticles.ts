@@ -7,6 +7,7 @@ export type EditorialArticle = {
   slug: string;
   path: `/articles/${string}`;
   section: string;
+  patchVersion?: string;
   title: string;
   searchTitle: string;
   description: string;
@@ -59,6 +60,7 @@ export const patch20200 = {
   slug: "patch-2-02-00",
   path: "/articles/patch-2-02-00",
   section: "Patch report",
+  patchVersion: "2.02.00",
   title: "Patch 2.02.00 adds Mac cross-save",
   searchTitle: "Crimson Desert 2.02.00 adds Mac cross-save",
   description:

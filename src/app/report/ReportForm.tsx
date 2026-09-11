@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ReportCaptcha } from "@/components/newspaper/ReportCaptcha";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -266,11 +267,15 @@ export function ReportForm({
                 </div>
                 <div className="filing-field">
                   <label htmlFor="patch_version">Patch version</label>
-                  <select id="patch_version" name="patch_version" value={draft.patch_version} required onChange={(event) => change("patch_version", event.target.value)} aria-invalid={Boolean(errors.patch_version)} aria-describedby={errors.patch_version ? "patch_version-error" : undefined}>
+                  <select id="patch_version" name="patch_version" value={draft.patch_version} required onChange={(event) => change("patch_version", event.target.value)} aria-invalid={Boolean(errors.patch_version)} aria-describedby={`patch_version-hint${errors.patch_version ? " patch_version-error" : ""}`}>
                     {patchVersions.map((patch) => <option key={patch} value={patch}>{patch === "other" ? "Other" : patch}</option>)}
                   </select>
                   <div className="filing-field-note" id="patch_version-hint">
-                    <span>Filing against <a href={currentPatch.officialUrl} target="_blank" rel="noreferrer noopener">current patch {currentPatch.version} ↗</a>.</span>
+                    {!isCurrentPatchVerified(currentPatch)
+                      ? <span>The current patch could not be verified. This report will use Other.</span>
+                      : draft.patch_version === currentPatch.version
+                        ? <span>Filing against <a href={currentPatch.officialUrl} target="_blank" rel="noreferrer noopener">current patch {currentPatch.version} ↗</a>.</span>
+                        : <span>{draft.patch_version === "other" ? "Patch version not specified." : `Filing against patch ${draft.patch_version}.`}</span>}
                   </div>
                   <FieldError name="patch_version" error={errors.patch_version} />
                 </div>
