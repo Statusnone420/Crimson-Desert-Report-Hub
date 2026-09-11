@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GET as getAtom } from "@/app/feed.xml/route";
 import { GET as getRss } from "@/app/rss.xml/route";
-import { chartingTheUnknown, editorialArticles, type EditorialArticle } from "@/lib/editorialArticles";
+import { chartingTheUnknown, editorialArticles, patch20200, type EditorialArticle } from "@/lib/editorialArticles";
 import { getEditorialCoverage } from "@/lib/editorialCoverage";
 import {
   ATOM_CONTENT_TYPE,
@@ -30,6 +30,24 @@ function article(overrides: Partial<EditorialArticle> = {}): EditorialArticle {
 }
 
 describe("editorial Atom/RSS of original Hub reports", () => {
+  it("publishes the 2.02.00 report first in both feeds with its own stable date and URL", () => {
+    const link = `${SITE_URL}${patch20200.path}`;
+    const atom = buildAtomXml();
+    const rss = buildRssXml();
+    for (const xml of [atom, rss]) {
+      expect(xml.indexOf(`<title>${escapeXml(patch20200.searchTitle)}</title>`)).toBeLessThan(
+        xml.indexOf(`<title>${escapeXml(chartingTheUnknown.searchTitle)}</title>`),
+      );
+      expect(xml).toContain(link);
+      expect(xml).toContain(escapeXml(patch20200.description));
+    }
+    expect(atom).toContain(`<updated>${patch20200.publishedAt}</updated>`);
+    expect(atom).toContain(`<published>${patch20200.publishedAt}</published>`);
+    expect(rss).toContain(`<lastBuildDate>${new Date(patch20200.publishedAt).toUTCString()}</lastBuildDate>`);
+    expect(rss).toContain(`<guid isPermaLink="true">${link}</guid>`);
+    expect(rss).toContain(`<pubDate>${new Date(patch20200.publishedAt).toUTCString()}</pubDate>`);
+  });
+
   it("escapes XML special characters in text and attributes", () => {
     expect(escapeXml(`A & B <C> "D" 'E'`)).toBe("A &amp; B &lt;C&gt; &quot;D&quot; &apos;E&apos;");
     const xml = buildAtomXml([
