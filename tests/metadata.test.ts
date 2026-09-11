@@ -103,11 +103,21 @@ describe("search and share metadata", () => {
     }
   });
 
-  it("keeps the three repository-owned alternate addresses as permanent redirects", async () => {
+  it("keeps repository-owned alternate addresses on permanent canonical redirects", async () => {
     expect(await nextConfig.redirects?.()).toEqual([
       {
         source: "/method",
         destination: "/about",
+        permanent: true,
+      },
+      {
+        source: "/feeds",
+        destination: "/feed.xml",
+        permanent: true,
+      },
+      {
+        source: "/feeds/sitemap",
+        destination: "/sitemap.xml",
         permanent: true,
       },
       {

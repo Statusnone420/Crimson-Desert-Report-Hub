@@ -79,9 +79,12 @@ test("X and messaging crawlers receive complete cards and publicly readable imag
 test("the new report is readable from News and is present in RSS and Atom", async ({ page, request }, testInfo) => {
   const problems = collectConsoleProblems(page);
   await page.goto("/news");
+  const newsReport = page.locator("article").filter({ has: page.getByRole("heading", { name: patch20200.title, exact: true }) });
+  await expect(newsReport.getByText(patch20200.description, { exact: true })).toBeVisible();
   await page.getByRole("link", { name: patch20200.title, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${patch20200.path}$`));
   await expect(page.getByRole("heading", { name: patch20200.title, exact: true })).toBeVisible();
+  await expect(page.locator(".article-heading .article-deck")).toHaveText(patch20200.description);
   await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "News", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".article-hero img")).toBeVisible();
   await expect(page.locator("#article-body")).toContainText("At publication, the update was available");

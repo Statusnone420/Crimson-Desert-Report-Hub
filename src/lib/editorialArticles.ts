@@ -59,10 +59,10 @@ export const patch20200 = {
   slug: "patch-2-02-00",
   path: "/articles/patch-2-02-00",
   section: "Patch report",
-  title: "The base game keeps moving",
-  searchTitle: "Crimson Desert 2.02.00: Mac cross-save and stability",
+  title: "Patch 2.02.00 adds Mac cross-save",
+  searchTitle: "Crimson Desert 2.02.00 adds Mac cross-save",
   description:
-    "Patch 2.02.00 adds Mac cross-save and targeted fixes following the reveal of Charting the Unknown.",
+    "Pearl Abyss follows the Charting the Unknown reveal with Mac cross-save and welcome fixes for a startup crash, blocked quests and missing items.",
   publishedAt: "2026-09-11T07:30:00Z",
   sourceNote: "Based on Pearl Abyss’s patch notes, expansion pages and current cross-save account guidance.",
   heroImage: {
@@ -75,7 +75,7 @@ export const patch20200 = {
     src: "/share/patch-2-02-00.png",
     width: 1200,
     height: 630,
-    alt: "Crimson Desert Report Hub newspaper: Patch 2.02.00 — The base game keeps moving. Mac cross-save and stability fixes, with official Pearl Abyss artwork.",
+    alt: "Crimson Desert Report Hub newspaper: Patch 2.02.00 adds Mac cross-save. Quest, storage and stability fixes, with official Pearl Abyss artwork.",
   },
   sources: [
     {
