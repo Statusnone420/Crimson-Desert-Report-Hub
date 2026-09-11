@@ -65,7 +65,7 @@ describe("AdminScannerView", () => {
       control: { paused: false, minIntervalMinutes: 60, scheduledSearchCreditsPerRun: 1, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 1, modelPreset: "gpt_5_6_luna", updatedAt: null },
       // Shared fixture field required when the companion scanner-health PR lands.
       ...{ budgetCapped: false },
-      activeRun: null, latestRealRun: null, latestFind: null,
+      activeRun: null, latestRealRun: null, latestCompletedRun: null, latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "unknown", publishedAt: null }),
       integrations: [], nowIso: "2026-09-11T18:00:00.000Z",
@@ -96,6 +96,7 @@ describe("AdminScannerView", () => {
       budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -186,6 +187,7 @@ describe("AdminScannerView", () => {
       budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -238,6 +240,7 @@ describe("AdminScannerView", () => {
       budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -298,6 +301,7 @@ describe("AdminScannerView", () => {
       budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -370,6 +374,7 @@ describe("AdminScannerView", () => {
       budgetCapped: false,
       activeRun: null,
       latestRealRun: null,
+      latestCompletedRun: null,
       latestFind: null,
       scoreboard: healthyScoreboard,
       radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -435,6 +440,7 @@ describe("AdminScannerView", () => {
         budgetCapped: false,
         activeRun: null,
         latestRealRun: null,
+        latestCompletedRun: null,
         latestFind: null,
         scoreboard: {
           ...connectedScoreboard,
@@ -615,7 +621,7 @@ describe("AdminScannerView", () => {
       };
     }
 
-    function renderWithRuns(runs: AutomationRunRow[], latestRealRun = runs[0] ?? null, minIntervalMinutes: 60 | 1440 = 60, budgetCapped = false) {
+    function renderWithRuns(runs: AutomationRunRow[], latestRealRun = runs[0] ?? null, minIntervalMinutes: 60 | 1440 = 60, budgetCapped = false, latestCompletedRun = latestRealRun) {
       return renderToStaticMarkup(createElement(AdminScannerView, {
         runs,
         signals: [],
@@ -637,6 +643,7 @@ describe("AdminScannerView", () => {
         budgetCapped,
         activeRun: null,
         latestRealRun,
+        latestCompletedRun,
         latestFind: null,
         scoreboard: healthyScoreboard,
         radar: emptyPatchRadarData({ version: "1.14.00", publishedAt: null }),
@@ -656,6 +663,15 @@ describe("AdminScannerView", () => {
     it("uses the completion instant for the latest-completed-run labels", () => {
       const realRun = { ...run(0), started_at: "2026-07-22T17:30:00.000Z", finished_at: "2026-07-22T17:32:00.000Z" };
       expect(renderWithRuns([realRun])).toContain("Latest completed run: 28m ago · Jul 22, 2026, 1:32:00 PM EDT");
+    });
+
+    it("shows the last completion without changing the next attempt after overlapping runs", () => {
+      const latestStart = { ...run(0), started_at: "2026-07-22T17:50:00.000Z", finished_at: "2026-07-22T17:55:00.000Z" };
+      const latestCompletion = { ...run(1), started_at: "2026-07-22T17:30:00.000Z", finished_at: "2026-07-22T17:59:00.000Z" };
+      const markup = renderWithRuns([latestStart, latestCompletion], latestStart, 60, false, latestCompletion);
+      expect(markup).toContain("Latest completed run: 1m ago");
+      expect(markup).toContain("LAST SCAN 1m ago");
+      expect(markup).toContain("Next eligible attempt: in 50m");
     });
 
     it("shows the current cap despite newer skips and clears it without a new scan", () => {
@@ -761,6 +777,7 @@ describe("AdminScannerView", () => {
         budgetCapped: false,
         activeRun: null,
         latestRealRun: null,
+        latestCompletedRun: null,
         latestFind: null,
         scoreboard: healthyScoreboard,
         radar: emptyPatchRadarData(overrides.radarPatch ?? observationPatch),

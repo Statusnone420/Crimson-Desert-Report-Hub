@@ -147,6 +147,7 @@ export default async function OperatorPage({
     runs: admin?.runs ?? [],
     budgetCapped: admin?.budgetCapped ?? null,
     latestRealRun: admin?.latestRealRun ?? null,
+    latestCompletedRun: admin?.latestCompletedRun ?? null,
     radarHealth: radar
       ? {
           lastScanAt: radar.health.lastScanAt,

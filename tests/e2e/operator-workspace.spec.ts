@@ -145,6 +145,28 @@ test.describe("operator workspace flows", () => {
     await expectHealthyPage(page, problems);
   });
 
+  test("Overview and Scanner distinguish latest completion from latest start", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const now = Date.parse(process.env.PLAYWRIGHT_NOW ?? "2026-07-20T00:10:00.000Z");
+    const changed = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?id=eq.run-1`, {
+      data: { started_at: new Date(now - 30 * 60_000).toISOString(), finished_at: new Date(now - 60_000).toISOString(), status: "success", skips: [] },
+    });
+    expect(changed.ok()).toBe(true);
+    const [earlierRun] = await changed.json();
+    const inserted = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs`, {
+      data: { ...earlierRun, id: "later-started-overlap", started_at: new Date(now - 10 * 60_000).toISOString(), finished_at: new Date(now - 5 * 60_000).toISOString(), search_queries_used: 0, estimated_cost_usd: 0 },
+    });
+    expect(inserted.ok()).toBe(true);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health").getByText("1m ago", { exact: true })).toBeVisible();
+    await expect(page.locator(".workspace-overview-health").getByText("in 50m", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health")).toContainText("Latest completed run: 1m ago");
+    await expect(page.locator("#health")).toContainText("Next eligible attempt: in 50m");
+    await expectHealthyPage(page, problems);
+  });
+
   test("Overview and Scanner clear a historical AI cap after the limit increases", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     const settings = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {

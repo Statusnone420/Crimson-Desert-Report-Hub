@@ -332,6 +332,7 @@ export function AdminScannerView({
   budgetCapped,
   activeRun,
   latestRealRun,
+  latestCompletedRun,
   latestFind,
   scoreboard,
   radar,
@@ -353,6 +354,7 @@ export function AdminScannerView({
   budgetCapped: boolean;
   activeRun: { id: string } | null;
   latestRealRun: AutomationRunRow | null;
+  latestCompletedRun: AutomationRunRow | null;
   latestFind: AutomationRunRow | null;
   scoreboard: PublicScannerData;
   radar: PatchRadarData;
@@ -373,7 +375,7 @@ export function AdminScannerView({
     ? { label: aiHealth.state === "unavailable" ? "AI UNAVAILABLE" : "AI LIMITED", toneClass: "is-amber" }
     : scannerScheduleStatus(control, activeRun, budgetCapped);
   const projectedCredits = projectedMonthlyCredits(control);
-  const latestRun = latestRealRun;
+  const latestRun = latestCompletedRun;
   const completedAt = latestRun ? latestRun.finished_at ?? latestRun.started_at : null;
   const optionalCandidates = rejectedCandidates.filter(
     (candidate) => !candidate.rescued_at && !candidate.decision_id && !candidate.feedback_rule_id,
@@ -462,7 +464,7 @@ export function AdminScannerView({
       <div className="op-status-line">
         <span className={status.toneClass}>● {status.label}</span>
         {" · "}
-        {latestRun ? `LAST SCAN ${relativeTime(latestRun.started_at, nowMs)}` : "NO COMPLETED SCAN YET"}
+        {completedAt ? `LAST SCAN ${relativeTime(completedAt, nowMs)}` : "NO COMPLETED SCAN YET"}
         {" · "}
         {control.paused ? "NEXT CHECK PAUSED" : `NEXT CHECK ${relativeTime(nextEligible.toISOString(), nowMs)}`}
         {latestFind ? ` · MOST RECENT KEPT LEAD ${relativeTime(latestFind.started_at, nowMs)}` : ""}

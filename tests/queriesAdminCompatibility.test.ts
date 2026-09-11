@@ -222,6 +222,24 @@ describe("getAutomationAdminData rolling migration compatibility", () => {
       message: "latest run read failed",
     },
     {
+      name: "latest completed finished-run lookup",
+      matches: (trace) =>
+        trace.table === "automation_runs" &&
+        trace.operations.includes("in:status:success|partial|failed") &&
+        trace.operations.includes("not:finished_at:is:null") &&
+        trace.operations.includes("order:finished_at:desc"),
+      message: "latest completed run read failed",
+    },
+    {
+      name: "latest completed legacy-run lookup",
+      matches: (trace) =>
+        trace.table === "automation_runs" &&
+        trace.operations.includes("in:status:success|partial|failed") &&
+        trace.operations.includes("is:finished_at:null") &&
+        trace.operations.includes("order:started_at:desc"),
+      message: "latest completed legacy run read failed",
+    },
+    {
       name: "latest-find lookup",
       matches: (trace) => trace.table === "automation_runs" && trace.operations.includes("in:status:success|partial"),
       message: "latest find read failed",
@@ -237,6 +255,79 @@ describe("getAutomationAdminData rolling migration compatibility", () => {
       await expect(getAutomationAdminData()).rejects.toThrow(`${read.message}: permission denied`);
     });
   }
+
+  it("keeps the start-ordered run for cadence and selects the later completion for the Last completed label", async () => {
+    resolveQuery = (trace) => {
+      if (trace.table !== "automation_runs") return { data: [], error: null };
+      if (trace.operations.includes("not:finished_at:is:null")) {
+        return { data: [{ id: "finished-last", started_at: "2026-09-11T10:00:00Z", finished_at: "2026-09-11T13:00:00Z" }], error: null };
+      }
+      if (trace.operations.includes("is:finished_at:null")) return { data: [], error: null };
+      if (trace.operations.includes("in:status:success|partial|failed")) {
+        return { data: [{ id: "started-last", started_at: "2026-09-11T12:00:00Z", finished_at: "2026-09-11T12:01:00Z" }], error: null };
+      }
+      return { data: [], error: null };
+    };
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    const data = await getAutomationAdminData();
+
+    expect(data.latestRealRun).toMatchObject({ id: "started-last" });
+    expect(data.latestCompletedRun).toMatchObject({ id: "finished-last" });
+  });
+
+  it("falls back to the newest legacy started-at row when no completed row has finished_at", async () => {
+    resolveQuery = (trace) =>
+      trace.table === "automation_runs" && trace.operations.includes("is:finished_at:null")
+        ? { data: [{ id: "legacy-last", started_at: "2026-09-11T12:00:00Z", finished_at: null }], error: null }
+        : { data: [], error: null };
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    const data = await getAutomationAdminData();
+
+    expect(data.latestCompletedRun).toMatchObject({ id: "legacy-last" });
+  });
+
+  it.each([
+    { legacyStart: "2026-09-11T12:00:00Z", expected: "finished-last" },
+    { legacyStart: "2026-09-11T14:00:00Z", expected: "legacy-last" },
+  ])("compares dated completion with the legacy clock at $legacyStart", async ({ legacyStart, expected }) => {
+    resolveQuery = (trace) => {
+      if (trace.table !== "automation_runs") return { data: [], error: null };
+      if (trace.operations.includes("not:finished_at:is:null")) {
+        return { data: [{ id: "finished-last", started_at: "2026-09-11T10:00:00Z", finished_at: "2026-09-11T13:00:00Z" }], error: null };
+      }
+      if (trace.operations.includes("is:finished_at:null")) {
+        return { data: [{ id: "legacy-last", started_at: legacyStart, finished_at: null }], error: null };
+      }
+      return { data: [], error: null };
+    };
+    const { getAutomationAdminData } = await import("@/lib/queries");
+    expect((await getAutomationAdminData()).latestCompletedRun).toMatchObject({ id: expected });
+  });
+
+  it("uses the completed and legacy filters without widening the real-run status or mode scope", async () => {
+    const { getAutomationAdminData } = await import("@/lib/queries");
+
+    expect((await getAutomationAdminData()).latestCompletedRun).toBeNull();
+
+    const completedTrace = traces.find(
+      (trace) => trace.table === "automation_runs" && trace.operations.includes("not:finished_at:is:null"),
+    );
+    const legacyTrace = traces.find(
+      (trace) => trace.table === "automation_runs" && trace.operations.includes("is:finished_at:null"),
+    );
+    for (const trace of [completedTrace, legacyTrace]) {
+      expect(trace?.columns).toContain("finished_at");
+      expect(trace?.operations).toEqual(expect.arrayContaining([
+        "neq:mode:dry_run",
+        "in:status:success|partial|failed",
+        "limit:1",
+      ]));
+    }
+    expect(completedTrace?.operations).toContain("order:finished_at:desc");
+    expect(legacyTrace?.operations).toContain("order:started_at:desc");
+  });
 
   it("treats only a missing feedback-rules relation as the legacy empty state", async () => {
     resolveQuery = (trace) =>

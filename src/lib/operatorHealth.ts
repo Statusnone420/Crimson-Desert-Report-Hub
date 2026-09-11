@@ -40,6 +40,7 @@ export type OverviewScannerHealthInput = {
   runs: RecentRunLike[];
   budgetCapped: boolean | null;
   latestRealRun: RecentRunLike & { started_at: string; finished_at: string | null } | null;
+  latestCompletedRun: RecentRunLike & { started_at: string; finished_at: string | null } | null;
   radarHealth: {
     lastScanAt: string | null;
     nextEligibleAt: string | null;
@@ -95,8 +96,8 @@ function scheduleStatus(input: OverviewScannerHealthInput): {
 
 function lastCompletedRun(input: OverviewScannerHealthInput, nowMs: number): OverviewHealthFact {
   if (input.adminAvailable) {
-    if (input.latestRealRun) {
-      const completedAt = input.latestRealRun.finished_at ?? input.latestRealRun.started_at;
+    if (input.latestCompletedRun) {
+      const completedAt = input.latestCompletedRun.finished_at ?? input.latestCompletedRun.started_at;
       return {
         id: "last-run",
         label: "Last completed run",
@@ -116,7 +117,7 @@ function lastCompletedRun(input: OverviewScannerHealthInput, nowMs: number): Ove
   if (input.radarAvailable && input.radarHealth?.lastScanAt) {
     return {
       id: "last-run",
-      label: "Last completed run",
+      label: "Last scan recorded",
       value: formatRelativeOperatorTime(input.radarHealth.lastScanAt, nowMs),
       detail: `${formatEasternDateTime(input.radarHealth.lastScanAt)}. Taken from the radar health read because the admin run record was unavailable.`,
       tone: "unknown",

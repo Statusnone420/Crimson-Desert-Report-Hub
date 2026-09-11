@@ -50,6 +50,7 @@ export default async function ScannerPage({ searchParams }: { searchParams?: Pro
           budgetCapped={adminData.budgetCapped}
           activeRun={adminData.activeRun}
           latestRealRun={adminData.latestRealRun}
+          latestCompletedRun={adminData.latestCompletedRun}
           latestFind={adminData.latestFind}
           scoreboard={scoreboard}
           radar={radar}

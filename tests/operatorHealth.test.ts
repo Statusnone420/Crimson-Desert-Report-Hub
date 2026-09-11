@@ -41,6 +41,7 @@ function input(overrides: Partial<OverviewScannerHealthInput> = {}): OverviewSca
     runs: [{ mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z" }],
     budgetCapped: false,
     latestRealRun: { mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z", finished_at: "2026-09-11T17:32:00.000Z" },
+    latestCompletedRun: { mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z", finished_at: "2026-09-11T17:32:00.000Z" },
     radarHealth: {
       lastScanAt: "2026-09-11T17:30:00.000Z",
       nextEligibleAt: "2026-09-11T18:30:00.000Z",
@@ -113,6 +114,16 @@ describe("buildOverviewScannerHealth", () => {
   it("uses the completion instant for both last-completed-run labels", () => {
     const health = buildOverviewScannerHealth(input());
     expect(health.schedule.find((fact) => fact.id === "last-run")).toMatchObject({ value: "28m ago", detail: "Sep 11, 2026, 1:32:00 PM EDT" });
+  });
+
+  it("uses the latest completion for the fact and the latest start for eligibility", () => {
+    const health = buildOverviewScannerHealth(input({
+      runs: [],
+      latestRealRun: { mode: "scheduled", status: "success", started_at: "2026-09-11T17:50:00.000Z", finished_at: "2026-09-11T17:55:00.000Z" },
+      latestCompletedRun: { mode: "scheduled", status: "success", started_at: "2026-09-11T17:30:00.000Z", finished_at: "2026-09-11T17:59:00.000Z" },
+    }));
+    expect(health.schedule.find((fact) => fact.id === "last-run")).toMatchObject({ value: "1m ago" });
+    expect(health.schedule.find((fact) => fact.id === "next-run")).toMatchObject({ value: "in 50m" });
   });
 
   it("surfaces last run, next eligible attempt, providers, and core counters", () => {
@@ -200,6 +211,7 @@ describe("buildOverviewScannerHealth", () => {
     expect(health.schedule.find((fact) => fact.id === "last-run")).toMatchObject({
       value: "30m ago",
       tone: "unknown",
+      label: "Last scan recorded",
     });
     expect(health.schedule.find((fact) => fact.id === "next-run")?.value).toBe("in 30m");
   });
