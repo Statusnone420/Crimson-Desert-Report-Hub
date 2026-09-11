@@ -145,6 +145,33 @@ test.describe("operator workspace flows", () => {
     await expectHealthyPage(page, problems);
   });
 
+  test("Overview and Scanner clear a historical AI cap after the limit increases", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const settings = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
+      data: { key: "scanner", value: { paused: false, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 0.05 } },
+    });
+    expect(settings.ok()).toBe(true);
+    const changed = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_runs?id=eq.run-1`, {
+      data: { status: "partial", search_queries_used: 2, estimated_cost_usd: 0.116, llm_calls_used: 1, skips: ["llm_budget_capped"], progress: { llmSucceeded: 0, llmCostUsd: 0.1 } },
+    });
+    expect(changed.ok()).toBe(true);
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("AI LIMITED");
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health .workspace-badge")).toHaveText("AI LIMITED");
+
+    const raised = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
+      data: { key: "scanner", value: { paused: false, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 0.25 } },
+    });
+    expect(raised.ok()).toBe(true);
+    await page.goto("/operator");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("ACTIVE");
+    await page.getByRole("link", { name: "Open diagnostics" }).click();
+    await expect(page.locator("#health .workspace-badge")).toHaveText("ACTIVE");
+    await expectHealthyPage(page, problems);
+  });
+
   test("claim rejection retains its reason through reload and undo, and stale input stays local", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);

@@ -665,6 +665,14 @@ describe("AdminScannerView", () => {
       expect(renderWithRuns(skips, realRun, 60, false)).toContain(">ACTIVE</span>");
     });
 
+    it("does not let a historical AI cap override a verified available budget", () => {
+      const cappedRun = { ...run(0), llm_calls_used: 1, skips: ["llm_budget_capped"] };
+      expect(renderWithRuns([cappedRun], cappedRun, 60, false)).toContain(">ACTIVE</span>");
+      expect(renderWithRuns([cappedRun], cappedRun, 60, true)).toContain(">AI LIMITED</span>");
+      const failedRun = { ...cappedRun, skips: ["openrouter_no_route"] };
+      expect(renderWithRuns([failedRun], failedRun, 60, false)).toContain(">AI UNAVAILABLE</span>");
+    });
+
     it("renders every run the read returned, not a shorter slice of it", () => {
       // The query asks for the newest 10; rendering 8 dropped two reads on the
       // floor and the page said nothing about it.

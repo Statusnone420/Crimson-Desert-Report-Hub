@@ -364,7 +364,10 @@ export function AdminScannerView({
   const now = new Date(nowIso);
   const nowMs = now.getTime();
   const nextEligible = nextEligibleScheduledScanAt(latestRealRun ? [...runs, latestRealRun] : runs, now, control.minIntervalMinutes);
-  const aiHealth = suppliedAiHealth ?? scannerAiHealth(runs, control);
+  const aiHealth = suppliedAiHealth ?? scannerAiHealth(runs, {
+    ...control,
+    llmBudgetCapped: budgetCapped ? undefined : false,
+  });
   const aiNeedsAttention = aiHealth.state === "unavailable" || aiHealth.state === "limited";
   const status = aiNeedsAttention
     ? { label: aiHealth.state === "unavailable" ? "AI UNAVAILABLE" : "AI LIMITED", toneClass: "is-amber" }

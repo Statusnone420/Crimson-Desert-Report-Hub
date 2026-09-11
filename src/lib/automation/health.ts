@@ -35,6 +35,12 @@ export const SCANNER_AI_RELEVANT_SKIP_CODES = [
   "llm_time_limit",
 ] as const;
 
+export function scannerAiRelevantSkipCodes(llmBudgetCapped: boolean): readonly string[] {
+  return llmBudgetCapped
+    ? SCANNER_AI_RELEVANT_SKIP_CODES
+    : SCANNER_AI_RELEVANT_SKIP_CODES.filter((code) => code !== "llm_budget_capped");
+}
+
 function finiteTimestamp(value: string | null | undefined): number | null {
   const timestamp = Date.parse(value ?? "");
   return Number.isFinite(timestamp) ? timestamp : null;
@@ -58,7 +64,7 @@ function compareCompletedRuns(a: ScannerAiRun, b: ScannerAiRun): number {
 
 export function scannerAiHealth(
   runs: readonly ScannerAiRun[],
-  options: { readAvailable?: boolean; paused?: boolean; monthlyLlmUsdCap?: number } = {},
+  options: { readAvailable?: boolean; paused?: boolean; monthlyLlmUsdCap?: number; llmBudgetCapped?: boolean } = {},
 ): ScannerAiHealth {
   const completed = runs
     .filter((run) => run.mode !== "dry_run" && !["running", "skipped"].includes(run.status))
@@ -77,13 +83,14 @@ export function scannerAiHealth(
   if (options.monthlyLlmUsdCap === 0) return { state: "idle", code: "ai_disabled", message: "AI processing is disabled by the saved budget.", lastSuccessAt };
 
   // Idle scans and unverified attempts cannot replace a known AI outcome.
-  const latest = completed.find((run) => (run.progress?.llmSucceeded ?? 0) > 0 || run.skips.some((code) => SCANNER_AI_RELEVANT_SKIP_CODES.includes(code)));
+  const relevantSkipCodes = scannerAiRelevantSkipCodes(options.llmBudgetCapped !== false);
+  const latest = completed.find((run) => (run.progress?.llmSucceeded ?? 0) > 0 || run.skips.some((code) => relevantSkipCodes.includes(code)));
   if (!latest) return completed.some((run) => run.llm_calls_used > 0)
     ? { state: "idle", code: "ai_success_unverified", message: "Older run records do not verify successful AI responses.", lastSuccessAt }
     : { state: "idle", code: null, message: "No AI result is recorded yet.", lastSuccessAt };
   const failure = latest.skips.find((code) => code in FAILURE_MESSAGES);
   if (failure) return { state: (latest.progress?.llmSucceeded ?? 0) > 0 ? "limited" : "unavailable", code: failure, message: FAILURE_MESSAGES[failure], lastSuccessAt };
-  if (latest.skips.includes("llm_budget_capped")) return { state: "limited", code: "llm_budget_capped", message: "AI processing reached a spending limit.", lastSuccessAt };
+  if (options.llmBudgetCapped !== false && latest.skips.includes("llm_budget_capped")) return { state: "limited", code: "llm_budget_capped", message: "AI processing reached a spending limit.", lastSuccessAt };
   if (latest.skips.includes("llm_time_limit")) return { state: "limited", code: "llm_time_limit", message: "AI processing reached the scan time limit.", lastSuccessAt };
   if ((latest.progress?.llmSucceeded ?? 0) > 0) return { state: "healthy", code: null, message: "The latest AI requests passed validation.", lastSuccessAt };
   return { state: "idle", code: "ai_success_unverified", message: "Older run records do not verify successful AI responses.", lastSuccessAt };

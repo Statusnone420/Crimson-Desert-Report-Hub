@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.fro
 
 import { getScannerAiHealth } from "@/lib/automation/health.server";
 
-function queryResult(data: ScannerAiRun[] | null, error: unknown = null) {
+function queryResult(data: unknown[] | null, error: unknown = null) {
   const query = {
     select: vi.fn(),
     neq: vi.fn(),
@@ -18,6 +18,7 @@ function queryResult(data: ScannerAiRun[] | null, error: unknown = null) {
     not: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
+    gte: vi.fn(),
   };
   query.select.mockReturnValue(query);
   query.neq.mockReturnValue(query);
@@ -27,6 +28,7 @@ function queryResult(data: ScannerAiRun[] | null, error: unknown = null) {
   query.not.mockReturnValue(query);
   query.order.mockReturnValue(query);
   query.limit.mockResolvedValue({ data, error });
+  query.gte.mockResolvedValue({ data, error });
   return query;
 }
 
@@ -42,21 +44,28 @@ const run = (overrides: Partial<ScannerAiRun> = {}): ScannerAiRun => ({
 
 describe("scanner AI health history query", () => {
   beforeEach(() => mocks.from.mockReset());
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
 
   it("fetches finished and legacy candidates for meaningful results and validated successes", async () => {
+    const spend = queryResult([]);
     const meaningfulFinished = queryResult([run({ started_at: "2026-09-06T20:00:00Z", finished_at: "2026-09-06T22:00:00Z", skips: ["openrouter_no_route"], progress: { llmSucceeded: 0 } })]);
     const meaningfulLegacy = queryResult([run({ started_at: "2026-09-06T21:00:00Z", finished_at: null })]);
     const validatedFinished = queryResult([run({ finished_at: "2026-09-06T20:01:00Z" })]);
     const validatedLegacy = queryResult([]);
     mocks.from
+      .mockReturnValueOnce(spend)
       .mockReturnValueOnce(meaningfulFinished)
       .mockReturnValueOnce(meaningfulLegacy)
       .mockReturnValueOnce(validatedFinished)
       .mockReturnValueOnce(validatedLegacy);
 
     expect(await getScannerAiHealth()).toMatchObject({ state: "unavailable", lastSuccessAt: "2026-09-06T21:00:00Z" });
-    expect(mocks.from).toHaveBeenCalledTimes(4);
+    expect(mocks.from).toHaveBeenCalledTimes(5);
+    expect(spend.select).toHaveBeenCalledWith("estimated_cost_usd, search_queries_used, skips, started_at");
+    expect(spend.gte).toHaveBeenCalledWith("started_at", expect.any(String));
     expect(meaningfulFinished.neq.mock.calls).toEqual([
       ["status", "skipped"],
       ["status", "running"],
@@ -64,7 +73,9 @@ describe("scanner AI health history query", () => {
     ]);
     expect(meaningfulFinished.or).toHaveBeenCalledWith([
       "progress->>llmSucceeded.gt.0",
-      ...SCANNER_AI_RELEVANT_SKIP_CODES.map((code) => `skips.cs.["${code}"]`),
+      ...SCANNER_AI_RELEVANT_SKIP_CODES
+        .filter((code) => code !== "llm_budget_capped")
+        .map((code) => `skips.cs.["${code}"]`),
     ].join(","));
     expect(meaningfulFinished.not).toHaveBeenCalledWith("finished_at", "is", null);
     expect(meaningfulFinished.order).toHaveBeenCalledWith("finished_at", { ascending: false });
@@ -82,6 +93,7 @@ describe("scanner AI health history query", () => {
 
   it("fails closed when any bounded history query cannot be read", async () => {
     mocks.from
+      .mockReturnValueOnce(queryResult([]))
       .mockReturnValueOnce(queryResult(null, { message: "read failed" }))
       .mockReturnValueOnce(queryResult([]))
       .mockReturnValueOnce(queryResult([run()]))
@@ -94,9 +106,89 @@ describe("scanner AI health history query", () => {
     mocks.from
       .mockReturnValueOnce(queryResult([]))
       .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]))
       .mockReturnValueOnce(queryResult([run()]))
       .mockReturnValueOnce(queryResult([]));
 
     expect(await getScannerAiHealth({ monthlyLlmUsdCap: 1 })).toMatchObject({ state: "idle", code: "ai_disabled" });
+  });
+
+  it("excludes a stale LLM cap after a saved limit increase and retains the older provider failure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-09-11T12:00:00.000Z");
+    const spend = queryResult([{ started_at: "2026-09-10T12:00:00.000Z", estimated_cost_usd: 0.1 }]);
+    const meaningfulFinished = queryResult([run({
+      started_at: "2026-09-11T11:00:00.000Z",
+      finished_at: "2026-09-11T11:01:00.000Z",
+      skips: ["openrouter_provider_failure"],
+      progress: { llmSucceeded: 0 },
+    })]);
+    mocks.from
+      .mockReturnValueOnce(spend)
+      .mockReturnValueOnce(meaningfulFinished)
+      .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]));
+
+    expect(await getScannerAiHealth({ monthlyLlmUsdCap: 0.25 })).toMatchObject({
+      state: "unavailable",
+      code: "openrouter_provider_failure",
+    });
+    expect(meaningfulFinished.or).toHaveBeenCalledWith(expect.not.stringContaining('skips.cs.["llm_budget_capped"]'));
+  });
+
+  it("does not carry a previous UTC month's LLM cap into the current month", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-09-01T12:00:00.000Z");
+    const spend = queryResult([{ started_at: "2026-08-31T13:00:00.000Z", estimated_cost_usd: 0.1 }]);
+    const meaningfulFinished = queryResult([]);
+    mocks.from
+      .mockReturnValueOnce(spend)
+      .mockReturnValueOnce(meaningfulFinished)
+      .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]));
+
+    expect(await getScannerAiHealth({ monthlyLlmUsdCap: 0.05 })).toMatchObject({ state: "idle", code: null });
+    expect(meaningfulFinished.or).toHaveBeenCalledWith(expect.not.stringContaining('skips.cs.["llm_budget_capped"]'));
+  });
+
+  it("does not treat a spent Tavily allowance as an LLM cap", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-09-11T12:00:00.000Z");
+    const spend = queryResult([{ started_at: "2026-09-10T12:00:00.000Z", estimated_cost_usd: 0.008, search_queries_used: 1 }]);
+    const meaningfulFinished = queryResult([]);
+    mocks.from
+      .mockReturnValueOnce(spend)
+      .mockReturnValueOnce(meaningfulFinished)
+      .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]));
+
+    expect(await getScannerAiHealth({ monthlyTavilyCreditCap: 1, monthlyLlmUsdCap: 1 })).toMatchObject({ state: "idle", code: null });
+    expect(meaningfulFinished.or).toHaveBeenCalledWith(expect.not.stringContaining('skips.cs.["llm_budget_capped"]'));
+  });
+
+  it("keeps a current LLM cap in the meaningful-history filter", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-09-11T12:00:00.000Z");
+    const spend = queryResult([{ started_at: "2026-09-10T12:00:00.000Z", estimated_cost_usd: 0.1 }]);
+    const meaningfulFinished = queryResult([run({ skips: ["llm_budget_capped"], progress: { llmSucceeded: 0 } })]);
+    mocks.from
+      .mockReturnValueOnce(spend)
+      .mockReturnValueOnce(meaningfulFinished)
+      .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]))
+      .mockReturnValueOnce(queryResult([]));
+
+    expect(await getScannerAiHealth({ monthlyLlmUsdCap: 0.05 })).toMatchObject({ state: "limited", code: "llm_budget_capped" });
+    expect(meaningfulFinished.or).toHaveBeenCalledWith(expect.stringContaining('skips.cs.["llm_budget_capped"]'));
+  });
+
+  it("fails closed when the current month spend cannot be read", async () => {
+    mocks.from.mockReturnValueOnce(queryResult(null, { message: "spend ledger unavailable" }));
+
+    expect(await getScannerAiHealth()).toMatchObject({ state: "unavailable", code: "ai_history_unavailable", lastSuccessAt: null });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
   });
 });
