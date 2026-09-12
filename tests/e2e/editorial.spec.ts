@@ -14,9 +14,9 @@ test("newspaper editorial routes retain the brand and separate coverage from sca
   await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "News", exact: true })).toHaveAttribute("aria-current", "page");
   await page.goto("/topics/charting-the-unknown");
   await expect(page).toHaveURL(/\/articles\/charting-the-unknown$/);
-  await expect(page.getByRole("heading", { name: "Beyond Pywel’s familiar shores", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Charting the Unknown launches October 15", exact: true })).toBeVisible();
   await expect(page.locator(".article-hero img")).toBeVisible();
-  await expect(page.locator(".opening")).toContainText("Crimson Desert’s next journey");
+  await expect(page.locator(".opening")).toContainText("Crimson Desert’s Charting the Unknown expansion launches October 15, 2026, at 6 p.m. Eastern.");
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "https://crimsonreporthub.com/articles/charting-the-unknown");
   await expect(page.getByRole("heading", { name: "The official outline" })).toHaveCount(0);
   mkdirSync("output/playwright", { recursive: true });

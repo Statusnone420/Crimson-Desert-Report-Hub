@@ -32,10 +32,10 @@ export const chartingTheUnknown = {
   slug: "charting-the-unknown",
   path: "/articles/charting-the-unknown",
   section: "Expansion report",
-  title: "Beyond Pywel’s familiar shores",
-  searchTitle: "Charting the Unknown: Release date and features",
+  title: "Charting the Unknown launches October 15",
+  searchTitle: "Crimson Desert: Charting the Unknown launches October 15",
   description:
-    "What Pearl Abyss has confirmed about Charting the Unknown: its October 15 release, new islands, underwater exploration, and expanded housing.",
+    "The Crimson Desert expansion adds ships, underwater exploration and housing changes. Pearl Abyss lists an October 15 launch at 6 p.m. Eastern.",
   publishedAt: "2026-09-05T00:00:00Z",
   sourceNote: "Based on Pearl Abyss’s September 3 announcement and official DLC overview.",
   heroImage: {
@@ -61,12 +61,12 @@ export const patch20200 = {
   path: "/articles/patch-2-02-00",
   section: "Patch report",
   patchVersion: "2.02.00",
-  title: "Patch 2.02.00 adds Mac cross-save",
-  searchTitle: "Crimson Desert 2.02.00 adds Mac cross-save",
+  title: "Crimson Desert patch 2.02.00 adds Mac cross-save",
+  searchTitle: "Crimson Desert patch 2.02.00 adds Mac cross-save",
   description:
-    "Pearl Abyss follows the Charting the Unknown reveal with Mac cross-save and welcome fixes for a startup crash, blocked quests and missing items.",
+    "Crimson Desert’s September 11 update adds Mac cross-save and lists fixes for quests, stored items and a DLSS Frame Generation startup crash.",
   publishedAt: "2026-09-11T07:30:00Z",
-  sourceNote: "Based on Pearl Abyss’s patch notes, expansion pages and current cross-save account guidance.",
+  sourceNote: "Based on Pearl Abyss’s patch notes, expansion pages and cross-save guide.",
   heroImage: {
     src: "/official/patch-2-02-00.png",
     width: 923,

@@ -23,8 +23,8 @@ async function expectNotGreen(page: Page, selector: string) {
 test("missing services stay unavailable instead of becoming a false zero", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
-  await expect(page.locator("#lead").getByRole("link", { name: "Patch 2.02.00 adds Mac cross-save" })).toHaveAttribute("href", "/articles/patch-2-02-00");
-  await expect(page.getByRole("link", { name: "Beyond Pywel’s familiar shores" })).toBeVisible();
+  await expect(page.locator("#lead").getByRole("link", { name: "Crimson Desert patch 2.02.00 adds Mac cross-save" })).toHaveAttribute("href", "/articles/patch-2-02-00");
+  await expect(page.getByRole("link", { name: "Charting the Unknown launches October 15" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Official claims are unavailable." })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Issue counts unavailable" })).toBeVisible();
   await expect(page.getByText("The scanner record could not be read. Counts are unavailable.")).toBeVisible();

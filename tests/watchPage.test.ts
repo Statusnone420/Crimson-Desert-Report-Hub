@@ -63,7 +63,7 @@ describe("watch desk selections", () => {
       sourceLabel: "KhrazeGaming",
       kindLabel: "Creator commentary",
       headline: "KhrazeGaming breaks down the expansion reveal",
-      reason: "KhrazeGaming’s video covers the first Crimson Desert expansion details, including ship navigation and new islands.",
+      reason: "KhrazeGaming’s video covers ship navigation and new islands shown in the Crimson Desert expansion reveal.",
       publishedAt: "2026-09-03T18:35:11Z",
     });
     const markup = renderWatch();

@@ -109,7 +109,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
     const markup = renderToStaticMarkup(await HomePage());
     const lead = markup.match(/<article id="lead"[\s\S]*?<\/article>/)?.[0] ?? "";
     expect(lead).toContain(patch20200.title);
-    expect(lead).toContain("Patch 2.02.00");
+    expect(lead).toContain("patch 2.02.00");
     expect(lead).toContain("September 11, 2026");
     expect(lead).not.toContain("2.03.00");
     expect(markup).toContain("Listed in the official notes for 2.03.00.");

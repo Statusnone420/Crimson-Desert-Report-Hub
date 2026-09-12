@@ -7,20 +7,20 @@ test("front-page readers can open the patch report and then the DLC report", asy
   await page.goto("/");
   const reports = page.getByRole("region", { name: "Original Hub reports" });
   await expect(reports.getByRole("heading")).toHaveText([
-    "Patch 2.02.00 adds Mac cross-save",
-    "Beyond Pywel’s familiar shores",
+    "Crimson Desert patch 2.02.00 adds Mac cross-save",
+    "Charting the Unknown launches October 15",
   ]);
   await expect(reports.locator("time")).toHaveText(["September 11, 2026", "September 5, 2026"]);
   await expect(reports.locator("#lead .dek")).toHaveText(patch20200.description);
   await reports.getByRole("article").first().getByRole("link", { name: "Read the report →" }).click();
   await expect(page).toHaveURL(/\/articles\/patch-2-02-00$/);
-  await expect(page.getByRole("heading", { name: "Patch 2.02.00 adds Mac cross-save" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Crimson Desert patch 2.02.00 adds Mac cross-save" })).toBeVisible();
   await expect(page.locator(".article-heading .article-deck")).toHaveText(patch20200.description);
 
   await page.goto("/");
   await reports.getByRole("article").nth(1).getByRole("link", { name: "Read the report →" }).click();
   await expect(page).toHaveURL(/\/articles\/charting-the-unknown$/);
-  await expect(page.getByRole("heading", { name: "Beyond Pywel’s familiar shores" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Charting the Unknown launches October 15" })).toBeVisible();
   await expectHealthyPage(page, problems);
 });
 
