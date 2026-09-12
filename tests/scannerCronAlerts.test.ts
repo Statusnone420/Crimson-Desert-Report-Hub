@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker, { CRON_TIMEOUT_MS, runCron, type Env } from "../cloudflare/scanner-cron/src/index";
+import { SCANNER_ATTEMPT_HEADER, SCANNER_ATTEMPT_START_KEY, SCANNER_EXECUTION_STATE_KEY } from "@/lib/automation/diagnostics";
 
 type Health = {
   state: "healthy" | "unavailable" | "limited" | "idle";
@@ -17,11 +18,11 @@ function response(aiHealth: Health = healthy, ok = true, automationStatus = "suc
 }
 
 function configuredEnv() {
-  let stored: string | null = null;
+  const stored = new Map<string, string>();
   const email = { send: vi.fn(async (message: Email) => ({ messageId: message.subject })) };
   const state = {
-    get: vi.fn(async () => stored),
-    put: vi.fn(async (_key: string, value: string) => { stored = value; }),
+    get: vi.fn(async (key: string) => stored.get(key) ?? null),
+    put: vi.fn(async (key: string, value: string) => { stored.set(key, value); }),
   };
   const env: Env = {
     CRON_URL: "https://example.test/api/cron/keepalive",
@@ -31,7 +32,7 @@ function configuredEnv() {
     ALERT_SENDER: "scanner-alerts@example.test",
     ALERT_RECIPIENT: "operator@example.test",
   };
-  return { env, email, state, read: () => stored };
+  return { env, email, state, read: (key = "scanner-ai-health-alert-v1") => stored.get(key) ?? null };
 }
 
 afterEach(() => {
@@ -187,18 +188,18 @@ describe("scanner cron alert lifecycle", () => {
     const { env, email, state } = configuredEnv();
     email.send.mockRejectedValueOnce(new Error("provider detail"));
     await expect(runCron(env, async () => response(limited))).rejects.toThrow("alert_delivery_failed");
-    expect(state.put).not.toHaveBeenCalled();
+    expect(state.put.mock.calls.filter(([key]) => key === "scanner-ai-health-alert-v1")).toHaveLength(0);
   });
 
   it.each(["", "null", "[]", "{}", '{"incidentCode":42}', '{"incidentCode":""}', '{"incidentCode":"unsafe code"}'])(
     "rejects corrupt alert state %j without sending or overwriting it",
     async (raw) => {
       const { env, email, state } = configuredEnv();
-      state.get.mockResolvedValue(raw);
+      state.get.mockImplementation(async (key) => key === "scanner-ai-health-alert-v1" ? raw : null);
       await expect(runCron(env, async () => response(healthy))).rejects.toThrow("alert_state_unavailable");
       await expect(runCron(env, async () => response(limited))).rejects.toThrow("alert_state_unavailable");
       expect(email.send).not.toHaveBeenCalled();
-      expect(state.put).not.toHaveBeenCalled();
+      expect(state.put.mock.calls.filter(([key]) => key === "scanner-ai-health-alert-v1")).toHaveLength(0);
     },
   );
 
@@ -228,5 +229,142 @@ describe("scanner cron alert lifecycle", () => {
     );
     expect(pending).toBeDefined();
     await expect(pending).rejects.toThrow("cron_http_500");
+  });
+});
+
+describe("scanner attempt diagnostics", () => {
+  it("names missing endpoint authorization without attempting a request", async () => {
+    const { env, read } = configuredEnv();
+    env.CRON_SECRET = "";
+    const fetcher = vi.fn();
+    await expect(runCron(env, fetcher)).rejects.toThrow("cron_configuration_missing");
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!).latestAttempt.diagnostics).toEqual([{ stage: "request", code: "configuration_missing" }]);
+  });
+
+  it("alerts when an older app reports a spending-read error as skipped", async () => {
+    const { env, email, read } = configuredEnv();
+    await expect(runCron(env, async () => Response.json({ ok: true, aiHealth: healthy,
+      automation: { status: "skipped", errors: ["private database failure"], skips: ["budget_read_failed"] },
+    }))).rejects.toThrow("scanner_run_failed");
+    const snapshot = JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!);
+    expect(snapshot.latestAttempt).toMatchObject({ outcome: "failed", errorCount: 1,
+      diagnostics: [{ stage: "budget_read", code: "database_unavailable" }] });
+    expect(email.send.mock.calls[0][0].text).toContain("Reading recorded spending");
+    expect(JSON.stringify(snapshot)).not.toContain("private database failure");
+  });
+
+  it("retains a pre-ledger failure and earlier success outside the database", async () => {
+    const { env, email, read } = configuredEnv();
+    await runCron(env, async () => response());
+    const previous = JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!);
+    await expect(runCron(env, async (_url, init) => {
+      const id = new Headers(init?.headers).get(SCANNER_ATTEMPT_HEADER);
+      const now = new Date().toISOString();
+      return Response.json({ ok: false, aiHealth: null, automation: { status: "failed" },
+        attempt: { id, startedAt: now, finishedAt: now, outcome: "failed", errorCount: 1,
+          diagnostics: [{ stage: "run_create", code: "database_timeout" }], skipReason: null,
+          nextEligibleAt: now, httpStatus: 503 },
+      }, { status: 503 });
+    })).rejects.toThrow("scanner_run_failed");
+    const snapshot = JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!);
+    expect(snapshot.lastFailedAttempt).toMatchObject({ outcome: "failed", httpStatus: 503,
+      diagnostics: [{ stage: "run_create", code: "database_timeout" }] });
+    expect(snapshot.lastSuccessfulScanAt).toBe(previous.lastSuccessfulScanAt);
+    expect(snapshot.lastSuccessfulAiAt).toBe(healthy.lastSuccessAt);
+    expect(JSON.parse(read(SCANNER_ATTEMPT_START_KEY)!).id).toBe(snapshot.latestAttempt.id);
+    expect(email.send.mock.calls.at(-1)?.[0].text).toContain("Creating the run record");
+    expect(email.send.mock.calls.at(-1)?.[0].text).toContain(`Last successful AI processing: ${healthy.lastSuccessAt}`);
+    expect(email.send.mock.calls.at(-1)?.[0].text).not.toContain("No successful AI run recorded");
+  });
+
+  it("keeps the last failed attempt after recovery", async () => {
+    const { env, read } = configuredEnv();
+    await expect(runCron(env, async () => new Response("private body", { status: 500 }))).rejects.toThrow("cron_http_500");
+    const failure = JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!).lastFailedAttempt;
+    await runCron(env, async () => response());
+    const snapshot = JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!);
+    expect(snapshot.lastFailedAttempt).toEqual(failure);
+    expect(snapshot.latestAttempt.outcome).toBe("success");
+    expect(read()).toBe(JSON.stringify({ incidentCode: null }));
+  });
+
+  it("reports missing health details without claiming there was never a successful run", async () => {
+    const { env, email } = configuredEnv();
+    await expect(runCron(env, async () => new Response("private body", { status: 500 }))).rejects.toThrow("cron_http_500");
+    expect(email.send.mock.calls[0][0].text).toContain("Last successful scan: Not available in the saved trigger record");
+    expect(email.send.mock.calls[0][0].text).not.toContain("No successful AI run recorded");
+  });
+
+  it("reports completion-record failure even after a successful scan", async () => {
+    const { env, state, email, read } = configuredEnv();
+    const write = state.put.getMockImplementation()!;
+    state.put.mockImplementation(async (key, value) => {
+      if (key === SCANNER_EXECUTION_STATE_KEY) throw new Error("private KV failure");
+      await write(key, value);
+    });
+    await expect(runCron(env, async () => response())).rejects.toThrow("scanner_status_write_failed");
+    expect(read(SCANNER_ATTEMPT_START_KEY)).not.toBeNull();
+    expect(email.send.mock.calls[0][0].subject).toContain("scanner_status_write_failed");
+    expect(email.send.mock.calls[0][0].text).toContain("Saving the trigger record");
+  });
+
+  it("keeps database UTC timestamps, including microseconds, as valid prior AI evidence", async () => {
+    const { env, read } = configuredEnv();
+    await runCron(env, async () => response({ ...healthy, lastSuccessAt: "2026-09-06T16:00:00.123456+00:00" }));
+    await expect(runCron(env, async () => new Response(null, { status: 500 }))).rejects.toThrow("cron_http_500");
+    expect(JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!).lastSuccessfulAiAt).toBe("2026-09-06T16:00:00.123Z");
+  });
+
+  it("rejects contradictory success evidence and never sends recovery", async () => {
+    const { env, email, read } = configuredEnv();
+    await expect(runCron(env, async () => new Response(null, { status: 500 }))).rejects.toThrow("cron_http_500");
+    await expect(runCron(env, async (_url, init) => {
+      const now = new Date().toISOString();
+      return Response.json({ ok: true, aiHealth: healthy, automation: { status: "success", errors: ["private error"] }, attempt: {
+        id: new Headers(init?.headers).get(SCANNER_ATTEMPT_HEADER), startedAt: now, finishedAt: now,
+        outcome: "success", diagnostics: [], errorCount: 0, skipReason: null, nextEligibleAt: null, httpStatus: 200,
+      } });
+    })).rejects.toThrow("cron_response_invalid");
+    expect(email.send.mock.calls.every(([message]) => !message.subject.includes("recovered"))).toBe(true);
+    expect(JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!).latestAttempt.outcome).toBe("failed");
+  });
+
+  it("records unreadable prior status without replacing its history", async () => {
+    const { env, state, read } = configuredEnv();
+    await state.put(SCANNER_EXECUTION_STATE_KEY, "corrupt");
+    await expect(runCron(env, async () => response())).rejects.toThrow("scanner_status_read_failed");
+    expect(read(SCANNER_EXECUTION_STATE_KEY)).toBe("corrupt");
+    expect(read(SCANNER_ATTEMPT_START_KEY)).not.toBeNull();
+  });
+
+  it("preserves both diagnoses when the status read and start-marker write fail", async () => {
+    const { env, state, email } = configuredEnv();
+    const get = state.get.getMockImplementation()!;
+    const put = state.put.getMockImplementation()!;
+    state.get.mockImplementation(async (key) => {
+      if (key === SCANNER_EXECUTION_STATE_KEY) throw new Error("private read failure");
+      return get(key);
+    });
+    state.put.mockImplementation(async (key, value) => {
+      if (key === SCANNER_ATTEMPT_START_KEY) throw new Error("private write failure");
+      await put(key, value);
+    });
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      await expect(runCron(env, async () => response())).rejects.toThrow("scanner_status_read_failed");
+      const completion = log.mock.calls.map(([message]) => JSON.parse(message))
+        .find((event) => event.event === "scanner_attempt_completed");
+      expect(completion.latestAttempt).toMatchObject({ outcome: "partial", errorCount: 2, diagnostics: [
+        { stage: "status_read", code: "operation_failed" },
+        { stage: "status_write", code: "operation_failed" },
+      ] });
+      expect(state.put.mock.calls.some(([key]) => key === SCANNER_EXECUTION_STATE_KEY)).toBe(false);
+      expect(email.send.mock.calls[0][0].text).toContain("Reading the previous trigger record");
+      expect(email.send.mock.calls[0][0].text).toContain("Saving the trigger record");
+      expect(JSON.stringify(completion)).not.toContain("private");
+    } finally {
+      log.mockRestore();
+    }
   });
 });

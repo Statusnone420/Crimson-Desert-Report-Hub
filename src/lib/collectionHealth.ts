@@ -79,10 +79,31 @@ function cadenceMs(minutes: number): number {
   return Number.isFinite(minutes) && minutes > 0 ? Math.trunc(minutes * 60 * 1000) : 60 * 60 * 1000;
 }
 
+function durationLabel(durationMs: number): string {
+  const minutes = Math.round(durationMs / (60 * 1000));
+  if (minutes === 60) return "1 hour";
+  if (minutes % 60 === 0) return `${minutes / 60} hours`;
+  return `${minutes} minutes`;
+}
+
+function collectionWindowDetail(
+  provider: "steam" | "platform",
+  input: CollectionHealthInput,
+): string {
+  const interval = provider === "steam" ? STEAM_COLLECTION_INTERVAL_MS : PLATFORM_COLLECTION_INTERVAL_MS;
+  const intervalLabel = provider === "steam" ? "6-hour Steam review collection interval" : "1-hour platform collection interval";
+  const scannerCadence = `${Math.round(cadenceMs(input.scheduledCadenceMinutes) / (60 * 1000))}-minute`;
+  const maximumAge = durationLabel(interval + cadenceMs(input.scheduledCadenceMinutes));
+  return `The collection schedule allows a ${intervalLabel} plus the configured ${scannerCadence} scanner cadence (${maximumAge} maximum age).`;
+}
+
+function twitchLiveDisplayDetail(): string {
+  return "Twitch live-display counts use a separate 2-hour freshness limit.";
+}
+
 /**
  * A capture can occur only after its own minimum interval and the next scanner
- * run. This grace makes a six-hour Steam reading normal rather than a failure,
- * while retaining the existing two-hour threshold for an hourly platform scan.
+ * run. This grace includes the configured scanner cadence after that interval.
  */
 function isDelayed(capturedAt: string, minimumIntervalMs: number, input: CollectionHealthInput): boolean {
   const capturedTime = timeOf(capturedAt);
@@ -114,17 +135,36 @@ function disabledLane(key: CollectionHealthLane["key"], label: string): Collecti
   });
 }
 
-function unknownLane(key: CollectionHealthLane["key"], label: string): CollectionHealthLane {
+function unreadableRecordLane(key: CollectionHealthLane["key"], label: string): CollectionHealthLane {
   return lane({
     key,
     label,
     state: "unknown",
-    labelText: "Unknown",
+    labelText: "Saved record unreadable",
     lastCaptureAt: null,
     lastSuccessfulCaptureAt: null,
     latestAttemptAt: null,
-    detail: "The saved collection record could not be read. No count is assumed to be zero.",
-    nextAction: "Check the collection read and its schema availability.",
+    detail: "The saved collection record could not be read. Its capture status and any count are unverified.",
+    nextAction: "Restore the saved-record read, then check the next scheduled collection.",
+  });
+}
+
+function invalidTimestampLane(input: {
+  key: CollectionHealthLane["key"];
+  label: string;
+  lastSuccessfulCaptureAt?: string | null;
+  latestAttemptAt?: string | null;
+}): CollectionHealthLane {
+  return lane({
+    key: input.key,
+    label: input.label,
+    state: "unknown",
+    labelText: "Invalid saved timestamp",
+    lastCaptureAt: null,
+    lastSuccessfulCaptureAt: input.lastSuccessfulCaptureAt ?? null,
+    latestAttemptAt: input.latestAttemptAt ?? null,
+    detail: "A saved capture timestamp is invalid or in the future. Collection freshness cannot be verified.",
+    nextAction: "Correct the saved record, then check the next scheduled collection.",
   });
 }
 
@@ -137,8 +177,8 @@ function noCaptureLane(key: CollectionHealthLane["key"], label: string): Collect
     lastCaptureAt: null,
     lastSuccessfulCaptureAt: null,
     latestAttemptAt: null,
-    detail: "No saved capture is available yet.",
-    nextAction: "Confirm that collection has run since this service was enabled.",
+    detail: "No saved capture is available yet. This does not establish a zero count.",
+    nextAction: "Confirm collection has run since this service was enabled; inspect the next scheduled attempt if no capture appears.",
   });
 }
 
@@ -160,61 +200,23 @@ function providerLane(input: {
   const capture = lastSuccessfulCaptureAt ?? latestAttemptAt;
 
   if (!latestAttemptAt) {
-    return lane({
+    return invalidTimestampLane({
       key: input.key,
       label: input.label,
-      state: "unknown",
-      labelText: "Unknown",
-      lastCaptureAt: null,
-      lastSuccessfulCaptureAt: null,
-      latestAttemptAt: null,
-      detail: "The saved capture time is invalid.",
-      nextAction: "Check the saved collection record.",
+      lastSuccessfulCaptureAt,
     });
   }
 
   if (input.hasInvalidSuccessHistory) {
-    return lane({
+    return invalidTimestampLane({
       key: input.key,
       label: input.label,
-      state: "unknown",
-      labelText: "Unknown",
-      lastCaptureAt: null,
-      lastSuccessfulCaptureAt: null,
       latestAttemptAt,
-      detail: "A saved successful-capture time is invalid.",
-      nextAction: "Check the saved collection record.",
-    });
-  }
-
-  if (status === "stale") {
-    if (input.key === "twitch" && lastSuccessfulCaptureAt && !isDelayed(lastSuccessfulCaptureAt, PLATFORM_COLLECTION_INTERVAL_MS, input.health)) {
-      return lane({
-        key: input.key,
-        label: input.label,
-        state: "ok",
-        labelText: "On schedule",
-        lastCaptureAt: lastSuccessfulCaptureAt,
-        lastSuccessfulCaptureAt,
-        latestAttemptAt,
-        detail: "The last complete capture is within the collection window. Live display freshness uses a shorter window.",
-        nextAction: null,
-      });
-    }
-    return lane({
-      key: input.key,
-      label: input.label,
-      state: "delayed",
-      labelText: "Delayed",
-      lastCaptureAt: capture,
       lastSuccessfulCaptureAt,
-      latestAttemptAt,
-      detail: "The latest provider capture is stale and no longer represents current data.",
-      nextAction: "Check that the scheduled collector can capture this provider again.",
     });
   }
 
-  if (status !== "ok") {
+  if (status !== "ok" && status !== "stale") {
     return lane({
       key: input.key,
       label: input.label,
@@ -223,8 +225,8 @@ function providerLane(input: {
       lastCaptureAt: capture,
       lastSuccessfulCaptureAt,
       latestAttemptAt,
-      detail: "The latest provider capture did not return usable data.",
-      nextAction: "Check the provider configuration and the next scheduled capture.",
+      detail: `The latest saved provider response is marked ${status || "unavailable"}. No more specific cause is recorded.`,
+      nextAction: "Inspect the saved response, then check the next scheduled capture.",
     });
   }
 
@@ -237,8 +239,22 @@ function providerLane(input: {
       lastCaptureAt: capture,
       lastSuccessfulCaptureAt,
       latestAttemptAt,
-      detail: "The latest provider metadata is older than the configured collection window.",
-      nextAction: "Check that the scheduled collector can run and capture this provider again.",
+      detail: `${collectionWindowDetail("platform", input.health)} The latest saved capture is older than that window.`,
+      nextAction: "Check that the scheduled collector can run, then inspect the next provider capture.",
+    });
+  }
+
+  if (status === "stale" && lastSuccessfulCaptureAt && !isDelayed(lastSuccessfulCaptureAt, PLATFORM_COLLECTION_INTERVAL_MS, input.health)) {
+    return lane({
+      key: input.key,
+      label: input.label,
+      state: "ok",
+      labelText: "On schedule",
+      lastCaptureAt: lastSuccessfulCaptureAt,
+      lastSuccessfulCaptureAt,
+      latestAttemptAt,
+      detail: `${collectionWindowDetail("platform", input.health)}${input.key === "twitch" ? ` ${twitchLiveDisplayDetail()}` : ""}`,
+      nextAction: null,
     });
   }
 
@@ -262,11 +278,13 @@ function providerLane(input: {
     key: input.key,
     label: input.label,
     state: "ok",
-    labelText: "Current",
+    labelText: status === "stale" ? "On schedule" : "Current",
     lastCaptureAt: capture,
     lastSuccessfulCaptureAt,
     latestAttemptAt,
-    detail: "The latest saved capture is within the configured collection window.",
+    detail: status === "stale"
+      ? `${collectionWindowDetail("platform", input.health)} ${input.key === "twitch" ? twitchLiveDisplayDetail() : ""}`.trim()
+      : `${collectionWindowDetail("platform", input.health)}${input.key === "twitch" ? ` ${twitchLiveDisplayDetail()}` : ""}`,
     nextAction: null,
   });
 }
@@ -280,11 +298,15 @@ export function collectionHealth(input: CollectionHealthInput): CollectionHealth
   const latestTwitchSuccess = twitchHistory.latest;
 
   const steam = steamReadFailed
-    ? unknownLane("steam", "Steam reviews")
+    ? unreadableRecordLane("steam", "Steam reviews")
     : !input.steamPulseEnabled
       ? disabledLane("steam", "Steam reviews")
       : steamCapture.hasInvalidTimestamp
-        ? unknownLane("steam", "Steam reviews")
+        ? invalidTimestampLane({
+            key: "steam",
+            label: "Steam reviews",
+            lastSuccessfulCaptureAt: latestSteam,
+          })
       : !latestSteam
         ? noCaptureLane("steam", "Steam reviews")
         : isDelayed(latestSteam, STEAM_COLLECTION_INTERVAL_MS, input)
@@ -296,8 +318,8 @@ export function collectionHealth(input: CollectionHealthInput): CollectionHealth
               lastCaptureAt: latestSteam,
               lastSuccessfulCaptureAt: latestSteam,
               latestAttemptAt: latestSteam,
-              detail: "The latest review capture is older than the collection window.",
-              nextAction: "Check that the scheduled collector can run and capture Steam reviews again.",
+              detail: `${collectionWindowDetail("steam", input)} The latest saved capture is older than that window.`,
+              nextAction: "Check that the scheduled collector can run, then inspect the next Steam review capture.",
             })
           : lane({
               key: "steam",
@@ -307,12 +329,12 @@ export function collectionHealth(input: CollectionHealthInput): CollectionHealth
               lastCaptureAt: latestSteam,
               lastSuccessfulCaptureAt: latestSteam,
               latestAttemptAt: latestSteam,
-              detail: "The latest saved review capture is within the collection window.",
+              detail: collectionWindowDetail("steam", input),
               nextAction: null,
             });
 
   const [twitch, igdb] = platformReadFailed
-    ? [unknownLane("twitch", "Twitch audience"), unknownLane("igdb", "IGDB platform metadata")]
+    ? [unreadableRecordLane("twitch", "Twitch audience"), unreadableRecordLane("igdb", "IGDB platform metadata")]
     : !input.platformContextConfigured
       ? [disabledLane("twitch", "Twitch audience"), disabledLane("igdb", "IGDB platform metadata")]
       : !input.platformContext

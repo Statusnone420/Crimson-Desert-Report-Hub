@@ -91,11 +91,19 @@ import { appendOpenRouterDiagnostics, type OpenRouterDiagnostic } from "@/lib/au
 import { recordClaimReviewProposals, type ClaimReviewLifecycleDecision, type ClaimReviewProposal } from "@/lib/claimReview";
 import { isMissingSupabaseColumn, isMissingSupabaseRelation } from "@/lib/supabaseCompatibility";
 import { fetchCrimsonDesertPlatformContext } from "@/lib/platform/igdb";
+import {
+  describeScannerDiagnostic,
+  scannerDiagnostic,
+  ScannerOperationError,
+  type ScannerDiagnostic,
+  type ScannerStage,
+} from "@/lib/automation/diagnostics";
 
 export type AutomationMode = "scheduled" | "manual" | "dry_run";
 
 export type AutomationResult = {
   openRouterDiagnostics?: OpenRouterDiagnostic[];
+  diagnostics?: ScannerDiagnostic[];
   status: "success" | "partial" | "failed" | "skipped";
   searchQueriesUsed: number;
   searchResultsSeen: number;
@@ -123,6 +131,7 @@ export type AutomationResult = {
 
 export type RunProgress = {
   openRouterDiagnostics?: OpenRouterDiagnostic[];
+  diagnostics?: ScannerDiagnostic[];
   llmSucceeded?: number;
   llmCostUsd?: number;
   modelPreset?: ScannerModelPreset | null;
@@ -203,11 +212,25 @@ function recordOpenRouterDiagnostic(result: AutomationResult, diagnostic: OpenRo
   result.openRouterDiagnostics = appendOpenRouterDiagnostics(result.openRouterDiagnostics, [diagnostic]);
 }
 
+function appendScannerDiagnostic(result: AutomationResult, diagnostic: ScannerDiagnostic): void {
+  if (!result.diagnostics?.some((item) => item.stage === diagnostic.stage && item.code === diagnostic.code)) {
+    result.diagnostics = [...(result.diagnostics ?? []), diagnostic];
+  }
+  const detail = describeScannerDiagnostic(diagnostic);
+  if (!result.errors.includes(detail)) result.errors.push(detail);
+}
+
+function recordScannerDiagnostic(result: AutomationResult, stage: ScannerStage, error: unknown): void {
+  appendScannerDiagnostic(result, scannerDiagnostic(stage, error));
+  if (result.status === "success") result.status = "partial";
+}
+
 function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult, searchTotal: number): RunProgress {
   return {
     ...(result.openRouterDiagnostics?.length
       ? { openRouterDiagnostics: appendOpenRouterDiagnostics(undefined, result.openRouterDiagnostics) }
       : {}),
+    ...(result.diagnostics?.length ? { diagnostics: [...result.diagnostics] } : {}),
     stage,
     llmSucceeded: result.llmSucceeded ?? 0,
     llmCostUsd: result.llmCostUsd,
@@ -224,16 +247,18 @@ function snapshotProgress(stage: RunProgress["stage"], result: AutomationResult,
   };
 }
 
-/** Best-effort progress write — never throws, never fails a run. */
+/** Best-effort progress write — failures stay visible without stopping work. */
 async function writeProgress(
   supabase: ReturnType<typeof createServiceClient>,
   runId: string,
   progress: RunProgress,
+  result: AutomationResult,
 ): Promise<void> {
   try {
-    await supabase.from("automation_runs").update({ progress }).eq("id", runId);
-  } catch {
-    // best-effort by design
+    const { error } = await supabase.from("automation_runs").update({ progress }).eq("id", runId);
+    if (error) throw error;
+  } catch (error) {
+    recordScannerDiagnostic(result, "progress_write", error);
   }
 }
 
@@ -245,7 +270,7 @@ export async function sweepStaleRuns(
   now: Date,
 ): Promise<void> {
   try {
-    await supabase
+    const { error } = await supabase
       .from("automation_runs")
       .update({
         status: "failed",
@@ -254,8 +279,9 @@ export async function sweepStaleRuns(
       })
       .eq("status", "running")
       .lt("started_at", new Date(now.getTime() - STALE_RUN_MINUTES * 60 * 1000).toISOString());
-  } catch {
-    // best-effort by design
+    if (error) throw error;
+  } catch (error) {
+    throw new ScannerOperationError("stale_run_cleanup", error);
   }
 }
 
@@ -270,14 +296,18 @@ export async function hasActiveRun(
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("automation_runs")
-    .select("id")
-    .eq("status", "running")
-    .gte("started_at", new Date(now.getTime() - STALE_RUN_MINUTES * 60 * 1000).toISOString())
-    .limit(1);
-  if (error) throw new Error(`active run read failed: ${error.message}`);
-  return ((data ?? []) as { id: string }[]).length > 0;
+  try {
+    const { data, error } = await supabase
+      .from("automation_runs")
+      .select("id")
+      .eq("status", "running")
+      .gte("started_at", new Date(now.getTime() - STALE_RUN_MINUTES * 60 * 1000).toISOString())
+      .limit(1);
+    if (error) throw error;
+    return ((data ?? []) as { id: string }[]).length > 0;
+  } catch (error) {
+    throw new ScannerOperationError("active_run_read", error);
+  }
 }
 
 type SourceInput = {
@@ -508,11 +538,13 @@ async function updateRunIntent(
   supabase: ReturnType<typeof createServiceClient>,
   runId: string,
   intent: ScanIntent,
+  result: AutomationResult,
 ): Promise<void> {
   try {
-    await supabase.from("automation_runs").update({ intent }).eq("id", runId);
-  } catch {
-    // best-effort by design
+    const { error } = await supabase.from("automation_runs").update({ intent }).eq("id", runId);
+    if (error) throw error;
+  } catch (error) {
+    recordScannerDiagnostic(result, "progress_write", error);
   }
 }
 
@@ -2467,33 +2499,39 @@ async function createRunLedger(
   budget: AutomationBudget,
   now: Date,
   patchBurstActive = false,
+  attemptId?: string,
 ): Promise<string> {
-  const { data, error } = await supabase
-    .from("automation_runs")
-    .insert({
-      started_at: now.toISOString(),
-      status: "running",
-      mode,
-      budget_monthly_usd: budget.monthlyBudgetUsd,
-      budget_remaining_before_usd: budget.remainingMonthUsd,
-      skips: patchBurstActive ? ["patch_burst_active"] : [],
-      progress: {
-        stage: "starting",
-        searchesDone: 0,
-        searchTotal: budget.maxSearchQueries,
-        candidatesSeen: 0,
-        prefilterRejected: 0,
-        llmCallsUsed: 0,
-        kept: 0,
-        promoted: 0,
-      } satisfies RunProgress,
-    })
-    .select("id")
-    .single();
-  if (error) throw new Error(`automation run create failed: ${error.message}`);
-  const id = (data as { id?: string } | null)?.id;
-  if (!id) throw new Error("automation run create returned no id");
-  return id;
+  try {
+    const { data, error } = await supabase
+      .from("automation_runs")
+      .insert({
+        ...(attemptId ? { id: attemptId } : {}),
+        started_at: now.toISOString(),
+        status: "running",
+        mode,
+        budget_monthly_usd: budget.monthlyBudgetUsd,
+        budget_remaining_before_usd: budget.remainingMonthUsd,
+        skips: patchBurstActive ? ["patch_burst_active"] : [],
+        progress: {
+          stage: "starting",
+          searchesDone: 0,
+          searchTotal: budget.maxSearchQueries,
+          candidatesSeen: 0,
+          prefilterRejected: 0,
+          llmCallsUsed: 0,
+          kept: 0,
+          promoted: 0,
+        } satisfies RunProgress,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    const id = (data as { id?: string } | null)?.id;
+    if (!id) throw new Error("run record did not return an identifier");
+    return id;
+  } catch (error) {
+    throw new ScannerOperationError("run_create", error);
+  }
 }
 
 async function finalizeRunLedger(
@@ -2747,8 +2785,8 @@ async function finalizeRunLedgerSafely(
   try {
     await finalizeRunLedger(supabase, runId, result);
   } catch (error) {
-    result.errors.push(toErrorMessage(error, "automation run finalize failed"));
-    if (result.status === "success") result.status = "failed";
+    appendScannerDiagnostic(result, scannerDiagnostic("run_finalize", error));
+    result.status = "failed";
   }
 }
 
@@ -2761,7 +2799,7 @@ async function executeAutomationRun(
   budgetReadError: string | null,
   openRouterCircuitOpen: boolean,
   patchMetadata: CurrentPatchMetadata,
-  patchSyncError: string | null,
+  patchSyncDiagnostic: ScannerDiagnostic | null,
   patchBurstActive: boolean,
   now: Date,
 ): Promise<AutomationResult> {
@@ -2794,26 +2832,27 @@ async function executeAutomationRun(
     errors: [],
   };
 
-  if (patchSyncError) {
+  if (patchSyncDiagnostic) {
+    appendScannerDiagnostic(result, patchSyncDiagnostic);
     result.status = "partial";
-    result.errors.push(patchSyncError);
   }
 
   if (budgetReadError) {
-    result.status = "skipped";
+    result.status = "failed";
     result.skips.push("budget_read_failed");
-    result.errors.push(budgetReadError);
+    appendScannerDiagnostic(result, scannerDiagnostic("budget_read", budgetReadError));
     await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }
   if (!isCurrentPatchVerified(patchMetadata)) {
-    result.status = "skipped";
+    result.status = "failed";
     result.skips.push("current_patch_unavailable");
+    appendScannerDiagnostic(result, { stage: "patch_read", code: "current_patch_unavailable" });
     await finalizeRunLedgerSafely(supabase, runId, result);
     return result;
   }
   const report = (stage: RunProgress["stage"]) =>
-    writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries));
+    writeProgress(supabase, runId, snapshotProgress(stage, result, budget.maxSearchQueries), result);
 
   let rejected: RejectedCandidate[] = [];
   const currentPatch: CurrentPatchContext = patchMetadata;
@@ -2835,7 +2874,7 @@ async function executeAutomationRun(
     // lane count here — where scanMemory is in scope — keeps that rotation from
     // being aliased by the intent-lane offset (see buildMemorySearchQueries).
     const laneCount = eligibleLaneCount(scanMemory);
-    await updateRunIntent(supabase, runId, result.intent);
+    await updateRunIntent(supabase, runId, result.intent, result);
 
     if (mode !== "dry_run") {
       await quarantineStalePublicSignals(supabase, result, now, currentPatch);
@@ -2936,23 +2975,47 @@ export type StartedScan =
   | { status: "started"; runId: string; completion: Promise<AutomationResult> }
   | { status: "already_running"; runId: null };
 
-export async function startAutomationScan(input: { mode: AutomationMode; now?: Date; scannerPolicy?: ScannerPolicy }): Promise<StartedScan> {
+export async function startAutomationScan(input: {
+  mode: AutomationMode;
+  now?: Date;
+  scannerPolicy?: ScannerPolicy;
+  attemptId?: string;
+}): Promise<StartedScan> {
   const now = input.now ?? new Date();
+  const traceStage = (stage: ScannerStage) => {
+    if (input.attemptId) console.info(JSON.stringify({ event: "scanner_stage_started", id: input.attemptId, stage }));
+  };
+  traceStage("database_check");
   const supabase = createServiceClient();
+  traceStage("stale_run_cleanup");
   await sweepStaleRuns(supabase, now);
+  traceStage("active_run_read");
   if (await hasActiveRun(supabase, now)) return { status: "already_running", runId: null };
 
-  const scannerPolicy = applyAutomationBudgetCeiling(
-    input.scannerPolicy ?? await getAutomationControlState(supabase as unknown as AutomationSettingsClient),
-  );
+  let scannerPolicy: ScannerPolicy;
+  traceStage("policy_read");
+  try {
+    scannerPolicy = applyAutomationBudgetCeiling(
+      input.scannerPolicy ?? await getAutomationControlState(supabase as unknown as AutomationSettingsClient),
+    );
+  } catch (error) {
+    throw new ScannerOperationError("policy_read", error);
+  }
   const monthlyBudgetUsd = scannerPolicy.monthlyLlmUsdCap;
-  let patchMetadata = await getCurrentPatchMetadata(supabase);
-  let patchSyncError: string | null = null;
+  let patchMetadata: CurrentPatchMetadata;
+  traceStage("patch_read");
+  try {
+    patchMetadata = await getCurrentPatchMetadata(supabase);
+  } catch (error) {
+    throw new ScannerOperationError("patch_read", error);
+  }
+  let patchSyncDiagnostic: ScannerDiagnostic | null = null;
   let budgetReadError: string | null = null;
   let spentMonthToDateUsd = 0;
   let tavilyCreditsMonthToDate = 0;
   let llmSpentMonthToDateUsd = 0;
   let openRouterCircuitOpen = false;
+  traceStage("budget_read");
   try {
     const monthSpend = await loadMonthSpend(supabase, now);
     spentMonthToDateUsd = monthSpend.estimatedCostUsd;
@@ -2966,10 +3029,11 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     llmSpentMonthToDateUsd = monthlyBudgetUsd;
   }
   if (!budgetReadError && input.mode !== "dry_run") {
+    traceStage("patch_sync");
     try {
       patchMetadata = (await syncOfficialPatchNote(supabase, { now })).patch;
     } catch (error) {
-      patchSyncError = toErrorMessage(error, "official patch sync failed");
+      patchSyncDiagnostic = scannerDiagnostic("patch_sync", error);
     }
   }
   const patchBurstActive = input.mode === "scheduled" && resolveBurstState(patchMetadata, now);
@@ -2983,9 +3047,11 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     now,
     scannerPolicy,
   });
+  traceStage("scan");
   const budget = await enforceProviderBudget({ ...computedBudget, modelPreset: scannerPolicy.modelPreset, maxLlmCalls: openRouterCircuitOpen ? 0 : computedBudget.maxLlmCalls });
 
-  const runId = await createRunLedger(supabase, input.mode, budget, now, patchBurstActive);
+  traceStage("run_create");
+  const runId = await createRunLedger(supabase, input.mode, budget, now, patchBurstActive, input.attemptId);
   const completion = executeAutomationRun(
     supabase,
     runId,
@@ -2994,7 +3060,7 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
     budgetReadError,
     openRouterCircuitOpen,
     patchMetadata,
-    patchSyncError,
+    patchSyncDiagnostic,
     patchBurstActive,
     now,
   );
@@ -3002,7 +3068,12 @@ export async function startAutomationScan(input: { mode: AutomationMode; now?: D
 }
 
 /** Awaits the whole scan inline — used by the cron and tests. */
-export async function runAutomationMonitor(input: { mode: AutomationMode; now?: Date; scannerPolicy?: ScannerPolicy }): Promise<AutomationResult> {
+export async function runAutomationMonitor(input: {
+  mode: AutomationMode;
+  now?: Date;
+  scannerPolicy?: ScannerPolicy;
+  attemptId?: string;
+}): Promise<AutomationResult> {
   const started = await startAutomationScan(input);
   if (started.status === "already_running") {
     return {
@@ -3032,14 +3103,14 @@ export async function runAutomationMonitor(input: { mode: AutomationMode; now?: 
   return started.completion;
 }
 
-/** Zero-cost ledger trace: proves the cron fired and explains why it didn't scan. Best-effort. */
+/** Zero-cost ledger trace: proves the cron fired and explains why it didn't scan. */
 export async function insertSkippedScheduledRun(
   supabase: ReturnType<typeof createServiceClient>,
   reason: "paused" | "recent_run" | "scan_already_running" | "budget_zero" | "budget_capped" | "tavily_credit_cap" | "llm_budget_capped",
   now: Date,
 ): Promise<void> {
   try {
-    await supabase.from("automation_runs").insert({
+    const { error } = await supabase.from("automation_runs").insert({
       started_at: now.toISOString(),
       finished_at: now.toISOString(),
       status: "skipped",
@@ -3070,8 +3141,9 @@ export async function insertSkippedScheduledRun(
         promoted: 0,
       },
     });
-  } catch {
-    // best-effort by design
+    if (error) throw error;
+  } catch (error) {
+    throw new ScannerOperationError("skip_write", error);
   }
 }
 

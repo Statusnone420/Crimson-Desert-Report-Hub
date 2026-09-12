@@ -6,7 +6,16 @@ function stateClass(lane: CollectionHealthLane): string {
 }
 
 function captureLine(lane: CollectionHealthLane): string {
-  if (!lane.lastCaptureAt) return "Last capture unavailable";
+  if (!lane.lastCaptureAt) {
+    if (lane.state === "unknown") {
+      return lane.labelText === "Saved record unreadable"
+        ? "Saved record could not be read"
+        : "Saved capture timestamp is invalid";
+    }
+    if (lane.state === "no_capture") return "No capture saved";
+    if (lane.state === "disabled") return "Collection is disabled";
+    return "Last capture unavailable";
+  }
   return `Last capture ${formatEasternDateTime(lane.lastCaptureAt)}`;
 }
 

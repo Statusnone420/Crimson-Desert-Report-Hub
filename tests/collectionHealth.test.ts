@@ -48,7 +48,7 @@ describe("collectionHealth", () => {
     expect(result.attentionCount).toBe(1);
   });
 
-  it("marks failed pulse reads unknown without inventing zero captures", () => {
+  it("names failed saved-record reads without inventing zero captures", () => {
     const result = health({
       pulseReadFailures: ["steam", "platform"],
       steamPulse: [{ collectedAt: "2026-09-05T17:00:00.000Z" }],
@@ -56,7 +56,12 @@ describe("collectionHealth", () => {
 
     expect(result.status).toBe("unknown");
     for (const key of ["steam", "twitch", "igdb"] as const) {
-      expect(lane(result, key)).toMatchObject({ state: "unknown", lastCaptureAt: null });
+      expect(lane(result, key)).toMatchObject({
+        state: "unknown",
+        labelText: "Saved record unreadable",
+        lastCaptureAt: null,
+        detail: expect.stringContaining("could not be read"),
+      });
     }
   });
 
@@ -107,6 +112,47 @@ describe("collectionHealth", () => {
     });
   });
 
+  it("explains the configured 120-minute scanner cadence separately from each provider interval", () => {
+    const result = health({
+      scheduledCadenceMinutes: 120,
+      steamPulse: [{ collectedAt: "2026-09-05T09:59:59.999Z" }],
+      platformContext: {
+        capturedAt: "2026-09-05T14:59:59.999Z",
+        igdbStatus: "stale",
+        twitchStatus: "stale",
+        twitchComplete: true,
+        twitchHistory: [{ capturedAt: "2026-09-05T14:59:59.999Z" }],
+      },
+    });
+
+    expect(lane(result, "steam")).toMatchObject({
+      state: "delayed",
+      detail: expect.stringContaining("6-hour Steam review collection interval plus the configured 120-minute scanner cadence (8 hours maximum age)"),
+    });
+    expect(lane(result, "twitch")).toMatchObject({
+      state: "delayed",
+      detail: expect.stringContaining("1-hour platform collection interval plus the configured 120-minute scanner cadence (3 hours maximum age)"),
+    });
+    expect(lane(result, "igdb").state).toBe("delayed");
+
+    const twitchOnSchedule = health({
+      scheduledCadenceMinutes: 120,
+      platformContext: {
+        capturedAt: "2026-09-05T15:30:00.000Z",
+        igdbStatus: "stale",
+        twitchStatus: "stale",
+        twitchComplete: true,
+        twitchHistory: [{ capturedAt: "2026-09-05T15:30:00.000Z" }],
+      },
+    });
+    expect(lane(twitchOnSchedule, "twitch")).toMatchObject({
+      state: "ok",
+      labelText: "On schedule",
+      detail: expect.stringContaining("separate 2-hour freshness limit"),
+    });
+    expect(lane(twitchOnSchedule, "igdb").state).toBe("ok");
+  });
+
   it("reports disabled services and missing first captures distinctly", () => {
     const disabled = health({ steamPulseEnabled: false, platformContextConfigured: false });
     expect(disabled.lanes.map((item) => item.state)).toEqual(["disabled", "disabled", "disabled"]);
@@ -132,7 +178,7 @@ describe("collectionHealth", () => {
     expect(lane(result, "twitch").state).toBe("delayed");
   });
 
-  it("fails closed for incomplete or invalid saved provider records", () => {
+  it("names incomplete responses and invalid timestamps without claiming healthy data", () => {
     const incomplete = health({
       platformContext: {
         capturedAt: "2026-09-05T18:00:00.000Z",
@@ -142,7 +188,11 @@ describe("collectionHealth", () => {
         twitchHistory: [],
       },
     });
-    expect(lane(incomplete, "twitch").state).toBe("incomplete");
+    expect(lane(incomplete, "twitch")).toMatchObject({
+      state: "incomplete",
+      labelText: "Incomplete",
+      nextAction: expect.stringContaining("next scheduled capture"),
+    });
 
     const future = health({
       steamPulse: [{ collectedAt: "2026-09-05T18:00:01.000Z" }],
@@ -155,6 +205,45 @@ describe("collectionHealth", () => {
       },
     });
     expect(future.lanes.map((item) => item.state)).toEqual(["unknown", "unknown", "unknown"]);
+    expect(future.lanes.map((item) => item.labelText)).toEqual([
+      "Invalid saved timestamp",
+      "Invalid saved timestamp",
+      "Invalid saved timestamp",
+    ]);
+
+    const mixed = health({
+      steamPulse: [
+        { collectedAt: "2026-09-05T17:00:00.000Z" },
+        { collectedAt: "2026-09-05T18:00:01.000Z" },
+      ],
+    });
+    expect(lane(mixed, "steam")).toMatchObject({
+      state: "unknown",
+      labelText: "Invalid saved timestamp",
+      lastSuccessfulCaptureAt: "2026-09-05T17:00:00.000Z",
+    });
+  });
+
+  it("keeps an unavailable provider response specific without guessing its cause", () => {
+    const result = health({
+      platformContext: {
+        capturedAt: "2026-09-05T18:00:00.000Z",
+        igdbStatus: "error",
+        twitchStatus: "malformed",
+        twitchComplete: null,
+        twitchHistory: [],
+      },
+    });
+
+    expect(lane(result, "twitch")).toMatchObject({
+      state: "unavailable",
+      detail: "The latest saved provider response is marked malformed. No more specific cause is recorded.",
+      nextAction: "Inspect the saved response, then check the next scheduled capture.",
+    });
+    expect(lane(result, "igdb")).toMatchObject({
+      state: "unavailable",
+      detail: "The latest saved provider response is marked error. No more specific cause is recorded.",
+    });
   });
 });
 
@@ -184,5 +273,32 @@ describe("CollectionHealth", () => {
     expect(markup).toContain("Last successful known capture");
     expect(markup).toContain("IGDB platform metadata");
     expect(markup).toContain("Next action:");
+  });
+
+  it("renders record-read and timestamp failures with distinct labels", () => {
+    const unreadable = renderToStaticMarkup(createElement(CollectionHealth, {
+      steamPulse: [],
+      platformContext: null,
+      pulseReadFailures: ["steam", "platform"],
+      steamPulseEnabled: true,
+      platformContextConfigured: true,
+      scheduledCadenceMinutes: 120,
+      nowIso: "2026-09-05T18:00:00.000Z",
+    }));
+    expect(unreadable).toContain("Saved record unreadable");
+    expect(unreadable).toContain("Saved record could not be read");
+    expect(unreadable).not.toContain(">Unknown<");
+
+    const invalid = renderToStaticMarkup(createElement(CollectionHealth, {
+      steamPulse: [{ collectedAt: "2026-09-05T18:00:01.000Z" }],
+      platformContext: null,
+      pulseReadFailures: [],
+      steamPulseEnabled: true,
+      platformContextConfigured: true,
+      scheduledCadenceMinutes: 120,
+      nowIso: "2026-09-05T18:00:00.000Z",
+    }));
+    expect(invalid).toContain("Invalid saved timestamp");
+    expect(invalid).toContain("Saved capture timestamp is invalid");
   });
 });

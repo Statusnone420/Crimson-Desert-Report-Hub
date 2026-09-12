@@ -20,6 +20,10 @@ describe("source monitor run display", () => {
     expect(formatRelativeOperatorTime("2026-09-11T17:59:59.000Z", nowMs)).toBe("just now");
   });
 
+  it("names an unreadable timestamp instead of showing a generic unknown", () => {
+    expect(formatRelativeOperatorTime("not-a-timestamp", Date.parse("2026-09-11T18:00:00.000Z"))).toBe("Timestamp unavailable");
+  });
+
   it("groups raw skip codes into operator-readable summaries", () => {
     const summary = summarizeRunMessages(
       [
@@ -68,6 +72,18 @@ describe("source monitor run display", () => {
     expect(summary.skipGroups).toEqual([
       expect.objectContaining({ code: "tavily_credit_cap", count: 1, label: "Search credit cap reached" }),
       expect.objectContaining({ code: "llm_budget_capped", count: 1, label: "LLM cap reached" }),
+    ]);
+  });
+
+  it("treats patch burst allocation as information rather than a whole-run skip", () => {
+    const summary = summarizeRunMessages(["patch_burst_active"], []);
+
+    expect(summary.skipGroups).toEqual([
+      expect.objectContaining({
+        code: "patch_burst_active",
+        label: "Patch burst active",
+        detail: expect.stringContaining("does not mean the whole run was skipped"),
+      }),
     ]);
   });
 

@@ -23,10 +23,23 @@ import { safeRunSummary } from "@/lib/operatorOverview";
 import { getAutomationAdminData, getPublicScannerData } from "@/lib/queries";
 import { getPatchRadarData } from "@/lib/radar.server";
 import { getScannerAiHealth } from "@/lib/automation/health.server";
+import { getScannerExecution } from "@/lib/automation/execution.server";
+import { getScannerExecutionHealth } from "@/lib/automation/executionHealth";
+import type { ScannerExecutionRead } from "@/lib/automation/diagnostics";
 import { SCANNER_READ_REGISTERS } from "@/lib/scannerRegisters";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
+
+function unavailableExecution(detail: string): ScannerExecutionRead {
+  return {
+    state: "unavailable",
+    code: "status_read_unavailable",
+    detail,
+    started: null,
+    snapshot: null,
+  };
+}
 
 export default async function OperatorPage({
   searchParams,
@@ -103,10 +116,11 @@ export default async function OperatorPage({
           : "Video inbox · review the candidate",
     })),
   ];
-  const [scannerResult, radarResult, adminResult] = await Promise.allSettled([
+  const [scannerResult, radarResult, adminResult, executionResult] = await Promise.allSettled([
     getPublicScannerData(),
     getPatchRadarData(),
     getAutomationAdminData(),
+    getScannerExecution(),
   ]);
 
   // Public scanner and radar readers have their own conservative fallbacks.
@@ -116,7 +130,11 @@ export default async function OperatorPage({
     scannerResult.status === "fulfilled" ? scannerResult.value : null;
   const radar = radarResult.status === "fulfilled" ? radarResult.value : null;
   const admin = adminResult.status === "fulfilled" ? adminResult.value : null;
+  const execution = executionResult.status === "fulfilled" && executionResult.value
+    ? executionResult.value
+    : unavailableExecution("The private trigger-status read did not complete for this page load.");
   const now = new Date();
+  const executionHealth = getScannerExecutionHealth(execution, now);
   const collection = collectionHealth({
     steamPulse: scanner?.steamPulse ?? [],
     platformContext: scanner?.platformContext ?? null,
@@ -137,6 +155,7 @@ export default async function OperatorPage({
     radarAvailable: Boolean(radar?.connected),
     scannerReadFailures: scanner?.readFailures ?? SCANNER_READ_REGISTERS,
     collection,
+    execution: executionHealth,
   });
   const health = buildOverviewScannerHealth({
     now,
@@ -162,6 +181,7 @@ export default async function OperatorPage({
     collection,
     attention,
     aiHealth,
+    execution: executionHealth,
   });
   return (
     <OperatorShell active="overview">

@@ -136,7 +136,7 @@ let idSeq = 1;
 let openRouterAttempts = 0;
 let selectFailure: { table: TableName; message: string; code?: string; columns?: string } | null = null;
 let insertFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
-let updateFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
+let updateFailure: { table: TableName; message: string; code?: string; column?: string; once?: boolean } | null = null;
 let deleteFailure: { table: TableName; message: string } | null = null;
 let beforeUpdate: ((table: TableName, patch: Row, filters: Filter[]) => void) | null = null;
 let beforeSelect: ((table: TableName) => void) | null = null;
@@ -434,7 +434,9 @@ class FakeQuery {
       updateFailure?.table === this.table &&
       (!updateFailure.column || updateFailure.column in this.patch!)
     ) {
-      return { data: null, error: { code: updateFailure.code, message: updateFailure.message } };
+      const failure = updateFailure;
+      if (failure.once) updateFailure = null;
+      return { data: null, error: { code: failure.code, message: failure.message } };
     }
     beforeUpdate?.(this.table, this.patch!, [...this.filters]);
     const rows = this.filteredRows();
@@ -715,21 +717,34 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()).toEqual([]);
   });
 
-  it.each(["manual", "scheduled", "dry_run"] as const)("skips %s scanning when the current patch remains unverified", async (mode) => {
+  it("names official patch synchronization failure without inventing a database cause", async () => {
+    mocks.syncOfficialPatchNote.mockRejectedValue(new Error("official patch fetch failed: 503 private upstream detail"));
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "scheduled", now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.status).toBe("partial");
+    expect(result.diagnostics).toContainEqual({ stage: "patch_sync", code: "operation_failed" });
+    expect(result.errors.join(" ")).not.toMatch(/database|private upstream detail/);
+    expect(tables.automation_runs[0]).toMatchObject({ progress: {
+      diagnostics: expect.arrayContaining([{ stage: "patch_sync", code: "operation_failed" }]),
+    } });
+  });
+
+  it.each(["manual", "scheduled", "dry_run"] as const)("blocks %s scanning when the current patch remains unverified", async (mode) => {
     const unavailable = { ...officialPatchFixture, version: "unknown", publishedAt: null, source: "fallback" };
     mocks.getCurrentPatchMetadata.mockResolvedValue(unavailable);
     mocks.syncOfficialPatchNote.mockResolvedValue({ status: "skipped", reason: "not_found", patch: unavailable });
     const { runAutomationMonitor } = await import("@/lib/automation/run");
     const result = await runAutomationMonitor({ mode, now: new Date("2026-07-05T12:00:00.000Z") });
-    expect(result.status).toBe("skipped");
+    expect(result.status).toBe("failed");
     expect(result.skips).toContain("current_patch_unavailable");
+    expect(result.diagnostics).toContainEqual({ stage: "patch_read", code: "current_patch_unavailable" });
     expect(result.searchQueriesUsed).toBe(0);
     expect(result.signalsInserted).toBe(0);
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(mocks.tavilyExtract).not.toHaveBeenCalled();
     expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
     expect(mutations.every((mutation) => mutation.table === "automation_runs")).toBe(true);
-    expect(tables.automation_runs[0].status).toBe("skipped");
+    expect(tables.automation_runs[0].status).toBe("failed");
   });
   it.each(["extraction", "claim mapping"] as const)("persists bounded %s diagnostics without marking failed AI healthy", async (lane) => {
     const diagnostic = { code: "request_timeout", elapsedMs: 20_000, httpStatus: null, attempts: 1 };
@@ -1933,9 +1948,11 @@ describe("runAutomationMonitor", () => {
     selectFailure = { table: "automation_runs", message: "ledger unavailable" };
     const { runAutomationMonitor } = await importRunner();
 
-    await expect(runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") })).rejects.toThrow(
-      "ledger unavailable",
-    );
+    await expect(runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") })).rejects.toMatchObject({
+      name: "ScannerOperationError",
+      message: "Scanner operation failed: active_run_read",
+      diagnostic: { stage: "active_run_read", code: "database_unavailable" },
+    });
 
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(openRouterAttempts).toBe(0);
@@ -1943,18 +1960,19 @@ describe("runAutomationMonitor", () => {
     expect(mutations.filter((mutation) => mutation.type === "insert")).toHaveLength(0);
   });
 
-  it("skips the run but still writes and finalizes a ledger row when only the month spend read fails", async () => {
+  it("fails the run but still writes and finalizes a ledger row when only the month spend read fails", async () => {
     // Fail ONLY loadMonthSpend's select (estimated_cost_usd); hasActiveRun's
     // select (id) succeeds, so the run starts, creates a running ledger row,
-    // and finalizes it as skipped with the budget read error recorded.
+    // and finalizes it as failed without exposing the budget-read detail.
     selectFailure = { table: "automation_runs", columns: "estimated_cost_usd", message: "spend ledger unavailable" };
     const { runAutomationMonitor } = await importRunner();
 
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
-    expect(result.status).toBe("skipped");
+    expect(result.status).toBe("failed");
     expect(result.skips).toContain("budget_read_failed");
-    expect(result.errors[0]).toContain("spend ledger unavailable");
+    expect(result.diagnostics).toContainEqual({ stage: "budget_read", code: "database_unavailable" });
+    expect(result.errors.join(" ")).not.toContain("spend ledger unavailable");
     expect(mocks.tavilySearch).not.toHaveBeenCalled();
     expect(openRouterAttempts).toBe(0);
 
@@ -1964,12 +1982,99 @@ describe("runAutomationMonitor", () => {
 
     expect(tables.automation_runs).toHaveLength(1);
     expect(tables.automation_runs[0]).toMatchObject({
-      status: "skipped",
+      status: "failed",
       skips: expect.arrayContaining(["budget_read_failed"]),
-      errors: [expect.stringContaining("spend ledger unavailable")],
+      progress: expect.objectContaining({ diagnostics: [{ stage: "budget_read", code: "database_unavailable" }] }),
     });
     expect(tables.automation_runs[0].finished_at).toBeTruthy();
     expect(mutations.filter((mutation) => mutation.type === "insert" && mutation.table !== "automation_runs")).toHaveLength(0);
+  });
+
+  it("records a progress-write failure as a partial run without exposing its database detail", async () => {
+    updateFailure = {
+      table: "automation_runs",
+      column: "progress",
+      message: "PRIVATE progress write detail",
+      once: true,
+    };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.diagnostics).toContainEqual({ stage: "progress_write", code: "database_unavailable" });
+    expect(result.errors.join(" ")).not.toContain("PRIVATE progress write detail");
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "partial",
+      progress: expect.objectContaining({ diagnostics: [{ stage: "progress_write", code: "database_unavailable" }] }),
+    });
+  });
+
+  it("records an intent-write failure as partial while source collection continues", async () => {
+    updateFailure = {
+      table: "automation_runs",
+      column: "intent",
+      message: "PRIVATE intent write detail",
+      once: true,
+    };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.searchQueriesUsed).toBeGreaterThan(0);
+    expect(result.diagnostics).toContainEqual({ stage: "progress_write", code: "database_unavailable" });
+    expect(result.errors.join(" ")).not.toContain("PRIVATE intent write detail");
+  });
+
+  it("returns a safe run-finalize diagnostic when completion cannot be saved", async () => {
+    updateFailure = {
+      table: "automation_runs",
+      column: "operator_rules_matched",
+      message: "PRIVATE completion write detail",
+    };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.diagnostics).toContainEqual({ stage: "run_finalize", code: "database_unavailable" });
+    expect(result.errors.join(" ")).not.toContain("PRIVATE completion write detail");
+    expect(tables.automation_runs[0].status).toBe("running");
+  });
+
+  it("returns a safe pre-ledger error and keeps the cron attempt identifier on a successful insert", async () => {
+    insertFailure = { table: "automation_runs", message: "PRIVATE run create detail" };
+    const { runAutomationMonitor } = await importRunner();
+
+    await expect(runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") })).rejects.toMatchObject({
+      name: "ScannerOperationError",
+      message: "Scanner operation failed: run_create",
+      diagnostic: { stage: "run_create", code: "database_unavailable" },
+    });
+    expect(tables.automation_runs).toEqual([]);
+
+    insertFailure = null;
+    const attemptId = "6fd20980-2f25-4c0b-84ec-03ecacbfeebb";
+    const result = await runAutomationMonitor({ mode: "manual", attemptId, now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.status).toBe("success");
+    expect(tables.automation_runs[0].id).toBe(attemptId);
+  });
+
+  it("throws a safe diagnostic when an intentional-skip ledger write fails", async () => {
+    insertFailure = { table: "automation_runs", message: "PRIVATE skip write detail" };
+    const { insertSkippedScheduledRun } = await importRunner();
+
+    await expect(insertSkippedScheduledRun(
+      { from: mocks.from } as unknown as Parameters<typeof insertSkippedScheduledRun>[0],
+      "recent_run",
+      new Date("2026-07-05T12:00:00.000Z"),
+    )).rejects.toMatchObject({
+      name: "ScannerOperationError",
+      message: "Scanner operation failed: skip_write",
+      diagnostic: { stage: "skip_write", code: "database_unavailable" },
+    });
+    expect(tables.automation_runs).toEqual([]);
   });
 
   it("non-dry runs cluster two independent trusted+unknown domains and promote them public", async () => {
@@ -5979,6 +6084,14 @@ describe("runAutomationMonitor", () => {
 });
 
 describe("cron keepalive route", () => {
+  beforeEach(() => {
+    // These tests model cadence and persistence. Health-read failure behavior is
+    // covered separately by scannerKeepalive.test.ts.
+    vi.doMock("@/lib/automation/health.server", () => ({ getScannerAiHealth: vi.fn().mockResolvedValue({
+      state: "healthy", code: null, message: "Validated", lastSuccessAt: "2026-07-05T11:00:00.000Z",
+    }) }));
+  });
+  afterEach(() => { vi.doUnmock("@/lib/automation/health.server"); });
   it("blocks authenticated cron writes in Vercel preview", async () => {
     process.env.CRON_SECRET = "cron-secret";
     process.env.VERCEL_ENV = "preview";
@@ -6257,6 +6370,7 @@ describe("cron keepalive route", () => {
     });
     expect(mocks.runAutomationMonitor).toHaveBeenCalledWith({
       mode: "scheduled",
+      attemptId: expect.any(String),
       scannerPolicy: expect.objectContaining({
         minIntervalMinutes: 60,
         scheduledSearchCreditsPerRun: 1,
@@ -6322,7 +6436,7 @@ describe("cron keepalive route", () => {
         headers: { authorization: "Bearer cron-secret" },
       }),
     );
-    expect(failedResponse.status).toBe(200);
+    expect(failedResponse.status).toBe(503);
     expect(revalidatePublicSurfaces).not.toHaveBeenCalled();
 
     // A paused scanner skips before running and must not invalidate either.

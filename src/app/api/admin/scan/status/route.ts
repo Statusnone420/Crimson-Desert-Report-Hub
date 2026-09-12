@@ -4,6 +4,7 @@ import { sweepStaleRuns } from "@/lib/automation/run";
 import { revalidatePublicSurfaces } from "@/lib/revalidate";
 import { createServiceClient } from "@/lib/supabase";
 import { isVercelPreview } from "@/lib/previewGuard";
+import { scannerDiagnostic, type ScannerStage } from "@/lib/automation/diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -28,28 +29,36 @@ export async function GET(req: Request) {
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "missing_id" }, { status: 400 });
 
-  const supabase = createServiceClient();
-  if (!isVercelPreview()) await sweepStaleRuns(supabase, new Date());
+  let stage: ScannerStage = "database_check";
+  try {
+    const supabase = createServiceClient();
+    stage = "stale_run_cleanup";
+    if (!isVercelPreview()) await sweepStaleRuns(supabase, new Date());
 
-  const { data, error } = await supabase
-    .from("automation_runs")
-    .select("id, status, mode, progress, skips, errors, started_at, finished_at")
-    .eq("id", id)
-    .limit(1);
-  if (error) return NextResponse.json({ error: "read_failed" }, { status: 500 });
-  const row = ((data ?? []) as RunStatusRow[])[0];
-  if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    stage = "schedule_read";
+    const { data, error } = await supabase
+      .from("automation_runs")
+      .select("id, status, mode, progress, skips, errors, started_at, finished_at")
+      .eq("id", id)
+      .limit(1);
+    if (error) throw error;
+    const row = ((data ?? []) as RunStatusRow[])[0];
+    if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  // Belt-and-suspenders: if a manual run just finished, refresh public pages now.
-  if (
-    !isVercelPreview() &&
-    row.mode === "manual" &&
-    row.status !== "running" &&
-    row.finished_at &&
-    Date.now() - new Date(row.finished_at).getTime() < RECENT_FINISH_WINDOW_MS
-  ) {
-    revalidatePublicSurfaces();
+    // If the completion callback died, a recent manual status poll still refreshes the public pages.
+    if (
+      !isVercelPreview() &&
+      row.mode === "manual" &&
+      row.status !== "running" &&
+      row.finished_at &&
+      Date.now() - new Date(row.finished_at).getTime() < RECENT_FINISH_WINDOW_MS
+    ) {
+      stage = "cache_revalidate";
+      revalidatePublicSurfaces();
+    }
+
+    return NextResponse.json(row);
+  } catch (error) {
+    return NextResponse.json({ error: "read_failed", diagnostic: scannerDiagnostic(stage, error) }, { status: 500 });
   }
-
-  return NextResponse.json(row);
 }

@@ -5,6 +5,7 @@ import type { CollectionHealth, CollectionHealthLane } from "@/lib/collectionHea
 import { workspaceHref } from "@/lib/operatorWorkspace";
 import type { ScannerAttention } from "@/lib/scannerAttention";
 import { scannerScheduleStatus } from "@/lib/scannerScheduleStatus";
+import type { ScannerExecutionHealth } from "@/lib/automation/executionHealth";
 
 export const OVERVIEW_SCANNER_DIAGNOSTICS_HREF = `${workspaceHref("scanner")}#health`;
 export const OVERVIEW_SCANNER_COLLECTION_HREF = `${workspaceHref("scanner", { section: "collection" })}#collection-health`;
@@ -53,6 +54,12 @@ export type OverviewScannerHealthInput = {
   collection: CollectionHealth;
   attention: ScannerAttention;
   aiHealth?: ScannerAiHealth;
+  execution?: ScannerExecutionHealth;
+};
+
+export type PolicyAiStatus = {
+  label: string;
+  tone: "green" | "amber" | "red";
 };
 
 export function overviewHealthHeadline(attention: ScannerAttention): string {
@@ -66,7 +73,7 @@ export function retainedLeadShareLabel(
   screened7d: number,
   retained7d: number,
 ): string {
-  if (!radarAvailable) return "Unknown";
+  if (!radarAvailable) return "Radar read unavailable";
   if (screened7d <= 0) return "0 / 0";
   return `${retained7d} / ${screened7d} (${((retained7d / screened7d) * 100).toFixed(1)}%)`;
 }
@@ -78,10 +85,9 @@ function laneTone(lane: CollectionHealthLane): OverviewHealthTone {
   return "caution";
 }
 
-function scheduleStatus(input: OverviewScannerHealthInput): {
-  label: string;
-  tone: "green" | "amber" | "red";
-} {
+export function policyAiStatus(input: Pick<OverviewScannerHealthInput,
+  "adminAvailable" | "control" | "activeRun" | "budgetCapped" | "aiHealth"
+>): PolicyAiStatus {
   if (!input.adminAvailable || !input.control || input.budgetCapped === null) {
     return { label: "UNVERIFIED", tone: "amber" };
   }
@@ -91,7 +97,18 @@ function scheduleStatus(input: OverviewScannerHealthInput): {
       tone: "amber",
     };
   }
-  return scannerScheduleStatus(input.control, input.activeRun, input.budgetCapped);
+  const schedule = scannerScheduleStatus(input.control, input.activeRun, input.budgetCapped);
+  return { label: schedule.label, tone: schedule.tone };
+}
+
+function scheduleStatus(input: OverviewScannerHealthInput): PolicyAiStatus {
+  if (input.execution && input.execution.tone !== "ok") {
+    return {
+      label: input.execution.statusLabel.toUpperCase(),
+      tone: input.execution.tone === "danger" || input.execution.tone === "unavailable" ? "red" : "amber",
+    };
+  }
+  return policyAiStatus(input);
 }
 
 function lastCompletedRun(input: OverviewScannerHealthInput, nowMs: number): OverviewHealthFact {
@@ -103,7 +120,11 @@ function lastCompletedRun(input: OverviewScannerHealthInput, nowMs: number): Ove
         label: "Last completed run",
         value: formatRelativeOperatorTime(completedAt, nowMs),
         detail: formatEasternDateTime(completedAt),
-        tone: "ok",
+        tone: input.latestCompletedRun.status === "failed"
+          ? "danger"
+          : input.latestCompletedRun.status === "partial"
+            ? "caution"
+            : "ok",
       };
     }
     return {
@@ -126,7 +147,7 @@ function lastCompletedRun(input: OverviewScannerHealthInput, nowMs: number): Ove
   return {
     id: "last-run",
     label: "Last completed run",
-    value: "Unknown",
+    value: "Run history unavailable",
     detail: "The completed-run read did not finish.",
     tone: "unknown",
   };
@@ -148,12 +169,13 @@ function nextEligibleRun(input: OverviewScannerHealthInput, nowMs: number): Over
       input.latestRealRun ? [...input.runs, input.latestRealRun] : input.runs,
       input.now,
       input.control.minIntervalMinutes,
-    ).toISOString();
+    );
+    const nextAtIso = nextAt instanceof Date ? nextAt.toISOString() : String(nextAt);
     return {
       id: "next-run",
       label: "Next eligible run",
-      value: formatRelativeOperatorTime(nextAt, nowMs),
-      detail: formatEasternDateTime(nextAt),
+      value: Date.parse(nextAtIso) <= nowMs ? "Eligible now" : formatRelativeOperatorTime(nextAtIso, nowMs),
+      detail: formatEasternDateTime(nextAtIso),
       tone: "ok",
     };
   }
@@ -170,7 +192,9 @@ function nextEligibleRun(input: OverviewScannerHealthInput, nowMs: number): Over
     return {
       id: "next-run",
       label: "Next eligible run",
-      value: formatRelativeOperatorTime(input.radarHealth.nextEligibleAt, nowMs),
+      value: Date.parse(input.radarHealth.nextEligibleAt) <= nowMs
+        ? "Eligible now"
+        : formatRelativeOperatorTime(input.radarHealth.nextEligibleAt, nowMs),
       detail: `${formatEasternDateTime(input.radarHealth.nextEligibleAt)}. Taken from the radar health read because the admin run record was unavailable.`,
       tone: "unknown",
     };
@@ -178,9 +202,31 @@ function nextEligibleRun(input: OverviewScannerHealthInput, nowMs: number): Over
   return {
     id: "next-run",
     label: "Next eligible run",
-    value: "Unknown",
+    value: "Schedule record unavailable",
     detail: "The schedule read did not finish.",
     tone: "unknown",
+  };
+}
+
+function executionFact(input: OverviewScannerHealthInput): OverviewHealthFact | null {
+  if (!input.execution) return null;
+  return {
+    id: "execution",
+    label: "Latest execution evidence",
+    value: input.execution.statusLabel,
+    detail: input.execution.action ? `${input.execution.detail} ${input.execution.action}` : input.execution.detail,
+    tone: input.execution.tone === "ok" ? "ok" : input.execution.tone === "danger" ? "danger" : "unknown",
+  };
+}
+
+function policyAiFact(input: OverviewScannerHealthInput): OverviewHealthFact {
+  const status = policyAiStatus(input);
+  return {
+    id: "policy-ai",
+    label: "Policy and AI state",
+    value: status.label,
+    detail: "Current scanner policy and AI health, separate from scheduled execution evidence.",
+    tone: status.tone === "green" ? "ok" : status.tone === "red" ? "danger" : "caution",
   };
 }
 
@@ -197,7 +243,9 @@ export function buildOverviewScannerHealth(
     headline: overviewHealthHeadline(input.attention),
     statusLabel: status.label,
     statusTone: status.tone,
-    schedule: [lastCompletedRun(input, nowMs), nextEligibleRun(input, nowMs)],
+    schedule: [lastCompletedRun(input, nowMs), nextEligibleRun(input, nowMs), executionFact(input), policyAiFact(input)].filter(
+      (fact): fact is OverviewHealthFact => fact !== null,
+    ),
     providers: input.collection.lanes.map((lane) => ({
       id: `provider-${lane.key}`,
       label: lane.label,
@@ -209,14 +257,14 @@ export function buildOverviewScannerHealth(
       {
         id: "screened-7d",
         label: "Automated screening events · 7d",
-        value: input.radarAvailable ? String(screened7d) : "Unknown",
+        value: input.radarAvailable ? String(screened7d) : "Radar read unavailable",
         detail: "Includes repeat screening. It is not a count of human reviews or unique issues.",
         tone: input.radarAvailable ? "ok" : "unknown",
       },
       {
         id: "awaiting",
         label: "Awaiting issue groups",
-        value: input.awaiting === null ? "Unknown" : String(input.awaiting),
+        value: input.awaiting === null ? "Awaiting count unavailable" : String(input.awaiting),
         detail: "Current-patch private leads without corroboration. This is background inventory, not a task queue.",
         tone: input.awaiting === null ? "unknown" : "ok",
       },
@@ -232,15 +280,15 @@ export function buildOverviewScannerHealth(
         label: "Leads with source dates",
         value: input.dateCoverage
           ? `${input.dateCoverage.withSourceDate} / ${input.dateCoverage.tracked}`
-          : "Unknown",
+          : "Source-date read unavailable",
         detail: "Only real source publication dates count; first-seen time is not a publication date.",
         tone: input.dateCoverage ? "ok" : "unknown",
       },
       {
         id: "failed-runs",
-        label: "Failed runs · 7d",
-        value: failedRuns === null ? "Unknown" : String(failedRuns),
-        detail: "Failed scheduled or manual scans in the last seven days.",
+        label: "Recorded failed runs · 7d",
+        value: failedRuns === null ? "Recorded-run read unavailable" : String(failedRuns),
+        detail: "Counts failed scheduled or manual Supabase run records. Pre-ledger trigger failures are not included.",
         tone: failedRuns === null ? "unknown" : failedRuns > 0 ? "danger" : "ok",
       },
     ],

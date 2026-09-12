@@ -8,6 +8,19 @@ import { getPatchRadarData } from "@/lib/radar.server";
 import { getAutomationAdminData, getPublicScannerData } from "@/lib/queries";
 import { routeMetadata } from "@/lib/site";
 import { getScannerAiHealth } from "@/lib/automation/health.server";
+import { getScannerExecution } from "@/lib/automation/execution.server";
+import { ScannerExecutionHealth } from "@/components/scanner/ScannerExecutionHealth";
+import type { ScannerExecutionRead } from "@/lib/automation/diagnostics";
+
+function unavailableExecution(detail: string): ScannerExecutionRead {
+  return {
+    state: "unavailable",
+    code: "status_read_unavailable",
+    detail,
+    started: null,
+    snapshot: null,
+  };
+}
 
 export async function generateMetadata(_props: object, parent: ResolvingMetadata) {
   const metadata = await routeMetadata(
@@ -28,12 +41,42 @@ export default async function ScannerPage({ searchParams }: { searchParams?: Pro
   const admin = await isAdmin();
   if (!admin) return <ObservatoryPage />;
   const collectionExpanded = (await searchParams)?.section === "collection";
-  const [scoreboard, radar] = await Promise.all([getPublicScannerData(), getPatchRadarData()]);
-  const integrations = applyLlmCircuitToStatuses(integrationStatuses(), scoreboard.llmPaused);
-
-  const adminData = await getAutomationAdminData();
-  const aiHealth = await getScannerAiHealth(adminData.control);
   const nowIso = new Date().toISOString();
+  const [scoreboardRead, radarRead, adminRead, executionRead] = await Promise.allSettled([
+    getPublicScannerData(),
+    getPatchRadarData(),
+    getAutomationAdminData(),
+    getScannerExecution(),
+  ]);
+  const execution = executionRead.status === "fulfilled" && executionRead.value
+    ? executionRead.value
+    : unavailableExecution("The private trigger-status read did not complete for this page load.");
+
+  if (adminRead.status !== "fulfilled") {
+    return (
+      <OperatorShell active="scanner">
+        <div className="dispatch-container">
+          <ScannerExecutionHealth execution={execution} nowIso={nowIso} />
+          <section className="workspace-panel"><div className="workspace-panel-body"><h1>Scanner administration unavailable</h1><p>The Supabase admin read did not complete. Scanner policy, controls, run history, and counts are unavailable for this page load.</p></div></section>
+        </div>
+      </OperatorShell>
+    );
+  }
+  if (scoreboardRead.status !== "fulfilled" || radarRead.status !== "fulfilled") {
+    return (
+      <OperatorShell active="scanner">
+        <div className="dispatch-container">
+          <ScannerExecutionHealth execution={execution} nowIso={nowIso} />
+          <section className="workspace-panel"><div className="workspace-panel-body"><h1>Scanner supporting reads unavailable</h1><p>The public scanner or radar read did not complete. The control surface is hidden until this page can show its current evidence.</p></div></section>
+        </div>
+      </OperatorShell>
+    );
+  }
+  const scoreboard = scoreboardRead.value;
+  const radar = radarRead.value;
+  const integrations = applyLlmCircuitToStatuses(integrationStatuses(), scoreboard.llmPaused);
+  const adminData = adminRead.value;
+  const aiHealth = await getScannerAiHealth(adminData.control);
   return (
     <OperatorShell active="scanner">
       <div className="dispatch-container">
@@ -57,6 +100,7 @@ export default async function ScannerPage({ searchParams }: { searchParams?: Pro
           integrations={integrations}
           nowIso={nowIso}
           aiHealth={aiHealth}
+          execution={execution}
           collectionExpanded={collectionExpanded}
         />
       </div>
