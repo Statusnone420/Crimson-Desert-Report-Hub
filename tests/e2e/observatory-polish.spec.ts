@@ -3,19 +3,45 @@ import { expect, test } from "@playwright/test";
 test("recorded Twitch history stays usable with an explicit capture timestamp", async ({ page }, testInfo) => {
   await page.goto("/observatory#platform-activity");
   const activity = page.locator("#platform-activity");
-  await expect(activity.getByRole("img", { name: /^24-hour Twitch viewers history/ })).toBeVisible();
+  const olderHistory = process.env.PREVIEW_SEED_FILE?.endsWith("platform-context-older-history.json");
+  const range = activity.getByRole("group", { name: "Twitch window" });
+  await expect(range).toBeVisible();
+  if (olderHistory) {
+    await expect(range.getByRole("button", { name: "24 hours", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(activity.locator(".obs-twitch-chart")).toHaveCount(0);
+    await expect(activity.getByText("No complete Twitch captures are available in this 24-hour window.", { exact: true })).toBeVisible();
+    await expect(activity.locator(".obs-note").first()).toContainText("The latest Twitch capture is incomplete. Historical captures are not live.");
+    await activity.screenshot({ path: testInfo.outputPath("twitch-empty-window.png") });
+  } else {
+    await expect(activity.getByRole("img", { name: /^24-hour Twitch viewers history/ })).toBeVisible();
+  }
   await expect(activity.locator(".obs-note").first()).toContainText(/Latest complete capture: .+ UTC\./);
   if (process.env.PREVIEW_SEED_FILE?.endsWith("platform-context-delayed.json")) {
     await expect(activity.locator(".obs-note").first()).toContainText("Latest Twitch capture is delayed. Historical captures are not live.");
   }
   await expect(activity.locator(".obs-audience .np-error")).toHaveCount(0);
-  const range = activity.getByRole("group", { name: "Twitch window" });
   await range.getByRole("button", { name: "7 days", exact: true }).click();
   await expect(activity.getByRole("img", { name: /^Seven-day Twitch viewers history/ })).toBeVisible();
+  if (olderHistory) {
+    await expect(activity.getByRole("img", { name: /^Seven-day Twitch viewers history/ })).toHaveAccessibleName(/2 recorded captures/);
+    await expect(range.getByRole("button", { name: "7 days", exact: true })).toBeFocused();
+    await range.getByRole("button", { name: "24 hours", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(activity.locator(".obs-twitch-chart")).toHaveCount(0);
+    await expect(range).toBeVisible();
+    await expect(range.getByRole("button", { name: "24 hours", exact: true })).toBeFocused();
+    await range.getByRole("button", { name: "7 days", exact: true }).click();
+  }
   await activity.getByRole("group", { name: "Twitch metric" }).getByRole("button", { name: "Streams", exact: true }).click();
   await expect(activity.getByRole("img", { name: /^Seven-day Twitch streams history/ })).toBeVisible();
   await activity.getByText("Read the Twitch captures", { exact: true }).click();
   expect(await activity.locator(".obs-twitch-values tbody tr").count()).toBeGreaterThan(1);
+  if (olderHistory) {
+    await expect(activity.locator(".obs-twitch-values tbody tr")).toHaveCount(2);
+    await expect(activity.locator(".obs-twitch-values tbody tr").first()).toContainText("321");
+    await expect(activity.locator(".obs-twitch-values tbody tr").last()).toContainText("87");
+    await expect(activity.locator(".obs-twitch-values tbody")).not.toContainText("9,999");
+  }
   await activity.screenshot({ path: testInfo.outputPath("twitch-history.png") });
 });
 
