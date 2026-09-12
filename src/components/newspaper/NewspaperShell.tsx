@@ -12,10 +12,10 @@ export function NewspaperShell({ children, active, home = false }: { children: R
         {isVercelPreview() && (
           <p className="np-preview">
             {process.env.CD_LOCAL_SNAPSHOT === "true"
-              ? "Local preview · Copy of production data. Reports, check-ins and scans are disabled."
+              ? "Local preview · Copy of production data. Check-ins and scans are disabled."
               : process.env.PREVIEW_SEED_FILE
-                ? "Local demo · Sample data. Reports, check-ins and admin changes are disabled."
-              : "Preview edition · Reports, check-ins and admin changes are disabled."}
+                ? "Local demo · Sample data. Check-ins and admin changes are disabled."
+                : "Preview edition · Check-ins and admin changes are disabled."}
           </p>
         )}
         <main id="main-content">{children}</main>
@@ -29,7 +29,7 @@ export function NewspaperShell({ children, active, home = false }: { children: R
               <Link href="/about">About</Link>
               <Link href="/privacy">Privacy</Link>
               <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener">Open source</a>
-              <Link href="/report">File a report →</Link>
+              <Link href="/issues">Add a check-in →</Link>
             </div>
           </div>
           <p className="media-notice">

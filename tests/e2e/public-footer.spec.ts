@@ -16,7 +16,7 @@ for (const theme of ["light", "dark"] as const) {
       await expect(links.getByRole("link", { name: "Watch", exact: true })).toHaveAttribute("href", "/watch");
       await expect(links.getByRole("link", { name: "RSS feed for original reports", exact: true })).toHaveAttribute("href", "/rss.xml");
       await expect(links.getByRole("link", { name: "Atom feed for original reports", exact: true })).toHaveAttribute("href", "/feed.xml");
-      await expect(links.getByRole("link", { name: "File a report →", exact: true })).toHaveAttribute("href", "/report");
+      await expect(links.getByRole("link", { name: "Add a check-in →", exact: true })).toHaveAttribute("href", "/issues");
       await expect(footer).toContainText("No ads · No trackers");
       await expect(footer).toContainText("Not affiliated with or endorsed by Pearl Abyss.");
       await expect(footer.getByRole("link", { name: "Image source ↗", exact: true })).toHaveAttribute("href", /^https:\/\//);

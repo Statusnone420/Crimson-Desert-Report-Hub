@@ -27,6 +27,10 @@ export default defineConfig({
   webServer: {
     command: "node tests/e2e/mock-dev-server.mjs",
     url: `http://127.0.0.1:${port}`,
+    env: {
+      ...process.env,
+      PLAYWRIGHT_TURNSTILE: "true",
+    },
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
@@ -40,21 +44,21 @@ export default defineConfig({
       // screenshot must not be able to cancel the only coverage that shows the
       // admin RPCs still work. Each test restores the fixture as it finishes.
       name: "operator-writes",
-      testMatch: ["operator-writes.spec.ts", "operator-workspace.spec.ts", "video-workspace-concurrency.spec.ts", "claim-workspace-concurrency.spec.ts"],
+      testMatch: ["operator-writes.spec.ts", "operator-workspace.spec.ts", "video-workspace-concurrency.spec.ts", "claim-workspace-concurrency.spec.ts", "issue-navigation.spec.ts"],
       workers: 1,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1100 } },
     },
     {
       name: "chromium",
       // A project-level testIgnore replaces the top-level one, so n0 repeats here.
-      testIgnore: ["n0.spec.ts", "operator-writes.spec.ts", "operator-workspace.spec.ts", "video-workspace-concurrency.spec.ts", "claim-workspace-concurrency.spec.ts", "turnstile-theme.spec.ts"],
+      testIgnore: ["n0.spec.ts", "operator-writes.spec.ts", "operator-workspace.spec.ts", "video-workspace-concurrency.spec.ts", "claim-workspace-concurrency.spec.ts", "issue-navigation.spec.ts", "turnstile-theme.spec.ts"],
       dependencies: ["operator-writes"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1100 } },
     },
     {
       name: "mobile-chromium",
       // A project-level testIgnore replaces the top-level one, so n0 repeats here.
-      testIgnore: ["n0.spec.ts", "operator-writes.spec.ts", "operator-workspace.spec.ts", "video-workspace-concurrency.spec.ts", "claim-workspace-concurrency.spec.ts", "turnstile-theme.spec.ts"],
+      testIgnore: ["n0.spec.ts", "operator-writes.spec.ts", "operator-workspace.spec.ts", "video-workspace-concurrency.spec.ts", "claim-workspace-concurrency.spec.ts", "issue-navigation.spec.ts", "turnstile-theme.spec.ts"],
       dependencies: ["operator-writes"],
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
     },

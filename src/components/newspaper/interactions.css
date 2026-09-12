@@ -201,13 +201,37 @@
 .newspaper .filing-stages { padding: 16px 0; }
 .newspaper .np-error { border: 1px solid var(--line); border-radius: 4px; padding: 18px 20px; background: var(--control-surface); }
 
+/* A check-in belongs beside the issue, with its patch and saved state in view. */
+.newspaper .board-contribution-note { margin-top: 18px; color: var(--muted); font: 14px/1.6 var(--sans), sans-serif; }
+.newspaper .dispatch-actions { flex-direction: column; align-items: stretch; }
+.newspaper .confirmation-checkin__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.newspaper .confirmation-checkin__heading .confirmation-checkin__question { margin: 0; }
+.newspaper .confirmation-checkin__patch { color: var(--muted); font: 12px/1.4 var(--mono), monospace; white-space: nowrap; }
+.newspaper .confirmation-checkin__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.newspaper .confirmation-checkin__row .tap-btn { width: 100%; justify-content: space-between; min-height: 54px; }
+.newspaper .confirmation-checkin__platforms .tap-btn[aria-pressed="true"] { color: var(--blue); border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, var(--paper)); }
+.newspaper .confirmation-checkin__verify { flex-basis: 100%; grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 16px; border-top: 1px solid var(--line); padding-top: 16px; margin-top: 4px; }
+.newspaper .confirmation-checkin__verify > p { flex-basis: 100%; margin: 0; font: 14px/1.5 var(--sans), sans-serif; }
+.newspaper button.checkin-save { display: inline-flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 46px; border: 1px solid var(--ink); border-radius: 4px; padding: 10px 16px; background: var(--ink); color: var(--paper); font: 600 14px/1.4 var(--sans), sans-serif; transition: background-color var(--control-duration), opacity var(--control-duration); }
+.newspaper button.checkin-save:hover:not(:disabled) { background: var(--blue); border-color: var(--blue); }
+.newspaper button.checkin-save:disabled { opacity: .45; cursor: default; }
+.newspaper :is(.checkin-unavailable, .checkin-history) { margin: 0; color: var(--muted); font: 13px/1.6 var(--sans), sans-serif; }
+.newspaper .checkin-unavailable { border-left: 2px solid var(--blue); padding-left: 12px; }
+.newspaper .watch-entry .dispatch-actions { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+.newspaper .watch-entry .confirmation-checkin__question { font-size: 23px; }
+.newspaper .watch-entry .confirmation-checkin__row { grid-template-columns: 1fr; }
+.newspaper .watch-entry .confirmation-checkin__platforms { gap: 8px; }
+.newspaper .watch-entry .confirmation-checkin__patch { font-size: 11px; }
+.newspaper [id^="issue-"] { scroll-margin-top: 24px; }
+.newspaper .platform-experiences { display: block; margin-top: 5px; color: var(--muted); font: 12px/1.5 var(--sans), sans-serif; white-space: normal; }
+
 @media (min-width: 751px) {
   .newspaper .report-dispatch .dispatch-heading { grid-template-columns: minmax(0,1fr) 160px; align-items: start; gap: 24px; margin: 20px 0; }
 }
 @media (max-width: 650px) {
   .newspaper .confirmation-checkin { flex-basis: 100%; }
   .newspaper .confirmation-checkin__question { font-size: 24px; }
-  .newspaper .confirmation-checkin__row { flex-direction: column; }
+  .newspaper .confirmation-checkin__row { grid-template-columns: 1fr; }
   .newspaper .confirmation-checkin__row .tap-btn { width: 100%; }
   .newspaper .confirmation-checkin__platforms { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); padding: 12px; }
   .newspaper .confirmation-checkin__platform-question, .newspaper .confirmation-checkin__status { grid-column: 1/-1; }

@@ -10,7 +10,6 @@ const PUBLIC_ROUTES = [
   "/patches",
   "/issues",
   "/observatory",
-  "/report",
   "/about",
   "/privacy",
   "/articles/charting-the-unknown",
@@ -41,9 +40,6 @@ const MAIN_ACTIONS = [
   "main .obs-capture-pages button",
   "main .obs-platforms > a",
   "main .obs-radar-foot a",
-  "main .filing-intro a",
-  "main .filing-footer a",
-  "main .filing-checkbox",
 
 ].join(", ");
 
@@ -170,14 +166,14 @@ test.describe("public newspaper readability", () => {
     await page.goto("/");
     const board = page.locator("#board");
     const issueBoard = board.getByRole("link", { name: /(?:All \d+ published issues?|Read the issue board)/ });
-    const fileReport = board.getByRole("link", { name: "File a report →" });
+    const addCheckin = board.getByRole("link", { name: "Add a check-in →" });
     await expect(issueBoard).toBeVisible();
-    await expect(fileReport).toBeVisible();
+    await expect(addCheckin).toBeVisible();
 
     const layout = await board.evaluate((element) => {
       const links = [...element.querySelectorAll("a")].filter((link) => {
         const text = link.textContent?.trim() ?? "";
-        return /^(All \d+ published issues?|Read the issue board|File a report)/.test(text);
+        return /^(All \d+ published issues?|Read the issue board|Add a check-in)/.test(text);
       });
       if (links.length !== 2) return null;
       const [first, second] = links.map((link) => link.getBoundingClientRect());

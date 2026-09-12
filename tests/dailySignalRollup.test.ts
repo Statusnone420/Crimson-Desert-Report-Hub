@@ -18,7 +18,7 @@ describe("fetchAllDailySignalRollupRows", () => {
 });
 
 describe("composeDailySignalRollup", () => {
-  it("matches the previous view semantics without exposing raw tables", () => {
+  it("counts only exact-patch check-ins and keeps earlier report history separate", () => {
     const rollup = composeDailySignalRollup({
       today: "2026-07-20",
       currentPatch: { version: "1.13.2", publishedAt: "2026-07-18T09:00:00.000Z" },
@@ -27,8 +27,9 @@ describe("composeDailySignalRollup", () => {
         { created_at: "2026-07-19T12:00:00.000Z", patch_version: "1.12.9" },
       ],
       taps: [
-        { created_at: "2026-07-18T13:00:00.000Z", patch_family: "1.13" },
-        { created_at: "2026-07-20T13:00:00.000Z", patch_family: "1.12" },
+        { created_at: "2026-07-18T13:00:00.000Z", patch_version: "1.13.2" },
+        { created_at: "2026-07-20T13:00:00.000Z", patch_version: "1.13.1" },
+        { created_at: "2026-07-20T13:00:00.000Z", patch_version: "1.12.9" },
       ],
       runs: [
         {

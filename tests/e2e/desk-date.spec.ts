@@ -9,7 +9,7 @@ test("all public mastheads use today's desk date despite older server renders", 
   // that date, even when navigating between independently cached routes.
   await page.clock.setFixedTime(new Date("2026-09-06T13:00:00Z"));
   const problems = collectConsoleProblems(page);
-  for (const route of ["/", "/issues", "/report", "/about", "/privacy", "/news"]) {
+  for (const route of ["/", "/issues", "/about", "/privacy", "/news"]) {
     await page.goto(route);
     await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Sunday, September 6, 2026");
     await expectHealthyPage(page, problems);
@@ -20,7 +20,7 @@ test("cached HTML cannot print a stale date when JavaScript is disabled", async 
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   try {
-    for (const route of ["/", "/issues", "/report"]) {
+    for (const route of ["/", "/issues"]) {
       await page.goto(`http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? 3100}${route}`);
       await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Eastern Time");
     }
@@ -33,7 +33,7 @@ test("open mastheads roll over at New York midnight and refresh on return", asyn
   // One clock controls the entire context. Let navigation finish before pausing it.
   await context.clock.install({ time: new Date("2026-09-07T03:00:00Z") });
   const pages = await Promise.all([context.newPage(), context.newPage(), context.newPage()]);
-  const routes = ["/", "/issues", "/report"];
+  const routes = ["/", "/issues", "/about"];
   for (const [index, page] of pages.entries()) {
     await page.goto(routes[index]);
     await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Sunday, September 6, 2026");

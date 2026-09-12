@@ -51,7 +51,7 @@ describe("homepage independent-register outages", () => {
     const markup = renderToStaticMarkup(await HomePage());
     expect(markup).toContain("<dt>Claimed fixes</dt><dd>0</dd>");
     expect(markup).toContain("The official record.");
-    expect(markup).toContain("Report counts unavailable");
+    expect(markup).toContain("Issue counts unavailable");
     expect(markup).toContain("<dt>Published issues</dt><dd>Unavailable</dd>");
     expect(markup).not.toContain("Official claims are unavailable.");
   });
@@ -63,6 +63,20 @@ describe("homepage independent-register outages", () => {
     expect(markup).toContain("The claims read did not complete. No count is assumed to be zero.");
     expect(markup).toContain("<dt>Claimed fixes</dt><dd>Unavailable</dd>");
     expect(markup).not.toContain("<dt>Claimed fixes</dt><dd>0</dd>");
+  });
+
+  it("does not publish a zero issue count when current check-ins are unavailable", async () => {
+    mocks.getDashboardData.mockResolvedValue({
+      ...evidenceOutage,
+      evidenceUnavailable: false,
+      publicLeadsUnavailable: false,
+      checkinsAvailable: false,
+    });
+    const markup = renderToStaticMarkup(await HomePage());
+    expect(markup).toContain("Issue counts unavailable");
+    expect(markup).toContain("<dt>Published issues</dt><dd>Unavailable</dd>");
+    expect(markup).not.toContain("0 tracked issues");
+    expect(markup).not.toContain("All 0 published issues");
   });
 
   it("does not turn a claims read failure into invented claim cards or zero", async () => {

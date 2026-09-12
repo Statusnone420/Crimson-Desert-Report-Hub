@@ -26,10 +26,10 @@ test("missing services stay unavailable instead of becoming a false zero", async
   await expect(page.locator("#lead").getByRole("link", { name: "Patch 2.02.00 adds Mac cross-save" })).toHaveAttribute("href", "/articles/patch-2-02-00");
   await expect(page.getByRole("link", { name: "Beyond Pywel’s familiar shores" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Official claims are unavailable." })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Report counts unavailable" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Issue counts unavailable" })).toBeVisible();
   await expect(page.getByText("The scanner record could not be read. Counts are unavailable.")).toBeVisible();
   await expect(page.getByText("Steam review history could not be read.")).toBeVisible();
-  await expect(page.getByText(/0 reports this patch|0 scanner leads|No claimed fixes are recorded/)).toHaveCount(0);
+  await expect(page.getByText(/0 reports this patch|0 tracked issues|0 scanner leads|No claimed fixes are recorded/)).toHaveCount(0);
   await expectNotGreen(page, ".np-error, .stories h2");
   await expectNoSyntheticCrowd(page);
 
@@ -49,8 +49,8 @@ test("missing services stay unavailable instead of becoming a false zero", async
 
   await page.goto("/issues");
   await expect(page.getByRole("heading", { name: "The issue board is unavailable." })).toBeVisible();
-  await expect(page.getByText("This is not a report that no issues are being tracked.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "File a player report" })).toHaveAttribute("href", "/report");
+  await expect(page.getByText("The public issue records could not be read. Check-ins need a visible issue; try again later.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Read the patch record →" })).toHaveAttribute("href", "/patches");
   await expectNoSyntheticCrowd(page);
 
   await page.goto("/observatory");
@@ -70,19 +70,15 @@ test("missing services stay unavailable instead of becoming a false zero", async
   await expectNoSyntheticCrowd(page);
 
   await page.goto("/report");
-  await expect(page.getByRole("heading", { name: "Tell us what happened." })).toBeVisible();
-  await expect(page.getByText("No account. No email.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Review report" })).toBeVisible();
-  await expect(page.getByLabel("Patch version")).toHaveValue("other");
-  expect(await page.getByLabel("Patch version").locator("option").evaluateAll((options) => options.map((option) => option.getAttribute("value")))).toEqual(["other"]);
-  await expect(page.getByText("The current patch could not be verified. This report will use Other.")).toBeVisible();
+  await expect(page).toHaveURL(/\/issues$/);
+  await expect(page.locator("#report-form")).toHaveCount(0);
   await expectNoSyntheticCrowd(page);
 });
 
 test("connected empty tables render honest zero states", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Crimson Desert Report Hub" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "0 reports this patch" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "0 tracked issues" })).toBeVisible();
   await expect(page.getByText("Published issues").locator("+ dd")).toHaveText("0");
   // Zero is meaningful only with a known current patch and successful empty reads.
   await expect(page.getByText("The current patch could not be verified.")).toHaveCount(0);
@@ -94,7 +90,7 @@ test("connected empty tables render honest zero states", async ({ page }) => {
   await expectNoSyntheticCrowd(page);
 
   await page.goto("/issues");
-  await expect(page.getByRole("heading", { name: "The player record." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What are you seeing?" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /No published issues yet for/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Published issues 0" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Watchlist 0" })).toBeVisible();

@@ -109,38 +109,38 @@ describe("composeIssueReadout", () => {
     expect(readout.poll).toBeNull();
   });
 
-  it("reports make Confirmed by players", () => {
+  it("keeps earlier reports separate from community responses", () => {
     const readout = composeIssueReadout(base({ directReportCount: 2 }));
     expect(readout.state).toBe("confirmed");
-    expect(readout.label).toBe("Confirmed by players");
+    expect(readout.label).toBe("Earlier player reports");
     expect(readout.tone).toBe("crimson");
     expect(readout.sentence).toContain("2");
-    expect(readout.ask?.kinds).toEqual(["have_it"]);
+    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
   });
 
-  it("escalated confirmations alone make Confirmed by players", () => {
+  it("labels anonymous responses without claiming verified players", () => {
     const readout = composeIssueReadout(
       base({ confirmations: confirmations({ affectedCount: 4, affectedNetworks: 3 }) }),
     );
     expect(readout.state).toBe("confirmed");
-    expect(readout.label).toBe("Confirmed by players");
+    expect(readout.label).toBe("Community check-ins");
   });
 
-  it("a single report is Player-reported, never plural-confirmed", () => {
+  it("labels a single report as earlier history", () => {
     const readout = composeIssueReadout(base({ directReportCount: 1 }));
     expect(readout.state).toBe("confirmed");
-    expect(readout.label).toBe("Player-reported");
+    expect(readout.label).toBe("Earlier player reports");
     expect(readout.tone).toBe("crimson");
     expect(readout.sentence).toContain("1");
-    expect(readout.ask?.kinds).toEqual(["have_it"]);
+    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
   });
 
-  it("a report plus one confirming network counts as plural players", () => {
+  it("does not sum a report and network into verified players", () => {
     const readout = composeIssueReadout(
       base({ directReportCount: 1, confirmations: confirmations({ affectedCount: 1, affectedNetworks: 1 }) }),
     );
     expect(readout.state).toBe("confirmed");
-    expect(readout.label).toBe("Confirmed by players");
+    expect(readout.label).toBe("Community check-ins");
   });
 
   it("a single confirming network does not confirm; falls through to signals", () => {
@@ -149,7 +149,7 @@ describe("composeIssueReadout", () => {
     );
     expect(readout.state).toBe("public_sources");
     expect(readout.tone).toBe("amber");
-    expect(readout.sentence).toContain("1 player");
+    expect(readout.sentence).toContain("1 check-in");
     expect(readout.sentence).not.toContain("no player here has confirmed");
   });
 
@@ -170,6 +170,7 @@ describe("composeIssueReadout", () => {
           affectedNetworks: 1,
           byKind: {
             have_it: { count: 1, networks: 1 },
+            not_happening: { count: 0, networks: 0 },
             still_happening: { count: 0, networks: 0 },
             fixed_for_me: { count: 0, networks: 0 },
           },
@@ -178,8 +179,8 @@ describe("composeIssueReadout", () => {
     );
 
     expect(readout.state).toBe("watching");
-    expect(readout.sentence).toContain("1 player so far");
-    expect(readout.ask?.kinds).toEqual(["have_it"]);
+    expect(readout.sentence).toContain("1 check-in");
+    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
   });
 
   it("candidates only reads as a radar lead, not evidence", () => {
@@ -187,7 +188,7 @@ describe("composeIssueReadout", () => {
     expect(readout.state).toBe("radar_lead");
     expect(readout.tone).toBe("blue");
     expect(readout.sentence).toContain("not evidence");
-    expect(readout.ask?.kinds).toEqual(["have_it"]);
+    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
   });
 
   it("keeps a sub-threshold player count visible on a radar lead", () => {
@@ -195,15 +196,15 @@ describe("composeIssueReadout", () => {
       base({ candidateSignalCount: 1, confirmations: confirmations({ affectedCount: 1, affectedNetworks: 1 }) }),
     );
     expect(readout.state).toBe("radar_lead");
-    expect(readout.sentence).toContain("1 player");
+    expect(readout.sentence).toContain("1 check-in");
     expect(readout.sentence).not.toContain("until players confirm");
   });
 
-  it("nothing at all is Watching with no ask", () => {
+  it("a visible quiet issue still accepts a personal response", () => {
     const readout = composeIssueReadout(base());
     expect(readout.state).toBe("watching");
     expect(readout.tone).toBe("dim");
-    expect(readout.ask).toBeNull();
+    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
     expect(readout.poll).toBeNull();
   });
 
@@ -225,5 +226,25 @@ describe("composeIssueReadout", () => {
       base({ fixClaimedAt: "2026-07-08T00:00:00Z", confirmations: confirmations({ pollFixedCount: 1, pollFixedNetworks: 1 }) }),
     );
     expect(withClaim.poll).toEqual({ fixedCount: 1, stillCount: 0, escalated: false });
+  });
+
+  it("negative responses never confirm or erase an issue", () => {
+    const readout = composeIssueReadout(base({ confirmations: confirmations({
+      totalCount: 4,
+      byKind: { ...EMPTY_CLUSTER_CONFIRMATIONS.byKind, not_happening: { count: 4, networks: 4 } },
+    }) }));
+    expect(readout.state).toBe("watching");
+    expect(readout.poll).toBeNull();
+    expect(readout.sentence).toContain("4 saying it is not happening");
+    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
+  });
+
+  it("an unread check-in table is not zero responses or a quiet fix verdict", () => {
+    const readout = composeIssueReadout(base({ checkinsAvailable: false, fixClaimedAt: "2026-07-08T00:00:00Z" }));
+    expect(readout.label).toBe("Check-ins unavailable");
+    expect(readout.hasCurrentClaim).toBe(true);
+    expect(readout.ask).toBeNull();
+    expect(readout.poll).toBeNull();
+    expect(readout.sentence).not.toMatch(/quiet|no community check-ins|0 responses/i);
   });
 });
