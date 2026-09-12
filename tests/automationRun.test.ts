@@ -100,6 +100,7 @@ type TableName =
   | "patch_observations"
   | "signal_observation_events"
   | "issue_clusters"
+  | "issue_checkins"
   | "bug_reports"
   | "approved_excerpts"
   | "automation_settings";
@@ -127,6 +128,7 @@ const tables: Record<TableName, Row[]> = {
   patch_observations: [],
   signal_observation_events: [],
   issue_clusters: [],
+  issue_checkins: [],
   bug_reports: [],
   approved_excerpts: [],
   automation_settings: [],
@@ -996,6 +998,119 @@ describe("runAutomationMonitor", () => {
     );
   });
 
+  it("retains an automatic issue for a current check-in, then demotes it after that patch expires", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-retained", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: true, is_public: true,
+      }],
+      issue_checkins: [{
+        id: "checkin-current", cluster_id: "cluster-checkin-retained", patch_version: "1.13.00",
+        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+      }],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-checkin-retained", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: true, is_public: true, public_signal_count: 0 });
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "apply_cluster_visibility_refresh",
+      expect.objectContaining({ p_cluster_id: "cluster-checkin-retained", p_expected_revision: 1 }),
+    );
+
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ ...officialPatchFixture, version: "1.13.01" });
+    await refreshClusterVisibility("cluster-checkin-retained", new Date("2026-07-12T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false, public_signal_count: 0 });
+  });
+
+  it("does not publish a private issue or its private source because it has a current check-in", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-private", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: false, is_public: false,
+      }],
+      issue_checkins: [{
+        id: "checkin-private", cluster_id: "cluster-checkin-private", patch_version: "1.13.00",
+        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+      }],
+      source_signals: [{
+        id: "signal-private", cluster_id: "cluster-checkin-private", source: "web_search", source_type: "web_search",
+        source_url: "https://reddit.com/r/CrimsonDesert/comments/private-checkin",
+        canonical_url: "https://reddit.com/r/CrimsonDesert/comments/private-checkin", source_domain: "reddit.com",
+        title: "Crimson Desert 1.13.00 FPS drops", summary: "Frame-rate drops after patch 1.13.00.",
+        category: "performance", confidence: "high", observed_at: "2026-07-05T11:00:00.000Z",
+        source_published_at: "2026-07-05T11:00:00.000Z", public_status: "private", promotion_reason: "below_threshold",
+        extracted_facts: {},
+      }],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-checkin-private", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false, public_signal_count: 0 });
+    expect(tables.source_signals[0]).toMatchObject({ public_status: "private", promotion_reason: "below_threshold" });
+  });
+
+  it("retains the automatic baseline under force-hidden without making the issue public", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-hidden", category: "performance", visibility_revision: 1,
+        admin_visibility_override: "force_hidden", auto_public: true, is_public: false,
+        visibility_restore_auto_public: true, visibility_restore_is_public: true,
+      }],
+      issue_checkins: [{
+        id: "checkin-hidden", cluster_id: "cluster-checkin-hidden", patch_version: "1.13.00",
+        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+      }],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-checkin-hidden", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: "force_hidden",
+      auto_public: true,
+      visibility_restore_auto_public: true,
+      visibility_restore_is_public: true,
+      is_public: false,
+    });
+  });
+
+  it("fails closed on a check-in read error instead of demoting an existing public issue", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-error", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: true, is_public: true,
+      }],
+    });
+    selectFailure = { table: "issue_checkins", code: "42501", message: "permission denied for table issue_checkins" };
+    const { refreshClusterVisibility } = await importRunner();
+
+    await expect(refreshClusterVisibility("cluster-checkin-error", new Date("2026-07-05T12:00:00.000Z"))).rejects.toThrow(
+      /check-in retention read failed: permission denied/i,
+    );
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: true, is_public: true, visibility_revision: 1 });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps pre-migration demotion behavior when only issue_checkins is missing", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-migration", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: true, is_public: true,
+      }],
+    });
+    selectFailure = { table: "issue_checkins", code: "42P01", message: 'relation "issue_checkins" does not exist' };
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-checkin-migration", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false, visibility_revision: 2 });
+  });
+
   it("does not mistake force-public for automatic eligibility", async () => {
     resetDb({
       issue_clusters: [
@@ -1010,6 +1125,10 @@ describe("runAutomationMonitor", () => {
           is_public: true,
         },
       ],
+      issue_checkins: [{
+        id: "checkin-force-public", cluster_id: "cluster-private", patch_version: "1.13.00",
+        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+      }],
     });
     const { refreshClusterVisibility } = await importRunner();
 

@@ -45,7 +45,7 @@ function publishedCluster(overrides: Record<string, unknown> = {}) {
     fix_claimed_at: null,
     fix_claimed_patch_version: null,
     reportPlatformCounts: {},
-    confirmations: { totalCount: 1, byPlatform: {}, byKind: { have_it: { count: 1 } }, pollFixedCount: 0, pollStillCount: 0 },
+    confirmations: { totalCount: 1, byPlatform: {}, byKind: { have_it: { count: 1 }, not_happening: { count: 0 } }, pollFixedCount: 0, pollStillCount: 0 },
     readout: { state: "confirmed", label: "Player-reported", tone: "crimson", sentence: "2 player reports on this patch.", ask: null, poll: null },
     ...overrides,
   };
@@ -117,7 +117,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
   });
 
   it("does not promote a watchlist title after a patch rollover", async () => {
-    const rolledOver = publishedCluster({ id: "cluster-rolled-over", strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0, byPlatform: {}, byKind: { have_it: { count: 0 } }, pollFixedCount: 0, pollStillCount: 0 }, readout: { state: "watching", label: "Open", tone: "dim", sentence: "The scanner checks public sources every run. Nothing's turned up this patch.", ask: null, poll: null } });
+    const rolledOver = publishedCluster({ id: "cluster-rolled-over", strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0, byPlatform: {}, byKind: { have_it: { count: 0 }, not_happening: { count: 0 } }, pollFixedCount: 0, pollStillCount: 0 }, readout: { state: "watching", label: "Open", tone: "dim", sentence: "The scanner checks public sources every run. Nothing's turned up this patch.", ask: null, poll: null } });
     mocks.getDashboardData.mockResolvedValue(dashboardData([rolledOver]));
     const markup = renderToStaticMarkup(await HomePage());
     expect(markup).toContain("All 0 published issues →");
@@ -136,7 +136,8 @@ describe("homepage keeps issue publication separate from headline selection", ()
   it("keeps the issue count separate from the report count", async () => {
     mocks.getDashboardData.mockResolvedValue(dashboardData([publishedCluster({ directReportCount: 6 })]));
     const markup = renderToStaticMarkup(await HomePage());
-    expect(markup).toContain("6 reports this patch");
+    expect(markup).toContain("1 tracked issue");
+    expect(markup).not.toContain("6 tracked issues");
     expect(markup).toContain("All 1 published issue →");
     expect(markup).not.toContain("All 6 published issues");
   });

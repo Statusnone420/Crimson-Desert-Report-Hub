@@ -82,28 +82,19 @@ async function expectNoPrivateMarkers(page: Page) {
   for (const marker of PRIVATE_MARKERS) expect(markup).not.toContain(marker);
 }
 
-async function fillValidReport(page: Page) {
-  await page.getByLabel("Platform").selectOption("pc_steam");
-  await page.getByRole("radio", { name: "Performance" }).check({ force: true });
-  await page.getByRole("radio", { name: "Serious" }).check({ force: true });
-  await page.getByRole("radio", { name: "Often" }).check({ force: true });
-  await page.getByLabel("A short, specific summary").fill("Frame rate falls while opening the map");
-  await page.getByLabel("Describe the problem").fill("The frame rate drops when opening the world map after a battle near the camp.");
-}
-
 test.describe("integrated newspaper public UI", () => {
   test.beforeEach(async ({ page }) => {
     // Freeze fixture dates while leaving navigation and animation timers native.
     await page.clock.setFixedTime(E2E_NOW);
   });
 
-  test("home keeps patch records, player counts, and private scanner material separate", async ({ page }, testInfo) => {
+  test("home keeps patch records, player counts, and private scanner material separate", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Main navigation" });
     await expect(nav.getByRole("link", { name: "News" })).toHaveAttribute("href", "/");
     await expect(nav.getByRole("link", { name: "Patches" })).toHaveAttribute("href", "/patches");
-    await expect(nav.getByRole("link", { name: "Player reports" })).toHaveAttribute("href", "/issues");
+    await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("href", "/issues");
     await expect(nav.getByRole("link", { name: "Expansion" })).toHaveCount(0);
     await expect(nav.getByRole("link", { name: "Watch", exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "More from the news desk →" })).toHaveAttribute("href", "/news");
@@ -114,13 +105,9 @@ test.describe("integrated newspaper public UI", () => {
       "href",
       "https://github.com/Statusnone420/Crimson-Desert-Report-Hub",
     );
-    if (testInfo.project.name === "mobile-chromium") {
-      await expect(page.getByRole("contentinfo").getByRole("link", { name: /File a report/ })).toHaveAttribute("href", "/report");
-    } else {
-      await expect(page.getByRole("contentinfo").getByRole("link", { name: /File a report/ })).toHaveAttribute("href", "/report");
-    }
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Add a check-in →", exact: true })).toHaveAttribute("href", "/issues");
     await expect(page.locator("#lead").getByRole("link", { name: "Patch 2.02.00 adds Mac cross-save" })).toHaveAttribute("href", "/articles/patch-2-02-00");
-    await expect(page.getByText(/Individual reports stay on the issue board/)).toBeVisible();
+    await expect(page.getByText(/Add a quick check-in to an existing issue/)).toBeVisible();
     await expect(page.getByRole("link", { name: /All \d+ published issues/ })).toHaveAttribute("href", "/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toHaveCount(0);
     await expect(page.getByText("The game in numbers")).toBeVisible();
@@ -182,41 +169,33 @@ test.describe("integrated newspaper public UI", () => {
     await expectNoPrivateMarkers(page);
   });
 
-  test("issue board filters public records and preserves confirmation revision scopes", async ({ page }) => {
+  test("issue board filters public records and scopes saved answers to the exact patch", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.addInitScript(() => {
-      window.localStorage.setItem("cd-confirm-00000000-0000-4000-8000-000000000002-1.13", "fixed_for_me");
+      window.localStorage.setItem("cd-checkin-00000000-0000-4000-8000-000000000001-1.13.01", "have_it");
     });
     await page.goto("/issues");
-    await expect(page.getByRole("heading", { name: "The player record." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What are you seeing?" })).toBeVisible();
     const board = page.locator("#board");
     await expect(board.getByRole("group", { name: "Choose board view" })).toBeVisible();
     await expect(board.getByLabel("Find an issue")).toBeVisible();
     await expect(board.getByLabel("Category")).toBeVisible();
-    const card = page.getByRole("article").filter({ hasText: "Map-open crash persists after fix" });
+    const card = page.getByRole("article").filter({ hasText: "FPS regression since 1.13" });
     await expect(card).toHaveCount(1);
-    await expect(card.getByRole("button", { name: /Fixed for me/ })).toHaveAttribute("aria-pressed", "false");
-    await card.getByRole("button", { name: /Fixed for me/ }).click();
-    await card.getByRole("button", { name: "PC (Steam)" }).click();
-    await expect(card.getByText(/Recorded once per network per patch/)).toBeVisible();
-    await card.getByRole("button", { name: /Still happening/ }).click();
-    await expect(card.getByRole("button", { name: /Still happening/ })).toHaveAttribute("aria-pressed", "true");
-    await card.getByRole("button", { name: "Base PS5", exact: true }).click();
-    await expect(card.getByRole("button", { name: /Still happening/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(card.getByRole("button", { name: /Happening to me/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(card.getByText("Patch 1.13.01", { exact: true })).toBeVisible();
     await expectNoPrivateMarkers(page);
     await expectHealthyPage(page, problems);
   });
 
-  test("preview confirmation refusal keeps the issue board read-only", async ({ page }) => {
-    await page.route("**/api/confirmations", async (route) => {
-      await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ error: "preview_writes_disabled" }) });
-    });
-    await page.goto("/issues");
-    const card = page.getByRole("article").filter({ hasText: "Map-open crash persists after fix" });
-    await expect(card).toHaveCount(1);
-    await card.getByRole("button", { name: /Fixed for me/ }).click();
-    await card.getByRole("button", { name: "PC (Steam)" }).click();
-    await expect(card.getByText("This preview is read-only. Confirmations work on the production site.")).toBeVisible();
+  test("retired report routes redirect to the issue board without rendering a form", async ({ page, request }) => {
+    const response = await request.get("/report", { maxRedirects: 0 });
+    expect(response.status()).toBe(308);
+    expect(response.headers().location).toBe("/issues");
+    await page.goto("/report");
+    await expect(page).toHaveURL(/\/issues$/);
+    await expect(page.locator("#report-form")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Review report|Send report/ })).toHaveCount(0);
   });
 
   test("privacy page resolves from the footer and keeps the unofficial disclaimer", async ({ page }) => {
@@ -227,8 +206,8 @@ test.describe("integrated newspaper public UI", () => {
     // mock server; wait past the default expect timeout before asserting.
     await page.waitForURL(/\/privacy$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { name: "Privacy" })).toBeVisible();
-    await expect(page.getByText("There is no player sign-in and nothing to register.")).toBeVisible();
-    await expect(page.getByText("The database does not store your IP address.")).toBeVisible();
+    await expect(page.getByText("There is no player sign-in, registration, or email field.")).toBeVisible();
+    await expect(page.getByText("The database does not store raw IP addresses.")).toBeVisible();
     await expect(page.getByRole("link", { name: "Full privacy policy" })).toHaveAttribute(
       "href",
       "https://github.com/Statusnone420/Crimson-Desert-Report-Hub/blob/main/docs/PRIVACY.md",
@@ -249,38 +228,6 @@ test.describe("integrated newspaper public UI", () => {
     await expectHealthyPage(page, problems);
   });
 
-  test("report writes only after review, then submits and resets", async ({ page }) => {
-    const problems = collectConsoleProblems(page);
-    await page.goto("/report");
-    await expect(page.getByRole("heading", { name: "Tell us what happened." })).toBeVisible();
-    await fillValidReport(page);
-    await page.getByRole("button", { name: "Review report" }).click();
-    await expect(page.getByRole("heading", { name: "Frame rate falls while opening the map" })).toBeVisible();
-    await expect(page.getByText("Nothing has been sent until you choose Send report.")).toBeVisible();
-    await page.getByRole("button", { name: /Send report/ }).click();
-    await expect(page.getByRole("heading", { name: "Filed." })).toBeVisible();
-    await page.getByRole("button", { name: "File another report" }).click();
-    await expect(page.getByLabel("Platform")).toHaveValue("");
-    await expectHealthyPage(page, problems);
-  });
-
-  test("report network retry and preview refusal preserve the reviewed draft", async ({ page }) => {
-    await page.goto("/report");
-    await fillValidReport(page);
-    await page.getByRole("button", { name: "Review report" }).click();
-    await page.route("**/api/reports", (route) => route.abort("failed"));
-    await page.getByRole("button", { name: /Send report/ }).click();
-    await expect(page.locator("#report-form").getByRole("alert")).toContainText("Could not send your report");
-    await expect(page.getByRole("button", { name: /Send report/ })).toBeEnabled();
-    await expect(page.getByRole("heading", { name: "Frame rate falls while opening the map" })).toBeVisible();
-    await page.unroute("**/api/reports");
-    await page.route("**/api/reports", async (route) => {
-      await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ error: "preview_writes_disabled" }) });
-    });
-    await page.getByRole("button", { name: /Send report/ }).click();
-    await expect(page.locator("#report-form").getByRole("alert")).toContainText("This preview cannot accept reports. Your draft is still here");
-    await expect(page.getByRole("heading", { name: "Frame rate falls while opening the map" })).toBeVisible();
-  });
 
   test("admin sign-in recovers from a network failure without losing the password", async ({ page }) => {
     await page.route("**/api/admin/login", (route) => route.abort("failed"));

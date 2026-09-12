@@ -7,6 +7,7 @@
   "automation_rejected_candidates": [],
   "automation_settings": [],
   "issue_confirmations": [],
+  "issue_checkins": [],
   "official_patch_notes": [
     {
       "id": "n0-current-patch",

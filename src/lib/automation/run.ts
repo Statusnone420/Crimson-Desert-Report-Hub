@@ -1,4 +1,5 @@
 import "server-only";
+import { hasCurrentPatchCheckins } from "@/lib/checkins.server";
 
 import {
   computeAutomationBudget,
@@ -2198,6 +2199,7 @@ async function refreshClusterStats(
     if (!isCurrentPatchVerified(activeCurrentPatch)) {
       throw new Error("Current patch unavailable; issue visibility was not refreshed.");
     }
+    const hasCheckins = await hasCurrentPatchCheckins(supabase, clusterId, activeCurrentPatch.version);
     const feedbackRules = await loadActiveScannerFeedbackRules(supabase);
     // Broad path/domain lessons gate future intake only. Re-evaluating stored
     // evidence may honor an exact reviewed URL, but must not retroactively
@@ -2320,10 +2322,12 @@ async function refreshClusterStats(
         hasStoredSignalGameContext(signal) &&
         sourceSignalEligibility(signal, activeCurrentPatch).canStore,
     );
+    const retainsAutomaticPublicIssue =
+      priorAutomaticOwner && priorAutomaticIsPublic && hasCheckins;
     const automaticIsPublic =
       automaticDecision.publicStatus === "public"
         ? true
-        : priorAutomaticIsPublic && hasLiveCandidates
+        : priorAutomaticIsPublic && (hasLiveCandidates || retainsAutomaticPublicIssue)
           ? true
           : priorAutomaticOwner && !hasPublicEvidence
             ? false
@@ -2339,7 +2343,7 @@ async function refreshClusterStats(
         verified_report_count: verifiedReportCount,
         public_signal_count: publicSignalCount,
         last_signal_at: lastObservedAt(signals),
-        auto_public: automaticDecision.publicStatus === "public",
+        auto_public: automaticDecision.publicStatus === "public" || retainsAutomaticPublicIssue,
         // The RPC derives override-effective visibility from this automatic baseline.
         is_public: automaticIsPublic,
       },

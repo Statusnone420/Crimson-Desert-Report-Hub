@@ -275,6 +275,24 @@ describe("getPublicScannerData read failures", () => {
     expect(data.scannerConnected).toBe(false);
   });
 
+  it.each([
+    { code: "42P01", message: 'relation "public.issue_checkins" does not exist' },
+    denied,
+  ])("marks published unavailable when current check-ins cannot be read ($code)", async (error) => {
+    resolveQuery = (trace) => {
+      if (trace.table === "issue_checkins") return { data: null, error };
+      if (isWeeklyRunRead(trace)) return { data: [weeklyRunRow], error: null };
+      if (isHeartbeatRead(trace)) return { data: [heartbeatRow], error: null };
+      return { data: [], error: null };
+    };
+    const { getPublicScannerData } = await import("@/lib/queries");
+    const data = await getPublicScannerData();
+    expect(data.readFailures).toEqual(["published"]);
+    expect(data.scannerConnected).toBe(false);
+    expect(data.keptThisWeek).toBe(3);
+    expect(data.lastCheckedAt).toBe(heartbeatRow.finished_at);
+  });
+
   it("keeps an open cost circuit open when a later read throws", async () => {
     resolveQuery = (trace) => {
       if (isCircuitRead(trace)) return { data: [openCircuitRow], error: null };

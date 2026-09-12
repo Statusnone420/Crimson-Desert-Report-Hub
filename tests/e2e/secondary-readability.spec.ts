@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { collectConsoleProblems, expectHealthyPage } from "./helpers";
 
 async function expectReadableText(controls: Locator) {
@@ -31,15 +31,6 @@ async function expectStandaloneTargets(controls: Locator) {
   expect(targets.length, "No visible standalone controls were checked").toBeGreaterThan(0);
   expect(targets.filter(({ height }) => height < 44), "Standalone controls are shorter than 44px").toEqual([]);
   await expectReadableText(controls);
-}
-
-async function fillValidReport(page: Page) {
-  await page.getByLabel("Platform").selectOption("pc_steam");
-  await page.getByRole("radio", { name: "Performance" }).locator("..").click();
-  await page.getByRole("radio", { name: "Serious" }).locator("..").click();
-  await page.getByRole("radio", { name: "Often" }).locator("..").click();
-  await page.getByLabel("A short, specific summary").fill("Frame rate falls while opening the map");
-  await page.getByLabel("Describe the problem").fill("The frame rate drops when opening the world map after a battle near the camp.");
 }
 
 test.describe("secondary public states remain readable", () => {
@@ -105,34 +96,13 @@ test.describe("secondary public states remain readable", () => {
     await expectHealthyPage(page, problems);
   });
 
-  test("report errors and review controls remain usable before sending", async ({ page }) => {
+  test("retired report intake redirects without exposing a form", async ({ page }) => {
     const problems = collectConsoleProblems(page);
-    const reportWrites: string[] = [];
-    await page.route("**/api/reports", async (route) => {
-      reportWrites.push(route.request().method());
-      await route.abort();
-    });
     await page.goto("/report");
-    await page.getByRole("button", { name: "Review report" }).click();
-    const errors = page.locator(".filing-errors a");
-    await expect(errors.first()).toBeVisible();
-    await expectStandaloneTargets(errors);
-    const summaryError = page.locator('.filing-errors a[href="#issue_title"]');
-    await summaryError.click();
-    await expect(page.getByLabel("A short, specific summary")).toBeFocused();
-    await expectHealthyPage(page, problems);
-
-    await fillValidReport(page);
-    await page.getByRole("button", { name: "Review report" }).click();
-    await expect(page.getByRole("heading", { name: "Frame rate falls while opening the map" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Send report/ })).toBeEnabled();
-    await expectStandaloneTargets(page.locator(".filing-review-actions button"));
-    await expectReadableText(page.locator("main a, main button"));
-    await expectHealthyPage(page, problems);
-    await page.getByRole("button", { name: "← Edit draft", exact: true }).click();
-    await expect(page.getByLabel("A short, specific summary")).toHaveValue("Frame rate falls while opening the map");
-    await expect(page.getByLabel("Platform")).toHaveValue("pc_steam");
-    expect(reportWrites, "Reviewing and editing must not submit a report").toEqual([]);
+    await expect(page).toHaveURL(/\/issues$/);
+    await expect(page.locator("#report-form, .filing-errors")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Review report|Send report/ })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "What are you seeing?" })).toBeVisible();
     await expectHealthyPage(page, problems);
   });
 });

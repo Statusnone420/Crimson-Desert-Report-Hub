@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 // Turnstile needs script + frame access to challenges.cloudflare.com on the
-// report page. 'unsafe-inline' scripts are required by Next.js hydration;
+// check-in controls. 'unsafe-inline' scripts are required by Next.js hydration;
 // 'unsafe-eval' is only needed by the dev overlay/HMR.
 const impeccableLiveDev =
   process.env.NODE_ENV === "development" ? " http://localhost:8400" : "";

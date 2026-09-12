@@ -4,9 +4,11 @@ import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import type { ConfirmationKind } from "@/lib/confirmations";
 import { PLATFORMS, PLATFORM_LABELS } from "@/lib/constants";
+import { ReportCaptcha } from "@/components/newspaper/ReportCaptcha";
 
 const KIND_LABELS: Record<ConfirmationKind, string> = {
   have_it: "Happening to me",
+  not_happening: "Not happening for me",
   still_happening: "Still happening",
   fixed_for_me: "Fixed for me",
 };
@@ -23,7 +25,7 @@ function subscribeToStances(listener: () => void): () => void {
 function readStance(key: string): ConfirmationKind | null {
   try {
     const stored = window.localStorage.getItem(key);
-    return stored && stored in KIND_LABELS ? (stored as ConfirmationKind) : null;
+    return stored && Object.hasOwn(KIND_LABELS, stored) ? (stored as ConfirmationKind) : null;
   } catch {
     return null;
   }
@@ -40,6 +42,7 @@ function writeStance(key: string, kind: ConfirmationKind): void {
 
 const KIND_ACCENTS: Record<ConfirmationKind, string> = {
   have_it: "var(--blue)",
+  not_happening: "var(--muted)",
   still_happening: "var(--red)",
   fixed_for_me: "var(--green)",
 };
@@ -65,7 +68,7 @@ function ConfirmButtonsFlow({
   kinds,
   counts,
 }: ConfirmButtonsProps) {
-  const storageKey = `cd-confirm-${clusterId}-${storageScope}`;
+  const storageKey = `cd-checkin-${clusterId}-${storageScope}`;
   const answered = useSyncExternalStore(
     subscribeToStances,
     () => readStance(storageKey),
@@ -74,6 +77,10 @@ function ConfirmButtonsFlow({
   const [phase, setPhase] = useState<Phase>("idle");
   const [pendingKind, setPendingKind] = useState<ConfirmationKind | null>(null);
   const [message, setMessage] = useState("");
+  const [selectedPlatform, setPlatform] = useState<string | null>(null);
+  const [token, setToken] = useState("");
+  const [captchaAttempt, setCaptchaAttempt] = useState(0);
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const kindButtons = useRef<Partial<Record<ConfirmationKind, HTMLButtonElement | null>>>({});
   const platformButtons = useRef<HTMLButtonElement[]>([]);
   const returnFocusKind = useRef<ConfirmationKind | null>(null);
@@ -106,6 +113,8 @@ function ConfirmButtonsFlow({
     if (phase === "sending") return;
     if (pendingKind) returnFocusKind.current = pendingKind;
     setPendingKind(null);
+    setPlatform(null);
+    setToken("");
     setMessage("");
     setPhase(answered ? "done" : "idle");
   }
@@ -114,12 +123,16 @@ function ConfirmButtonsFlow({
     if (phase === "sending") return;
     returnFocusKind.current = kind;
     setPendingKind(kind);
+    setPlatform(null);
+    setToken("");
+    setCaptchaAttempt((attempt) => attempt + 1);
     setMessage("");
     setPhase("picking");
   }
 
-  async function submit(platform: string) {
-    if (!pendingKind || phase === "sending") return;
+  async function submit() {
+    const platform = selectedPlatform;
+    if (!pendingKind || !platform || !token || phase === "sending") return;
     const kind = pendingKind;
     const requestStorageKey = storageKey;
     setPhase("sending");
@@ -128,12 +141,13 @@ function ConfirmButtonsFlow({
       const res = await fetch("/api/confirmations", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ cluster_id: clusterId, platform, kind }),
+        body: JSON.stringify({ cluster_id: clusterId, platform, kind, patch_version: storageScope, turnstile_token: token }),
       });
       if (!isCurrent.current) return;
       if (res.status === 201) {
         setPhase("done");
         setPendingKind(null);
+        setToken("");
         writeStance(requestStorageKey, kind);
         return;
       }
@@ -149,17 +163,33 @@ function ConfirmButtonsFlow({
       if (!isCurrent.current) return;
       setMessage(
         errorCode === "preview_writes_disabled"
-          ? "This preview is read-only. Confirmations work on the production site."
+          ? "This preview is read-only. Check-ins work on the production site."
+          : errorCode === "stale_patch"
+          ? "A new patch is available. Refresh this page before checking in."
+          : errorCode === "checkins_unavailable"
+          ? "Check-ins are not available yet. Try again later."
+          : errorCode === "claim_context_unavailable"
+          ? "The official fix context could not be verified. Your answer was not saved; try again later."
+          : errorCode === "claim_required"
+          ? "This issue no longer has a verified current-patch fix claim. Refresh the page to see the available responses."
+          : errorCode === "turnstile_unavailable"
+          ? "Bot protection is unavailable. Your answer could not be saved."
+          : errorCode === "captcha_failed"
+          ? "The bot check expired or failed. Please verify again."
           : errorCode === "current_patch_unavailable"
           ? "The current patch could not be verified. Try again later."
           : res.status === 429
           ? "Too many taps from this network — try again later."
-          : "Didn't count. Try again.",
+          : "Saving could not be confirmed. Retry to replace this network’s answer without adding another.",
       );
+      setToken("");
+      setCaptchaAttempt((attempt) => attempt + 1);
       setPhase("picking");
     } catch {
       if (!isCurrent.current) return;
-      setMessage("Didn't count. Try again.");
+      setMessage("Saving could not be confirmed. Retry to replace this network’s answer without adding another.");
+      setToken("");
+      setCaptchaAttempt((attempt) => attempt + 1);
       setPhase("picking");
     }
   }
@@ -172,7 +202,7 @@ function ConfirmButtonsFlow({
 
   return (
     <div className="confirmation-checkin">
-      <span id={questionId} className="confirmation-checkin__question">{question}</span>
+      <div className="confirmation-checkin__heading"><span id={questionId} className="confirmation-checkin__question">{question}</span><span className="confirmation-checkin__patch">Patch {storageScope}</span></div>
       <div className="confirmation-checkin__row" role="group" aria-labelledby={questionId}>
         {kinds.map((kind) => (
           <motion.button
@@ -230,7 +260,8 @@ function ConfirmButtonsFlow({
                 if (button) platformButtons.current[PLATFORMS.indexOf(platform)] = button;
               }}
               disabled={phase === "sending"}
-              onClick={() => submit(platform)}
+              aria-pressed={selectedPlatform === platform}
+              onClick={() => setPlatform(platform)}
             >
               {PLATFORM_LABELS[platform]}
             </button>
@@ -242,13 +273,19 @@ function ConfirmButtonsFlow({
               if (button) platformButtons.current[PLATFORMS.length - 1] = button;
             }}
             disabled={phase === "sending"}
-            onClick={() => submit("other")}
+            aria-pressed={selectedPlatform === "other"}
+            onClick={() => setPlatform("other")}
           >
             Other
           </button>
           <button type="button" className="tap-btn tap-btn--sm confirmation-checkin__cancel" disabled={phase === "sending"} onClick={closePlatformPicker}>
             Cancel
           </button>
+          {selectedPlatform ? <div className="confirmation-checkin__verify">
+            <p>{PLATFORM_LABELS[selectedPlatform as keyof typeof PLATFORM_LABELS]} · {pendingKind ? KIND_LABELS[pendingKind] : ""}</p>
+            {siteKey ? <ReportCaptcha key={captchaAttempt} siteKey={siteKey} onToken={setToken} onError={() => setMessage("The bot check could not load. Check your connection or try again later.")} /> : <p role="alert">Bot protection is unavailable. Check-ins cannot be saved right now.</p>}
+            <button className="checkin-save" type="button" disabled={!token || phase === "sending"} onClick={submit}>{phase === "sending" ? "Saving…" : "Save check-in"}<span aria-hidden="true"> →</span></button>
+          </div> : null}
         </motion.div>
       ) : null}
       {message ? (
@@ -258,12 +295,12 @@ function ConfirmButtonsFlow({
       ) : null}
       {phase === "done" ? (
         <p className="confirmation-checkin__status" role="status" aria-live="polite">
-          Recorded once per network per patch. Counts refresh from the server; you can change your answer.
+          Saved for patch {storageScope}. One answer per network and issue; changing it replaces the previous answer. Totals refresh from the server.
         </p>
       ) : null}
       {(phase === "picking" || phase === "sending") ? (
         <p className="confirmation-checkin__status" role="status" aria-live="polite">
-          {phase === "sending" ? "Recording your answer…" : "Choose a platform to record your answer."}
+          {phase === "sending" ? "Recording your answer…" : selectedPlatform ? "Complete the bot check, then save your check-in." : "Choose the platform where you play. No account or written report."}
         </p>
       ) : null}
     </div>

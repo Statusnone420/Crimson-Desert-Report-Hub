@@ -17,28 +17,24 @@ test("interior pages keep the publication identity and leave more room to read",
   }
   await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Patches", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("button", { name: "Catch me up", exact: true })).toBeVisible();
-  const headerReport = page.locator(".paper > header").getByRole("link", { name: "File a report", exact: true }).filter({ visible: true });
-  await expect(headerReport).toHaveCount(1);
-  await expect(headerReport).toHaveAttribute("href", "/report");
-  expect((await headerReport.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  const headerCheckin = page.locator(".paper > header").getByRole("link", { name: "Add a check-in", exact: true }).filter({ visible: true });
+  await expect(headerCheckin).toHaveCount(1);
+  await expect(headerCheckin).toHaveAttribute("href", "/issues");
+  expect((await headerCheckin.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await expectHealthyPage(page, problems);
 });
 
-test("an issue opens a contextual report without sending anything", async ({ page }) => {
-  const writes: string[] = [];
-  page.on("request", (request) => {
-    if (request.method() === "POST" && request.url().endsWith("/api/reports")) writes.push(request.url());
-  });
+test("general issue check-ins remain available while a pending claim waits for exact context", async ({ page }) => {
   await page.goto("/issues");
   await expect(page.getByRole("button", { name: /^Published issues / })).toBeVisible();
-  const issue = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Map-open crash persists after fix", exact: true }) });
-  await expect(issue).not.toContainText("Pearl Abyss says 1.13.01 fixed this");
-  await issue.getByRole("link", { name: "File a player report →", exact: true }).click();
-  await expect(page).toHaveURL(/\/report\?issue=00000000-0000-4000-8000-000000000002$/);
-  await expect(page.getByRole("note")).toContainText("Map-open crash persists after fix");
-  await expect(page.getByRole("radio", { name: "Crashes and startup", exact: true })).toBeChecked();
-  await expect(page.getByLabel("A short, specific summary", { exact: true })).toBeEmpty();
-  await page.getByLabel("Platform", { exact: true }).selectOption("other");
-  await expect(page.locator("#platform-hint")).toContainText("Mac, Epic Games Store");
-  expect(writes).toEqual([]);
+  const fps = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "FPS regression since 1.13", exact: true }) });
+  await expect(fps.getByRole("button", { name: /^Happening to me(?: —|$)/ })).toBeVisible();
+  await expect(fps.getByRole("button", { name: /^Not happening for me(?: —|$)/ })).toBeVisible();
+  await expect(fps.getByRole("link", { name: /report/i })).toHaveCount(0);
+
+  const pendingMap = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Map-open crash persists after fix", exact: true }) });
+  await expect(pendingMap.getByText("The exact fix context is unavailable. Check-ins for this claim will open when its source can be shown.")).toBeVisible();
+  await expect(pendingMap.getByRole("button", { name: /^Fixed for me(?: —|$)/ })).toHaveCount(0);
+  await expect(pendingMap.getByRole("button", { name: /^Still happening(?: —|$)/ })).toHaveCount(0);
+  await expect(pendingMap.getByRole("link", { name: /report/i })).toHaveCount(0);
 });

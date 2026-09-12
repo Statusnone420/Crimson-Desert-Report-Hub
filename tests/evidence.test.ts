@@ -36,6 +36,17 @@ describe("needsFullIssueCard", () => {
     // A reviewed source lead contributes to strengthScore while direct reports remain zero.
     expect(needsFullIssueCard({ ...base, strengthScore: 1 })).toBe(true);
   });
+
+  it("keeps historical check-ins readable without treating them as current player evidence", () => {
+    const historical = { strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0 }, earlierCheckinCount: 2, readout: { poll: null } };
+    expect(needsFullIssueCard(historical)).toBe(true);
+    expect(hasClusterEvidence(historical)).toBe(false);
+    expect(historical.confirmations.totalCount).toBe(0);
+  });
+
+  it("keeps an exact claim published when its check-in tally is unavailable", () => {
+    expect(needsFullIssueCard({ strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0 }, readout: { poll: null, hasCurrentClaim: true } })).toBe(true);
+  });
 });
 
 describe("splitWatchlistByCandidates", () => {

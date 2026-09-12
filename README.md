@@ -36,7 +36,7 @@ Crimson Desert Report Hub is an unofficial fan newspaper. Original stories and s
 
 - Read [news](https://crimsonreporthub.com/news) and watch [selected videos](https://crimsonreporthub.com/watch), with sources and publication dates.
 - Follow official fixes on the [patch desk](https://crimsonreporthub.com/patches) and compare player responses on the issue board.
-- File a detailed report or add a **Happening to me**, **Fixed for me**, or **Still happening** check-in.
+- Add an anonymous **Happening to me** or **Not happening for me** check-in with your platform. An eligible official fix offers **Fixed for me** or **Still happening**. Each exact patch starts a fresh tally, including hotfixes; changing an answer replaces it. The written-report flow is retired.
 - Explore review trends, audience activity, and source radar in [the Observatory](https://crimsonreporthub.com/observatory).
 
 Follow original Hub articles through [Atom](https://crimsonreporthub.com/feed.xml) or [RSS](https://crimsonreporthub.com/rss.xml). External coverage and player submissions stay out of the feeds.

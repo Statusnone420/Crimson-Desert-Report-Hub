@@ -1,4 +1,4 @@
-import type { ClusterConfirmations } from "@/lib/confirmations";
+import type { ClusterConfirmations, ConfirmationKind } from "@/lib/confirmations";
 
 export type ReadoutState =
   | "locked"
@@ -24,15 +24,18 @@ export type IssueReadoutInput = {
   storedFixStatus: string;
   patchVersion: string;
   publicSignalsUnavailable?: boolean;
+  checkinsAvailable?: boolean;
 };
 
 export type IssueReadoutAsk = {
   question: string;
-  kinds: ("have_it" | "still_happening" | "fixed_for_me")[];
+  kinds: ConfirmationKind[];
 };
 
 export type IssueReadout = {
   state: ReadoutState;
+  /** Claim presence survives an unavailable response tally. */
+  hasCurrentClaim?: boolean;
   label: string;
   tone: ReadoutTone;
   sentence: string;
@@ -64,7 +67,7 @@ function pollAsk(patchVersion: string): IssueReadoutAsk {
 }
 
 function haveItAsk(): IssueReadoutAsk {
-  return { question: "Is this happening to you?", kinds: ["have_it"] };
+  return { question: "Is this happening to you?", kinds: ["have_it", "not_happening"] };
 }
 
 function pollSummary(input: IssueReadoutInput): { fixedCount: number; stillCount: number; escalated: boolean } {
@@ -78,12 +81,13 @@ function pollSummary(input: IssueReadoutInput): { fixedCount: number; stillCount
 
 function evidenceSentence(input: IssueReadoutInput): string {
   const parts: string[] = [];
-  if (input.directReportCount > 0) parts.push(plural(input.directReportCount, "player report"));
+  if (input.directReportCount > 0) parts.push(plural(input.directReportCount, "earlier player report"));
   if (input.confirmations.affectedCount > 0) {
-    parts.push(plural(input.confirmations.affectedCount, "player check-in"));
+    parts.push(`${plural(input.confirmations.affectedCount, "check-in")} saying it is happening on ${input.patchVersion}`);
   }
-  if (parts.length === 0) return "No player evidence on this patch yet.";
-  return `${parts.join(" · ")} on this patch.`;
+  if (input.confirmations.byKind.not_happening.count > 0) parts.push(`${input.confirmations.byKind.not_happening.count} saying it is not happening`);
+  if (parts.length === 0) return "No community check-ins on this patch yet.";
+  return `${parts.join(" · ")}. Personal experiences, not a measure of all players.`;
 }
 
 function composeUnlocked(input: IssueReadoutInput): IssueReadout {
@@ -93,13 +97,13 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
 
   if (claim && (input.postClaimEvidenceCount > 0 || c.pollStillNetworks >= DISPLAY_THRESHOLD_NETWORKS)) {
     const voices: string[] = [];
-    if (c.pollStillCount > 0) voices.push(`${plural(c.pollStillCount, "player")} say it's still happening`);
+    if (c.pollStillCount > 0) voices.push(`${plural(c.pollStillCount, "check-in")} saying it's still happening`);
     if (input.postClaimEvidenceCount > 0) {
       voices.push(`${plural(input.postClaimEvidenceCount, "exact-patch player report")} appeared after the claim`);
     }
     return {
       state: "still_happening",
-      label: "Still happening",
+      label: "Still happening reported",
       tone: "crimson",
       sentence: `Pearl Abyss claimed a fix in ${input.patchVersion} — ${voices.join(", and ")}.`,
       ask: pollAsk(input.patchVersion),
@@ -108,12 +112,12 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   }
 
   if (claim && c.pollFixedNetworks >= DISPLAY_THRESHOLD_NETWORKS && c.pollFixedCount > c.pollStillCount) {
-    const still = c.pollStillCount > 0 ? ` ${plural(c.pollStillCount, "player")} still disagree${c.pollStillCount === 1 ? "s" : ""}.` : "";
+    const still = c.pollStillCount > 0 ? ` ${plural(c.pollStillCount, "check-in")} saying it is still happening.` : "";
     return {
       state: "players_say_fixed",
-      label: "Players say fixed",
+      label: "Fixed for some",
       tone: "green",
-      sentence: `${plural(c.pollFixedCount, "player")} say ${input.patchVersion} fixed this for them.${still}`,
+      sentence: `${plural(c.pollFixedCount, "check-in")} saying ${input.patchVersion} fixed this for them.${still}`,
       ask: pollAsk(input.patchVersion),
       poll,
     };
@@ -136,12 +140,9 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   }
 
   if (input.directReportCount > 0 || c.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS) {
-    // The plural label may never claim more players than counted voices: one
-    // report alone is evidence, but it is one player, not "players".
-    const pluralVoices = input.directReportCount + c.affectedNetworks >= 2;
     return {
       state: "confirmed",
-      label: pluralVoices ? "Confirmed by players" : "Player-reported",
+      label: c.affectedCount > 0 ? "Community check-ins" : "Earlier player reports",
       tone: "crimson",
       sentence: evidenceSentence(input),
       ask: haveItAsk(),
@@ -163,7 +164,7 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   if (input.publicSignalCount > 0) {
     const playerRead =
       c.affectedCount > 0
-        ? ` ${plural(c.affectedCount, "player")} also checked in — not enough distinct networks to weigh yet.`
+        ? ` ${plural(c.affectedCount, "check-in")} also ${c.affectedCount === 1 ? "says" : "say"} this is happening — early responses only.`
         : "";
     return {
       state: "public_sources",
@@ -178,7 +179,7 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   if (input.candidateSignalCount > 0) {
     const playerRead =
       c.affectedCount > 0
-        ? ` ${plural(c.affectedCount, "player")} also checked in — not enough distinct networks to weigh yet.`
+        ? ` ${plural(c.affectedCount, "check-in")} also ${c.affectedCount === 1 ? "says" : "say"} this is happening — early responses only.`
         : "";
     return {
       state: "radar_lead",
@@ -190,13 +191,12 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
     };
   }
 
-  if (c.affectedCount > 0) {
-    const players = plural(c.affectedCount, "player");
+  if (c.totalCount > 0) {
     return {
       state: "watching",
       label: "Open",
       tone: "dim",
-      sentence: `${players} so far ${c.affectedCount === 1 ? "has" : "have"} this too — not enough distinct networks to weigh yet.`,
+      sentence: evidenceSentence(input),
       ask: haveItAsk(),
       poll: null,
     };
@@ -206,24 +206,31 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
     state: "watching",
     label: "Open",
     tone: "dim",
-    sentence: "The scanner checks public sources every run. Nothing's turned up this patch.",
-    ask: null,
+    sentence: "No community check-ins on this patch yet. The scanner continues checking public sources.",
+    ask: haveItAsk(),
     poll: null,
   };
 }
 
 /** One brain: every displayed issue state derives from counts here, at read time. */
 export function composeIssueReadout(input: IssueReadoutInput): IssueReadout {
-  if (!input.adminOverride) return composeUnlocked(input);
+  const hasCurrentClaim = hasClaimContext(input);
+  if (!input.adminOverride) {
+    if (input.checkinsAvailable === false) {
+      return { state: "watching", hasCurrentClaim, label: "Check-ins unavailable", tone: "blue", sentence: "Current-patch check-ins could not be read. Their count is unavailable; source leads and earlier reports remain separate.", ask: null, poll: null };
+    }
+    return { ...composeUnlocked(input), hasCurrentClaim };
+  }
 
   const meta = LOCKED_META[input.storedFixStatus] ?? LOCKED_META.reported;
   const claim = hasClaimContext(input);
   return {
     state: "locked",
+    hasCurrentClaim,
     label: meta.label,
     tone: meta.tone,
-    sentence: `Set by the maintainer. ${evidenceSentence(input)}`,
-    ask: claim ? pollAsk(input.patchVersion) : haveItAsk(),
-    poll: claim ? pollSummary(input) : null,
+    sentence: `Set by the maintainer. ${input.checkinsAvailable === false ? "Current-patch check-ins are unavailable; their count is not zero." : evidenceSentence(input)}`,
+    ask: input.checkinsAvailable === false ? null : claim ? pollAsk(input.patchVersion) : haveItAsk(),
+    poll: input.checkinsAvailable !== false && claim ? pollSummary(input) : null,
   };
 }
