@@ -95,7 +95,8 @@ export default function Patch20200Article() {
               </div>
             </aside>
             <div id="article-body" className="article-body">
-              <p id="mac" className="opening">Crimson Desert patch 2.02.00 adds Mac cross-save. Pearl Abyss&apos;s <a href={patchNotes.url} target="_blank" rel="noreferrer noopener">September 11 patch notes</a> also list fixes for broken quests, disappearing stored items and a crash when starting a new game with DLSS Frame Generation enabled.</p>
+              <p id="mac" className="opening">After announcing the DLC we wanted but didn&apos;t know was coming, Pearl Abyss is still showing Crimson Desert&apos;s base game some love. Patch 2.02.00 adds Mac cross-save, with fixes for quests, missing items and a startup crash.</p>
+              <p>The <a href={patchNotes.url} target="_blank" rel="noreferrer noopener">September 11 patch notes</a> include a fix for a crash when starting a new game with DLSS Frame Generation enabled.</p>
               <p>At publication, the patch was available on Steam for PC and Mac, PlayStation, Xbox and Epic. Mac App Store players were still waiting, with no release time announced.</p>
               <p>Pearl Abyss&apos;s <a href={crossSaveInformation.url} target="_blank" rel="noreferrer noopener">cross-save guide</a> still listed Mac support as coming later at the September 11 check. That conflicted with the patch announcement.</p>
 

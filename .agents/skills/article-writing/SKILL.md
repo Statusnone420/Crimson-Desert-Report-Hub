@@ -5,7 +5,7 @@ description: Write or edit Crimson Report Hub gaming news, developer announcemen
 
 # Article Writing
 
-Write clear gaming journalism for Crimson Report Hub. Lead with the news and explain the concrete change. Preserve the owner's meaning and opinions when editing. Add no enthusiasm, judgment, or personal experience of your own. Do not invent a team behind the site; use “I” only when expressing something the owner supplied.
+Write clear gaming journalism for Crimson Report Hub. Make the news clear and explain the concrete change. Preserve the owner's meaning, opinions, enthusiasm, and conversational phrasing when supplied. Add no enthusiasm, judgment, or personal experience of your own. Do not invent a team behind the site; use “I” only when expressing something the owner supplied. Owner-supplied “we” can address the player community without implying a staff.
 
 ## Reporting
 
@@ -21,14 +21,15 @@ Write clear gaming journalism for Crimson Report Hub. Lead with the news and exp
 - Prefer concrete subjects and specific verbs. Say what changed, what failed, or what players can do. Replace vague connectors such as “concerns this patch” with the actual relationship.
 - Favor short, declarative sentences. Use 8–15 words as a guide, not a quota. Vary sentence length when a condition or explanation needs room. Avoid choppy fragments and mechanical subject repetition.
 - Prefer active voice. Use passive voice when the actor is unknown or the result reads more naturally. Never invent an actor or cause to force active grammar.
-- Cut hype, marketing copy, filler, forced slang, rhetorical questions, and fake excitement. Add background only when it explains this story. Explain player impact only as far as the evidence supports it.
+- Keep the owner's personality. Phrases such as “showing the base game some love” belong when the owner supplies or requests that tone. Do not flatten them into impersonal patch-note summaries or turn an opinion into a claim about measured player sentiment.
+- Cut added hype, marketing copy, filler, forced slang, rhetorical questions, and fake excitement. Preserve enthusiasm and judgment the owner supplied. Add background only when it explains this story. Explain player impact only as far as the evidence supports it.
 - Do not use these words in original prose: delve, testament, crucial, realm, navigating, seamlessly, landscape, pivotal, foster, game-changer, deep dive, beacon, paramount. Preserve them when necessary in an exact title or attributed quote.
 - Avoid “is designed to,” “serves as a,” and similar empty constructions. No “In this latest update” or “Let's dive in” openings. No filler paragraph transitions such as “Furthermore,” “Moreover,” or “Additionally.” No “In conclusion,” “Overall,” or repetitive closing summary.
 
 ## Article shape
 
 - Write a short, specific headline naming the main development.
-- Open with one or two sentences stating the core news and relevant game, version, or platform.
+- Open with one or two sentences establishing the core news and relevant game, version, or platform. When the owner directs a conversational opening, start with that context and reach the concrete change promptly.
 - Order details by importance to players. Use one to three sentences per paragraph. Add descriptive subheadings only when they help navigation.
 - Use bullets only when three or more specific changes, fixes, or stat adjustments read better as a list. Do not turn the whole article into rewritten patch notes.
 - Let the available facts determine length. End at the last useful fact or supported next step. Add no automatic call to action.
