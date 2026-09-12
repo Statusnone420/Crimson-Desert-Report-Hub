@@ -57,7 +57,8 @@ test("missing services stay unavailable instead of becoming a false zero", async
   await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
   await expect(page.getByText("The Observatory · Current patch unverified")).toBeVisible();
   await expect(page.getByText("Steam review history could not be read. Try again shortly.")).toBeVisible();
-  await expect(page.getByText("Twitch aggregate history is unavailable because no complete captures are available in this window.")).toBeVisible();
+  await expect(page.getByText("Twitch aggregate history could not be read.")).toBeVisible();
+  await expect(page.getByText("No Twitch aggregate captures have been recorded yet.")).toHaveCount(0);
   await expect(page.getByText("Radar category data is unavailable because no recorded category counts are available.")).toBeVisible();
   await expectNotGreen(page, ".np-error");
   await expectNoSyntheticCrowd(page);
@@ -112,6 +113,7 @@ test("connected empty tables render honest zero states", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
   await expect(page.getByText("No Steam review captures are available yet.")).toBeVisible();
   await expect(page.getByText("Radar category data is unavailable because no recorded category counts are available.")).toBeVisible();
+  await expect(page.getByText("No Twitch aggregate captures have been recorded yet.")).toBeVisible();
   await expect(page.getByText(/0 recorded readings|0 players|0 confirmed bugs/i)).toHaveCount(0);
   await expectNoSyntheticCrowd(page);
 });
