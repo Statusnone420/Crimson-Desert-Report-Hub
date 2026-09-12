@@ -103,7 +103,7 @@ export default function Patch20200Article() {
               <h2 id="fixes">Quest and storage fixes</h2>
               <p>Pearl Abyss lists fixes for two progression bugs: one prevented players from liberating Thornbriar Fortress, and another made a letter disappear during <em>The Words of Alustin</em>.</p>
               <p>Raising the banner at Howling Hill Camp with a full inventory could also stop housing from unlocking. The notes include a fix for that bug and for items disappearing from Trade Goods Storage when loading certain saves.</p>
-              <p>Other changes address a Force Palm combo, lantern visibility, shaking UI text, localization including Arabic, and two visual bugs affecting armor and a blindfold.</p>
+              <p>Other changes address a Force Palm combo, lantern visibility, shaking UI text and localization, including Arabic. The notes also list fixes for visual noise on armor indoors and Kliff&apos;s appearance with the Crow Cloth Blindfold when certain settings were enabled.</p>
               <p id="unconfirmed">The notes do not say whether previously lost items return or whether every already-blocked save recovers. The Hub has not tested Mac transfers or these fixes on affected saves.</p>
               <p id="support"><a href={dlcAnnouncement.url} target="_blank" rel="noreferrer noopener">Charting the Unknown</a> launches October 15, 2026, at 6 p.m. Eastern. Pearl Abyss says the expansion will not be available through the Mac App Store at launch.</p>
               <section id="sources" className="article-sources">
