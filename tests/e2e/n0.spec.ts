@@ -56,7 +56,7 @@ test("missing services stay unavailable instead of becoming a false zero", async
   await page.goto("/observatory");
   await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
   await expect(page.getByText("The Observatory · Current patch unverified")).toBeVisible();
-  await expect(page.getByText("Steam review history is unavailable because no recorded snapshots are available.")).toBeVisible();
+  await expect(page.getByText("Steam review history could not be read. Try again shortly.")).toBeVisible();
   await expect(page.getByText("Twitch aggregate history is unavailable because no complete captures are available in this window.")).toBeVisible();
   await expect(page.getByText("Radar category data is unavailable because no recorded category counts are available.")).toBeVisible();
   await expectNotGreen(page, ".np-error");
@@ -95,7 +95,7 @@ test("connected empty tables render honest zero states", async ({ page }) => {
   await page.goto("/issues");
   await expect(page.getByRole("heading", { name: "The player record." })).toBeVisible();
   await expect(page.getByRole("heading", { name: /No published issues yet for/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Published reports 0" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Published issues 0" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Watchlist 0" })).toBeVisible();
   await expectNotGreen(page, ".board-view-count");
   await expectNoSyntheticCrowd(page);
@@ -110,7 +110,7 @@ test("connected empty tables render honest zero states", async ({ page }) => {
 
   await page.goto("/observatory");
   await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
-  await expect(page.getByText("Steam review history is unavailable because no recorded snapshots are available.")).toBeVisible();
+  await expect(page.getByText("No Steam review captures are available yet.")).toBeVisible();
   await expect(page.getByText("Radar category data is unavailable because no recorded category counts are available.")).toBeVisible();
   await expect(page.getByText(/0 recorded readings|0 players|0 confirmed bugs/i)).toHaveCount(0);
   await expectNoSyntheticCrowd(page);

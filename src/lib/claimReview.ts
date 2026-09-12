@@ -287,7 +287,7 @@ type ClaimReviewSyncState =
   | { status: "awaiting_sync" }
   | { status: "error"; error: SupabaseErrorLike };
 
-async function readClaimReviewSyncState(client: SupabaseClient): Promise<ClaimReviewSyncState> {
+export async function readClaimReviewSyncState(client: SupabaseClient): Promise<ClaimReviewSyncState> {
   const { data, error } = await client.from("claim_review_sync_state").select("first_synced_at").limit(1);
   if (error) {
     if (isMissingSupabaseRelation(error, "claim_review_sync_state")) return { status: "missing_schema" };

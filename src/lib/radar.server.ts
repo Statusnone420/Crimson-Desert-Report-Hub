@@ -12,7 +12,7 @@ import { hasCrimsonDesertContext, hasUnsupportedSourceContext } from "@/lib/auto
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/automation/settings";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { isCurrentPatchVerified } from "@/lib/patchWatch";
+import { belongsToPatchFamily, isCurrentPatchVerified } from "@/lib/patchWatch";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
 import { classifyRadarRecency, type RadarRecencyBandId } from "@/lib/radarDisplay";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
@@ -145,6 +145,21 @@ export async function fetchAllRadarRows<T>(
     const batch = data ?? [];
     rows.push(...batch);
     if (batch.length < RADAR_PAGE_SIZE) return rows;
+  }
+}
+
+/**
+ * Evidence-register failures remain visible without disconnecting the radar.
+ * This keeps the same boundary when a later paged read fails.
+ */
+async function fetchRadarEvidenceRows<T>(
+  label: string,
+  page: (from: number, to: number) => PromiseLike<RadarPageResult<T>>,
+): Promise<RadarPageResult<T>> {
+  try {
+    return { data: await fetchAllRadarRows(label, page), error: null };
+  } catch (error) {
+    return { data: null, error: { message: error instanceof Error ? error.message : String(error) } };
   }
 }
 
@@ -545,10 +560,14 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
         .order("id", { ascending: false })
         .limit(1),
       getAutomationControlState(supabase as unknown as AutomationSettingsClient),
-      supabase
-        .from("bug_reports")
-        .select("id", { count: "exact", head: true })
-        .eq("moderation_status", "approved"),
+      fetchRadarEvidenceRows<{ id: string; patch_version: string | null }>("approved reports", (from, to) =>
+        supabase
+          .from("bug_reports")
+          .select("id, patch_version")
+          .eq("moderation_status", "approved")
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
       supabase.from("issue_confirmations").select("id", { count: "exact", head: true }),
     ]);
     // Only the radar's own reads disconnect the radar.
@@ -577,7 +596,16 @@ async function getPatchRadarDataUncached(): Promise<PatchRadarData> {
       patch: currentPatch,
       paused: control.paused,
       cadenceMinutes: control.minIntervalMinutes,
-      evidence: evidenceCountsFailed ? null : { reports: reportsRes.count ?? 0, taps: tapsRes.count ?? 0 },
+      evidence: evidenceCountsFailed
+        ? null
+        : {
+            reports: (reportsRes.data ?? []).filter(
+              (report) => Boolean(
+                report.patch_version && belongsToPatchFamily(report.patch_version, currentPatch.version),
+              ),
+            ).length,
+            taps: tapsRes.count ?? 0,
+          },
     });
   } catch {
     return emptyPatchRadarData(await radarPatchContext());

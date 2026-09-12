@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import type { ConfirmationKind } from "@/lib/confirmations";
 import { PLATFORMS, PLATFORM_LABELS } from "@/lib/constants";
 
@@ -37,29 +38,33 @@ function writeStance(key: string, kind: ConfirmationKind): void {
   for (const listener of stanceListeners) listener();
 }
 
-// Selected stance keeps the semantic ink but stays a rule-bordered text
-// button — no pills, no tinted fills, per the Dispatch guardrails.
-const KIND_TONES: Record<ConfirmationKind, { color: string; borderColor: string }> = {
-  have_it: { color: "var(--blue)", borderColor: "var(--blue)" },
-  still_happening: { color: "var(--crimson)", borderColor: "var(--crimson)" },
-  fixed_for_me: { color: "var(--green)", borderColor: "var(--green)" },
+const KIND_ACCENTS: Record<ConfirmationKind, string> = {
+  have_it: "var(--blue)",
+  still_happening: "var(--red)",
+  fixed_for_me: "var(--green)",
 };
 
 type Phase = "idle" | "picking" | "sending" | "done";
 
-export function ConfirmButtons({
-  clusterId,
-  storageScope,
-  question,
-  kinds,
-  counts,
-}: {
+type ConfirmButtonsProps = {
   clusterId: string;
   storageScope: string;
   question: string;
   kinds: ConfirmationKind[];
   counts: Partial<Record<ConfirmationKind, number>>;
-}) {
+};
+
+export function ConfirmButtons(props: ConfirmButtonsProps) {
+  return <ConfirmButtonsFlow key={`${props.clusterId}\u0000${props.storageScope}`} {...props} />;
+}
+
+function ConfirmButtonsFlow({
+  clusterId,
+  storageScope,
+  question,
+  kinds,
+  counts,
+}: ConfirmButtonsProps) {
   const storageKey = `cd-confirm-${clusterId}-${storageScope}`;
   const answered = useSyncExternalStore(
     subscribeToStances,
@@ -70,27 +75,66 @@ export function ConfirmButtons({
   const [pendingKind, setPendingKind] = useState<ConfirmationKind | null>(null);
   const [message, setMessage] = useState("");
   const kindButtons = useRef<Partial<Record<ConfirmationKind, HTMLButtonElement | null>>>({});
+  const platformButtons = useRef<HTMLButtonElement[]>([]);
+  const returnFocusKind = useRef<ConfirmationKind | null>(null);
   const questionId = useId();
+  const platformId = useId();
+  const selectionId = useId();
+  const reducedMotion = useReducedMotion();
+  const isCurrent = useRef(true);
 
   useEffect(() => {
-    if (phase === "done" && answered) kindButtons.current[answered]?.focus();
-  }, [answered, phase]);
+    isCurrent.current = true;
+    return () => {
+      isCurrent.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (phase === "picking") {
+      platformButtons.current[0]?.focus();
+      return;
+    }
+    const kind = returnFocusKind.current;
+    if (kind && phase !== "sending") {
+      kindButtons.current[kind]?.focus();
+      returnFocusKind.current = null;
+    }
+  }, [phase]);
+
+  function closePlatformPicker() {
+    if (phase === "sending") return;
+    if (pendingKind) returnFocusKind.current = pendingKind;
+    setPendingKind(null);
+    setMessage("");
+    setPhase(answered ? "done" : "idle");
+  }
+
+  function chooseKind(kind: ConfirmationKind) {
+    if (phase === "sending") return;
+    returnFocusKind.current = kind;
+    setPendingKind(kind);
+    setMessage("");
+    setPhase("picking");
+  }
 
   async function submit(platform: string) {
-    if (!pendingKind) return;
+    if (!pendingKind || phase === "sending") return;
+    const kind = pendingKind;
+    const requestStorageKey = storageKey;
     setPhase("sending");
     setMessage("");
     try {
       const res = await fetch("/api/confirmations", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ cluster_id: clusterId, platform, kind: pendingKind }),
+        body: JSON.stringify({ cluster_id: clusterId, platform, kind }),
       });
+      if (!isCurrent.current) return;
       if (res.status === 201) {
-        const nextKind = pendingKind;
         setPhase("done");
         setPendingKind(null);
-        writeStance(storageKey, nextKind);
+        writeStance(requestStorageKey, kind);
         return;
       }
       let errorCode: string | null = null;
@@ -102,6 +146,7 @@ export function ConfirmButtons({
       } catch {
         // The status code still provides a safe generic fallback.
       }
+      if (!isCurrent.current) return;
       setMessage(
         errorCode === "preview_writes_disabled"
           ? "This preview is read-only. Confirmations work on the production site."
@@ -113,6 +158,7 @@ export function ConfirmButtons({
       );
       setPhase("picking");
     } catch {
+      if (!isCurrent.current) return;
       setMessage("Didn't count. Try again.");
       setPhase("picking");
     }
@@ -125,14 +171,15 @@ export function ConfirmButtons({
   const selectedKind = pendingKind ?? answered;
 
   return (
-    <div className="space-y-2">
+    <div className="confirmation-checkin">
+      <span id={questionId} className="confirmation-checkin__question">{question}</span>
       <div className="confirmation-checkin__row" role="group" aria-labelledby={questionId}>
-        <span id={questionId} className="confirmation-checkin__question">{question}</span>
         {kinds.map((kind) => (
-          <button
+          <motion.button
             key={kind}
             type="button"
             className="tap-btn"
+            data-kind={kind}
             ref={(button) => {
               kindButtons.current[kind] = button;
             }}
@@ -141,30 +188,47 @@ export function ConfirmButtons({
             aria-label={
               countFor(kind) > 0 ? `${KIND_LABELS[kind]} — ${countFor(kind)} counted so far` : undefined
             }
-            style={selectedKind === kind ? KIND_TONES[kind] : undefined}
-            onClick={() => {
-              setPendingKind(kind);
-              setPhase("picking");
-              setMessage("");
-            }}
+            style={{ "--checkin-accent": KIND_ACCENTS[kind] } as CSSProperties}
+            whileTap={reducedMotion ? undefined : { scale: 0.98 }}
+            onClick={() => chooseKind(kind)}
           >
-            {KIND_LABELS[kind]}
-            {countFor(kind) > 0 ? (
-              <span aria-hidden="true" className="tap-btn__count">
-                {countFor(kind)}
-              </span>
+            {selectedKind === kind ? (
+              <motion.span
+                aria-hidden="true"
+                className="tap-btn__selection"
+                layoutId={`confirmation-checkin-selection-${selectionId}`}
+                transition={{ duration: reducedMotion ? 0 : 0.16 }}
+              />
             ) : null}
-          </button>
+            <span className="tap-btn__label">{KIND_LABELS[kind]}</span>
+            <span aria-hidden="true" className="tap-btn__count">{countFor(kind)}</span>
+          </motion.button>
         ))}
       </div>
       {phase === "picking" || phase === "sending" ? (
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Pick your platform">
-          <span style={{ fontSize: 13, color: "var(--dispatch-faint)" }}>On which platform?</span>
+        <motion.div
+          className="confirmation-checkin__platforms"
+          role="group"
+          aria-labelledby={platformId}
+          initial={reducedMotion ? false : { opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: reducedMotion ? 0 : 0.16 }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && phase !== "sending") {
+              event.preventDefault();
+              closePlatformPicker();
+            }
+          }}
+        >
+          <span id={platformId} className="confirmation-checkin__platform-question">Choose your platform.</span>
           {PLATFORMS.filter((platform) => platform !== "other").map((platform) => (
             <button
               key={platform}
               type="button"
               className="tap-btn tap-btn--sm"
+              ref={(button) => {
+                if (button) platformButtons.current[PLATFORMS.indexOf(platform)] = button;
+              }}
               disabled={phase === "sending"}
               onClick={() => submit(platform)}
             >
@@ -174,21 +238,32 @@ export function ConfirmButtons({
           <button
             type="button"
             className="tap-btn tap-btn--sm"
+            ref={(button) => {
+              if (button) platformButtons.current[PLATFORMS.length - 1] = button;
+            }}
             disabled={phase === "sending"}
             onClick={() => submit("other")}
           >
             Other
           </button>
-        </div>
+          <button type="button" className="tap-btn tap-btn--sm confirmation-checkin__cancel" disabled={phase === "sending"} onClick={closePlatformPicker}>
+            Cancel
+          </button>
+        </motion.div>
       ) : null}
       {message ? (
-        <p className="text-xs" style={{ color: "var(--crimson)" }} role="alert">
+        <p className="confirmation-checkin__status confirmation-checkin__status--error" role="alert">
           {message}
         </p>
       ) : null}
       {phase === "done" ? (
-        <p className="text-xs" style={{ color: "var(--dispatch-faint)" }} role="status" aria-live="polite">
+        <p className="confirmation-checkin__status" role="status" aria-live="polite">
           Recorded once per network per patch. Counts refresh from the server; you can change your answer.
+        </p>
+      ) : null}
+      {(phase === "picking" || phase === "sending") ? (
+        <p className="confirmation-checkin__status" role="status" aria-live="polite">
+          {phase === "sending" ? "Recording your answer…" : "Choose a platform to record your answer."}
         </p>
       ) : null}
     </div>

@@ -81,6 +81,7 @@ function SteamMovementChart({
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const selected = points.find((point) => point.snapshotDay === selectedDay) ?? points.at(-1) ?? null;
   if (!selected) return null;
+  const selectedIndex = points.indexOf(selected);
   const maximum = niceAxisMaximum(Math.max(1, ...points.map((point) => Math.abs(point.reviewMovement ?? 0))));
   const patchDay = patch.publishedAt?.slice(0, 10) ?? null;
   const patchIndex = patchDay ? points.findIndex((point) => point.snapshotDay >= patchDay) : -1;
@@ -113,7 +114,11 @@ function SteamMovementChart({
                   className={"obs-review-hit" + (selectedPoint ? " is-selected" : "")}
                   aria-label={displayDate(point.snapshotDay) + ": " + (delta === null ? "no prior recorded baseline" : signed(delta) + " reviews since the previous recorded snapshot")}
                   aria-pressed={selectedPoint}
-                  onPointerEnter={() => setSelectedDay(point.snapshotDay)}
+                  onPointerEnter={(event) => {
+                    if (event.pointerType === "mouse" && window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+                      setSelectedDay(point.snapshotDay);
+                    }
+                  }}
                   onFocus={() => setSelectedDay(point.snapshotDay)}
                   onClick={() => setSelectedDay(point.snapshotDay)}
                 >
@@ -145,6 +150,11 @@ function SteamMovementChart({
       <div className="obs-chart-foot">
         <p><i className="obs-key-blue" />Review movement uses the recorded snapshot delta. Negative bars show a lower recorded total.</p>
         {patchDay ? <p>Patch {patch.version} released {displayDate(patchDay)}.</p> : <p>Patch release date is unavailable.</p>}
+      </div>
+      <div className="obs-share-days">
+        <button type="button" aria-label="Previous review reading" disabled={selectedIndex === 0} onClick={() => setSelectedDay(points[selectedIndex - 1].snapshotDay)}>← Previous</button>
+        <span>{displayDate(selected.snapshotDay)} movement</span>
+        <button type="button" aria-label="Next review reading" disabled={selectedIndex === points.length - 1} onClick={() => setSelectedDay(points[selectedIndex + 1].snapshotDay)}>Next →</button>
       </div>
     </>
   );
@@ -199,7 +209,10 @@ function ReviewRecord({ data, radar }: { data: PublicScannerData; radar: PatchRa
   const [metric, setMetric] = useState("movement");
   const series = buildSteamReviewSeries(data.steamPulse, data.pulseReadFailures.includes("steam"));
   if (series.availability !== "ready") {
-    return <section id="review-record" className="obs-section"><div className="obs-section-heading"><div><p className="kicker">Steam reviews</p><h2>The review record</h2></div></div><p className="np-error">Steam review history is unavailable because no recorded snapshots are available.</p></section>;
+    const message = series.availability === "unavailable"
+      ? "Steam review history could not be read. Try again shortly."
+      : "No Steam review captures are available yet.";
+    return <section id="review-record" className="obs-section"><div className="obs-section-heading"><div><p className="kicker">Steam reviews</p><h2>The review record</h2></div></div><p className={series.availability === "unavailable" ? "np-error" : "obs-note"}>{message}</p></section>;
   }
   const points = selectSteamReadings(series.points, readingCount);
   const latest = series.points.at(-1) ?? null;
@@ -317,7 +330,7 @@ function ScannerRadar({ radar }: { radar: PatchRadarData }) {
         <div className="obs-radar-figure"><p><strong>{total}</strong> {metric === "tracked" ? "tracked leads" : "new leads in seven days"} <span>· not confirmed bugs</span></p><svg viewBox="0 0 440 395" role="img" aria-label={(metric === "tracked" ? "Tracked leads" : "New leads this week") + " by category. " + categories.map((category) => category.label + ": " + category[metric]).join("; ")}><g className="obs-radar-grid">{[1, 2, 3, 4, 5].map((step) => <polygon key={step} points={categories.map((_, index) => point(step * maximum / 5, index).join(",")).join(" ")} />)}{categories.map((_, index) => <line key={index} x1="220" y1="192" x2={point(maximum, index)[0]} y2={point(maximum, index)[1]} />)}</g><polygon className="obs-radar-shape" points={categories.map((category, index) => point(category[metric], index).join(",")).join(" ")} />{categories.map((category, index) => { const current = point(category[metric], index); const label = point(maximum, index, 179); return <g key={category.category}><circle cx={current[0]} cy={current[1]} r={active === index ? 6 : 3} className={active === index ? "obs-radar-active" : ""} /><text x={label[0]} y={label[1]} textAnchor="middle">{category.short}</text></g>; })}{[1, 2, 3, 4, 5].map((step) => <text className="obs-radar-scale" key={step} x="207" y={192 - step / 5 * 142}>{step * maximum / 5}</text>)}</svg></div>
         <div className="obs-radar-ranking"><div className="obs-rank-labels"><span>Category</span><span>{metric === "tracked" ? "Tracked" : "New in 7 days"}</span></div>{categories.map((category, index) => <button type="button" className={"obs-rank-row" + (active === index ? " is-selected" : "")} key={category.category} aria-pressed={active === index} onPointerEnter={() => setActive(index)} onFocus={() => setActive(index)} onClick={() => setActive(index)}><span>{category.label}</span><span className="obs-rank-track"><i style={{ width: (category[metric] / maximum) * 100 + "%" }} /></span><strong>{category[metric]}</strong></button>)}<p className="obs-rank-readout" aria-live="polite"><b>{selected.label}</b> · {selected.tracked} tracked · {selected.newThisWeek} new this week</p></div>
       </div>
-      <div className="obs-radar-foot"><span><b>{radar.recurring.recurringLeads}</b> of {radar.recurring.trackedLeads} tracked leads seen again</span><span><b>{radar.activeLeadClusters}</b> mapped issue areas</span><Link href="/issues"><b>{radar.evidence?.reports ?? "Unavailable"}</b> approved player report{radar.evidence?.reports === 1 ? "" : "s"} →</Link></div>
+      <div className="obs-radar-foot"><span><b>{radar.recurring.recurringLeads}</b> of {radar.recurring.trackedLeads} tracked leads seen again</span><span><b>{radar.activeLeadClusters}</b> mapped issue areas</span><Link href="/issues"><b>{radar.evidence?.reports ?? "Unavailable"}</b> approved player report{radar.evidence?.reports === 1 ? "" : "s"} in this patch family →</Link></div>
       {flowTotal > 0 ? <section className="obs-flow" aria-labelledby="flow-title"><div><p className="kicker">The weekly scan</p><h3 id="flow-title">From {number(flowTotal)} candidates</h3><p>Processing outcomes over seven days. These counts describe the week’s work, not the current lead total.</p></div><div className="obs-flow-chart"><div className="obs-flow-bar" role="img" aria-label={flowTotal + " candidates reviewed: " + flow.kept + " kept, " + flow.reobserved + " re-observed, " + flow.filtered + " filtered out"}><span className="obs-flow-kept" style={{ width: (flow.kept / flowTotal) * 100 + "%" }} /><span className="obs-flow-recurring" style={{ width: (flow.reobserved / flowTotal) * 100 + "%" }} /><span className="obs-flow-filtered" style={{ width: (flow.filtered / flowTotal) * 100 + "%" }} /></div><dl><div><dt><i className="obs-key-blue" />Kept</dt><dd>{flow.kept}</dd></div><div><dt><i className="obs-key-positive" />Seen again</dt><dd>{flow.reobserved}</dd></div><div><dt><i className="obs-key-muted" />Filtered</dt><dd>{number(flow.filtered)}</dd></div></dl></div></section> : <p className="obs-note">Weekly flow is unavailable because no candidate total is recorded.</p>}
       <details className="obs-method"><summary>What the radar can tell us</summary><p>Tracked leads are the current working set. New leads cover seven days. Repeated sightings can flag recurring topics, but they do not establish how many players are affected.</p></details>
     </section>

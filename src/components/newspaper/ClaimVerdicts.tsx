@@ -46,8 +46,8 @@ function VerdictSplit({ poll }: { poll: Poll }) {
         <div className="verdict-bar__still" style={{ width: 100 - fixedPct + "%" }} />
       </div>
       <div className="verdict-labels">
-        <span className="verdict-labels__fixed">{poll.fixedCount} fixed for me</span>
-        <span className="verdict-labels__still">{poll.stillCount} still happening</span>
+        <span className="verdict-labels__fixed"><strong>{poll.fixedCount}</strong><span>fixed for me</span></span>
+        <span className="verdict-labels__still"><strong>{poll.stillCount}</strong><span>still happening</span></span>
       </div>
       <div className="verdict-note">{verdictNote(poll)}</div>
     </>

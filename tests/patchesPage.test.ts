@@ -42,12 +42,33 @@ describe("patch desk", () => {
 
   it("links the matching patch to its newspaper report alongside the official notes", async () => {
     mocks.getDashboardData.mockResolvedValue(dashboardData({
-      currentPatch: { version: "2.02.00", officialUrl: "https://example.com/official", summary: null },
+      currentPatch: { version: "2.02.00", officialUrl: "https://example.com/official", summary: "Official fallback summary." },
     }));
     const markup = renderToStaticMarkup(await PatchesPage());
     expect(markup).toContain('href="/articles/patch-2-02-00"');
     expect(markup).toContain("Read the report →");
+    expect(markup).toContain("Pearl Abyss follows the Charting the Unknown reveal");
+    expect(markup).not.toContain("Official fallback summary.");
     expect(markup).toContain('href="https://example.com/official"');
+  });
+
+  it("uses the current official summary when no matching report exists", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData({
+      currentPatch: { version: "2.03.00", officialUrl: "https://example.com/official", summary: "The current official patch summary." },
+    }));
+    const markup = renderToStaticMarkup(await PatchesPage());
+    expect(markup).toContain("The current official patch summary.");
+    expect(markup).not.toContain("Pearl Abyss follows the Charting the Unknown reveal");
+  });
+
+  it("does not show a matching article summary when the current patch is unverified", async () => {
+    mocks.getDashboardData.mockResolvedValue(dashboardData({
+      currentPatch: { version: "2.02.00", source: "fallback", officialUrl: "https://example.com/official", summary: "Stale cached summary." },
+    }));
+    const markup = renderToStaticMarkup(await PatchesPage());
+    expect(markup).toContain("The current patch could not be verified.");
+    expect(markup).not.toContain("Pearl Abyss follows the Charting the Unknown reveal");
+    expect(markup).not.toContain("Stale cached summary.");
   });
 
   it.each(["1.13.01", "2.03.00", "Unknown"])("does not offer an unrelated report for patch %s", async (version) => {
