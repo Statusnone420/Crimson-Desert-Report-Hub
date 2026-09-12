@@ -1,3 +1,5 @@
+import { once } from "node:events";
+import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker, { CRON_TIMEOUT_MS, runCron, type Env } from "../cloudflare/scanner-cron/src/index";
 import { SCANNER_ATTEMPT_HEADER, SCANNER_ATTEMPT_START_KEY, SCANNER_EXECUTION_STATE_KEY } from "@/lib/automation/diagnostics";
@@ -41,6 +43,39 @@ afterEach(() => {
 });
 
 describe("scanner cron alert lifecycle", () => {
+  it.each([301, 302, 303, 307, 308])("records HTTP %s without following the redirect or forwarding credentials", async (status) => {
+    const { env, email, read } = configuredEnv();
+    const requests: string[] = [];
+    const server = createServer((request, reply) => {
+      requests.push(request.url ?? "");
+      if (request.url === "/keepalive") {
+        reply.writeHead(status, { location: "/destination?private=redirect-target" }).end();
+      } else {
+        reply.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+          ok: true, automation: { status: "success" }, aiHealth: healthy,
+        }));
+      }
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Test server has no TCP port");
+      env.CRON_URL = `http://127.0.0.1:${address.port}/keepalive`;
+
+      await expect(runCron(env)).rejects.toThrow(`cron_http_${status}`);
+      expect(requests).toEqual(["/keepalive"]);
+      expect(JSON.parse(read(SCANNER_EXECUTION_STATE_KEY)!).latestAttempt).toMatchObject({
+        outcome: "failed", httpStatus: status, diagnostics: [{ stage: "request", code: "http_error" }],
+      });
+      expect(email.send).toHaveBeenCalledTimes(1);
+      expect(email.send.mock.calls[0][0].text).toContain(`HTTP status: ${status}`);
+      expect(email.send.mock.calls[0][0].text).not.toMatch(/test-secret|redirect-target/);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it("sends one alert per incident code, preserves it through idle, and sends one recovery", async () => {
     const { env, email, read } = configuredEnv();
     await expect(runCron(env, async () => response(limited))).rejects.toThrow("workers_ai_daily_limit");
