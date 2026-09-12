@@ -130,7 +130,8 @@ async function requestCron(env: Env, fetchImpl: Fetch, timeoutMs: number, start:
     const response = await fetchImpl(url, {
       method: "GET",
       headers: { authorization: `Bearer ${secret}`, "user-agent": "crimson-report-hub-cloudflare-cron", [SCANNER_ATTEMPT_HEADER]: start.id },
-      redirect: "error",
+      // workerd rejects "error" before sending. Keep redirects visible without forwarding the bearer token.
+      redirect: "manual",
       signal: abort.signal,
     });
     receivedResponse = true;
