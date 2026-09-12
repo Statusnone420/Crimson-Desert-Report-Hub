@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { describeScannerDiagnostic, parseScannerDiagnostic, scannerAttemptId, scannerDiagnosticAction, type ScannerDiagnostic } from "@/lib/automation/diagnostics";
 
 type Progress = {
   stage: string;
@@ -12,6 +13,7 @@ type Progress = {
   llmCallsUsed: number;
   kept: number;
   promoted: number;
+  diagnostics?: ScannerDiagnostic[];
 };
 
 type RunStatus = {
@@ -39,7 +41,7 @@ function providerSmokeErrorMessage(result: ProviderSmokeResult): string {
   if (result.error === "provider_smoke_budget_exhausted") {
     return "The OpenRouter key has less than one safe request ceiling left this month.";
   }
-  return `AI route check failed: ${result.fallbackReason ?? result.error ?? "unknown error"}.`;
+  return `AI route check failed: ${result.fallbackReason ?? result.error ?? "the provider response did not include a reason"}.`;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -52,13 +54,14 @@ const STAGE_LABELS: Record<string, string> = {
 
 const RUN_STATUS_LABELS: Record<string, string> = {
   success: "Scan finished",
-  partial: "Scan finished",
+  partial: "Scan finished with failures",
   failed: "Scan failed",
   skipped: "Scan skipped",
 };
 
 const POLL_MS = 2500;
 const MAX_POLL_FAILURES = 4;
+class ScanStatusReadError extends Error {}
 
 export function ScanControls({ activeRunId, isPreview }: { activeRunId: string | null; isPreview: boolean }) {
   const router = useRouter();
@@ -91,7 +94,11 @@ export function ScanControls({ activeRunId, isPreview }: { activeRunId: string |
           setError("Your session expired — sign in again to check the scan.");
           return;
         }
-        if (!res.ok) throw new Error(`status ${res.status}`);
+        if (!res.ok) {
+          const body = await res.json();
+          const diagnostic = parseScannerDiagnostic(body.diagnostic);
+          throw new ScanStatusReadError(diagnostic ? describeScannerDiagnostic(diagnostic) : `The scan status endpoint returned HTTP ${res.status}.`);
+        }
         const data = (await res.json()) as RunStatus;
         if (cancelled) return;
         failures = 0;
@@ -101,7 +108,7 @@ export function ScanControls({ activeRunId, isPreview }: { activeRunId: string |
           setRunId(null);
           router.refresh();
         }
-      } catch {
+      } catch (failure) {
         // Transient poll failure — keep trying, but not forever: after 4 consecutive
         // failures stop and tell the admin instead of spinning silently.
         if (cancelled) return;
@@ -109,7 +116,7 @@ export function ScanControls({ activeRunId, isPreview }: { activeRunId: string |
         if (failures >= MAX_POLL_FAILURES) {
           stopPolling();
           setRunId(null);
-          setError("Lost contact with the scan — refresh the page to check its status.");
+          setError(`${failure instanceof ScanStatusReadError ? failure.message : "The status request did not return usable data."} Refresh the page to verify the saved run before trying another scan.`);
         }
       }
     };
@@ -130,23 +137,25 @@ export function ScanControls({ activeRunId, isPreview }: { activeRunId: string |
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ mode }),
       });
-      const data = (await res.json()) as { runId?: string; error?: string };
+      const data = (await res.json()) as { runId?: string; error?: string; diagnostic?: unknown; attemptId?: string };
       if (res.status === 409) {
         setError("A scan is already running — give it a minute.");
         return;
       }
       if (!res.ok || !data.runId) {
+        const diagnostic = parseScannerDiagnostic(data.diagnostic);
         setError(
           data.error === "preview_writes_disabled"
             ? "Scans are disabled on preview deployments."
-            : "Could not start the scan. Try again.",
+            : diagnostic ? `${describeScannerDiagnostic(diagnostic)} ${scannerDiagnosticAction(diagnostic)}${scannerAttemptId(data.attemptId) ? ` Attempt: ${data.attemptId}.` : ""}`
+              : "The start response did not confirm a run. Check saved run history before trying another scan.",
         );
         return;
       }
       setRun(null);
       setRunId(data.runId);
     } catch {
-      setError("Could not reach the scan API. Check your connection and try again.");
+      setError("The scan request did not return a usable response. Check saved run history before trying another scan; the request may have reached the server.");
     } finally {
       setStarting(null);
     }
@@ -231,7 +240,7 @@ export function ScanControls({ activeRunId, isPreview }: { activeRunId: string |
                 fontSize: 11.5,
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
-                color: finished ? (run?.status === "failed" ? "var(--crimson)" : "var(--green)") : "var(--amber)",
+                color: finished ? (run?.status === "failed" ? "var(--crimson)" : run?.status === "partial" ? "var(--amber)" : "var(--green)") : "var(--amber)",
               }}
             >
               ●{" "}
@@ -256,6 +265,10 @@ export function ScanControls({ activeRunId, isPreview }: { activeRunId: string |
               Starting the pipeline…
             </p>
           )}
+          {progress?.diagnostics?.map((value) => {
+            const diagnostic = parseScannerDiagnostic(value);
+            return diagnostic ? <p className="text-xs" key={`${diagnostic.stage}:${diagnostic.code}`}>{describeScannerDiagnostic(diagnostic)} {scannerDiagnosticAction(diagnostic)}</p> : null;
+          })}
         </div>
       ) : null}
     </div>

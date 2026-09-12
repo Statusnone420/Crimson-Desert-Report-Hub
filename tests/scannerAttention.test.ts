@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getScannerAttention } from "@/lib/scannerAttention";
 import type { CollectionHealth } from "@/lib/collectionHealth";
+import type { ScannerExecutionHealth } from "@/lib/automation/executionHealth";
 
 const healthyCollection: CollectionHealth = {
   status: "ok",
@@ -133,6 +134,40 @@ describe("getScannerAttention", () => {
 
     expect(attention.count).toBeNull();
     expect(attention.items).toContainEqual(expect.objectContaining({ id: "scanner-health-unavailable" }));
+  });
+
+  it("adds a named trigger failure without treating a healthy policy as proof of execution", () => {
+    const execution: ScannerExecutionHealth = {
+      tone: "danger",
+      statusLabel: "Latest trigger failed",
+      detail: "The trigger could not save its completion.",
+      action: "Check private runtime logs.",
+      needsAttention: true,
+      latestAttempt: null,
+      latestAttemptAt: null,
+      observedStartAt: null,
+      lastSuccessfulScanAt: null,
+      lastSuccessfulAiAt: null,
+      lastFailure: null,
+      nextHourlyTriggerAt: "2026-09-12T16:00:00.000Z",
+      currentAttemptId: null,
+      currentAttemptStartedAt: null,
+      currentAttemptFinishedAt: null,
+      currentAttemptOutcome: null,
+      currentAttemptHttpStatus: null,
+      executionReadAvailable: true,
+    };
+    const attention = getScannerAttention({
+      aiHealth: { state: "healthy", code: null, message: "Validated.", lastSuccessAt: null },
+      llmPaused: false,
+      failedRuns: 0,
+      radarAvailable: true,
+      collection: healthyCollection,
+      execution,
+    });
+
+    expect(attention.count).toBe(1);
+    expect(attention.items).toContainEqual(expect.objectContaining({ id: "scanner-execution", label: "Latest trigger failed" }));
   });
 
   it("keeps a successful radar read separate from an unavailable cost-circuit read", () => {

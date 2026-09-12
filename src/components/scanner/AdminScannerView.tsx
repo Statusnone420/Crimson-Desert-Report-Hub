@@ -1,6 +1,7 @@
 import { recordScannerDecision, rejectObservationAndTeach, setScannerPolicy, undoScannerDecision } from "@/app/admin/actions";
 import { ScanControls } from "@/components/ScanControls";
 import { CollectionHealth } from "@/components/scanner/CollectionHealth";
+import { ScannerExecutionHealth } from "@/components/scanner/ScannerExecutionHealth";
 import { FeedbackRulesPanel, ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
 import { ScannerHealthSummary } from "@/components/operator/ScannerSections";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -10,7 +11,6 @@ import { platformContextConfigured, steamPulseEnabled, type IntegrationStatus } 
 import { collectionHealth } from "@/lib/collectionHealth";
 import { formatEasternDateTime, formatRelativeOperatorTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
 import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
-import { scannerScheduleStatus } from "@/lib/scannerScheduleStatus";
 import type { AutomationControlState } from "@/lib/automation/settings";
 import { displayCandidateCount, radarYieldPct } from "@/lib/observatoryMetrics";
 import type {
@@ -28,6 +28,9 @@ import { getScannerAttention } from "@/lib/scannerAttention";
 import { SCANNER_MODEL_PRESETS } from "@/lib/automation/budget";
 import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { scannerAiHealth, type ScannerAiHealth } from "@/lib/automation/health";
+import { getScannerExecutionHealth } from "@/lib/automation/executionHealth";
+import type { ScannerExecutionRead } from "@/lib/automation/diagnostics";
+import { policyAiStatus } from "@/lib/operatorHealth";
 
 function cadenceLabel(minutes: number): string {
   if (minutes === 60) return "hourly";
@@ -339,6 +342,7 @@ export function AdminScannerView({
   integrations,
   nowIso,
   aiHealth: suppliedAiHealth,
+  execution,
   collectionExpanded = false,
 }: {
   runs: AutomationRunRow[];
@@ -361,6 +365,7 @@ export function AdminScannerView({
   integrations: IntegrationStatus[];
   nowIso: string;
   aiHealth?: ScannerAiHealth;
+  execution?: ScannerExecutionRead;
   collectionExpanded?: boolean;
 }) {
   const now = new Date(nowIso);
@@ -370,10 +375,20 @@ export function AdminScannerView({
     ...control,
     llmBudgetCapped: budgetCapped ? undefined : false,
   });
-  const aiNeedsAttention = aiHealth.state === "unavailable" || aiHealth.state === "limited";
-  const status = aiNeedsAttention
-    ? { label: aiHealth.state === "unavailable" ? "AI UNAVAILABLE" : "AI LIMITED", toneClass: "is-amber" }
-    : scannerScheduleStatus(control, activeRun, budgetCapped);
+  const executionHealth = execution ? getScannerExecutionHealth(execution, now) : undefined;
+  const policyStatus = policyAiStatus({
+    adminAvailable: true,
+    control,
+    activeRun,
+    budgetCapped,
+    aiHealth,
+  });
+  const status = executionHealth && executionHealth.tone !== "ok"
+    ? {
+        label: executionHealth.statusLabel.toUpperCase(),
+        toneClass: executionHealth.tone === "danger" || executionHealth.tone === "unavailable" ? "is-crimson" : "is-amber",
+      }
+    : { label: policyStatus.label, toneClass: policyStatus.tone === "green" ? "is-green" : policyStatus.tone === "red" ? "is-crimson" : "is-amber" };
   const projectedCredits = projectedMonthlyCredits(control);
   const latestRun = latestCompletedRun;
   const completedAt = latestRun ? latestRun.finished_at ?? latestRun.started_at : null;
@@ -399,6 +414,7 @@ export function AdminScannerView({
     radarAvailable: radar.connected,
     scannerReadFailures: scoreboard.readFailures,
     collection: collections,
+    execution: executionHealth,
   });
   const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
   // What can reach the Brief decides how this section reads, so it says it once
@@ -440,7 +456,7 @@ export function AdminScannerView({
       <ScannerHealthSummary
         attention={attention}
         scannerStatus={status.label}
-        scannerStatusTone={status.toneClass === "is-green" ? "workspace-badge--green" : "workspace-badge--amber"}
+        scannerStatusTone={status.toneClass === "is-green" ? "workspace-badge--green" : status.toneClass === "is-crimson" ? "workspace-badge--red" : "workspace-badge--amber"}
         nextAttempt={
           control.paused
             ? "Paused"
@@ -456,7 +472,14 @@ export function AdminScannerView({
         retained7d={radar.funnel7d.kept}
         awaiting={scoreboard.readFailures.includes("awaiting") ? null : scoreboard.awaiting}
         dateCoverage={radar.connected ? radar.dateCoverage : null}
+        policyAiStatus={policyStatus.label}
       />
+      {execution ? <ScannerExecutionHealth
+        execution={execution}
+        nowIso={nowIso}
+        policyEligibleAt={control.paused ? undefined : nextEligible.toISOString()}
+        policyPaused={control.paused}
+      /> : null}
 
       <details className="workspace-panel scanner-workspace__telemetry" open={collectionExpanded}>
         <summary>Detailed scanner telemetry</summary>
@@ -469,7 +492,7 @@ export function AdminScannerView({
         {control.paused ? "NEXT CHECK PAUSED" : `NEXT CHECK ${relativeTime(nextEligible.toISOString(), nowMs)}`}
         {latestFind ? ` · MOST RECENT KEPT LEAD ${relativeTime(latestFind.started_at, nowMs)}` : ""}
         {aiIntegration?.paused ? <span className="is-amber"> · AI COST SAFETY PAUSED</span> : null}
-        {aiIntegration?.circuitUnknown ? <span className="is-amber"> · AI COST SAFETY STATE UNKNOWN</span> : null}
+        {aiIntegration?.circuitUnknown ? <span className="is-amber"> · AI COST SAFETY STATE UNAVAILABLE</span> : null}
       </div>
 
       {radar.connected ? (
@@ -505,7 +528,7 @@ export function AdminScannerView({
                 attention.count === null || attention.count > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value"
               }
             >
-              {attention.count ?? "Unknown"}
+              {attention.count ?? "Unavailable"}
             </div>
             <div className="stat-band__caption">
               {attention.count === null
@@ -516,7 +539,7 @@ export function AdminScannerView({
             </div>
           </div>
           <div className="stat-band__cell">
-            <div className="stat-band__label">Failed runs · 7d</div>
+            <div className="stat-band__label">Recorded failed runs · 7d</div>
             <div
               className={
                 radar.health.runs7d.failed > 0 ? "stat-band__value stat-band__value--crimson" : "stat-band__value"
@@ -525,7 +548,7 @@ export function AdminScannerView({
               {radar.health.runs7d.failed}
             </div>
             <div className="stat-band__caption">
-              {radar.health.runs7d.succeeded} completed · {radar.health.runs7d.skipped} skipped
+              {radar.health.runs7d.succeeded} completed · {radar.health.runs7d.skipped} skipped · excludes pre-ledger trigger failures
             </div>
           </div>
           <div className="stat-band__cell">
@@ -547,7 +570,7 @@ export function AdminScannerView({
             <div className="stat-band__value stat-band__value--amber">Unavailable</div>
             <div className="stat-band__caption">
               The automation run read failed, so lead counts, run health, and source-date coverage are unknown for
-              this page load. Scanning itself is unaffected — reload to try the read again.
+              this page load. This page cannot determine scanner activity from that failed read; reload to try it again.
             </div>
           </div>
         </div>
@@ -680,7 +703,7 @@ export function AdminScannerView({
         </div>
         <div className="operator-inbox__facts">
           <span>
-            {radar.connected ? <><b>{radar.health.runs7d.failed}</b> failed runs · 7d</> : "Failed runs unavailable"}
+            {radar.connected ? <><b>{radar.health.runs7d.failed}</b> recorded failed runs · 7d</> : "Recorded failed runs unavailable"}
           </span>
           <span><b>{optionalCandidates.length}</b> optional teaching candidates</span>
           <span>

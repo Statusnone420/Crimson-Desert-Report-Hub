@@ -1,6 +1,7 @@
 import type { ScannerAiHealth } from "@/lib/automation/health";
 import type { CollectionHealth, CollectionHealthLane } from "@/lib/collectionHealth";
 import type { ScannerReadRegister } from "@/lib/scannerRegisters";
+import type { ScannerExecutionHealth } from "@/lib/automation/executionHealth";
 
 export type ScannerAttentionItem = {
   id: string;
@@ -24,6 +25,8 @@ export type ScannerAttentionInput = {
   radarAvailable: boolean;
   /** Public scanner registers whose values are placeholders because their reads failed. */
   scannerReadFailures?: readonly ScannerReadRegister[];
+  /** Private trigger-status evidence, separate from Supabase run history. */
+  execution?: ScannerExecutionHealth;
   collection: CollectionHealth;
 };
 
@@ -77,7 +80,7 @@ function sameKnownCostGuard(aiHealth: ScannerAiHealth | undefined): boolean {
 export function getScannerAttention(input: ScannerAttentionInput): ScannerAttention {
   const items: ScannerAttentionItem[] = [];
   const unreadRegisters = new Set(input.scannerReadFailures ?? []);
-  let unknown = !input.radarAvailable || input.failedRuns === null || input.llmPaused === null || input.aiHealth === undefined || input.collection.status === "unknown" || unreadRegisters.size > 0;
+  let unknown = !input.radarAvailable || input.failedRuns === null || input.llmPaused === null || input.aiHealth === undefined || input.collection.status === "unknown" || unreadRegisters.size > 0 || input.execution?.tone === "unavailable";
 
   if (!input.radarAvailable || input.failedRuns === null) {
     items.push({
@@ -122,6 +125,14 @@ export function getScannerAttention(input: ScannerAttentionInput): ScannerAttent
       id: "ai-cost-safety-paused",
       label: "AI cost safety paused",
       detail: "The known OpenRouter cost-safety circuit is open.",
+    });
+  }
+
+  if (input.execution?.needsAttention) {
+    items.push({
+      id: "scanner-execution",
+      label: input.execution.statusLabel,
+      detail: input.execution.action ? `${input.execution.detail} ${input.execution.action}` : input.execution.detail,
     });
   }
 

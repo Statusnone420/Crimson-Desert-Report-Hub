@@ -2317,6 +2317,10 @@ server.listen(supabasePort, "127.0.0.1", () => {
       // flips the Observatory's Tavily card from "Off" to "Connected" and the
       // committed screenshots — taken with no keys — fail locally but not in CI.
       TAVILY_API_KEY: "",
+      // Fixture runs must never read a developer's production trigger namespace.
+      CLOUDFLARE_ACCOUNT_ID: "",
+      CLOUDFLARE_SCANNER_KV_NAMESPACE_ID: "",
+      CLOUDFLARE_SCANNER_STATUS_TOKEN: "",
       XAI_API_KEY: "",
       PLAYWRIGHT_NOW: fixtureNowIso,
       NODE_OPTIONS: nodeOptions,

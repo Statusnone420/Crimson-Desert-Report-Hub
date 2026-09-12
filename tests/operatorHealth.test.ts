@@ -10,6 +10,7 @@ import {
   type OverviewScannerHealthInput,
 } from "@/lib/operatorHealth";
 import { scannerScheduleStatus } from "@/lib/scannerScheduleStatus";
+import type { ScannerExecutionHealth } from "@/lib/automation/executionHealth";
 
 const now = new Date("2026-09-11T18:00:00.000Z");
 
@@ -76,7 +77,7 @@ describe("scannerScheduleStatus", () => {
 
 describe("retainedLeadShareLabel", () => {
   it("does not treat an unread radar as a zero share", () => {
-    expect(retainedLeadShareLabel(false, 0, 0)).toBe("Unknown");
+    expect(retainedLeadShareLabel(false, 0, 0)).toBe("Radar read unavailable");
     expect(retainedLeadShareLabel(true, 0, 0)).toBe("0 / 0");
     expect(retainedLeadShareLabel(true, 15599, 4)).toBe("4 / 15599 (0.0%)");
   });
@@ -142,6 +143,11 @@ describe("buildOverviewScannerHealth", () => {
         value: "in 30m",
         detail: "Sep 11, 2026, 2:30:00 PM EDT",
       }),
+      expect.objectContaining({
+        id: "policy-ai",
+        label: "Policy and AI state",
+        value: "ACTIVE",
+      }),
     ]);
     expect(health.providers.map((lane) => [lane.label, lane.value])).toEqual([
       ["Steam reviews", "Current"],
@@ -188,14 +194,92 @@ describe("buildOverviewScannerHealth", () => {
 
     expect(health.statusLabel).toBe("UNVERIFIED");
     expect(health.headline).toBe("A required health read is unavailable.");
-    expect(health.schedule.map((fact) => fact.value)).toEqual(["Unknown", "Unknown"]);
+    expect(health.schedule.map((fact) => fact.value)).toEqual(["Run history unavailable", "Schedule record unavailable", "UNVERIFIED"]);
     expect(health.counters.map((fact) => fact.value)).toEqual([
-      "Unknown",
-      "Unknown",
-      "Unknown",
-      "Unknown",
-      "Unknown",
+      "Radar read unavailable",
+      "Awaiting count unavailable",
+      "Radar read unavailable",
+      "Source-date read unavailable",
+      "Recorded-run read unavailable",
     ]);
+  });
+
+  it("does not mark partial or failed completed runs as healthy", () => {
+    for (const [status, tone] of [["partial", "caution"], ["failed", "danger"]] as const) {
+      const health = buildOverviewScannerHealth(input({
+        latestCompletedRun: { ...input().latestCompletedRun!, status },
+      }));
+      expect(health.schedule.find((fact) => fact.id === "last-run")).toMatchObject({ tone });
+    }
+  });
+
+  it("shows eligibility at the current instant without calling it past", () => {
+    const health = buildOverviewScannerHealth(input({
+      runs: [],
+      latestRealRun: null,
+    }));
+    expect(health.schedule.find((fact) => fact.id === "next-run")).toMatchObject({ value: "Eligible now" });
+  });
+
+  it("shows a failed trigger above the separately visible current policy state", () => {
+    const execution: ScannerExecutionHealth = {
+      tone: "danger",
+      statusLabel: "Latest trigger failed",
+      detail: "Saving the completed run did not finish.",
+      action: "Check the private runtime logs.",
+      needsAttention: true,
+      latestAttempt: null,
+      latestAttemptAt: "2026-09-11T17:32:00.000Z",
+      observedStartAt: null,
+      lastSuccessfulScanAt: "2026-09-11T17:00:00.000Z",
+      lastSuccessfulAiAt: "2026-09-11T17:00:00.000Z",
+      lastFailure: null,
+      nextHourlyTriggerAt: "2026-09-11T19:00:00.000Z",
+      currentAttemptId: null,
+      currentAttemptStartedAt: null,
+      currentAttemptFinishedAt: null,
+      currentAttemptOutcome: null,
+      currentAttemptHttpStatus: null,
+      executionReadAvailable: true,
+    };
+    const health = buildOverviewScannerHealth(input({ execution, budgetCapped: true }));
+
+    expect(health.statusLabel).toBe("LATEST TRIGGER FAILED");
+    expect(health.schedule.find((fact) => fact.id === "execution")).toMatchObject({
+      value: "Latest trigger failed",
+      tone: "danger",
+    });
+    expect(health.schedule.find((fact) => fact.id === "policy-ai")).toMatchObject({
+      value: "CAPPED",
+      tone: "danger",
+    });
+  });
+
+  it("shows a running trigger in amber even while scanner policy is active", () => {
+    const health = buildOverviewScannerHealth(input({
+      execution: {
+        tone: "caution",
+        statusLabel: "Trigger running",
+        detail: "A trigger start is newer than its completion.",
+        action: null,
+        needsAttention: false,
+        latestAttempt: null,
+        latestAttemptAt: null,
+        observedStartAt: "2026-09-11T17:59:00.000Z",
+        lastSuccessfulScanAt: "2026-09-11T17:00:00.000Z",
+        lastSuccessfulAiAt: "2026-09-11T17:00:00.000Z",
+        lastFailure: null,
+        nextHourlyTriggerAt: "2026-09-11T19:00:00.000Z",
+        currentAttemptId: "7a4fe516-32a3-4ebf-af84-bf30d8e2ee6f",
+        currentAttemptStartedAt: "2026-09-11T17:59:00.000Z",
+        currentAttemptFinishedAt: null,
+        currentAttemptOutcome: null,
+        currentAttemptHttpStatus: null,
+        executionReadAvailable: true,
+      },
+    }));
+
+    expect(health).toMatchObject({ statusLabel: "TRIGGER RUNNING", statusTone: "amber" });
   });
 
   it("falls back to radar schedule when the admin record failed", () => {

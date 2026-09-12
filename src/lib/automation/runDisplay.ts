@@ -37,6 +37,11 @@ const SKIP_META: Record<string, MessageMeta> = {
     detail: "Paid extraction is disabled by the monthly budget setting.",
     summaryLabel: "budget zero",
   },
+  patch_burst_active: {
+    label: "Patch burst active",
+    detail: "A recent official patch changed the scanner's discovery allocation. This is informational; it does not mean the whole run was skipped.",
+    summaryLabel: "patch burst active",
+  },
   all_candidates_prefiltered: {
     label: "No LLM candidates",
     detail: "All candidates failed the cheap relevance screen before OpenRouter, so no LLM call was made.",
@@ -274,7 +279,7 @@ export function formatEasternDateTime(iso: string | null): string {
 export function formatRelativeOperatorTime(iso: string | null, nowMs: number): string {
   if (!iso) return "not scheduled";
   const timestamp = new Date(iso).getTime();
-  if (!Number.isFinite(timestamp) || !Number.isFinite(nowMs)) return "Unknown time";
+  if (!Number.isFinite(timestamp) || !Number.isFinite(nowMs)) return "Timestamp unavailable";
   const future = timestamp > nowMs;
   const abs = Math.floor(Math.abs(nowMs - timestamp) / 60000);
   const prefix = future ? "in " : "";

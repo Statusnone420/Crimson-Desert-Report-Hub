@@ -129,19 +129,23 @@ test.describe("operator workspace flows", () => {
     await signInAsAdmin(page);
     await page.goto("/operator");
     await expect(page.locator(".workspace-overview-health").getByText("in 12h", { exact: true })).toBeVisible();
-    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("CAPPED");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
+    await expect(page.locator(".workspace-overview-health").getByText("Policy and AI state", { exact: true }).locator("..").locator("strong")).toHaveText("CAPPED");
     await page.getByRole("link", { name: "Open diagnostics" }).click();
     await expect(page.locator("#health")).toContainText("Next eligible attempt: in 12h");
-    await expect(page.locator("#health .workspace-badge")).toHaveText("CAPPED");
+    await expect(page.locator("#health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
+    await expect(page.locator("#health").getByText("Policy and AI state", { exact: true }).locator("..").locator("strong")).toHaveText("CAPPED");
     await expect(page.getByText("Scan history and diagnostics · newest 10", { exact: true })).toBeVisible();
     const recovered = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
       data: { key: "scanner", value: { paused: false, minIntervalMinutes: 1440, monthlyTavilyCreditCap: 3 } },
     });
     expect(recovered.ok()).toBe(true);
     await page.goto("/operator");
-    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("ACTIVE");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
+    await expect(page.locator(".workspace-overview-health").getByText("Policy and AI state", { exact: true }).locator("..").locator("strong")).toHaveText("ACTIVE");
     await page.getByRole("link", { name: "Open diagnostics" }).click();
-    await expect(page.locator("#health .workspace-badge")).toHaveText("ACTIVE");
+    await expect(page.locator("#health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
+    await expect(page.locator("#health").getByText("Policy and AI state", { exact: true }).locator("..").locator("strong")).toHaveText("ACTIVE");
     await expectHealthyPage(page, problems);
   });
 
@@ -179,18 +183,22 @@ test.describe("operator workspace flows", () => {
     expect(changed.ok()).toBe(true);
     await signInAsAdmin(page);
     await page.goto("/operator");
-    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("AI LIMITED");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
+    await expect(page.locator(".workspace-overview-health").getByText("Policy and AI state", { exact: true }).locator("..").locator("strong")).toHaveText("AI LIMITED");
     await page.getByRole("link", { name: "Open diagnostics" }).click();
-    await expect(page.locator("#health .workspace-badge")).toHaveText("AI LIMITED");
+    await expect(page.locator("#health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
+    await expect(page.locator("#health").getByText("Policy and AI state", { exact: true }).locator("..").locator("strong")).toHaveText("AI LIMITED");
 
     const raised = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings`, {
       data: { key: "scanner", value: { paused: false, monthlyTavilyCreditCap: 1000, monthlyLlmUsdCap: 0.25 } },
     });
     expect(raised.ok()).toBe(true);
     await page.goto("/operator");
-    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("ACTIVE");
+    await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
+    await expect(page.locator(".workspace-overview-health").getByText("Policy and AI state", { exact: true }).locator("..").locator("strong")).toHaveText("ACTIVE");
     await page.getByRole("link", { name: "Open diagnostics" }).click();
-    await expect(page.locator("#health .workspace-badge")).toHaveText("ACTIVE");
+    await expect(page.locator("#health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
+    await expect(page.locator("#health").getByText("Policy and AI state", { exact: true }).locator("..").locator("strong")).toHaveText("ACTIVE");
     await expectHealthyPage(page, problems);
   });
 

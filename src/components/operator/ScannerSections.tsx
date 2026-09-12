@@ -12,6 +12,7 @@ type ScannerHealthSummaryProps = {
   retained7d: number;
   awaiting: number | null;
   dateCoverage: { withSourceDate: number; tracked: number } | null;
+  policyAiStatus: string;
 };
 
 function metric(value: number | string, label: string, detail: string) {
@@ -29,6 +30,7 @@ export function ScannerHealthSummary({
   retained7d,
   awaiting,
   dateCoverage,
+  policyAiStatus,
 }: ScannerHealthSummaryProps) {
   const retainedShare = retainedLeadShareLabel(radarAvailable, screened7d, retained7d);
 
@@ -47,10 +49,11 @@ export function ScannerHealthSummary({
       </div>
       <div className="workspace-panel-body">
         <div className="workspace-grid scanner-health-grid">
-          {metric(radarAvailable ? screened7d : "Unknown", "Automated screening events · 7d", "Includes repeat screening. It is not a count of human reviews or unique issues.")}
-          {metric(awaiting ?? "Unknown", "Awaiting issue groups", "Current-patch private leads without corroboration. This is background inventory, not a task queue.")}
+          {metric(radarAvailable ? screened7d : "Radar read unavailable", "Automated screening events · 7d", "Includes repeat screening. It is not a count of human reviews or unique issues.")}
+          {metric(awaiting ?? "Awaiting count unavailable", "Awaiting issue groups", "Current-patch private leads without corroboration. This is background inventory, not a task queue.")}
           {metric(retainedShare, "Retained-lead share · 7d", "Retained leads divided by automated screening events. This is not an accuracy measure.")}
-          {metric(dateCoverage ? `${dateCoverage.withSourceDate} / ${dateCoverage.tracked}` : "Unknown", "Leads with source dates", "Only real source publication dates count; first-seen time is not a publication date.")}
+          {metric(dateCoverage ? `${dateCoverage.withSourceDate} / ${dateCoverage.tracked}` : "Source-date read unavailable", "Leads with source dates", "Only real source publication dates count; first-seen time is not a publication date.")}
+          {metric(policyAiStatus, "Policy and AI state", "Current scanner policy and AI health, separate from scheduled execution evidence.")}
         </div>
         {latestRun ? <p className="workspace-note">Latest completed run: {latestRun}</p> : <p className="workspace-note">No completed scan is recorded yet.</p>}
         {attention.items.length > 0 ? <div className="workspace-queue" aria-label="Named scanner health checks">

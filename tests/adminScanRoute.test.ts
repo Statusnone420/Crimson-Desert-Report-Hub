@@ -58,6 +58,7 @@ vi.mock("@/lib/supabase", () => ({
 import { POST } from "@/app/api/admin/scan/route";
 import { GET } from "@/app/api/admin/scan/status/route";
 import { CURRENT_PATCH_TAG, PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
+import { ScannerOperationError } from "@/lib/automation/diagnostics";
 
 function scanRequest(body: unknown): Request {
   return new Request("http://localhost/api/admin/scan", {
@@ -95,6 +96,24 @@ beforeEach(() => {
 });
 
 describe("POST /api/admin/scan", () => {
+  it("reports a pre-ledger failure with a safe stage and correlation ID", async () => {
+    mocks.startAutomationScan.mockRejectedValue(new ScannerOperationError("run_create", new Error("Gateway Timeout: private query")));
+    const res = await POST(scanRequest({ mode: "manual" }));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body).toMatchObject({ error: "scan_start_failed", attemptId: expect.any(String), diagnostic: { stage: "run_create", code: "database_timeout" } });
+    expect(mocks.startAutomationScan.mock.calls[0][0].attemptId).toBe(body.attemptId);
+    expect(JSON.stringify(body)).not.toContain("private query");
+    expect(mocks.after).not.toHaveBeenCalled();
+  });
+
+  it("reports policy failure before starting a manual scan", async () => {
+    mocks.getAutomationControlState.mockRejectedValue({ code: "42501", message: "private relation" });
+    const res = await POST(scanRequest({ mode: "manual" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ diagnostic: { stage: "policy_read", code: "database_permission_denied" } });
+    expect(mocks.startAutomationScan).not.toHaveBeenCalled();
+  });
   it("401s for non-admins without starting a scan", async () => {
     mocks.isAdmin.mockResolvedValue(false);
     const res = await POST(scanRequest({ mode: "dry_run" }));
@@ -130,6 +149,7 @@ describe("POST /api/admin/scan", () => {
     await expect(res.json()).resolves.toEqual({ runId: "run-1" });
     expect(mocks.startAutomationScan).toHaveBeenCalledWith({
       mode: "dry_run",
+      attemptId: expect.any(String),
       scannerPolicy: expect.objectContaining({
         minIntervalMinutes: 60,
         scheduledSearchCreditsPerRun: 1,
@@ -192,6 +212,12 @@ describe("POST /api/admin/scan", () => {
 });
 
 describe("GET /api/admin/scan/status", () => {
+  it("returns safe stage evidence when stale-run cleanup fails", async () => {
+    mocks.sweepStaleRuns.mockRejectedValue(new ScannerOperationError("stale_run_cleanup", new Error("Gateway Timeout: private query")));
+    const res = await GET(statusRequest("run-1"));
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "read_failed", diagnostic: { stage: "stale_run_cleanup", code: "database_timeout" } });
+  });
   it("401s for non-admins", async () => {
     mocks.isAdmin.mockResolvedValue(false);
     const res = await GET(statusRequest("run-1"));

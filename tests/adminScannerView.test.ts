@@ -7,6 +7,7 @@ import { emptyPatchRadarData } from "@/lib/radar.server";
 import type { AdminObservationRow, AutomationRunRow, PublicScannerData } from "@/lib/queries";
 import type { IntegrationStatus } from "@/lib/env";
 import type { ScannerReadRegister } from "@/lib/scannerRegisters";
+import type { ScannerExecutionRead } from "@/lib/automation/diagnostics";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/app/admin/actions", () => ({
@@ -417,6 +418,7 @@ describe("AdminScannerView", () => {
       pulseReadFailures?: PublicScannerData["pulseReadFailures"];
       platformContext?: PublicScannerData["platformContext"];
       steamPulse?: PublicScannerData["steamPulse"];
+      execution?: ScannerExecutionRead;
     }) {
       const radar = emptyPatchRadarData(patch);
       return renderToStaticMarkup(createElement(AdminScannerView, {
@@ -462,6 +464,7 @@ describe("AdminScannerView", () => {
         },
         integrations: overrides.integrations ?? [],
         nowIso: "2026-07-22T18:00:00.000Z",
+        execution: overrides.execution,
       }));
     }
 
@@ -478,7 +481,7 @@ describe("AdminScannerView", () => {
       expect(markup).toContain("Scanner health unavailable");
       // The band is replaced, not dropped: a missing band reads as a quiet radar.
       expect(markup).toContain("Source radar unavailable");
-      expect(markup).toContain("Failed runs unavailable");
+      expect(markup).toContain("Recorded failed runs unavailable");
       expect(markup).toContain("A required health read is unavailable.");
     });
 
@@ -497,7 +500,71 @@ describe("AdminScannerView", () => {
       const markup = render({ radarConnected: true, pulseReadFailures: ["steam"] });
       expect(markup).not.toContain("No named health checks require action.");
       expect(markup).toContain("A required health read is unavailable.");
-      expect(markup).toContain("Unknown");
+      expect(markup).toContain("Saved record unreadable");
+    });
+
+    it("puts a failed trigger above an otherwise active scanner policy", () => {
+      const execution: ScannerExecutionRead = {
+        state: "available",
+        code: null,
+        detail: "Execution state loaded.",
+        started: null,
+        snapshot: {
+          version: 1,
+          latestAttempt: {
+            id: "7a4fe516-32a3-4ebf-af84-bf30d8e2ee6f",
+            startedAt: "2026-07-22T17:00:00.000Z",
+            finishedAt: "2026-07-22T17:01:00.000Z",
+            outcome: "failed",
+            diagnostics: [{ stage: "run_finalize", code: "database_timeout" }],
+            errorCount: 1,
+            skipReason: null,
+            nextEligibleAt: "2026-07-22T18:00:00.000Z",
+            httpStatus: 500,
+          },
+          lastSuccessfulScanAt: null,
+          lastSuccessfulAiAt: null,
+          lastFailedAttempt: null,
+        },
+      };
+
+      const markup = render({ radarConnected: true, execution });
+
+      expect(markup).toContain(">LATEST TRIGGER FAILED</span>");
+      expect(markup).toContain("Scheduled execution evidence");
+      expect(markup).toContain("HTTP status: 500.");
+      expect(markup).toContain("Policy and AI state");
+      expect(markup).toContain(">ACTIVE</strong>");
+    });
+
+    it("shows a fresh running trigger in amber above an active scanner policy", () => {
+      const execution: ScannerExecutionRead = {
+        state: "available",
+        code: null,
+        detail: "Execution state loaded.",
+        started: null,
+        snapshot: {
+          version: 1,
+          latestAttempt: {
+            id: "7a4fe516-32a3-4ebf-af84-bf30d8e2ee6f",
+            startedAt: "2026-07-22T17:55:00.000Z",
+            finishedAt: "2026-07-22T17:59:00.000Z",
+            outcome: "running",
+            diagnostics: [],
+            errorCount: 0,
+            skipReason: null,
+            nextEligibleAt: null,
+            httpStatus: null,
+          },
+          lastSuccessfulScanAt: null,
+          lastSuccessfulAiAt: null,
+          lastFailedAttempt: null,
+        },
+      };
+
+      const markup = render({ radarConnected: true, execution });
+
+      expect(markup).toContain('workspace-badge workspace-badge--amber">TRIGGER RUNNING</span>');
     });
 
     it("surfaces a failed Twitch collection even when scanner runs succeeded", () => {
