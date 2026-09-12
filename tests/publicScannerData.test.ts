@@ -154,6 +154,40 @@ beforeEach(() => {
 });
 
 describe("getPublicScannerData read failures", () => {
+  it("does not count a negative-only check-in as a published issue", async () => {
+    resolveQuery = (trace) => {
+      if (trace.table === "issue_clusters") {
+        return {
+          data: [{
+            id: "negative-only", slug: "negative-only", title: "Candidate-only concern", category: "performance",
+            description: null, fix_status: "reported", is_public: true, admin_override: false,
+            fix_claimed_at: null, fix_claimed_patch_version: null,
+          }],
+          error: null,
+        };
+      }
+      if (trace.table === "issue_checkins") {
+        return {
+          data: [{
+            cluster_id: "negative-only", patch_version: "1.13.01", platform: "pc_steam", kind: "not_happening",
+            voter_ip_hash: "network-one", created_at: "2026-07-20T00:00:00.000Z",
+          }],
+          error: null,
+        };
+      }
+      return { data: [], error: null };
+    };
+    const { getPublicScannerData } = await import("@/lib/queries");
+
+    const data = await getPublicScannerData();
+
+    // The scanner counter and issue board intentionally share needsFullIssueCard.
+    // A "not happening" response remains a real tally, but is not evidence that
+    // this candidate belongs in Published Issues.
+    expect(data.published).toBe(0);
+    expect(data.readFailures).not.toContain("published");
+  });
+
   it.each(["unknown", "1.13.01"])("keeps awaiting unavailable for fallback patch %s without erasing readable counters", async (version) => {
     mocks.getCurrentPatchMetadata.mockResolvedValue({ version, source: "fallback", publishedAt: null });
     const traces: QueryTrace[] = [];

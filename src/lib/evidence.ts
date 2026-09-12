@@ -5,14 +5,14 @@ export function hasClusterEvidence(cluster: { directReportCount: number }): bool
 export function needsFullIssueCard(cluster: {
   strengthScore: number;
   directReportCount: number;
-  confirmations: { totalCount: number };
+  confirmations: { affectedCount: number };
   earlierCheckinCount?: number;
   readout: { poll: unknown; state?: string; hasCurrentClaim?: boolean };
 }): boolean {
   return (
     hasClusterEvidence(cluster) ||
     cluster.strengthScore > 0 ||
-    cluster.confirmations.totalCount > 0 ||
+    cluster.confirmations.affectedCount > 0 ||
     (cluster.earlierCheckinCount ?? 0) > 0 ||
     cluster.readout.hasCurrentClaim === true ||
     cluster.readout.poll !== null ||

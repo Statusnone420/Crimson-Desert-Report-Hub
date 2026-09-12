@@ -102,7 +102,8 @@ describe("search and share metadata", () => {
   });
 
   it("keeps repository-owned alternate addresses on permanent canonical redirects", async () => {
-    expect(await nextConfig.redirects?.()).toEqual([
+    const resolvedConfig = await nextConfig("phase-production-server");
+    expect(await resolvedConfig.redirects?.()).toEqual([
       {
         source: "/method",
         destination: "/about",

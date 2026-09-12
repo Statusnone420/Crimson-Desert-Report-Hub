@@ -99,6 +99,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "confirm_failed" }, { status: 500 });
   }
   if (outcome === "unknown_issue") return NextResponse.json({ error: "unknown_issue" }, { status: 404 });
+  if (outcome === "stale_patch") return NextResponse.json({ error: "stale_patch" }, { status: 409 });
+  if (outcome === "current_patch_unavailable") {
+    return NextResponse.json({ error: "current_patch_unavailable" }, { status: 503 });
+  }
   if (outcome === "rate_limited") return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   if (outcome === "claim_context_unavailable") {
     return NextResponse.json({ error: "claim_context_unavailable" }, { status: 503 });

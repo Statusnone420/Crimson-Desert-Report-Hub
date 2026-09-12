@@ -183,6 +183,18 @@ describe("POST /api/confirmations", () => {
     expect(confirmationRpc).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ["stale_patch", 409],
+    ["current_patch_unavailable", 503],
+  ])("surfaces the atomic writer's %s result without confirming a save", async (outcome, status) => {
+    state.rpcOutcome = outcome as string;
+    const res = await POST(makeRequest({ ...valid, kind: "have_it" }));
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error: outcome });
+    expect(confirmationRpc).toHaveBeenCalledOnce();
+    expect(cacheMocks.revalidateTag).not.toHaveBeenCalled();
+  });
+
   it("503 when durable claim context is unavailable for a claim-specific choice", async () => {
     state.rpcOutcome = "claim_context_unavailable";
     const res = await POST(makeRequest(valid));
@@ -224,7 +236,7 @@ describe("POST /api/confirmations", () => {
     expect(args.p_kind).toBe("not_happening");
   });
 
-  it("503 only when the new RPC is unavailable during a rolling migration", async () => {
+  it("refuses writes if the required RPC disappears after the production build preflight", async () => {
     state.rpcError = {
       code: "PGRST202",
       message: "Could not find the function public.record_issue_checkin in the schema cache",

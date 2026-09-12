@@ -1,5 +1,5 @@
 begin;
-select plan(30);
+select plan(36);
 
 insert into public.issue_clusters (id, slug, title, category, description, fix_status, confidence, is_public)
 values
@@ -9,16 +9,46 @@ values
 
 set local role service_role;
 
+select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.01', 'ps5', 'have_it', 'missing-patch-network'), 'current_patch_unavailable', 'no current official patch refuses a general check-in');
+select ok(
+  not exists (select 1 from public.issue_checkins where voter_ip_hash = 'missing-patch-network')
+  and not exists (select 1 from public.issue_confirmation_attempts where voter_ip_hash = 'missing-patch-network'),
+  'missing current patch creates no check-in or ledger entry'
+);
+
+insert into public.official_patch_notes (board_no, title, patch_version, official_url, published_at, is_current)
+values ('checkin-initial-board', 'Patch 1.13.01', '1.13.01', 'https://official.example/1.13.01', now(), true);
+
 select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.01', 'ps5', 'have_it', 'replace-network'), 'recorded', 'first stance is recorded');
 select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.01', 'pc_steam', 'not_happening', 'replace-network'), 'recorded', 'same network can replace its stance');
 select is((select count(*) from public.issue_checkins where cluster_id = 'f1000000-0000-4000-8000-000000000001' and patch_version = '1.13.01' and voter_ip_hash = 'replace-network'), 1::bigint, 'same-network replacement keeps one exact-patch row');
 select ok((select kind = 'not_happening' and platform = 'pc_steam' from public.issue_checkins where cluster_id = 'f1000000-0000-4000-8000-000000000001' and patch_version = '1.13.01' and voter_ip_hash = 'replace-network'), 'replacement updates stance and platform');
 
-select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.02', 'ps5', 'have_it', 'replace-network'), 'recorded', 'same network can check in on a different exact patch');
-select is((select count(*) from public.issue_checkins where cluster_id = 'f1000000-0000-4000-8000-000000000001' and voter_ip_hash = 'replace-network'), 2::bigint, 'different exact patch versions retain independent rows');
+select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.02', 'ps5', 'have_it', 'stale-have-network'), 'stale_patch', 'stale general have-it check-in is rejected');
+select ok(
+  not exists (select 1 from public.issue_checkins where voter_ip_hash = 'stale-have-network')
+  and not exists (select 1 from public.issue_confirmation_attempts where voter_ip_hash = 'stale-have-network'),
+  'stale general have-it check-in creates no check-in or ledger entry'
+);
+
+update public.official_patch_notes set is_current = false where is_current = true;
+insert into public.official_patch_notes (board_no, title, patch_version, official_url, published_at, is_current)
+values ('checkin-hotfix-board', 'Patch 1.13.02', '1.13.02', 'https://official.example/1.13.02', now(), true);
+select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.02', 'ps5', 'have_it', 'replace-network'), 'recorded', 'same network can check in on the newly current hotfix');
+select is((select count(*) from public.issue_checkins where cluster_id = 'f1000000-0000-4000-8000-000000000001' and voter_ip_hash = 'replace-network'), 2::bigint, 'hotfix response preserves the earlier exact-patch row');
+
+update public.official_patch_notes set is_current = false where is_current = true;
+insert into public.official_patch_notes (board_no, title, patch_version, official_url, published_at, is_current)
+values ('checkin-claim-board', 'Patch 1.14.00', '1.14.00', 'https://official.example/1.14.00', now(), true);
 
 select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.14.00', 'ps5', 'have_it', 'kind-have-it'), 'recorded', 'have_it is accepted');
 select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.14.00', 'ps5', 'not_happening', 'kind-not-happening'), 'recorded', 'not_happening is accepted');
+select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.01', 'ps5', 'not_happening', 'stale-not-network'), 'stale_patch', 'stale general not-happening check-in is rejected');
+select ok(
+  not exists (select 1 from public.issue_checkins where voter_ip_hash = 'stale-not-network')
+  and not exists (select 1 from public.issue_confirmation_attempts where voter_ip_hash = 'stale-not-network'),
+  'stale general not-happening check-in creates no check-in or ledger entry'
+);
 select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.14.00', 'ps5', 'fixed_for_me', 'claim-sync-network'), 'claim_context_unavailable', 'claim-specific choice waits for the first durable claim sync');
 select ok(
   not exists (select 1 from public.issue_checkins where voter_ip_hash = 'claim-sync-network')
@@ -26,8 +56,6 @@ select ok(
   'unavailable claim context creates no check-in or ledger entry'
 );
 
-insert into public.official_patch_notes (board_no, title, patch_version, official_url, published_at, is_current)
-values ('checkin-claim-board', 'Patch 1.14.00', '1.14.00', 'https://official.example/1.14.00', now(), true);
 insert into public.claim_review_sync_state (first_synced_at, last_synced_at) values (now(), now());
 
 select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.14.00', 'ps5', 'still_happening', 'claim-preclaim-network'), 'claim_required', 'claim-specific choice requires a current confirmed claim');
@@ -67,7 +95,7 @@ update public.issue_clusters
 set admin_override = false
 where id = 'f1000000-0000-4000-8000-000000000001';
 
-select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.99', 'ps5', 'fixed_for_me', 'claim-old-patch-network'), 'claim_required', 'old-patch claim-specific choice is rejected');
+select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.13.99', 'ps5', 'fixed_for_me', 'claim-old-patch-network'), 'stale_patch', 'old-patch claim-specific choice is rejected before claim evaluation');
 select ok(
   not exists (select 1 from public.issue_checkins where voter_ip_hash = 'claim-old-patch-network')
   and not exists (select 1 from public.issue_confirmation_attempts where voter_ip_hash = 'claim-old-patch-network'),
@@ -84,15 +112,15 @@ select lives_ok($sql$
   do $body$
   begin
     for i in 1..20 loop
-      perform public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.15.00', 'ps5', 'have_it', 'rate-network');
+      perform public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.14.00', 'ps5', 'have_it', 'rate-network');
     end loop;
   end
   $body$
 $sql$, 'twenty shared-ledger attempts are accepted');
-select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.15.00', 'ps5', 'have_it', 'rate-network'), 'rate_limited', 'the twenty-first shared-ledger attempt is rejected');
+select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.14.00', 'ps5', 'have_it', 'rate-network'), 'rate_limited', 'the twenty-first shared-ledger attempt is rejected');
 select is((select count(*) from public.issue_confirmation_attempts where voter_ip_hash = 'rate-network'), 20::bigint, 'rate-limited write does not add another ledger row');
 
-select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000003', '1.16.00', 'ps5', 'have_it', 'revision-network'), 'recorded', 'revision fixture is recorded');
+select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000003', '1.14.00', 'ps5', 'have_it', 'revision-network'), 'recorded', 'revision fixture is recorded');
 select is((select visibility_revision from public.issue_clusters where id = 'f1000000-0000-4000-8000-000000000003'), 1::bigint, 'a recorded check-in advances visibility revision');
 
 set local role anon;
@@ -102,7 +130,7 @@ select throws_ok($$select public.record_issue_checkin('f1000000-0000-4000-8000-0
 set local role service_role;
 insert into public.issue_confirmations (cluster_id, patch_family, patch_version, platform, kind, voter_ip_hash)
 values ('f1000000-0000-4000-8000-000000000001', 'legacy', '0.99.00', 'ps5', 'have_it', 'legacy-network');
-select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.18.00', 'ps5', 'not_happening', 'legacy-network'), 'recorded', 'new check-in does not route through the legacy writer');
+select is(public.record_issue_checkin('f1000000-0000-4000-8000-000000000001', '1.14.00', 'ps5', 'not_happening', 'legacy-network'), 'recorded', 'new check-in does not route through the legacy writer');
 select ok((select kind = 'have_it' and patch_version = '0.99.00' from public.issue_confirmations where cluster_id = 'f1000000-0000-4000-8000-000000000001' and voter_ip_hash = 'legacy-network'), 'legacy confirmation row remains untouched');
 
 reset role;

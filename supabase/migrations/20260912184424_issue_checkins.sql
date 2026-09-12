@@ -38,12 +38,10 @@ declare
   cluster record;
   current_patch record;
 begin
-  -- Claim-specific choices also serialize with an official patch refresh.
-  -- The order is global -> official patch -> cluster -> network.
+  -- Every check-in serializes with an official patch refresh. The order is
+  -- global -> official patch -> cluster -> network.
   perform pg_catalog.pg_advisory_xact_lock(20260709, 1);
-  if p_kind in ('fixed_for_me', 'still_happening') then
-    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('official_patch_notes_current', 0));
-  end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('official_patch_notes_current', 0));
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_cluster_id::text, 1));
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_voter_ip_hash, 0));
   written_at := clock_timestamp();
@@ -57,6 +55,20 @@ begin
     return 'unknown_issue';
   end if;
 
+  select board_no, patch_version, official_url
+    into current_patch
+    from public.official_patch_notes
+    where is_current = true
+    order by published_at desc nulls last
+    limit 1
+    for update;
+  if not found then
+    return 'current_patch_unavailable';
+  end if;
+  if p_patch_version is distinct from current_patch.patch_version then
+    return 'stale_patch';
+  end if;
+
   if p_kind in ('fixed_for_me', 'still_happening') then
     -- An empty durable store before its first scanner pass cannot prove that
     -- a public issue has no current official claim.
@@ -64,19 +76,7 @@ begin
       return 'claim_context_unavailable';
     end if;
 
-    select board_no, patch_version, official_url
-      into current_patch
-      from public.official_patch_notes
-      where is_current = true
-      order by published_at desc nulls last
-      limit 1
-      for update;
-    if not found then
-      return 'claim_context_unavailable';
-    end if;
-
-    if current_patch.patch_version <> p_patch_version
-       or cluster.admin_override
+    if cluster.admin_override
        or cluster.fix_claimed_at is null
        or cluster.fix_claimed_patch_version is distinct from current_patch.patch_version
        or not exists (
