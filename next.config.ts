@@ -33,6 +33,11 @@ const nextConfig: NextConfig = {
   // Keep real-data local review separate from the fixture-backed browser suite.
   distDir: process.env.CD_LOCAL_SNAPSHOT === "true" ? ".next-snapshot" : process.env.CD_REVIEW_BUILD === "true" ? ".next-review" : ".next",
   allowedDevOrigins: ["127.0.0.1"],
+  experimental: {
+    // CI starts cold. Skip the persistent dev cache whose restore path can
+    // panic in Turbopack 16.3 on Windows after visiting many routes.
+    turbopackFileSystemCacheForDev: !process.env.CI,
+  },
   poweredByHeader: false,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
