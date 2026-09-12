@@ -18,7 +18,7 @@ const CATEGORY_ART: Record<string, { icon: string; image: string; position: stri
   crash_startup: { icon: "triangle-alert", image: "/official/interface.png", position: "48% center", alt: "A Crimson Desert environment" },
   controls_gameplay: { icon: "gamepad-2", image: "/official/content.jpg", position: "35% center", alt: "An adventurer in Crimson Desert" },
   graphics_visual: { icon: "aperture", image: "/official/graphics.jpg", position: "center", alt: "A sunlit valley in Crimson Desert" },
-  audio: { icon: "", image: "/official/other.jpg", position: "48% center", alt: "A Crimson Desert environment" },
+  audio: { icon: "music", image: "/official/other.jpg", position: "48% center", alt: "A Crimson Desert environment" },
   quest_progression: { icon: "scroll-text", image: "/official/content.jpg", position: "40% center", alt: "An adventurer in Crimson Desert" },
   other: { icon: "wrench", image: "/official/other.jpg", position: "48% center", alt: "A Crimson Desert environment" },
 };
@@ -54,7 +54,7 @@ function OfficialIssueClaims({ issue }: { issue: IssueBoardEntry }) {
 }
 
 function artFor(category: string) { return CATEGORY_ART[category] ?? CATEGORY_ART.other; }
-function CategorySymbol({ category }: { category: string }) { const art = artFor(category); return art.icon ? <span className="category-symbol" aria-hidden="true" style={{ maskImage: `url(/icons/${art.icon}.svg)` }} /> : <span className="category-symbol" aria-hidden="true" style={{ background: "none", color: "var(--category-ink)" }}>♪</span>; }
+function CategorySymbol({ category }: { category: string }) { const art = artFor(category); return <span className="category-symbol" aria-hidden="true" style={{ maskImage: `url(/icons/${art.icon}.svg)` }} />; }
 function plural(count: number, single: string, multiple = `${single}s`) { return `${count} ${count === 1 ? single : multiple}`; }
 
 export function filterBoardEntries(entries: IssueBoardEntry[], query: string, category: string): IssueBoardEntry[] {

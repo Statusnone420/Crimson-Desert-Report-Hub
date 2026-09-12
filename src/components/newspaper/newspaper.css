@@ -118,7 +118,7 @@ html[data-theme=dark] .newspaper .category-interface{--category-ink:#82aaf0}
 html[data-theme=dark] .newspaper .category-graphics{--category-ink:#98c2ac}
 html[data-theme=dark] .newspaper .category-localization{--category-ink:#c0a2df}
 html[data-theme=dark] .newspaper .category-other{--category-ink:#b3bfcc}
-.newspaper .category-symbol{display:inline-block;width:28px;height:28px;flex:none;background:var(--category-ink);mask-size:contain;mask-position:center;mask-repeat:no-repeat}
+.newspaper .category-symbol{display:inline-block;width:28px;height:28px;flex:none;background:var(--category-ink,var(--muted));mask-size:contain;mask-position:center;mask-repeat:no-repeat}
 .newspaper .claims-heading h2{max-width:720px;text-wrap:balance}
 .newspaper .category-index{display:grid;grid-template-columns:repeat(6,1fr);border-top:1px solid var(--line);margin-top:22px;gap:20px}
 .newspaper .category-choice{display:grid;justify-items:start;gap:8px;position:relative;padding:22px 8px 22px 0;transition:background-color .2s}
@@ -205,10 +205,17 @@ html[data-theme=dark] .newspaper .category-other{--category-ink:#b3bfcc}
 .newspaper .board-clear{font-size:14px;color:var(--blue);padding:14px 0;white-space:nowrap}
 .newspaper .board-clear:disabled{color:var(--muted);opacity:.6;cursor:default}
 .newspaper .board-results-note{display:flex;justify-content:space-between;gap:16px;font-size:11px;line-height:1.6;color:var(--muted);padding:18px 0 24px}
-.newspaper .issue-category-controls{--category-ink:var(--red)}
+.newspaper .issue-category-controls_gameplay{--category-ink:var(--red)}
 .newspaper .issue-category-performance{--category-ink:var(--blue)}
-.newspaper .issue-category-crashes{--category-ink:#85651e}
-html[data-theme=dark] .newspaper .issue-category-crashes{--category-ink:#d7b16b}
+.newspaper .issue-category-crash_startup{--category-ink:#85651e}
+.newspaper .issue-category-graphics_visual{--category-ink:var(--green)}
+.newspaper .issue-category-audio{--category-ink:#755595}
+.newspaper .issue-category-quest_progression{--category-ink:#82601e}
+.newspaper .issue-category-other{--category-ink:#5c6773}
+html[data-theme=dark] .newspaper .issue-category-crash_startup{--category-ink:#d7b16b}
+html[data-theme=dark] .newspaper .issue-category-audio{--category-ink:#c0a2df}
+html[data-theme=dark] .newspaper .issue-category-quest_progression{--category-ink:#d7b16b}
+html[data-theme=dark] .newspaper .issue-category-other{--category-ink:#b3bfcc}
 
 
 
