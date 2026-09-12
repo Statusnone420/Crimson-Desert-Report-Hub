@@ -16,7 +16,8 @@ function clientFor(options: {
   board?: Row[] | null;
   fixes?: Row[] | null;
   pairings?: Row[] | null;
-  errors?: Partial<Record<"official_patch_notes" | "official_patch_claimed_fixes" | "claim_review_pairings", ReadError>>;
+  syncState?: Row[] | null;
+  errors?: Partial<Record<"official_patch_notes" | "official_patch_claimed_fixes" | "claim_review_pairings" | "claim_review_sync_state", ReadError>>;
   pageSize?: number;
 } = {}): SupabaseClient {
   const board = options.board === undefined ? [{ board_no: "board-2", patch_version: patch.version, official_url: patch.officialUrl, is_current: true }] : options.board;
@@ -25,6 +26,7 @@ function clientFor(options: {
     id: "pairing-1", cluster_id: cluster.id, claim_key: claimReviewKey(patch.version, "Fixed a crash."), state: "confirmed",
     board_no: "board-2", patch_version: patch.version, official_url: patch.officialUrl, exact_official_text: "Fixed a crash.",
   }] : options.pairings;
+  const syncState = options.syncState === undefined ? [{ first_synced_at: "2026-09-12T00:00:00Z" }] : options.syncState;
   const pageSize = options.pageSize ?? 500;
 
   return {
@@ -44,12 +46,12 @@ function clientFor(options: {
           return query;
         },
         then: (resolve: (value: { data: Row[] | null; error: ReadError | null }) => unknown) => {
-          const rows = table === "official_patch_notes" ? board : table === "official_patch_claimed_fixes" ? fixes : pairings;
+          const rows = table === "claim_review_sync_state" ? syncState : table === "official_patch_notes" ? board : table === "official_patch_claimed_fixes" ? fixes : pairings;
           const error = options.errors?.[table as keyof NonNullable<typeof options.errors>] ?? null;
           const filtered = rows === null ? null : rows.filter((row) =>
             Object.entries(filters).every(([column, value]) => row[column] === value),
           );
-          const data = filtered === null ? null : (table === "official_patch_notes" ? filtered : filtered.filter((row) => String(row.id) > (after ?? "")).slice(0, pageSize));
+          const data = filtered === null ? null : (table === "official_patch_notes" || table === "claim_review_sync_state" ? filtered : filtered.filter((row) => String(row.id) > (after ?? "")).slice(0, pageSize));
           return Promise.resolve({ data, error }).then(resolve);
         },
       };
@@ -59,6 +61,32 @@ function clientFor(options: {
 }
 
 describe("public claim context", () => {
+  it("marks a migrated empty store unavailable before its first durable sync", async () => {
+    await expect(readPublicClaimContext(clientFor({ syncState: [], pairings: [] }), patch, [cluster]))
+      .resolves.toEqual({ byCluster: {}, unavailable: true });
+  });
+
+  it("does not infer sync readiness from the presence of pairings", async () => {
+    await expect(readPublicClaimContext(clientFor({ syncState: [] }), patch, [cluster]))
+      .resolves.toEqual({ byCluster: {}, unavailable: true });
+  });
+
+  it("accepts an empty confirmed-pairing result after durable sync", async () => {
+    await expect(readPublicClaimContext(clientFor({ pairings: [] }), patch, [cluster]))
+      .resolves.toEqual({ byCluster: {}, unavailable: false });
+  });
+
+  it("keeps a missing sync-state table unavailable", async () => {
+    await expect(readPublicClaimContext(clientFor({ errors: {
+      claim_review_sync_state: { code: "PGRST205", message: "Could not find the table 'public.claim_review_sync_state' in the schema cache" },
+    } }), patch, [cluster])).resolves.toEqual({ byCluster: {}, unavailable: true });
+  });
+
+  it("keeps a null sync-state response unavailable", async () => {
+    await expect(readPublicClaimContext(clientFor({ syncState: null }), patch, [cluster]))
+      .resolves.toEqual({ byCluster: {}, unavailable: true });
+  });
+
   it("uses only a current confirmed pairing and fresh official fields", async () => {
     const result = await readPublicClaimContext(clientFor({
       pairings: [{
@@ -140,7 +168,7 @@ describe("public claim context", () => {
     await expect(readPublicClaimContext(clientFor({ fixes: null }), patch, [cluster]))
       .resolves.toEqual({ byCluster: {}, unavailable: true });
 
-    for (const table of ["official_patch_notes", "official_patch_claimed_fixes", "claim_review_pairings"] as const) {
+    for (const table of ["official_patch_notes", "official_patch_claimed_fixes", "claim_review_pairings", "claim_review_sync_state"] as const) {
       await expect(readPublicClaimContext(clientFor({ errors: { [table]: { code: "42501", message: "permission denied" } } }), patch, [cluster]))
         .resolves.toEqual({ byCluster: {}, unavailable: true });
     }

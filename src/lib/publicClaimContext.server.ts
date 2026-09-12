@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { claimReviewKey, normalizeClaimReviewText } from "@/lib/claimReview";
+import { claimReviewKey, normalizeClaimReviewText, readClaimReviewSyncState } from "@/lib/claimReview";
 import type { CurrentPatchMetadata } from "@/lib/officialPatch.server";
 import type { SupabaseErrorLike } from "@/lib/supabaseCompatibility";
 
@@ -92,6 +92,11 @@ export async function readPublicClaimContext(
       publicClusters.filter((cluster) => isEligibleCluster(cluster, currentPatch.version)).map((cluster) => cluster.id),
     );
     if (eligibleClusterIds.size === 0) return { byCluster: {}, unavailable: false };
+
+    // Until the first durable pass, legacy lifecycle rows remain authoritative.
+    // An empty pairing table cannot establish that no official claim is attached.
+    const sync = await readClaimReviewSyncState(supabase);
+    if (sync.status !== "synced") return unavailable();
 
     const boardResponse = await supabase
       .from("official_patch_notes")

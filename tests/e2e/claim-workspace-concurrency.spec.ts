@@ -8,6 +8,21 @@ test.afterEach(async ({ page }) => {
   expect((await page.request.post(`${MOCK_ORIGIN}/__test__/reset`)).ok()).toBe(true);
 });
 
+test("public exact claim context stays unavailable before the first durable sync", async ({ page }) => {
+  expect((await page.request.post(`${MOCK_ORIGIN}/__test__/claim-review-awaiting-sync`)).ok()).toBe(true);
+  const marker = await page.request.get(`${MOCK_ORIGIN}/rest/v1/claim_review_sync_state`);
+  expect(marker.ok()).toBe(true);
+  expect(await marker.json()).toEqual([]);
+
+  await page.goto("/issues");
+  const issue = page.getByRole("article", { name: "Map-open crash persists after fix", exact: true });
+  await expect(issue).toBeVisible();
+  const context = issue.getByRole("region", { name: "Official fix being checked", exact: true });
+  await expect(context).toContainText("The exact official claim could not be read.");
+  await expect(context).not.toContainText("No confirmed official claim is attached");
+  await expect(context.getByRole("link", { name: "Review the official fix record →" })).toHaveAttribute("href", "/patches#claims");
+});
+
 test("claim decisions reject stale lifecycle state and recover after explicit reload", async ({ page }) => {
   await signInAsAdmin(page);
   await page.goto(`/operator?view=claims&item=${PAIRING_ID}`);
