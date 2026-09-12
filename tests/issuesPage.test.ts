@@ -58,7 +58,7 @@ it("shows the exact official scope beside a broad historical issue", async () =>
   expect(markup).toContain("starting a new game with DLSS Frame Generation enabled.");
   expect(markup).toContain(`/patches#claim-${"a".repeat(64)}`);
   expect(markup).toContain("Published issues");
-  expect(markup).toContain("0 player reports");
+  expect(markup).toContain("0 check-ins · Patch 2.02.00");
   expect(markup).not.toContain("launch hangs after patch 1.13.00");
 });
 
@@ -78,4 +78,22 @@ it("surfaces an unreadable claim context while retaining the public issue", asyn
   expect(markup).toContain("The exact official claim could not be read.");
   expect(markup).toContain("Crashes and startup hangs");
   expect(markup).not.toContain("No confirmed official claim is attached");
+});
+
+it("retains a claim-only published card when current check-ins are unavailable", async () => {
+  const data = issueData();
+  mocks.getIssuesData.mockResolvedValue({
+    ...data,
+    checkinsAvailable: false,
+    clusters: [{ ...data.clusters[0], checkinsAvailable: false, readout: {
+      ...data.clusters[0].readout, hasCurrentClaim: true, label: "Check-ins unavailable", poll: null,
+    } }],
+    officialClaimsByCluster: { "crash-startup": [{ key: "b".repeat(64), text: "Fixed the world-map crash.", officialUrl: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=130" }] },
+  });
+  const markup = renderToStaticMarkup(await IssuesPage());
+  expect(markup).toContain("Showing 1 of 1 published issue");
+  expect(markup).toContain("Fixed the world-map crash.");
+  expect(markup).toContain("Current check-ins unavailable");
+  expect(markup).not.toContain("0 check-ins");
+  expect(markup).not.toContain("No responses after this claim yet");
 });

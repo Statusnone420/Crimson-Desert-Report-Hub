@@ -484,6 +484,25 @@ const issueConfirmations = [
   voter_ip_hash: hash,
 }));
 
+// Current exact-patch check-ins are separate from the retired confirmation
+// stream. The fixture keeps the legacy rows available only as earlier context.
+const issueCheckins = [
+  ["checkin-1", 30, clusterIds.fps, "pc_steam", "have_it", "mock-checkin-1"],
+  ["checkin-2", 90, clusterIds.fps, "pc_steam", "have_it", "mock-checkin-2"],
+  ["checkin-3", 200, clusterIds.fps, "ps5", "not_happening", "mock-checkin-3"],
+  ["checkin-4", 45, clusterIds.map, "ps5", "still_happening", "mock-checkin-4"],
+  ["checkin-5", 50, clusterIds.map, "pc_steam", "still_happening", "mock-checkin-5"],
+  ["checkin-6", 55, clusterIds.map, "pc_steam", "fixed_for_me", "mock-checkin-6"],
+].map(([id, minutes, clusterId, platform, kind, hash]) => ({
+  id,
+  created_at: isoMinutesAgo(minutes),
+  cluster_id: clusterId,
+  patch_version: "1.13.01",
+  platform,
+  kind,
+  voter_ip_hash: hash,
+}));
+
 const officialPatchNotes = [
   {
     id: "official-patch-113",
@@ -803,6 +822,7 @@ if (previewSeedFile) {
     automation_rejected_candidates: rejectedCandidates,
     automation_settings: automationSettings,
     issue_confirmations: issueConfirmations,
+    issue_checkins: issueCheckins,
     official_patch_notes: officialPatchNotes,
     official_patch_claimed_fixes: officialPatchClaimedFixes,
     patch_observations: patchObservations,
@@ -1624,6 +1644,11 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/rest/v1/issue_checkins" && req.method === "GET") {
+    sendJson(res, req.method ?? "GET", 200, filterRows(issueCheckins, url));
+    return;
+  }
+
   if (url.pathname === "/rest/v1/rpc/mutate_video_review_candidate" && req.method === "POST") {
     const args = JSON.parse(await readBody(req));
     if (failNextVideoMutation) {
@@ -1811,6 +1836,28 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/rest/v1/rpc/record_issue_confirmation" && req.method === "POST") {
+    sendJson(res, req.method, 200, "recorded");
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/rpc/record_issue_checkin" && req.method === "POST") {
+    const payload = JSON.parse(await readBody(req));
+    const cluster = clusters.find((row) => row.id === payload.p_cluster_id && row.is_public);
+    if (!cluster) {
+      sendJson(res, req.method, 200, "unknown_issue");
+      return;
+    }
+    const existing = issueCheckins.find((row) =>
+      row.cluster_id === payload.p_cluster_id
+      && row.patch_version === payload.p_patch_version
+      && row.voter_ip_hash === payload.p_voter_ip_hash,
+    );
+    if (existing) Object.assign(existing, { platform: payload.p_platform, kind: payload.p_kind, created_at: new Date(now()).toISOString() });
+    else issueCheckins.push({
+      id: nextMockId("checkin"), created_at: new Date(now()).toISOString(), cluster_id: payload.p_cluster_id,
+      patch_version: payload.p_patch_version, platform: payload.p_platform, kind: payload.p_kind, voter_ip_hash: payload.p_voter_ip_hash,
+    });
+    cluster.visibility_revision = Number(cluster.visibility_revision ?? 0) + 1;
     sendJson(res, req.method, 200, "recorded");
     return;
   }
@@ -2251,7 +2298,7 @@ const server = createServer(async (req, res) => {
       reportsByDay.set(key, (reportsByDay.get(key) ?? 0) + 1);
     }
     const tapsByDay = new Map();
-    for (const tap of issueConfirmations) {
+    for (const tap of issueCheckins) {
       const key = dayKey(tap.created_at);
       tapsByDay.set(key, (tapsByDay.get(key) ?? 0) + 1);
     }

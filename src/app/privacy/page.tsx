@@ -8,7 +8,7 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
   return routeMetadata(
     "Privacy",
     "/privacy",
-    "No accounts, no email field, no ads or analytics trackers. Reports stay private unless a moderator approves a short excerpt.",
+    "Anonymous issue check-ins use Turnstile and one current response per network, issue, and exact patch. No raw IP address is stored.",
     parent,
   );
 }
@@ -16,10 +16,6 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
 const POLICY = `${SOURCE_URL}/blob/main/docs/PRIVACY.md`;
 const WIKI = `${SOURCE_URL}/blob/main/docs/wiki/Privacy-and-Moderation.md`;
 
-/**
- * Public privacy note. The Method page still answers the same question at
- * `#privacy`; this route is the address the footer and `/privacy` guessers use.
- */
 export default async function PrivacyPage() {
   await connection();
 
@@ -31,43 +27,38 @@ export default async function PrivacyPage() {
             <p className="dispatch-kicker">The desk</p>
             <h1 className="dispatch-pagehead__title">Privacy</h1>
             <p className="dispatch-pagehead__dek">
-              No accounts, no email, no ads or trackers. Raw reports stay private unless a short excerpt is approved.
+              Anonymous check-ins, no accounts, no raw IP storage, and no ads or analytics trackers.
             </p>
           </div>
         </header>
 
         <dl className="method-registers">
           <dt className="method-registers__term">No accounts</dt>
-          <dd className="method-registers__def">There is no player sign-in and nothing to register.</dd>
-          <dt className="method-registers__term">No email field</dt>
-          <dd className="method-registers__def">The report form never asks for an address.</dd>
+          <dd className="method-registers__def">There is no player sign-in, registration, or email field.</dd>
+          <dt className="method-registers__term">One current response</dt>
+          <dd className="method-registers__def">A network can hold one current check-in for each public issue and exact patch.</dd>
+          <dt className="method-registers__term">No raw IP storage</dt>
+          <dd className="method-registers__def">The database does not store raw IP addresses.</dd>
           <dt className="method-registers__term">No ads or trackers</dt>
           <dd className="method-registers__def">This project does not include advertising code or analytics trackers.</dd>
-          <dt className="method-registers__term">Your catch-up place</dt>
-          <dd className="method-registers__def">This browser can remember your last visit and the date you choose to mark yourself caught up. These dates stay on your device. Turn off “Remember my place” in “Catch me up” to clear both dates and stop saving them. A shared catch-up link includes the starting point you chose.</dd>
-          <dt className="method-registers__term">No raw IP storage</dt>
-          <dd className="method-registers__def">The database does not store your IP address.</dd>
-          <dt className="method-registers__term">Reports stay private</dt>
-          <dd className="method-registers__def">
-            Raw report text stays private unless a moderator approves a short excerpt.
-          </dd>
+          <dt className="method-registers__term">Historical written reports</dt>
+          <dd className="method-registers__def">The public free-form report flow is retired. Approved historical reports and excerpts may remain in the record.</dd>
         </dl>
 
         <section className="privacy-note" aria-labelledby="privacy-note">
           <p className="kicker">The short version</p>
-          <h2 id="privacy-note">What can appear on the board</h2>
+          <h2 id="privacy-note">How anonymous check-ins work</h2>
           <p>
-            Submissions are anonymous. To limit spam we keep a scrambled fingerprint of your connection. It can&rsquo;t
-            be turned back into an address and it never appears on the site.
+            A Turnstile check helps limit automated submissions. The server stores a salted one-way network hash for
+            rate limits and replacement rules. The database does not store raw IP addresses, and the hash never appears publicly.
           </p>
           <p>
-            What can show up publicly: a count, a summary built from the options you picked, or a short excerpt a
-            moderator approved — never your raw words by default. You can add an evidence link; the report form does
-            not read or upload files from your device.
+            Choosing another response replaces the previous response from that network for the same issue and exact
+            patch. People sharing a network share that response. Check-in totals do not verify unique players.
           </p>
           <p>
-            Scanner intelligence and hosting providers are described in the full policy. The Method page keeps the same
-            short answer next to the rest of the board&rsquo;s vocabulary.
+            Crimson Desert Report Hub is an independent fan site and is not affiliated with or endorsed by Pearl
+            Abyss. It does not provide a support desk or support response.
           </p>
         </section>
 

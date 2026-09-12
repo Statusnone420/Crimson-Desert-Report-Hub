@@ -11,10 +11,12 @@ const chromeSource = readFileSync(
 describe("public privacy note", () => {
   it("is a short public page, not a dump of the repository policy", () => {
     expect(privacySource).toContain("No accounts");
-    expect(privacySource).toContain("No email field");
     expect(privacySource).toContain("No ads or trackers");
     expect(privacySource).toContain("No raw IP storage");
-    expect(privacySource).toContain("Reports stay private");
+    expect(privacySource).toContain("One current response");
+    expect(privacySource).toContain("Turnstile");
+    expect(privacySource).toContain("Historical written reports");
+    expect(privacySource).toContain("independent fan site");
     expect(privacySource).toContain("docs/PRIVACY.md");
     expect(privacySource).toContain("SOURCE_URL");
     expect(privacySource).toContain('href="/about#privacy"');

@@ -50,6 +50,10 @@ test("claim decisions reject stale lifecycle state and recover after explicit re
 
 test("a confirmed match exposes only its exact public claim and opens the matching patch line", async ({ page }, testInfo) => {
   await signInAsAdmin(page);
+  const checkinPosts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/confirmations")) checkinPosts.push(request.url());
+  });
   const pairingResponse = await page.request.get(`${MOCK_ORIGIN}/rest/v1/claim_review_pairings?id=eq.${PAIRING_ID}`);
   expect(pairingResponse.ok()).toBe(true);
   const pairing = (await pairingResponse.json()).find((row: { id: string }) => row.id === PAIRING_ID);
@@ -65,6 +69,12 @@ test("a confirmed match exposes only its exact public claim and opens the matchi
     const context = page.getByRole("region", { name: "Official fix being checked", exact: true });
     await expect(context.getByRole("link", { name: "Pearl Abyss source ↗", exact: true })).toHaveAttribute("href", pairing.official_url);
     await expect(context.getByRole("link", { name: "Find this fix in the patch record →", exact: true })).toHaveAttribute("href", `/patches#claim-${pairing.claim_key}`);
+    const issue = page.getByRole("article", { name: "Map-open crash persists after fix", exact: true });
+    await expect(issue.getByRole("button", { name: /^Fixed for me(?: —|$)/ })).toBeVisible();
+    await expect(issue.getByRole("button", { name: /^Still happening(?: —|$)/ })).toBeVisible();
+    await issue.getByRole("button", { name: /^Fixed for me(?: —|$)/ }).click();
+    await expect(issue.getByRole("button", { name: "PC (Steam)", exact: true })).toBeVisible();
+    expect(checkinPosts).toEqual([]);
     const publicHtml = await (await page.request.get("/issues")).text();
     expect(publicHtml).not.toContain(PAIRING_ID);
     expect(publicHtml).not.toContain(pairing.proposal_reason);
@@ -78,5 +88,13 @@ test("a confirmed match exposes only its exact public claim and opens the matchi
     await page.goto(`/operator?view=claims&item=${PAIRING_ID}`);
     await page.getByRole("button", { name: "Undo decision" }).click();
     await expect(page.getByText("Decision undone. This match is waiting for review again.")).toBeVisible();
+    // A public read can serve the old cache once while its tagged refresh runs.
+    // Observe the undo on the public board before another test reads the fixture.
+    await expect(async () => {
+      await page.goto("/issues");
+      const issue = page.getByRole("article", { name: "Map-open crash persists after fix", exact: true });
+      await expect(issue.getByText("The exact fix context is unavailable. Check-ins for this claim will open when its source can be shown.")).toBeVisible();
+      await expect(issue.getByRole("button", { name: /^Fixed for me(?: —|$)/ })).toHaveCount(0);
+    }).toPass({ timeout: 30_000 });
   }
 });

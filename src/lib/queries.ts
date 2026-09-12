@@ -18,6 +18,7 @@ import { getAutomationControlState, type AutomationSettingsClient } from "@/lib/
 import { readCurrentScannerBudgetCapped } from "@/lib/automation/budgetState.server";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
+import { readCheckinsForPatch } from "@/lib/checkins.server";
 import { getCurrentPatchMetadata, readClaimedFixesForCurrentPatch } from "@/lib/officialPatch.server";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
 import {
@@ -255,7 +256,7 @@ export async function readConfirmationRowsByClusterForPatchFamily(
       .range(from, from + pageSize - 1);
     if (error) {
       // The branch can render before its migration is applied; other read errors should stay visible.
-      if (error.code === "42P01") return {};
+      if (isMissingSupabaseRelation(error, "issue_confirmations")) return {};
       throw new Error(`confirmation rows read failed: ${error.message}`);
     }
     const page = (data ?? []) as ConfirmationRow[];
@@ -263,6 +264,17 @@ export async function readConfirmationRowsByClusterForPatchFamily(
     if (page.length < pageSize) break;
   }
   return groupConfirmationRowsByCluster(rows);
+}
+
+async function readCurrentCheckinContext(supabase: ReturnType<typeof createServiceClient>, patchVersion: string) {
+  const [earlier, current] = await Promise.all([
+    readConfirmationRowsByClusterForPatchFamily(supabase, patchVersion),
+    readCheckinsForPatch(supabase, patchVersion).catch((error: unknown) => {
+      console.error("[checkins] Current-patch totals unavailable", error);
+      return { byCluster: {} as Record<string, ConfirmationRow[]>, available: false };
+    }),
+  ]);
+  return { ...current, earlier };
 }
 
 export function filterPatchFamilyReports<T extends { patch_version: string | null }>(
@@ -521,6 +533,8 @@ type ClusterCounts = {
   postCurrentPatchSignalCount: number;
   postClaimEvidenceCount: number;
   confirmationRows: ConfirmationRow[];
+  earlierCheckinCount: number;
+  checkinsAvailable: boolean;
   reportPlatformCounts: Record<string, number>;
   patchVersion: string;
 };
@@ -535,6 +549,8 @@ export type DecoratedCluster = ClusterRow & {
   postCurrentPatchSignalCount: number;
   postCurrentPatchEvidenceCount: number;
   confirmations: ClusterConfirmations;
+  earlierCheckinCount?: number;
+  checkinsAvailable?: boolean;
   reportPlatformCounts: Record<string, number>;
   readout: IssueReadout;
   strengthScore: number;
@@ -552,6 +568,7 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
     candidateSignalCount: counts.candidateSignalCount,
     postClaimEvidenceCount: counts.postClaimEvidenceCount,
     confirmations,
+    checkinsAvailable: counts.checkinsAvailable,
     fixClaimedAt,
     adminOverride: Boolean(cluster.admin_override),
     storedFixStatus: cluster.fix_status,
@@ -571,6 +588,8 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
     postCurrentPatchSignalCount: counts.postCurrentPatchSignalCount,
     postCurrentPatchEvidenceCount,
     confirmations,
+    earlierCheckinCount: counts.earlierCheckinCount,
+    checkinsAvailable: counts.checkinsAvailable,
     reportPlatformCounts: counts.reportPlatformCounts,
     readout,
     strengthScore: counts.signalCount + counts.directReportCount * 3 + escalatedConfirms,
@@ -865,6 +884,7 @@ async function dashboardUnavailableData(patchOverride?: Awaited<ReturnType<typeo
     observations: EMPTY_OBSERVATION_LANES,
     publicFindings: [],
     evidenceUnavailable: true,
+    checkinsAvailable: false,
     // A full evidence outage leaves the lead fields unread too; an
     // unconfigured environment reads neither, deliberately.
     sourceLeadsUnavailable: true,
@@ -987,7 +1007,7 @@ async function readDashboardData() {
   });
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
-  const confirmationsByCluster = await readConfirmationRowsByClusterForPatchFamily(supabase, currentPatch.version);
+  const checkinContext = await readCurrentCheckinContext(supabase, currentPatch.version);
   const publicClusters = clusterData as ClusterRow[];
   const fixClaimedAtByCluster = Object.fromEntries(
     publicClusters.map((cluster) => [
@@ -1020,7 +1040,9 @@ async function readDashboardData() {
         postCurrentPatchReportCount: postCurrentPatchReportByCluster[cluster.id] ?? 0,
         postCurrentPatchSignalCount: postCurrentPatchSignalByCluster[cluster.id] ?? 0,
         postClaimEvidenceCount: postClaimReportByCluster[cluster.id] ?? 0,
-        confirmationRows: confirmationsByCluster[cluster.id] ?? [],
+        confirmationRows: checkinContext.byCluster[cluster.id] ?? [],
+        earlierCheckinCount: checkinContext.earlier[cluster.id]?.length ?? 0,
+        checkinsAvailable: checkinContext.available,
         reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
         patchVersion: currentPatch.version,
       }),
@@ -1047,6 +1069,7 @@ async function readDashboardData() {
     observations,
     publicFindings: publicFindingsFromSignals(signalRows).slice(0, 6),
     evidenceUnavailable: false,
+    checkinsAvailable: checkinContext.available,
     sourceLeadsUnavailable: sourceLeadsUnavailable || candidateLeadsFailed,
     publicLeadsUnavailable: sourceLeadsUnavailable,
   };
@@ -1118,7 +1141,7 @@ async function getIssuesDataUncached() {
   );
 
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
-  const confirmationsByCluster = await readConfirmationRowsByClusterForPatchFamily(supabase, currentPatch.version);
+  const checkinContext = await readCurrentCheckinContext(supabase, currentPatch.version);
 
   const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
@@ -1140,7 +1163,9 @@ async function getIssuesDataUncached() {
         postCurrentPatchReportCount: postCurrentPatchReportByCluster[cluster.id] ?? 0,
         postCurrentPatchSignalCount: postCurrentPatchSignalByCluster[cluster.id] ?? 0,
         postClaimEvidenceCount: postClaimReportByCluster[cluster.id] ?? 0,
-        confirmationRows: confirmationsByCluster[cluster.id] ?? [],
+        confirmationRows: checkinContext.byCluster[cluster.id] ?? [],
+        earlierCheckinCount: checkinContext.earlier[cluster.id]?.length ?? 0,
+        checkinsAvailable: checkinContext.available,
         reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
         patchVersion: currentPatch.version,
       }),
@@ -1167,6 +1192,7 @@ async function getIssuesDataUncached() {
 
   return {
     clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed,
+    checkinsAvailable: checkinContext.available,
     officialClaimsByCluster: claimContext.byCluster,
     officialClaimsUnavailable: claimContext.unavailable,
   };
@@ -1799,11 +1825,12 @@ async function getPublicScannerDataUncached(): Promise<PublicScannerData> {
     // Counting from raw sets here previously disagreed with the board.
     let published = 0;
     try {
-      const { clusters: decoratedClusters, boardReadFailed } = await getIssuesDataUncached();
+      const { clusters: decoratedClusters, boardReadFailed, checkinsAvailable } = await getIssuesDataUncached();
       // The board read degrades to empty rather than throwing, so an exception is
       // not the only way this count can be wrong — an unread board would look
       // like zero published issues.
       if (boardReadFailed) throw new Error("issue board read failed");
+      if (checkinsAvailable === false) throw new Error("issue check-ins unavailable");
       published = decoratedClusters.filter(needsFullIssueCard).length;
     } catch {
       failures.add("published");
@@ -1839,7 +1866,7 @@ export const getPublicScannerData = unstable_cache(getPublicScannerDataUncached,
 export type DailySignalDay = { day: string; reports: number; taps: number; keptLeads: number };
 
 type DailyReportRollupRow = { created_at: string; patch_version: string | null };
-type DailyTapRollupRow = { created_at: string; patch_family: string | null };
+type DailyTapRollupRow = { created_at: string; patch_version: string };
 type DailyKeptLeadRollupRow = {
   started_at: string;
   signals_inserted: number | null;
@@ -1908,7 +1935,7 @@ export function composeDailySignalRollup(input: {
       (row) => row.patch_version && currentFamily && patchFamilyKey(row.patch_version) === currentFamily,
     ),
   );
-  const tapCounts = countByDay(input.taps.filter((row) => row.patch_family === currentFamily));
+  const tapCounts = countByDay(input.taps.filter((row) => row.patch_version === input.currentPatch.version));
   const keptLeadCounts = new Map<string, number>();
   for (const run of input.runs) {
     if (run.mode === "dry_run") continue;
@@ -1952,10 +1979,11 @@ async function getDailySignalRollupUncached(): Promise<DailySignalDay[] | null> 
           .order("id", { ascending: true })
           .range(from, to),
       ),
-      fetchAllDailySignalRollupRows<DailyTapRollupRow>("daily confirmations", (from, to) =>
+      fetchAllDailySignalRollupRows<DailyTapRollupRow>("daily check-ins", (from, to) =>
         supabase
-          .from("issue_confirmations")
-          .select("created_at, patch_family")
+          .from("issue_checkins")
+          .select("created_at, patch_version")
+          .eq("patch_version", currentPatch.version)
           .gte("created_at", since)
           .order("created_at", { ascending: true })
           .order("id", { ascending: true })

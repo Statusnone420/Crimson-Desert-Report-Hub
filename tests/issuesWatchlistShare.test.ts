@@ -57,7 +57,7 @@ function cluster(overrides: ClusterOverrides = {}) {
     confirmations: {
       totalCount: 0,
       byPlatform: {},
-      byKind: { have_it: { count: 0 } },
+      byKind: { have_it: { count: 0 }, not_happening: { count: 0 } },
       pollFixedCount: 0,
       pollStillCount: 0,
       ...confirmations,

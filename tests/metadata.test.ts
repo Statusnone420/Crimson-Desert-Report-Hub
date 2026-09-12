@@ -20,13 +20,11 @@ const expectedDescriptions = {
   "/watch":
     "The Crimson Desert reveal trailer and selected creator coverage of Charting the Unknown, with links to the original videos.",
   "/issues":
-    "The Issue Board lays out Crimson Desert player reports and source leads, showing how much backing reports have and where the claimed fixes stand.",
-  "/report":
-    "Hit something broken in Crimson Desert? Put it on the record — an anonymous report with the patch, platform, steps, and any evidence you've got.",
+    "Compare Crimson Desert issues, official fixes and anonymous community check-ins on the current patch. No account or written report.",
   "/about":
     "How Crimson Desert Report Hub sources its journalism, credits creators, and keeps news separate from player reports and official fix claims.",
   "/privacy":
-    "No accounts, no email field, no ads or analytics trackers. Reports stay private unless a moderator approves a short excerpt.",
+    "Anonymous issue check-ins use Turnstile and one current response per network, issue, and exact patch. No raw IP address is stored.",
   "/observatory":
     "Recorded Steam review movement, Twitch audience activity, and the current public-source radar for Crimson Desert.",
 } as const;
@@ -92,7 +90,6 @@ describe("search and share metadata", () => {
       { url: `${SITE_URL}/patches`, changeFrequency: "hourly", priority: 0.6 },
       { url: `${SITE_URL}/issues`, changeFrequency: "hourly", priority: 0.5 },
       { url: `${SITE_URL}/observatory`, changeFrequency: "hourly", priority: 0.5 },
-      { url: `${SITE_URL}/report`, changeFrequency: "monthly", priority: 0.4 },
       { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.3 },
       { url: `${SITE_URL}/feed.xml`, changeFrequency: "weekly", priority: 0.2 },
       { url: `${SITE_URL}/rss.xml`, changeFrequency: "weekly", priority: 0.2 },
@@ -101,10 +98,12 @@ describe("search and share metadata", () => {
     for (const entry of entries.filter((entry) => !editorialArticles.some((article) => entry.url === `${SITE_URL}${article.path}`))) {
       expect(entry).not.toHaveProperty("lastModified");
     }
+    expect(entries).not.toContainEqual(expect.objectContaining({ url: `${SITE_URL}/report` }));
   });
 
   it("keeps repository-owned alternate addresses on permanent canonical redirects", async () => {
-    expect(await nextConfig.redirects?.()).toEqual([
+    const resolvedConfig = await nextConfig("phase-production-server");
+    expect(await resolvedConfig.redirects?.()).toEqual([
       {
         source: "/method",
         destination: "/about",
@@ -164,9 +163,8 @@ describe("search and share metadata", () => {
   });
 
   it("gives each route a distinct title, matching canonical and og:url, and keeps the parent's share images", async () => {
-    const [issues, report, about, privacy, observatory, news, watch, patches] = await Promise.all([
+    const [issues, about, privacy, observatory, news, watch, patches] = await Promise.all([
       import("@/app/issues/page"),
-      import("@/app/report/page"),
       import("@/app/about/page"),
       import("@/app/privacy/page"),
       import("@/app/observatory/page"),
@@ -196,7 +194,6 @@ describe("search and share metadata", () => {
 
     const expectations = [
       [issues, "Issue Board", "/issues", expectedDescriptions["/issues"]],
-      [report, "File a Report", "/report", expectedDescriptions["/report"]],
       [about, "Method", "/about", expectedDescriptions["/about"]],
       [privacy, "Privacy", "/privacy", expectedDescriptions["/privacy"]],
       [observatory, "The Observatory", "/observatory", expectedDescriptions["/observatory"]],

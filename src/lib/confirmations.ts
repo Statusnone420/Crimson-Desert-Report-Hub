@@ -1,4 +1,4 @@
-export const CONFIRMATION_KINDS = ["have_it", "still_happening", "fixed_for_me"] as const;
+export const CONFIRMATION_KINDS = ["have_it", "not_happening", "still_happening", "fixed_for_me"] as const;
 export type ConfirmationKind = (typeof CONFIRMATION_KINDS)[number];
 
 export type ConfirmationRow = {
@@ -18,7 +18,7 @@ export type ClusterConfirmations = {
   pollStillCount: number;
   pollStillNetworks: number;
   byKind: Record<ConfirmationKind, { count: number; networks: number }>;
-  byPlatform: Record<string, { count: number; networks: number }>;
+  byPlatform: Record<string, { count: number; networks: number; byKind?: Partial<Record<ConfirmationKind, number>> }>;
 };
 
 export const EMPTY_CLUSTER_CONFIRMATIONS: ClusterConfirmations = {
@@ -31,6 +31,7 @@ export const EMPTY_CLUSTER_CONFIRMATIONS: ClusterConfirmations = {
   pollStillNetworks: 0,
   byKind: {
     have_it: { count: 0, networks: 0 },
+    not_happening: { count: 0, networks: 0 },
     still_happening: { count: 0, networks: 0 },
     fixed_for_me: { count: 0, networks: 0 },
   },
@@ -56,6 +57,7 @@ export function computeClusterConfirmations(rows: ConfirmationRow[], fixClaimedA
   const pollStillHashes = new Set<string>();
   const kindHashes: Record<ConfirmationKind, Set<string>> = {
     have_it: new Set<string>(),
+    not_happening: new Set<string>(),
     still_happening: new Set<string>(),
     fixed_for_me: new Set<string>(),
   };
@@ -65,22 +67,25 @@ export function computeClusterConfirmations(rows: ConfirmationRow[], fixClaimedA
   let pollStillCount = 0;
   const byKind: Record<ConfirmationKind, { count: number; networks: number }> = {
     have_it: { count: 0, networks: 0 },
+    not_happening: { count: 0, networks: 0 },
     still_happening: { count: 0, networks: 0 },
     fixed_for_me: { count: 0, networks: 0 },
   };
-  const byPlatform: Record<string, { count: number; networks: number }> = {};
+  const byPlatform: ClusterConfirmations["byPlatform"] = {};
 
   for (const row of rows) {
     byKind[row.kind].count += 1;
     kindHashes[row.kind].add(row.voter_ip_hash);
     (byPlatform[row.platform] ??= { count: 0, networks: 0 }).count += 1;
+    const platformKinds = (byPlatform[row.platform].byKind ??= {});
+    platformKinds[row.kind] = (platformKinds[row.kind] ?? 0) + 1;
     (platformHashes[row.platform] ??= new Set()).add(row.voter_ip_hash);
     const affected = row.kind === "have_it" || row.kind === "still_happening";
     if (affected) {
       affectedCount += 1;
       affectedHashes.add(row.voter_ip_hash);
     }
-    if (claimTime !== null && row.kind !== "have_it") {
+    if (claimTime !== null && (row.kind === "fixed_for_me" || row.kind === "still_happening")) {
       const votedAt = timeOf(row.created_at);
       if (votedAt !== null && votedAt >= claimTime) {
         if (row.kind === "fixed_for_me") {

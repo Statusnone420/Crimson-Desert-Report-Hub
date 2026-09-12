@@ -40,7 +40,7 @@ export default async function AboutPage() {
             <p className="dispatch-kicker">The Method</p>
             <h1 className="dispatch-pagehead__title">How the Report Hub works</h1>
             <p className="dispatch-pagehead__dek">
-              What the words on this site mean, and what we won&rsquo;t claim to know.
+              What the words on this site mean, and what this site does not claim to know.
             </p>
           </div>
         </header>
@@ -51,10 +51,10 @@ export default async function AboutPage() {
           <p className="small">Crimson Desert news, expansions and creators. Stories credit their sources. The issue scanner cannot publish articles.</p>
         </section>
         <dl className="method-registers" id="registers">
-          <dt className="method-registers__term">Player reports are evidence</dt>
-          <dd className="method-registers__def">You wrote it yourself. The strongest input here.</dd>
-          <dt className="method-registers__term">Confirmations are signals</dt>
-          <dd className="method-registers__def">A tap. Counted, never a verdict.</dd>
+          <dt className="method-registers__term">Earlier reports are evidence</dt>
+          <dd className="method-registers__def">Approved written accounts retained with their patch context.</dd>
+          <dt className="method-registers__term">Check-ins are experiences</dt>
+          <dd className="method-registers__def">An anonymous response, not a verified player count.</dd>
           <dt className="method-registers__term">Scanner links are leads</dt>
           <dd className="method-registers__def">A source to investigate; it does not establish a bug.</dd>
           <dt className="method-registers__term">Official notes are context</dt>
@@ -78,7 +78,7 @@ export default async function AboutPage() {
           <dt className="method-registers__term">Problem areas</dt>
           <dd className="method-registers__def">Distinct areas holding at least one tracked lead.</dd>
           <dt className="method-registers__term">Reviewed</dt>
-          <dd className="method-registers__def">Candidates the radar screened — not the coverage we vetted.</dd>
+          <dd className="method-registers__def">Candidates screened by the radar — not independently reviewed coverage.</dd>
         </dl>
 
         <div className="method-rows">
@@ -133,33 +133,33 @@ export default async function AboutPage() {
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
                 It has to name this patch outright, or have gone up on or after patch day. When a page
-                doesn&rsquo;t say when it went up, we say that instead of guessing.
+                doesn&rsquo;t say when it went up, that uncertainty is stated instead of guessed.
               </span>
             </summary>
             <div className="method-row__more">
               <p>
-                Times on the radar are when we last saw a page, not when anything happened in the game.
+                Times on the radar show when a page was last seen, not when anything happened in the game.
               </p>
             </div>
           </details>
 
           <details className="method-row" id="privacy">
             <summary className="method-row__q">
-              <span className="method-row__ask">What do you store about me?</span>
+              <span className="method-row__ask">What does the site store?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                No account, no email, no trackers, and never your IP address. Your raw report text stays private.
+                No accounts, email, trackers, or raw IP storage. Check-ins keep one current response per network, issue, and exact patch.
               </span>
             </summary>
             <div className="method-row__more">
               <p>
-                To limit spam we keep a scrambled fingerprint of your connection. It can&rsquo;t be turned back
-                into an address and it never appears on the site.
+                A salted one-way network hash limits repeat check-ins. The database does not store raw IP
+                addresses, and the hash never appears publicly. Turnstile checks help limit automated submissions.
               </p>
               <p>
-                What can show up publicly: a count, a summary built from the options you picked, or a short
-                excerpt a moderator approved — never your raw words by default. You can add an evidence link; the
-                report form does not read or upload files from your device.
+                A later choice replaces that network&rsquo;s response for the same issue and exact patch. Shared
+                networks share a response, so counts do not verify unique players. Historical approved reports and
+                excerpts may remain.
               </p>
               <p>
                 Scanner intelligence defaults to{" "}
@@ -200,12 +200,11 @@ export default async function AboutPage() {
               <span className="method-row__ask">Why does quiet not count as fixed?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                Because nobody answered. Silence never turns green here — an issue with no answers is just an
-                issue with no answers.
+                No answers means no verdict. Silence never counts as a fix.
               </span>
             </summary>
             <div className="method-row__more">
-              <p>Report and tap counts are never invented, estimated, or rounded.</p>
+              <p>Report and check-in counts are never invented, estimated, or rounded.</p>
             </div>
           </details>
 
@@ -220,33 +219,27 @@ export default async function AboutPage() {
             </summary>
             <div className="method-row__more">
               <p>
-                A link from a site we don&rsquo;t know needs more backup than one from a site we do — a report
-                alone isn&rsquo;t enough to publish it. Links that don&rsquo;t clear the bar stay private unless a
+                A link from an unfamiliar site needs more backup than one from a known site — a report alone
+                isn&rsquo;t enough to publish it. Links that don&rsquo;t clear the bar stay private unless a
                 maintainer publishes one by hand.
               </p>
               <p>
-                Published issues show the links and excerpts behind them, so you can check them yourself instead
-                of taking our word for it.
+                Published issues show the links and excerpts behind them, so readers can check them directly.
               </p>
             </div>
           </details>
 
           <details className="method-row" id="official-support">
             <summary className="method-row__q">
-              <span className="method-row__ask">Should I still report to Pearl Abyss?</span>
+              <span className="method-row__ask">Where can I send a support report?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                Yes — first. Nothing filed here reaches them.
+                Use Pearl Abyss&rsquo;s official channel. This independent fan site is not a support channel.
               </span>
             </summary>
             <div className="method-row__more">
               <p>
-                Crash dumps, logs, and a PERS ID belong in the official report — Pearl Abyss is the only one who
-                can actually fix it. Mention it in your{" "}
-                <Link href="/report" className="dispatch-link">
-                  report here
-                </Link>{" "}
-                afterward so the record shows you did.
+                Crash dumps, logs, and account details belong with Pearl Abyss. This site cannot receive, forward, or answer support requests.
               </p>
             </div>
           </details>

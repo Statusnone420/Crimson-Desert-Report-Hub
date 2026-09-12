@@ -7,25 +7,27 @@ import { PLATFORMS } from "@/lib/constants";
 import { hashIp } from "@/lib/crypto";
 import { requiredEnv } from "@/lib/env";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
-import { isCurrentPatchVerified, patchFamilyKey } from "@/lib/patchWatch";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
+import { isMissingSupabaseRpc } from "@/lib/supabaseCompatibility";
+import { verifyTurnstile } from "@/lib/turnstile";
 
 const confirmationSchema = z.object({
   cluster_id: z.uuid(),
+  patch_version: z.string().trim().min(1).max(20),
   platform: z.enum(PLATFORMS),
   kind: z.enum(CONFIRMATION_KINDS),
+  turnstile_token: z.string().min(1).max(2048),
 });
 
-// No captcha on this path: enum-only payload, one voice per network, rate limit, and
-// display thresholds bound the blast radius. Cross-site posts are refused outright.
 function isSameOrigin(req: Request): boolean {
   const fetchSite = req.headers.get("sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
   const origin = req.headers.get("origin");
   if (!origin) return false;
   try {
-    return new URL(origin).host === new URL(req.url).host;
+    return new URL(origin).origin === new URL(req.url).origin;
   } catch {
     return false;
   }
@@ -62,6 +64,15 @@ export async function POST(req: Request) {
     // One-voice dedup keys on the network hash; an unattributable tap can't be counted.
     return NextResponse.json({ error: "no_client_ip" }, { status: 400 });
   }
+
+  const captcha = await verifyTurnstile(parsed.data.turnstile_token, ip);
+  if (captcha.skipped) {
+    return NextResponse.json({ error: "turnstile_unavailable" }, { status: 503 });
+  }
+  if (!captcha.ok) {
+    return NextResponse.json({ error: "captcha_failed" }, { status: 400 });
+  }
+
   const voterIpHash = hashIp(ip, requiredEnv("SESSION_SECRET"));
 
   const supabase = createServiceClient();
@@ -70,22 +81,41 @@ export async function POST(req: Request) {
   if (!isCurrentPatchVerified(currentPatch)) {
     return NextResponse.json({ error: "current_patch_unavailable" }, { status: 503 });
   }
-  const patchFamily = patchFamilyKey(currentPatch.version) ?? currentPatch.version;
+  if (parsed.data.patch_version !== currentPatch.version) {
+    return NextResponse.json({ error: "stale_patch" }, { status: 409 });
+  }
 
-  const { data: outcome, error: recordError } = await supabase.rpc("record_issue_confirmation", {
+  const { data: outcome, error: recordError } = await supabase.rpc("record_issue_checkin", {
     p_cluster_id: parsed.data.cluster_id,
-    p_patch_family: patchFamily,
     p_patch_version: currentPatch.version,
     p_platform: parsed.data.platform,
     p_kind: parsed.data.kind,
     p_voter_ip_hash: voterIpHash,
   });
-  if (recordError) return NextResponse.json({ error: "confirm_failed" }, { status: 500 });
+  if (recordError) {
+    if (isMissingSupabaseRpc(recordError, "record_issue_checkin")) {
+      return NextResponse.json({ error: "checkins_unavailable" }, { status: 503 });
+    }
+    return NextResponse.json({ error: "confirm_failed" }, { status: 500 });
+  }
   if (outcome === "unknown_issue") return NextResponse.json({ error: "unknown_issue" }, { status: 404 });
+  if (outcome === "stale_patch") return NextResponse.json({ error: "stale_patch" }, { status: 409 });
+  if (outcome === "current_patch_unavailable") {
+    return NextResponse.json({ error: "current_patch_unavailable" }, { status: 503 });
+  }
   if (outcome === "rate_limited") return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  if (outcome === "claim_context_unavailable") {
+    return NextResponse.json({ error: "claim_context_unavailable" }, { status: 503 });
+  }
+  if (outcome === "claim_required") return NextResponse.json({ error: "claim_required" }, { status: 409 });
   if (outcome !== "recorded") return NextResponse.json({ error: "confirm_failed" }, { status: 500 });
 
   revalidateTag(PUBLIC_DASHBOARD_TAG, "max");
   revalidateTag(PUBLIC_ISSUES_TAG, "max");
-  return NextResponse.json({ ok: true }, { status: 201 });
+  return NextResponse.json({
+    ok: true,
+    kind: parsed.data.kind,
+    platform: parsed.data.platform,
+    patch_version: currentPatch.version,
+  }, { status: 201 });
 }

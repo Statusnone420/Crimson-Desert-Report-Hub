@@ -117,7 +117,7 @@ export default function Patch20200Article() {
               <section id="unconfirmed" className="editorial-note" aria-labelledby="unconfirmed-heading">
                 <h2 id="unconfirmed-heading">What is still unconfirmed?</h2>
                 <p>The Hub has not tested Mac save transfers or verified these fixes on affected saves. The patch notes describe Pearl Abyss’s changes; they do not establish the result on a particular player’s setup.</p>
-                <p>If a problem persists, <Link href="/report">file a report</Link> with the installed version, platform, settings and steps that reproduce it. The <Link href="/patches">Patch Desk</Link> keeps the current official record alongside player follow-up.</p>
+                <p>If a problem persists, <Link href="/issues">add a check-in to an existing issue</Link> with your experience and platform. The <Link href="/patches">Patch Desk</Link> keeps the current official record alongside player follow-up.</p>
               </section>
               <section id="sources" className="article-sources">
                 <h2>Sources &amp; updates</h2>

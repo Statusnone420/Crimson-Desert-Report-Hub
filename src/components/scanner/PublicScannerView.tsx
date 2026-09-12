@@ -5,7 +5,6 @@ import { SegmentedFunnelBar } from "@/components/dispatch/RadarCharts";
 import { categoryChartColor } from "@/lib/categoryColors";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import type { IntegrationStatus } from "@/lib/env";
-import { patchFamilyKey } from "@/lib/patchWatch";
 import type { DecoratedCluster, PublicScannerData } from "@/lib/queries";
 import { everyRegisterUnread, registerUnread } from "@/lib/scannerRegisters";
 import type { PatchRadarData } from "@/lib/radar.server";
@@ -32,7 +31,6 @@ export function PublicScannerView({
   patchVersion: string;
   leadQuestions: DecoratedCluster[];
 }) {
-  const patchFamily = patchFamilyKey(patchVersion) ?? patchVersion;
   const visibleLeadQuestions = leadQuestions.slice(0, 4);
   const maxTracked = Math.max(1, ...radar.categories.map((bucket) => bucket.tracked));
 
@@ -299,13 +297,13 @@ export function PublicScannerView({
                   </p>
                 </div>
                 <div className="obs-question__tap">
-                  <ConfirmButtons
+                  {cluster.checkinsAvailable === false ? <p>Current-patch check-ins are unavailable. Try again later.</p> : <ConfirmButtons
                     clusterId={cluster.id}
-                    storageScope={patchFamily}
+                    storageScope={patchVersion}
                     question="Player check-in · Affecting you?"
-                    kinds={["have_it"]}
-                    counts={{ have_it: cluster.confirmations.byKind.have_it.count }}
-                  />
+                    kinds={["have_it", "not_happening"]}
+                    counts={{ have_it: cluster.confirmations.byKind.have_it.count, not_happening: cluster.confirmations.byKind.not_happening.count }}
+                  />}
                 </div>
               </article>
             ))}
@@ -351,8 +349,8 @@ export function PublicScannerView({
         <Link href="/issues" className="dispatch-btn">
           See the Issue Board
         </Link>
-        <Link href="/report" className="dispatch-btn dispatch-btn--secondary">
-          File a report
+        <Link href="/issues#board" className="dispatch-btn dispatch-btn--secondary">
+          Add a check-in
         </Link>
       </section>
     </div>

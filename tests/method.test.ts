@@ -111,6 +111,6 @@ describe("method reference", () => {
     expect(aboutSource).not.toMatch(/reviewed by a moderator before any excerpt/i);
     expect(aboutSource).not.toMatch(/verified by (?:our|the) team/i);
     expect(aboutSource).not.toMatch(/guarantee[sd]?\b/i);
-    expect(aboutSource).toMatch(/never your raw words/i);
+    expect(aboutSource).toContain("raw IP storage");
   });
 });

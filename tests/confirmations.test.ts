@@ -11,8 +11,22 @@ const row = (over: Partial<ConfirmationRow>): ConfirmationRow => ({
 });
 
 describe("computeClusterConfirmations", () => {
-  it("exposes the three kinds", () => {
-    expect(CONFIRMATION_KINDS).toEqual(["have_it", "still_happening", "fixed_for_me"]);
+  it("exposes the four personal responses", () => {
+    expect(CONFIRMATION_KINDS).toEqual(["have_it", "not_happening", "still_happening", "fixed_for_me"]);
+  });
+
+  it("never treats not-happening responses as affected or a fix verdict", () => {
+    const tallies = computeClusterConfirmations([
+      row({ kind: "not_happening" }),
+      row({ kind: "have_it", voter_ip_hash: "other-network" }),
+    ], "2026-07-08T00:00:00Z");
+    expect(tallies.totalCount).toBe(2);
+    expect(tallies.byKind.not_happening.count).toBe(1);
+    expect(tallies.byPlatform.pc_steam.count).toBe(2);
+    expect(tallies.affectedCount).toBe(1);
+    expect(tallies.pollFixedCount).toBe(0);
+    expect(tallies.pollStillCount).toBe(0);
+    expect(JSON.stringify(tallies)).not.toContain("other-network");
   });
 
   it("counts affected = have_it + still_happening, with distinct networks", () => {
@@ -61,8 +75,8 @@ describe("computeClusterConfirmations", () => {
       ],
       null,
     );
-    expect(tallies.byPlatform.pc_steam).toEqual({ count: 1, networks: 1 });
-    expect(tallies.byPlatform.ps5).toEqual({ count: 2, networks: 2 });
+    expect(tallies.byPlatform.pc_steam).toEqual({ count: 1, networks: 1, byKind: { have_it: 1 } });
+    expect(tallies.byPlatform.ps5).toEqual({ count: 2, networks: 2, byKind: { still_happening: 1, fixed_for_me: 1 } });
     expect(tallies.byPlatform.xbox_series_x).toBeUndefined();
   });
 
@@ -79,6 +93,7 @@ describe("computeClusterConfirmations", () => {
     expect(tallies.totalCount).toBe(3);
     expect(tallies.byKind).toEqual({
       have_it: { count: 1, networks: 1 },
+      not_happening: { count: 0, networks: 0 },
       still_happening: { count: 1, networks: 1 },
       fixed_for_me: { count: 1, networks: 1 },
     });
