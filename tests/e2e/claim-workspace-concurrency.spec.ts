@@ -20,7 +20,7 @@ test("public exact claim context stays unavailable before the first durable sync
   const context = issue.getByRole("region", { name: "Official fix being checked", exact: true });
   await expect(context).toContainText("The exact official claim could not be read.");
   await expect(context).not.toContainText("No confirmed official claim is attached");
-  await expect(context.getByRole("link", { name: "Review the official fix record →" })).toHaveAttribute("href", "/patches#claims");
+  await expect(context.getByRole("link", { name: "Review the official fix record" })).toHaveAttribute("href", "/patches#claims");
 });
 
 test("claim decisions reject stale lifecycle state and recover after explicit reload", async ({ page }) => {
@@ -67,8 +67,8 @@ test("a confirmed match exposes only its exact public claim and opens the matchi
       await expect(page.getByRole("region", { name: "Official fix being checked", exact: true })).toContainText(pairing.exact_official_text);
     }).toPass({ timeout: 30_000 });
     const context = page.getByRole("region", { name: "Official fix being checked", exact: true });
-    await expect(context.getByRole("link", { name: "Pearl Abyss source ↗", exact: true })).toHaveAttribute("href", pairing.official_url);
-    await expect(context.getByRole("link", { name: "Find this fix in the patch record →", exact: true })).toHaveAttribute("href", `/patches#claim-${pairing.claim_key}`);
+    await expect(context.getByRole("link", { name: "Pearl Abyss source", exact: true })).toHaveAttribute("href", pairing.official_url);
+    await expect(context.getByRole("link", { name: "Find this fix in the patch record", exact: true })).toHaveAttribute("href", `/patches#claim-${pairing.claim_key}`);
     const issue = page.getByRole("article", { name: "Map-open crash persists after fix", exact: true });
     await expect(issue.getByRole("button", { name: /^Fixed for me(?: —|$)/ })).toBeVisible();
     await expect(issue.getByRole("button", { name: /^Still happening(?: —|$)/ })).toBeVisible();
@@ -80,7 +80,7 @@ test("a confirmed match exposes only its exact public claim and opens the matchi
     expect(publicHtml).not.toContain(pairing.proposal_reason);
     await context.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("confirmed-claim.png"), animations: "disabled" });
-    await context.getByRole("link", { name: "Find this fix in the patch record →", exact: true }).click();
+    await context.getByRole("link", { name: "Find this fix in the patch record", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`#claim-${pairing.claim_key}$`));
     await expect(page.locator(`#claim-${pairing.claim_key}`)).toHaveText(pairing.exact_official_text);
     await expect(page.locator(`#claim-${pairing.claim_key}`)).toBeInViewport();

@@ -33,7 +33,8 @@ const MAIN_ACTIONS = [
   "main .article-meta a",
   "main .release-note a",
   "main .mobile-contents a",
-  "main .observatory-sections a",
+  "main .section-nav a",
+  "main .reading-link",
   "main .observatory-footer a",
   "main .obs-options button",
   "main .obs-share-days button",
@@ -166,7 +167,7 @@ test.describe("public newspaper readability", () => {
     await page.goto("/");
     const board = page.locator("#board");
     const issueBoard = board.getByRole("link", { name: /(?:All \d+ published issues?|Read the issue board)/ });
-    const addCheckin = board.getByRole("link", { name: "Add a check-in →" });
+    const addCheckin = board.getByRole("link", { name: "Add a check-in" });
     await expect(issueBoard).toBeVisible();
     await expect(addCheckin).toBeVisible();
 

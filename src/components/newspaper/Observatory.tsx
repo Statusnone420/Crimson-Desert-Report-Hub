@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import { useState } from "react";
 import type { PublicScannerData } from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
@@ -115,8 +115,9 @@ function SteamMovementChart({
                   className={"obs-review-hit" + (selectedPoint ? " is-selected" : "")}
                   aria-label={displayDate(point.snapshotDay) + ": " + (delta === null ? "no prior recorded baseline" : signed(delta) + " reviews since the previous recorded snapshot")}
                   aria-pressed={selectedPoint}
-                  onPointerEnter={(event) => {
-                    if (event.pointerType === "mouse" && window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+                  onPointerMove={(event) => {
+                    // A fragment jump can move a bar under a stationary cursor.
+                    if (event.pointerType === "mouse" && (event.movementX !== 0 || event.movementY !== 0) && window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
                       setSelectedDay(point.snapshotDay);
                     }
                   }}
@@ -213,14 +214,14 @@ function ReviewRecord({ data, radar }: { data: PublicScannerData; radar: PatchRa
     const message = series.availability === "unavailable"
       ? "Steam review history could not be read. Try again shortly."
       : "No Steam review captures are available yet.";
-    return <section id="review-record" className="obs-section"><div className="obs-section-heading"><div><p className="kicker">Steam reviews</p><h2>The review record</h2></div></div><p className={series.availability === "unavailable" ? "np-error" : "obs-note"}>{message}</p></section>;
+    return <section id="review-record" tabIndex={-1} className="obs-section"><div className="obs-section-heading"><div><p className="kicker">Steam reviews</p><h2>The review record</h2></div></div><p className={series.availability === "unavailable" ? "np-error" : "obs-note"}>{message}</p></section>;
   }
   const points = selectSteamReadings(series.points, readingCount);
   const latest = series.points.at(-1) ?? null;
   if (!latest) return null;
 
   return (
-    <section id="review-record" className="obs-section" aria-labelledby="review-title">
+    <section id="review-record" tabIndex={-1} className="obs-section" aria-labelledby="review-title">
       <div className="obs-section-heading"><div><p className="kicker">Steam reviews</p><h2 id="review-title">The review record</h2></div><div className="obs-review-totals"><span><strong>{number(latest.totalReviews)}</strong> total reviews</span><span><strong>{latest.positivePercentage.toFixed(1)}%</strong> recorded positive share</span></div></div>
       <div className="obs-review-controls">
         <Options label="Review chart" value={metric} onChange={(value) => setMetric(String(value))} options={[["movement", "Review movement"], ["share", "Positive share"]]} />
@@ -311,11 +312,11 @@ function TwitchTimeline({ data }: { data: PublicScannerData }) {
 function PlatformActivity({ data }: { data: PublicScannerData }) {
   const platforms = platformLabels(data);
   return (
-    <section id="platform-activity" className="obs-section" aria-labelledby="platform-title">
+    <section id="platform-activity" tabIndex={-1} className="obs-section" aria-labelledby="platform-title">
       <div className="obs-section-heading"><div><p className="kicker">Platform activity</p><h2 id="platform-title">Beyond the game window</h2></div><p>Twitch audience history and the game’s listed platforms.</p></div>
       <div className="obs-platform-spread">
         <TwitchTimeline data={data} />
-        <aside className="obs-platforms"><p className="kicker">The platform record</p><h3>Where the game is listed</h3>{platforms === null || platforms.length === 0 ? <p>IGDB platform metadata is unavailable because the latest capture has no listed platforms.</p> : <ul>{platforms.map((platform) => <li key={platform}>{platform}</li>)}</ul>}<p>Base-game platforms come from IGDB. Player totals for these platforms are not included in this record.</p>{data.platformContext?.igdbUrl ? <a href={data.platformContext.igdbUrl} target="_blank" rel="noreferrer noopener">View on IGDB ↗</a> : null}</aside>
+        <aside className="obs-platforms"><p className="kicker">The platform record</p><h3>Where the game is listed</h3>{platforms === null || platforms.length === 0 ? <p>IGDB platform metadata is unavailable because the latest capture has no listed platforms.</p> : <ul>{platforms.map((platform) => <li key={platform}>{platform}</li>)}</ul>}<p>Base-game platforms come from IGDB. Player totals for these platforms are not included in this record.</p>{data.platformContext?.igdbUrl ? <ReadingLink variant="source" source="IGDB · Game directory" href={data.platformContext.igdbUrl} target="_blank" rel="noreferrer noopener">View on IGDB</ReadingLink> : null}</aside>
       </div>
     </section>
   );
@@ -326,7 +327,7 @@ function ScannerRadar({ radar }: { radar: PatchRadarData }) {
   const [active, setActive] = useState(0);
   const series = buildRadarCategories(radar);
   if (series.availability !== "ready") {
-    return <section id="scanner-radar" className="obs-section"><div className="obs-section-heading"><div><p className="kicker">The source radar</p><h2>What keeps showing up?</h2></div></div><p className="np-error">Radar category data is unavailable because no recorded category counts are available.</p></section>;
+    return <section id="scanner-radar" tabIndex={-1} className="obs-section"><div className="obs-section-heading"><div><p className="kicker">The source radar</p><h2>What keeps showing up?</h2></div></div><p className="np-error">Radar category data is unavailable because no recorded category counts are available.</p></section>;
   }
   const categories = series.categories;
   const selected = categories[Math.min(active, categories.length - 1)];
@@ -340,13 +341,13 @@ function ScannerRadar({ radar }: { radar: PatchRadarData }) {
   const flowTotal = flow.reviewed;
 
   return (
-    <section id="scanner-radar" className="obs-section" aria-labelledby="radar-title">
+    <section id="scanner-radar" tabIndex={-1} className="obs-section" aria-labelledby="radar-title">
       <div className="obs-section-heading"><div><p className="kicker">The source radar</p><h2 id="radar-title">What keeps showing up?</h2></div><Options label="Radar count" value={metric} onChange={(value) => setMetric(value === "newThisWeek" ? "newThisWeek" : "tracked")} options={[["tracked", "Tracked leads"], ["newThisWeek", "New this week"]]} /></div>
       <div className="obs-radar-spread">
         <div className="obs-radar-figure"><p><strong>{total}</strong> {metric === "tracked" ? "tracked leads" : "new leads in seven days"} <span>· not confirmed bugs</span></p><svg viewBox="0 0 440 395" role="img" aria-label={(metric === "tracked" ? "Tracked leads" : "New leads this week") + " by category. " + categories.map((category) => category.label + ": " + category[metric]).join("; ")}><g className="obs-radar-grid">{[1, 2, 3, 4, 5].map((step) => <polygon key={step} points={categories.map((_, index) => point(step * maximum / 5, index).join(",")).join(" ")} />)}{categories.map((_, index) => <line key={index} x1="220" y1="192" x2={point(maximum, index)[0]} y2={point(maximum, index)[1]} />)}</g><polygon className="obs-radar-shape" points={categories.map((category, index) => point(category[metric], index).join(",")).join(" ")} />{categories.map((category, index) => { const current = point(category[metric], index); const label = point(maximum, index, 179); return <g key={category.category}><circle cx={current[0]} cy={current[1]} r={active === index ? 6 : 3} className={active === index ? "obs-radar-active" : ""} /><text x={label[0]} y={label[1]} textAnchor="middle">{category.short}</text></g>; })}{[1, 2, 3, 4, 5].map((step) => <text className="obs-radar-scale" key={step} x="207" y={192 - step / 5 * 142}>{step * maximum / 5}</text>)}</svg></div>
         <div className="obs-radar-ranking"><div className="obs-rank-labels"><span>Category</span><span>{metric === "tracked" ? "Tracked" : "New in 7 days"}</span></div>{categories.map((category, index) => <button type="button" className={"obs-rank-row" + (active === index ? " is-selected" : "")} key={category.category} aria-pressed={active === index} onPointerEnter={() => setActive(index)} onFocus={() => setActive(index)} onClick={() => setActive(index)}><span>{category.label}</span><span className="obs-rank-track"><i style={{ width: (category[metric] / maximum) * 100 + "%" }} /></span><strong>{category[metric]}</strong></button>)}<p className="obs-rank-readout" aria-live="polite"><b>{selected.label}</b> · {selected.tracked} tracked · {selected.newThisWeek} new this week</p></div>
       </div>
-      <div className="obs-radar-foot"><span><b>{radar.recurring.recurringLeads}</b> of {radar.recurring.trackedLeads} tracked leads seen again</span><span><b>{radar.activeLeadClusters}</b> mapped issue areas</span><Link href="/issues"><b>{radar.evidence?.reports ?? "Unavailable"}</b> approved player report{radar.evidence?.reports === 1 ? "" : "s"} in this patch family →</Link></div>
+      <div className="obs-radar-foot"><span><b>{radar.recurring.recurringLeads}</b> of {radar.recurring.trackedLeads} tracked leads seen again</span><span><b>{radar.activeLeadClusters}</b> mapped issue areas</span><ReadingLink href="/issues"><b>{radar.evidence?.reports ?? "Unavailable"}</b> approved player report{radar.evidence?.reports === 1 ? "" : "s"} in this patch family</ReadingLink></div>
       {flowTotal > 0 ? <section className="obs-flow" aria-labelledby="flow-title"><div><p className="kicker">The weekly scan</p><h3 id="flow-title">From {number(flowTotal)} candidates</h3><p>Processing outcomes over seven days. These counts describe the week’s work, not the current lead total.</p></div><div className="obs-flow-chart"><div className="obs-flow-bar" role="img" aria-label={flowTotal + " candidates reviewed: " + flow.kept + " kept, " + flow.reobserved + " re-observed, " + flow.filtered + " filtered out"}><span className="obs-flow-kept" style={{ width: (flow.kept / flowTotal) * 100 + "%" }} /><span className="obs-flow-recurring" style={{ width: (flow.reobserved / flowTotal) * 100 + "%" }} /><span className="obs-flow-filtered" style={{ width: (flow.filtered / flowTotal) * 100 + "%" }} /></div><dl><div><dt><i className="obs-key-blue" />Kept</dt><dd>{flow.kept}</dd></div><div><dt><i className="obs-key-positive" />Seen again</dt><dd>{flow.reobserved}</dd></div><div><dt><i className="obs-key-muted" />Filtered</dt><dd>{number(flow.filtered)}</dd></div></dl></div></section> : <p className="obs-note">Weekly flow is unavailable because no candidate total is recorded.</p>}
       <details className="obs-method"><summary>What the radar can tell us</summary><p>Tracked leads are the current working set. New leads cover seven days. Repeated sightings can flag recurring topics, but they do not establish how many players are affected.</p></details>
     </section>

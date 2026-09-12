@@ -1,3 +1,4 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import Image from "next/image";
 import type { WatchSelection } from "@/lib/watchSelections";
 
@@ -42,9 +43,9 @@ function WatchPick({ selection, preload }: { selection: WatchSelection; preload?
           <h2>{selection.headline}</h2>
         </a>
         <p className="watch-reason">{selection.reason}</p>
-        <a className="action" href={selection.url} target="_blank" rel="noreferrer noopener">
-          {selection.actionLabel}
-        </a>
+        <ReadingLink className="action" href={selection.url} target="_blank" rel="noreferrer noopener">
+          {selection.actionLabel.replace(/\s*↗$/, "")}
+        </ReadingLink>
       </div>
     </article>
   );

@@ -81,7 +81,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
     mocks.getDashboardData.mockResolvedValue(dashboardData([publishedCluster()]));
     const markup = renderToStaticMarkup(await HomePage());
     expect(markup).toContain(patch20200.title);
-    expect(markup).toContain("All 1 published issue →");
+    expect(markup).toContain("All 1 published issue");
     expect(markup).not.toContain("FPS regression since 1.13");
   });
 
@@ -120,7 +120,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
     const rolledOver = publishedCluster({ id: "cluster-rolled-over", strengthScore: 0, directReportCount: 0, confirmations: { totalCount: 0, byPlatform: {}, byKind: { have_it: { count: 0 }, not_happening: { count: 0 } }, pollFixedCount: 0, pollStillCount: 0 }, readout: { state: "watching", label: "Open", tone: "dim", sentence: "The scanner checks public sources every run. Nothing's turned up this patch.", ask: null, poll: null } });
     mocks.getDashboardData.mockResolvedValue(dashboardData([rolledOver]));
     const markup = renderToStaticMarkup(await HomePage());
-    expect(markup).toContain("All 0 published issues →");
+    expect(markup).toContain("All 0 published issues");
     expect(markup).not.toContain("FPS regression since 1.13");
   });
 
@@ -128,7 +128,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
     const vagueTitle = "Real bad mechanic issue got bugged in recent update";
     mocks.getDashboardData.mockResolvedValue(dashboardData([publishedCluster({ title: vagueTitle, directReportCount: 1 })]));
     const markup = renderToStaticMarkup(await HomePage());
-    expect(markup).toContain("All 1 published issue →");
+    expect(markup).toContain("All 1 published issue");
     expect(markup).not.toContain(vagueTitle);
     expect(markup).not.toContain("board-lead");
   });
@@ -138,7 +138,7 @@ describe("homepage keeps issue publication separate from headline selection", ()
     const markup = renderToStaticMarkup(await HomePage());
     expect(markup).toContain("1 tracked issue");
     expect(markup).not.toContain("6 tracked issues");
-    expect(markup).toContain("All 1 published issue →");
+    expect(markup).toContain("All 1 published issue");
     expect(markup).not.toContain("All 6 published issues");
   });
 

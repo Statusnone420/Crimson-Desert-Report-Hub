@@ -46,7 +46,7 @@ describe("patch desk", () => {
     }));
     const markup = renderToStaticMarkup(await PatchesPage());
     expect(markup).toContain('href="/articles/patch-2-02-00"');
-    expect(markup).toContain("Read the report →");
+    expect(markup).toContain("Read the report");
     expect(markup).toContain("Crimson Desert’s September 11 update adds Mac cross-save");
     expect(markup).not.toContain("Official fallback summary.");
     expect(markup).toContain('href="https://example.com/official"');
@@ -77,7 +77,7 @@ describe("patch desk", () => {
     }));
     const markup = renderToStaticMarkup(await PatchesPage());
     expect(markup).not.toContain('href="/articles/patch-2-02-00"');
-    expect(markup).not.toContain("Read the report →");
+    expect(markup).not.toContain("Read the report");
   });
 
   it("does not turn an unread official register into zero claims", async () => {

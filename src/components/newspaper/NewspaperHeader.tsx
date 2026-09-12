@@ -1,5 +1,6 @@
 "use client";
 
+import { DirectionIcon } from "./ReadingLink";
 import Link from "next/link";
 import Image from "next/image";
 import { motion, useReducedMotion } from "motion/react";
@@ -21,5 +22,5 @@ export function ThemeToggle() {
 export function NewspaperHeader({ active, home = false }: { active?: string; home?: boolean }) {
   const reducedMotion = useReducedMotion();
   const Masthead = home ? "h1" : "div";
-  return <header><div className="topline"><div className="desk-meta"><DeskDate/><Link className="mobile-file" href="/issues" aria-current={active === "issues" ? "page" : undefined}>Add a check-in <span aria-hidden="true">→</span></Link></div><div className="theme"><CatchUpMenu compact/><ThemeToggle/></div></div><Masthead className="masthead"><Link href="/">Crimson Desert <em>Report Hub</em></Link></Masthead><nav aria-label="Main navigation">{[["brief", "/", "News"], ["patches", "/patches", "Patches"], ["issues", "/issues", "Issues"], ["observatory", "/observatory", "Observatory"]].map(([key, href, label]) => <Link key={key} href={href} aria-current={(active === key || (key === "brief" && active === "news")) ? "page" : undefined}>{label}{(active === key || (key === "brief" && active === "news")) && <motion.span className="nav-indicator" layoutId="newspaper-nav" transition={{ duration: reducedMotion ? 0 : .28 }}/>}</Link>)}<Link className="file" href="/issues" aria-current={active === "issues" ? "page" : undefined}>Add a check-in <span aria-hidden="true">→</span></Link></nav></header>;
+  return <header><div className="topline"><div className="desk-meta"><DeskDate/><Link className="mobile-file" href="/issues" aria-current={active === "issues" ? "page" : undefined}>Add a check-in <DirectionIcon /></Link></div><div className="theme"><CatchUpMenu compact/><ThemeToggle/></div></div><Masthead className="masthead"><Link href="/">Crimson Desert <em>Report Hub</em></Link></Masthead><nav aria-label="Main navigation">{[["brief", "/", "News"], ["patches", "/patches", "Patches"], ["issues", "/issues", "Issues"], ["observatory", "/observatory", "Observatory"]].map(([key, href, label]) => <Link key={key} href={href} aria-current={(active === key || (key === "brief" && active === "news")) ? "page" : undefined}>{label}{(active === key || (key === "brief" && active === "news")) && <motion.span className="nav-indicator" layoutId="newspaper-nav" transition={{ duration: reducedMotion ? 0 : .28 }}/>}</Link>)}<Link className="file" href="/issues" aria-current={active === "issues" ? "page" : undefined}>Add a check-in <DirectionIcon /></Link></nav></header>;
 }

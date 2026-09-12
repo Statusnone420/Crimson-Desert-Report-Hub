@@ -137,7 +137,7 @@ test.describe("Turnstile theme integration with a local vendor stub", () => {
     await expect.poll(async () => (await stubState(page)).activeIds).toEqual([]);
     expect((await stubState(page)).removed).toContain(lightId);
     await page.getByRole("button", { name: "Switch to dark mode" }).click();
-    await page.getByRole("contentinfo").getByRole("link", { name: "Add a check-in →", exact: true }).click();
+    await page.getByRole("contentinfo").getByRole("link", { name: "Add a check-in", exact: true }).click();
     await expect(page).toHaveURL(/\/issues$/);
     const remountedCard = page.getByRole("article").filter({ hasText: "FPS regression since 1.13" });
     await remountedCard.getByRole("button", { name: /Happening to me/ }).click();

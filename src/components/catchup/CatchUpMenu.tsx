@@ -1,5 +1,6 @@
 "use client";
 
+import { DirectionIcon } from "@/components/newspaper/ReadingLink";
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -102,7 +103,7 @@ export function CatchUpMenu({ label = "Catch me up", compact = false }: { label?
             {mode === "patch" && <fieldset className="catch-up-patches"><legend>Last patch played</legend><p id={`${id}-patch-hint`}>Shows later updates. {PATCHES.length} patches, newest first.</p><div className="catch-up-patch-list" ref={patchList}>{PATCHES.map((item) => <label key={item.id} className={patch === item.patch ? "is-selected" : undefined}><input type="radio" name={`${id}-patch`} value={item.patch} checked={patch === item.patch} onChange={() => { setPatch(item.patch!); setError(""); }} aria-describedby={`${id}-patch-hint`}/><span>{item.patch}</span><time dateTime={item.publishedAt}>{catchUpDate(item.publishedAt)}</time></label>)}</div></fieldset>}
           </div>
           {error && <p id={`${id}-error`} className="catch-up-error" role="alert">{error}</p>}
-          <button type="submit" className="catch-up-primary catch-up-submit">Show updates <span aria-hidden="true">→</span></button>
+          <button type="submit" className="catch-up-primary catch-up-submit">Show updates <DirectionIcon /></button>
         </form>
         <div className="catch-up-memory"><label><input type="checkbox" checked={preferences.remember} disabled={!ready || !available} onChange={(event) => setRemember(event.target.checked)}/><span>Remember my place on this browser</span></label><p>{available ? "Saved here only. Turn off to clear your dates." : "Browser storage is unavailable. Date and patch choices still work."} <Link href="/privacy" onClick={close}>Privacy</Link></p></div>
       </div>

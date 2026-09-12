@@ -1,5 +1,6 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
+import { SectionNavigation } from "@/components/newspaper/SectionNavigation";
 import type { ResolvingMetadata } from "next";
-import Link from "next/link";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { Observatory } from "@/components/newspaper/Observatory";
 import { getPublicScannerData } from "@/lib/queries";
@@ -18,6 +19,12 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
 
 export const dynamic = "force-dynamic";
 
+const sections = [
+  { id: "review-record", label: "The review record" },
+  { id: "platform-activity", label: "Platform activity" },
+  { id: "scanner-radar", label: "The source radar" },
+];
+
 export default async function ObservatoryPage() {
   const [data, radar] = await Promise.all([getPublicScannerData(), getPatchRadarData()]);
 
@@ -26,20 +33,16 @@ export default async function ObservatoryPage() {
       <div id="observatory-top" className="dispatch-container observatory-paper">
         <a className="skip" href="#review-record">Skip to the charts</a>
         <section className="observatory-heading">
-          <Link className="back-link" href="/">← Back to the front page</Link>
+          <ReadingLink variant="quiet" direction="back" className="back-link" href="/"> Back to the front page</ReadingLink>
           <p className="kicker">The Observatory · {isCurrentPatchVerified(radar.patch) ? `Patch ${radar.patch.version}` : "Current patch unverified"}</p>
           <h1>The game, in context.</h1>
           <p>Recorded reviews, audience activity, and the signals coming in from across the web.</p>
         </section>
-        <div className="observatory-sections" role="navigation" aria-label="Observatory sections">
-          <a href="#review-record">The review record ↓</a>
-          <a href="#platform-activity">Platform activity ↓</a>
-          <a href="#scanner-radar">The source radar ↓</a>
-        </div>
+        <SectionNavigation sections={sections} label="Observatory sections" />
         <Observatory data={data} radar={radar} />
         <div className="observatory-footer">
-          <Link href="/issues">Read the player reports →</Link>
-          <a href="#observatory-top">Back to top ↑</a>
+          <ReadingLink href="/issues">Read the player reports</ReadingLink>
+          <ReadingLink variant="quiet" direction="up" href="#observatory-top">Back to top</ReadingLink>
         </div>
         <p className="np-capture-note">Steam reviews and Twitch captures are recorded aggregates, not a live feed. Scanner leads are context with a source, never player reports.</p>
       </div>

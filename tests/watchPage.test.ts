@@ -38,7 +38,7 @@ describe("watch desk selections", () => {
     expect(selections[0]?.url).toBe("https://www.youtube.com/watch?v=HaCtG1F_hfE");
     const markup = renderWatch();
     expect(markup).toContain("Pearl Abyss’s Charting the Unknown reveal trailer.");
-    expect(markup).toContain("Watch the official reveal ↗");
+    expect(markup).toContain("Watch the official reveal");
     expect(markup).toContain("HaCtG1F_hfE.jpg");
     expect(markup).toContain("Pearl Abyss");
     expect(markup).toContain("Official");
@@ -68,7 +68,7 @@ describe("watch desk selections", () => {
     });
     const markup = renderWatch();
     expect(markup).toContain("The official Charting the Unknown reveal, then one creator’s reading of it.");
-    expect(markup).toContain("Watch on YouTube ↗");
+    expect(markup).toContain("Watch on YouTube");
     expect(markup).toContain("6H6c0S80d4U.jpg");
     expect(markup).toContain("Sep 3, 2026");
     expect(markup).not.toContain("451196");

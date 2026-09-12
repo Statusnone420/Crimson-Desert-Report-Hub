@@ -1,6 +1,6 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import type { ResolvingMetadata } from "next";
 import { connection } from "next/server";
-import Link from "next/link";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { routeMetadata, SOURCE_URL } from "@/lib/site";
 
@@ -63,23 +63,20 @@ export default async function PrivacyPage() {
         </section>
 
         <div className="privacy-outro">
-          <p>
-            <Link href="/about#privacy" className="dispatch-link">
+          <div className="reading-resources">
+            <ReadingLink variant="source" href="/about#privacy">
               Method · privacy
-            </Link>
-            {" · "}
-            <a href={POLICY} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+            </ReadingLink>
+            <ReadingLink variant="source" href={POLICY} target="_blank" rel="noreferrer noopener">
               Full privacy policy
-            </a>
-            {" · "}
-            <a href={WIKI} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+            </ReadingLink>
+            <ReadingLink variant="source" href={WIKI} target="_blank" rel="noreferrer noopener">
               Privacy &amp; moderation
-            </a>
-            {" · "}
-            <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+            </ReadingLink>
+            <ReadingLink variant="source" href={SOURCE_URL} target="_blank" rel="noreferrer noopener">
               View the source on GitHub
-            </a>
-          </p>
+            </ReadingLink>
+          </div>
         </div>
       </div>
     </PublicShell>
