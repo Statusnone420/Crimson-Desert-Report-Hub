@@ -11,6 +11,7 @@ import {
   platformLabels,
   selectSteamReadings,
   selectTwitchWindow,
+  twitchHistorySummary,
   type SteamReviewPoint,
   type TwitchPoint,
 } from "@/lib/newspaperObservatory";
@@ -242,8 +243,25 @@ function TwitchTimeline({ data }: { data: PublicScannerData }) {
   const [capturePage, setCapturePage] = useState(0);
   const series = buildTwitchSeries(data.platformContext, data.pulseReadFailures.includes("platform"));
   const window = selectTwitchWindow(series, hours);
-  if (!window || window.points.length === 0) {
-    return <div className="obs-audience"><p className="np-error">Twitch aggregate history is unavailable because no complete captures are available in this window.</p></div>;
+  const historySummary = twitchHistorySummary(series);
+  if (!window) {
+    return <div className="obs-audience"><p className="np-error">{historySummary ?? "No complete Twitch captures are available in this window."}</p></div>;
+  }
+  const controls = (
+    <div key="controls" className="obs-review-controls">
+      {window.points.length > 0 ? <Options key="metric" label="Twitch metric" value={metric} onChange={(value) => setMetric(value === "streams" ? "streams" : "viewers")} options={[["viewers", "Viewers"], ["streams", "Streams"]]} /> : null}
+      <Options key="window" label="Twitch window" value={hours} onChange={(value) => { setHours(Number(value)); setSelectedCapture(null); setCapturePage(0); }} options={[[24, "24 hours"], [168, "7 days"]]} />
+    </div>
+  );
+  if (window.points.length === 0) {
+    return (
+      <div className="obs-audience">
+        <div className="obs-audience-heading"><span className="obs-platform-name">Twitch</span><span>No captures in this window</span></div>
+        <p className="obs-note">{historySummary ? historySummary + " " : ""}{series.latestCapturedAt ? "Latest complete capture: " + captureLabel(series.latestCapturedAt) + " UTC." : ""}</p>
+        {controls}
+        <p className="obs-note" role="status">No complete Twitch captures are available in this {hours === 24 ? "24-hour" : "seven-day"} window.</p>
+      </div>
+    );
   }
 
   const points = window.points;
@@ -271,11 +289,9 @@ function TwitchTimeline({ data }: { data: PublicScannerData }) {
   return (
     <div className="obs-audience">
       <div className="obs-audience-heading"><span className="obs-platform-name">Twitch</span><span>{points.length} recorded captures · UTC</span></div>
+      <p className="obs-note">{historySummary ? historySummary + " " : ""}Latest complete capture: {captureLabel(series.latestCapturedAt ?? latest.capturedAt)} UTC.</p>
       <div className="obs-audience-numbers"><div><strong>{number(latest.viewers)}</strong><span>Viewers at latest capture</span></div><div><strong>{number(latest.streams)}</strong><span>Live streams at latest capture</span></div></div>
-      <div className="obs-review-controls">
-        <Options label="Twitch metric" value={metric} onChange={(value) => setMetric(value === "streams" ? "streams" : "viewers")} options={[["viewers", "Viewers"], ["streams", "Streams"]]} />
-        <Options label="Twitch window" value={hours} onChange={(value) => { setHours(Number(value)); setSelectedCapture(null); setCapturePage(0); }} options={[[24, "24 hours"], [168, "7 days"]]} />
-      </div>
+      {controls}
       <div className="obs-twitch-readout" aria-live="polite"><strong>{number(selected[metric])} {metric}</strong><span>{captureLabel(selected.capturedAt)} UTC</span></div>
       <svg className="obs-twitch-chart" viewBox="0 0 710 265" role="img" aria-label={(hours === 24 ? "24-hour" : "Seven-day") + " Twitch " + metric + " history. " + points.length + " recorded captures from " + captureSpan + ", observed low " + low + ", observed peak " + peak + "."} onPointerMove={selectAtPointer} onClick={selectAtPointer}>
         {[0, 1, 2, 3, 4].map((tick) => <g key={tick}><line className="obs-timeline-grid" x1="45" x2="685" y1={220 - tick * 47.5} y2={220 - tick * 47.5} /><text x="35" y={224 - tick * 47.5} textAnchor="end">{number((ceiling * tick) / 4)}</text></g>)}

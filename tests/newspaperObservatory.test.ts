@@ -5,6 +5,7 @@ import {
   buildTwitchSeries,
   selectSteamReadings,
   selectTwitchWindow,
+  twitchHistorySummary,
 } from "@/lib/newspaperObservatory";
 import type { PatchRadarData } from "@/lib/radar.server";
 
@@ -81,11 +82,66 @@ describe("newspaper observatory adapters", () => {
 
     expect(window?.points).toHaveLength(3);
     expect(window?.segments.map((segment) => segment.length)).toEqual([2, 1]);
+    expect(series.latestState).toBe("fresh");
+  });
+
+  it("keeps complete historical Twitch captures chartable when the latest capture is delayed", () => {
+    const series = buildTwitchSeries({
+      capturedAt: "2026-09-12T12:00:00.000Z",
+      igdbStatus: "ok", releaseAt: null, platforms: [], igdbUrl: null,
+      twitchStatus: "stale", liveStreams: null, liveViewers: null, twitchComplete: null,
+      twitchHistory: [
+        { capturedAt: "2026-09-12T08:00:00.000Z", liveStreams: 4, liveViewers: 80 },
+        { capturedAt: "2026-09-12T10:00:00.000Z", liveStreams: 6, liveViewers: 120 },
+      ],
+    }, false);
+
+    expect(series).toMatchObject({ availability: "ready", checkedAt: "2026-09-12T12:00:00.000Z", latestCapturedAt: "2026-09-12T10:00:00.000Z", latestState: "delayed" });
+    expect(selectTwitchWindow(series, 24)?.points).toHaveLength(2);
+    expect(twitchHistorySummary(series)).toBe("Latest Twitch capture is delayed. Historical captures are not live.");
+  });
+
+  it("keeps earlier complete captures when the latest Twitch response is unavailable", () => {
+    const series = buildTwitchSeries({
+      capturedAt: "2026-09-12T12:00:00.000Z",
+      igdbStatus: "ok", releaseAt: null, platforms: [], igdbUrl: null,
+      twitchStatus: "error", liveStreams: null, liveViewers: null, twitchComplete: null,
+      twitchHistory: [{ capturedAt: "2026-09-12T09:00:00.000Z", liveStreams: 3, liveViewers: 60 }],
+    }, false);
+
+    expect(series).toMatchObject({ availability: "ready", checkedAt: "2026-09-12T12:00:00.000Z", latestCapturedAt: "2026-09-12T09:00:00.000Z", latestState: "unavailable" });
+    expect(twitchHistorySummary(series)).toBe("The latest Twitch response was unavailable. Historical captures are not live.");
+  });
+
+  it("distinguishes an unread history from no recorded or no complete Twitch data", () => {
+    expect(twitchHistorySummary(buildTwitchSeries(null, true))).toBe("Twitch aggregate history could not be read.");
+    expect(twitchHistorySummary(buildTwitchSeries(null, false))).toBe("No Twitch aggregate captures have been recorded yet.");
+    expect(twitchHistorySummary(buildTwitchSeries({
+      capturedAt: "2026-09-12T12:00:00.000Z",
+      igdbStatus: "ok", releaseAt: null, platforms: [], igdbUrl: null,
+      twitchStatus: "absent", liveStreams: null, liveViewers: null, twitchComplete: false, twitchHistory: [],
+    }, false))).toBe("No complete Twitch aggregate captures have been recorded yet.");
+  });
+
+  it.each([
+    { capturedAt: "2026-09-12T12:00:00.000Z", twitchComplete: false, state: "incomplete", reason: "is incomplete" },
+    { capturedAt: "invalid", twitchComplete: true, state: "invalid_timestamp", reason: "has an invalid timestamp" },
+  ])("retains history with a precise warning when the latest capture $state", ({ capturedAt, twitchComplete, state, reason }) => {
+    const series = buildTwitchSeries({
+      capturedAt,
+      igdbStatus: "ok", releaseAt: null, platforms: [], igdbUrl: null,
+      twitchStatus: "ok", liveStreams: 4, liveViewers: 80, twitchComplete,
+      twitchHistory: [{ capturedAt: "2026-09-12T09:00:00.000Z", liveStreams: 3, liveViewers: 60 }],
+    }, false);
+
+    expect(series).toMatchObject({ availability: "ready", latestState: state, latestCapturedAt: "2026-09-12T09:00:00.000Z" });
+    expect(selectTwitchWindow(series, 24)?.points).toHaveLength(1);
+    expect(twitchHistorySummary(series)).toBe(`The latest Twitch capture ${reason}. Historical captures are not live.`);
   });
 
   it("marks unread provider and radar data unavailable instead of zero", () => {
     expect(buildSteamReviewSeries([], true)).toMatchObject({ availability: "unavailable", points: [] });
-    expect(buildTwitchSeries(null, true)).toMatchObject({ availability: "unavailable", points: [] });
+    expect(buildTwitchSeries(null, true)).toMatchObject({ availability: "unavailable", points: [], latestState: "unread" });
     expect(buildRadarCategories({ connected: false } as PatchRadarData)).toMatchObject({
       availability: "unavailable",
       categories: [],
