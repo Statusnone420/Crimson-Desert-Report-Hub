@@ -1,5 +1,24 @@
 import { expect, test } from "@playwright/test";
 
+test("recorded Twitch history stays usable with an explicit capture timestamp", async ({ page }, testInfo) => {
+  await page.goto("/observatory#platform-activity");
+  const activity = page.locator("#platform-activity");
+  await expect(activity.getByRole("img", { name: /^24-hour Twitch viewers history/ })).toBeVisible();
+  await expect(activity.locator(".obs-note").first()).toContainText(/Latest complete capture: .+ UTC\./);
+  if (process.env.PREVIEW_SEED_FILE?.endsWith("platform-context-delayed.json")) {
+    await expect(activity.locator(".obs-note").first()).toContainText("Latest Twitch capture is delayed. Historical captures are not live.");
+  }
+  await expect(activity.locator(".obs-audience .np-error")).toHaveCount(0);
+  const range = activity.getByRole("group", { name: "Twitch window" });
+  await range.getByRole("button", { name: "7 days", exact: true }).click();
+  await expect(activity.getByRole("img", { name: /^Seven-day Twitch viewers history/ })).toBeVisible();
+  await activity.getByRole("group", { name: "Twitch metric" }).getByRole("button", { name: "Streams", exact: true }).click();
+  await expect(activity.getByRole("img", { name: /^Seven-day Twitch streams history/ })).toBeVisible();
+  await activity.getByText("Read the Twitch captures", { exact: true }).click();
+  expect(await activity.locator(".obs-twitch-values tbody tr").count()).toBeGreaterThan(1);
+  await activity.screenshot({ path: testInfo.outputPath("twitch-history.png") });
+});
+
 test("review movement offers full-size reading controls without reducing the data", async ({ page }) => {
   await page.goto("/observatory#review-record");
 

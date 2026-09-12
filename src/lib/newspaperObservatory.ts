@@ -30,7 +30,9 @@ export type TwitchPoint = {
 export type TwitchSeries = {
   availability: ObservatoryAvailability;
   checkedAt: string | null;
+  latestCapturedAt: string | null;
   points: TwitchPoint[];
+  latestState: "fresh" | "delayed" | "incomplete" | "invalid_timestamp" | "unavailable" | "no_history" | "no_complete_history" | "unread";
 };
 
 export type TwitchWindow = {
@@ -118,24 +120,25 @@ export function selectSteamReadings(points: SteamReviewPoint[], readingCount: nu
 }
 
 /**
- * Uses the latest platform capture as the fixed audit time. The server query
- * already limits history to 96 complete aggregate rows; this function does not
- * fill missing captures or extend a requested range with older observations.
+ * Uses the latest platform snapshot as the fixed audit time and separately
+ * records the latest complete Twitch capture. The server query already limits
+ * history to 96 complete aggregate rows; this function does not fill missing
+ * captures or extend a requested range with older observations.
  */
 export function buildTwitchSeries(
   platformContext: PlatformContextSnapshot | null,
   platformReadFailed: boolean,
 ): TwitchSeries {
-  if (platformReadFailed || !platformContext || platformContext.twitchStatus !== "ok" || !validDate(platformContext.capturedAt)) {
-    return { availability: "unavailable", checkedAt: null, points: [] };
-  }
+  if (platformReadFailed) return { availability: "unavailable", checkedAt: null, latestCapturedAt: null, points: [], latestState: "unread" };
+  if (!platformContext) return { availability: "empty", checkedAt: null, latestCapturedAt: null, points: [], latestState: "no_history" };
 
-  const end = new Date(platformContext.capturedAt).getTime();
+  const checkedAt = validDate(platformContext.capturedAt) ? platformContext.capturedAt : null;
+  const end = checkedAt ? new Date(checkedAt).getTime() : null;
   const points = platformContext.twitchHistory
     .filter(
       (point) =>
         validDate(point.capturedAt) &&
-        new Date(point.capturedAt).getTime() <= end &&
+        (end === null || new Date(point.capturedAt).getTime() <= end) &&
         nonnegativeInteger(point.liveViewers) !== null &&
         nonnegativeInteger(point.liveStreams) !== null,
     )
@@ -147,11 +150,38 @@ export function buildTwitchSeries(
     .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
     .slice(-96);
 
+  if (points.length === 0) {
+    return { availability: "empty", checkedAt: null, latestCapturedAt: null, points: [], latestState: "no_complete_history" };
+  }
+
+  const latestState = checkedAt === null
+    ? "invalid_timestamp"
+    : platformContext.twitchStatus === "stale"
+      ? "delayed"
+      : platformContext.twitchStatus !== "ok"
+        ? "unavailable"
+        : platformContext.twitchComplete !== true
+          ? "incomplete"
+          : "fresh";
+
   return {
-    availability: points.length > 0 ? "ready" : "empty",
-    checkedAt: platformContext.capturedAt,
+    availability: "ready",
+    checkedAt: checkedAt ?? points.at(-1)?.capturedAt ?? null,
+    latestCapturedAt: points.at(-1)?.capturedAt ?? null,
     points,
+    latestState,
   };
+}
+
+export function twitchHistorySummary(series: TwitchSeries): string | null {
+  if (series.latestState === "unread") return "Twitch aggregate history could not be read.";
+  if (series.latestState === "no_history") return "No Twitch aggregate captures have been recorded yet.";
+  if (series.latestState === "no_complete_history") return "No complete Twitch aggregate captures have been recorded yet.";
+  if (series.latestState === "delayed") return "Latest Twitch capture is delayed. Historical captures are not live.";
+  if (series.latestState === "incomplete") return "The latest Twitch capture is incomplete. Historical captures are not live.";
+  if (series.latestState === "invalid_timestamp") return "The latest Twitch capture has an invalid timestamp. Historical captures are not live.";
+  if (series.latestState === "unavailable") return "The latest Twitch response was unavailable. Historical captures are not live.";
+  return null;
 }
 
 const TWITCH_GAP_MS = 3.25 * 60 * 60 * 1000;

@@ -58,6 +58,11 @@ jobs:
       - name: Playwright visual smoke
         run: npm run test:e2e
 
+      - name: Delayed Twitch history
+        env:
+          PREVIEW_SEED_FILE: tests/e2e/fixtures/platform-context-delayed.json
+        run: npx playwright test tests/e2e/observatory-polish.spec.ts --no-deps --grep "recorded Twitch history"
+
       - name: Empty and unavailable public states
         run: npm run test:e2e:n0
 

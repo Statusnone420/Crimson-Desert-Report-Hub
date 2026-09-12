@@ -11,6 +11,7 @@ import {
   platformLabels,
   selectSteamReadings,
   selectTwitchWindow,
+  twitchHistorySummary,
   type SteamReviewPoint,
   type TwitchPoint,
 } from "@/lib/newspaperObservatory";
@@ -242,8 +243,9 @@ function TwitchTimeline({ data }: { data: PublicScannerData }) {
   const [capturePage, setCapturePage] = useState(0);
   const series = buildTwitchSeries(data.platformContext, data.pulseReadFailures.includes("platform"));
   const window = selectTwitchWindow(series, hours);
+  const historySummary = twitchHistorySummary(series);
   if (!window || window.points.length === 0) {
-    return <div className="obs-audience"><p className="np-error">Twitch aggregate history is unavailable because no complete captures are available in this window.</p></div>;
+    return <div className="obs-audience"><p className="np-error">{historySummary ?? "No complete Twitch captures are available in this window."}</p></div>;
   }
 
   const points = window.points;
@@ -271,6 +273,7 @@ function TwitchTimeline({ data }: { data: PublicScannerData }) {
   return (
     <div className="obs-audience">
       <div className="obs-audience-heading"><span className="obs-platform-name">Twitch</span><span>{points.length} recorded captures · UTC</span></div>
+      <p className="obs-note">{historySummary ? historySummary + " " : ""}Latest complete capture: {captureLabel(series.latestCapturedAt ?? latest.capturedAt)} UTC.</p>
       <div className="obs-audience-numbers"><div><strong>{number(latest.viewers)}</strong><span>Viewers at latest capture</span></div><div><strong>{number(latest.streams)}</strong><span>Live streams at latest capture</span></div></div>
       <div className="obs-review-controls">
         <Options label="Twitch metric" value={metric} onChange={(value) => setMetric(value === "streams" ? "streams" : "viewers")} options={[["viewers", "Viewers"], ["streams", "Streams"]]} />
