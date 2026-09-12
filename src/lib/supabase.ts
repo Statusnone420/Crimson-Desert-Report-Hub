@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { requiredEnv } from "@/lib/env";
+import { createSupabaseRestRetryFetch } from "@/lib/supabaseRestRetry";
 
 let cached: SupabaseClient | null = null;
 
@@ -17,8 +18,10 @@ export function hasSupabaseServiceConfig(env: NodeJS.ProcessEnv = process.env): 
 /** Server-only. Never import from a client component. */
 export function createServiceClient(): SupabaseClient {
   if (cached) return cached;
-  cached = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+  const supabaseUrl = requiredEnv("SUPABASE_URL");
+  cached = createClient(supabaseUrl, requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: createSupabaseRestRetryFetch(supabaseUrl) },
   });
   return cached;
 }
