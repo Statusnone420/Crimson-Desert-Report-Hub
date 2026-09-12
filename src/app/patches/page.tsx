@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ClaimsRecord } from "@/components/newspaper/ClaimsRecord";
 import { ClaimVerdicts } from "@/components/newspaper/ClaimVerdicts";
 import { PublicShell } from "@/components/dispatch/Chrome";
+import { claimReviewKey } from "@/lib/claimReview";
 import { uniqueClaimAttributions } from "@/lib/claims";
 import { editorialArticles } from "@/lib/editorialArticles";
 import { isCurrentPatchVerified, matchesPatchVersion } from "@/lib/patchWatch";
@@ -25,6 +26,7 @@ export default async function PatchesPage() {
   const patch = data.currentPatch;
   const patchVerified = isCurrentPatchVerified(patch);
   const report = patchVerified ? editorialArticles.find((article) => "patchVersion" in article && matchesPatchVersion(article.patchVersion, patch.version)) : undefined;
+  const patchIntroduction = patchVerified ? report?.description ?? patch.summary : null;
   const verifying = data.topClusters.filter((cluster) => cluster.fix_claimed_patch_version === patch.version);
   const attributed = uniqueClaimAttributions(data.claimedFixes, verifying);
   const contested = [...attributed.values()].filter((cluster) => {
@@ -47,7 +49,7 @@ export default async function PatchesPage() {
           <h1>{patchVerified ? `Patch ${patch.version}` : "Current patch unavailable"}</h1>
           <p className="patch-deck">What changed. What players are seeing.</p>
           {!patchVerified ? <p className="patch-intro">The current patch could not be verified. Check Pearl Abyss’s updates or try again shortly.</p> : null}
-          {patch.summary ? <p className="patch-intro">{patch.summary}</p> : null}
+          {patchIntroduction ? <p className="patch-intro">{patchIntroduction}</p> : null}
           <div className="patch-heading-actions">
             {report ? <Link className="action" href={report.path}>Read the report →</Link> : null}
             <a className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">{patchVerified ? "Read Pearl Abyss’s complete notes ↗" : "Browse Pearl Abyss’s updates ↗"}</a>
@@ -59,7 +61,15 @@ export default async function PatchesPage() {
           <div><strong className={verdictsUnavailable ? "patch-count-unavailable" : undefined}>{verdictsUnavailable ? "unreadable" : contested}</strong><span>{contestedLabel}</span></div>
           <p>These are different records. An official fix claim does not establish that a player’s issue is resolved.</p>
         </div>
-        <ClaimsRecord claims={data.claimedFixes} claimsUnavailable={data.claimsUnavailable} sourceTotal={data.claimedFixTotal} officialUrl={patch.officialUrl} />
+        <ClaimsRecord
+          claims={data.claimedFixes.map((claim) => ({
+            ...claim,
+            key: claimReviewKey(patch.version, claim.fixText),
+          }))}
+          claimsUnavailable={data.claimsUnavailable}
+          sourceTotal={data.claimedFixTotal}
+          officialUrl={patch.officialUrl}
+        />
         {!data.claimsUnavailable ? (
           <ClaimVerdicts
             claims={data.claimedFixes}

@@ -33,6 +33,7 @@ import {
   type PatchContext,
 } from "@/lib/patchWatch";
 import { composeIssueReadout, DISPLAY_THRESHOLD_NETWORKS, type IssueReadout } from "@/lib/readout";
+import { readPublicClaimContext, type PublicIssueClaim } from "@/lib/publicClaimContext.server";
 import { SCANNER_READ_REGISTERS, type ScannerReadRegister } from "@/lib/scannerRegisters";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 import { isMissingSupabaseColumn, isMissingSupabaseRelation } from "@/lib/supabaseCompatibility";
@@ -1062,6 +1063,8 @@ async function getIssuesDataUncached() {
       clusters: [] as DecoratedCluster[],
       excerptsByCluster: {} as Record<string, { text: string; platform: string }[]>,
       signalsByCluster: {} as Record<string, SignalRow[]>,
+      officialClaimsByCluster: {} as Record<string, PublicIssueClaim[]>,
+      officialClaimsUnavailable: true,
       currentPatch: await getCurrentPatchMetadata(),
       boardReadFailed: true,
     };
@@ -1075,6 +1078,8 @@ async function getIssuesDataUncached() {
       clusters: [] as DecoratedCluster[],
       excerptsByCluster: {} as Record<string, { text: string; platform: string }[]>,
       signalsByCluster: {} as Record<string, SignalRow[]>,
+      officialClaimsByCluster: {} as Record<string, PublicIssueClaim[]>,
+      officialClaimsUnavailable: true,
       currentPatch,
       boardReadFailed: true,
     };
@@ -1150,7 +1155,21 @@ async function getIssuesDataUncached() {
 
   const excerptsByCluster = await readExcerptsByClusterForCurrentPatch(supabase, currentPatch);
 
-  return { clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed };
+  const claimContext = boardReadFailed
+    ? { byCluster: {} as Record<string, PublicIssueClaim[]>, unavailable: true }
+    : await readPublicClaimContext(supabase, currentPatch, publicClusters.map((cluster) => ({
+        id: cluster.id,
+        is_public: cluster.is_public,
+        admin_override: cluster.admin_override ?? false,
+        fix_claimed_at: cluster.fix_claimed_at ?? null,
+        fix_claimed_patch_version: cluster.fix_claimed_patch_version ?? null,
+      })));
+
+  return {
+    clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed,
+    officialClaimsByCluster: claimContext.byCluster,
+    officialClaimsUnavailable: claimContext.unavailable,
+  };
 }
 
 export const getIssuesData = unstable_cache(getIssuesDataUncached, ["issues-data"], {

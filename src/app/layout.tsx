@@ -3,6 +3,7 @@ import { IBM_Plex_Mono, Instrument_Sans, Instrument_Serif } from "next/font/goog
 import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_SEARCH_TITLE, SITE_URL, siteFeedAlternateTypes } from "@/lib/site";
 import "./globals.css";
 import "@/components/newspaper/newspaper.css";
+import "@/components/newspaper/interactions.css";
 import "@/components/newspaper/operator.css";
 import "@/components/operator/workspace.css";
 import "@/components/catchup/catchup.css";

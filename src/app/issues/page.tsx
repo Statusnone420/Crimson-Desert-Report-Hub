@@ -20,7 +20,7 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
 export const revalidate = 300;
 
 export default async function IssuesPage() {
-  const { clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed = false } = await getIssuesData();
+  const { clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed = false, officialClaimsByCluster = {}, officialClaimsUnavailable = false } = await getIssuesData();
   if (boardReadFailed) {
     return <PublicShell active="issues"><div className="dispatch-container"><section className="board-empty" aria-labelledby="board-unavailable-title"><h1 id="board-unavailable-title">The issue board is unavailable.</h1><p>The public issue records could not be read. This is not a report that no issues are being tracked.</p><Link href="/report" className="dispatch-primary-action">File a player report →</Link></section></div></PublicShell>;
   }
@@ -56,6 +56,8 @@ export default async function IssuesPage() {
       sourceLeads: (signalsByCluster[cluster.id] ?? []).map((signal) => ({ id: signal.id, source: signal.source, url: signal.source_url, summary: signal.summary })),
       ask: cluster.readout.ask,
       poll: cluster.readout.poll,
+      officialClaims: officialClaimsByCluster[cluster.id] ?? [],
+      officialClaimsUnavailable,
       confirmationCounts: cluster.readout.ask?.kinds.includes("have_it")
         ? { have_it: cluster.confirmations.byKind.have_it.count }
         : { fixed_for_me: cluster.confirmations.pollFixedCount, still_happening: cluster.confirmations.pollStillCount },
@@ -67,7 +69,7 @@ export default async function IssuesPage() {
     <PublicShell active="issues">
       <div id="issues-top" className="dispatch-container article-paper issues-paper">
         <a className="skip" href="#board">Skip to the issue board</a>
-        <section className="board-heading"><Link className="back-link" href="/">← Back to the front page</Link><div className="board-heading-row"><div><p className="kicker">Issue board · Patch {currentPatch.version}</p><h1>The player record.</h1><p className="board-deck">Compare what you’re seeing with reports from other players.</p></div><Link href="/patches" className="board-patch-link"><span>Coming from the patch notes?</span><strong>Read the claims record</strong><span>Visit the patch desk →</span></Link></div></section>
+        <section className="board-heading"><Link className="back-link" href="/">← Back to the front page</Link><div className="board-heading-row"><div><p className="kicker">Issue board · Patch {currentPatch.version}</p><h1>The player record.</h1><p className="board-deck">Compare what you’re seeing with reports from other players.</p><Link href="/report" className="action">File a player report →</Link></div><Link href="/patches" className="board-patch-link"><span>Coming from the patch notes?</span><strong>Read the claims record</strong><span>Visit the patch desk →</span></Link></div></section>
         <IssueBoard published={active.map(entryFrom)} watchlist={candidates.map(entryFrom)} monitoredCount={monitored.length} emptyPatchVersion={currentPatch.version} />
         <div className="article-bottom"><Link href="/patches">← Back to the patch desk</Link><a href="#issues-top">Back to top ↑</a></div>
       </div>

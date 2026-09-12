@@ -55,7 +55,7 @@ test.describe("secondary public states remain readable", () => {
     await watchlist.click();
     await expect(watchlist).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(".board-watchlist .watch-entry")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "No matching public leads." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "No public leads in the watchlist yet." })).toBeVisible();
     await expect(page.getByRole("status")).toHaveText("Showing 0 of 0 public watchlist leads");
     await page.getByLabel("Find an issue").fill("frame rate");
     const reset = page.getByRole("button", { name: "Show all public leads →" });

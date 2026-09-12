@@ -11,7 +11,7 @@ test("all public mastheads use today's desk date despite older server renders", 
   const problems = collectConsoleProblems(page);
   for (const route of ["/", "/issues", "/report", "/about", "/privacy", "/news"]) {
     await page.goto(route);
-    await expect(page.locator(".topline > div").first()).toHaveText("Sunday, September 6, 2026");
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Sunday, September 6, 2026");
     await expectHealthyPage(page, problems);
   }
 });
@@ -22,7 +22,7 @@ test("cached HTML cannot print a stale date when JavaScript is disabled", async 
   try {
     for (const route of ["/", "/issues", "/report"]) {
       await page.goto(`http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? 3100}${route}`);
-      await expect(page.locator(".topline > div").first()).toHaveText("Eastern Time");
+      await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Eastern Time");
     }
   } finally {
     await context.close();
@@ -36,21 +36,21 @@ test("open mastheads roll over at New York midnight and refresh on return", asyn
   const routes = ["/", "/issues", "/report"];
   for (const [index, page] of pages.entries()) {
     await page.goto(routes[index]);
-    await expect(page.locator(".topline > div").first()).toHaveText("Sunday, September 6, 2026");
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Sunday, September 6, 2026");
   }
   await context.clock.pauseAt(new Date("2026-09-07T03:59:50Z"));
   await context.clock.runFor(10_100);
   for (const page of pages) {
-    await expect(page.locator(".topline > div").first()).toHaveText("Monday, September 7, 2026");
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Monday, September 7, 2026");
   }
   await context.clock.setSystemTime(new Date("2026-09-08T13:00:00Z"));
   for (const page of pages) {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(page.locator(".topline > div").first()).toHaveText("Tuesday, September 8, 2026");
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Tuesday, September 8, 2026");
   }
   await context.clock.setSystemTime(new Date("2026-09-09T13:00:00Z"));
   for (const page of pages) {
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    await expect(page.locator(".topline > div").first()).toHaveText("Wednesday, September 9, 2026");
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Wednesday, September 9, 2026");
   }
 });

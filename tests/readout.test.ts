@@ -96,6 +96,10 @@ describe("composeIssueReadout", () => {
     expect(readout.state).toBe("fix_claimed_unverified");
     expect(readout.tone).toBe("amber");
     expect(readout.sentence).toContain("Quiet can mean fixed");
+    expect(readout.sentence).toContain("The fix claim for 1.13.01 remains unverified.");
+    expect(readout.sentence).not.toContain("linked to this issue");
+    expect(readout.sentence).not.toContain("fixed this");
+    expect(readout.ask?.question).toBe("How is it after 1.13.01?");
     expect(readout.ask?.kinds).toEqual(["fixed_for_me", "still_happening"]);
   });
 

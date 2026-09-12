@@ -60,11 +60,11 @@ function hasClaimContext(input: IssueReadoutInput): boolean {
 }
 
 function pollAsk(patchVersion: string): IssueReadoutAsk {
-  return { question: `Claimed fixed in ${patchVersion} · Your result?`, kinds: ["fixed_for_me", "still_happening"] };
+  return { question: `How is it after ${patchVersion}?`, kinds: ["fixed_for_me", "still_happening"] };
 }
 
 function haveItAsk(): IssueReadoutAsk {
-  return { question: "Player check-in · Affecting you?", kinds: ["have_it"] };
+  return { question: "Is this happening to you?", kinds: ["have_it"] };
 }
 
 function pollSummary(input: IssueReadoutInput): { fixedCount: number; stillCount: number; escalated: boolean } {
@@ -80,7 +80,7 @@ function evidenceSentence(input: IssueReadoutInput): string {
   const parts: string[] = [];
   if (input.directReportCount > 0) parts.push(plural(input.directReportCount, "player report"));
   if (input.confirmations.affectedCount > 0) {
-    parts.push(plural(input.confirmations.affectedCount, "player tap"));
+    parts.push(plural(input.confirmations.affectedCount, "player check-in"));
   }
   if (parts.length === 0) return "No player evidence on this patch yet.";
   return `${parts.join(" · ")} on this patch.`;
@@ -129,7 +129,7 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
       state: "fix_claimed_unverified",
       label: "Fix claimed — unverified",
       tone: "amber",
-      sentence: `Pearl Abyss says ${input.patchVersion} fixed this. ${early}`,
+      sentence: `The fix claim for ${input.patchVersion} remains unverified. ${early}`,
       ask: pollAsk(input.patchVersion),
       poll,
     };
@@ -163,7 +163,7 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   if (input.publicSignalCount > 0) {
     const playerRead =
       c.affectedCount > 0
-        ? ` ${plural(c.affectedCount, "player")} also tapped this — not enough distinct networks to weigh yet.`
+        ? ` ${plural(c.affectedCount, "player")} also checked in — not enough distinct networks to weigh yet.`
         : "";
     return {
       state: "public_sources",
@@ -178,7 +178,7 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
   if (input.candidateSignalCount > 0) {
     const playerRead =
       c.affectedCount > 0
-        ? ` ${plural(c.affectedCount, "player")} also tapped this — not enough distinct networks to weigh yet.`
+        ? ` ${plural(c.affectedCount, "player")} also checked in — not enough distinct networks to weigh yet.`
         : "";
     return {
       state: "radar_lead",

@@ -61,6 +61,19 @@ const DETAIL_FIELDS = [
 
 type DetailFieldName = (typeof DETAIL_FIELDS)[number][0];
 
+export type ReportIssueContext = {
+  id: string;
+  title: string;
+  category: (typeof CATEGORIES)[number];
+};
+
+function initialReportDraft(currentPatch: ReportPatchMetadata, issueContext: ReportIssueContext | null): ReportDraft {
+  return {
+    ...blankReportDraft(currentPatch),
+    category: issueContext?.category ?? "",
+  };
+}
+
 function FieldError({ name, error }: { name: string; error?: string }) {
   return error ? <p className="filing-error" id={`${name}-error`} role="alert">{error}</p> : null;
 }
@@ -117,11 +130,13 @@ function TextField({
 export function ReportForm({
   currentPatch,
   patchVersions,
+  issueContext = null,
 }: {
   currentPatch: ReportPatchMetadata;
   patchVersions: string[];
+  issueContext?: ReportIssueContext | null;
 }) {
-  const [draft, setDraft] = useState<ReportDraft>(() => blankReportDraft(currentPatch));
+  const [draft, setDraft] = useState<ReportDraft>(() => initialReportDraft(currentPatch, issueContext));
   const [errors, setErrors] = useState<ReportDraftErrors>({});
   const [review, setReview] = useState<ReturnType<typeof validateReportDraft>["data"]>(null);
   const [stage, setStage] = useState<"write" | "review">("write");
@@ -211,7 +226,7 @@ export function ReportForm({
   }
 
   function resetForAnotherReport() {
-    setDraft(blankReportDraft(currentPatch));
+    setDraft(initialReportDraft(currentPatch, issueContext));
     setErrors({});
     setReview(null);
     setMessage("");
@@ -226,7 +241,7 @@ export function ReportForm({
         <h1 id="filing-success-title">Filed.</h1>
         <p>Your report is checked and sorted before it can affect the public record. Raw words stay private; public pages show counts and neutral summaries only.</p>
         <div className="filing-review-actions">
-          <button type="button" onClick={resetForAnotherReport}>File another report</button>
+          <button type="button" onClick={resetForAnotherReport}>{issueContext ? "File another report about this issue" : "File another report"}</button>
           <Link href="/issues">See the Issue Board →</Link>
         </div>
       </section>
@@ -243,6 +258,12 @@ export function ReportForm({
         <span aria-hidden="true">→</span>
         <span aria-current={stage === "review" ? "step" : undefined}>Review and send</span>
       </div>
+      {issueContext ? (
+        <div className="filing-context" role="note">
+          <strong>Starting from “{issueContext.title}”</strong>
+          <p>Its category is selected. Describe what happened on your setup.</p>
+        </div>
+      ) : null}
       <form onSubmit={stage === "write" ? prepareReview : submitReport} noValidate>
         {stage === "write" ? (
           <>
@@ -259,10 +280,13 @@ export function ReportForm({
               <div className="filing-row">
                 <div className="filing-field">
                   <label htmlFor="platform">Platform</label>
-                  <select id="platform" name="platform" value={draft.platform} required onChange={(event) => change("platform", event.target.value)} aria-invalid={Boolean(errors.platform)} aria-describedby={errors.platform ? "platform-error" : undefined}>
+                  <select id="platform" name="platform" value={draft.platform} required onChange={(event) => change("platform", event.target.value)} aria-invalid={Boolean(errors.platform)} aria-describedby={`platform-hint${errors.platform ? " platform-error" : ""}`}>
                     <option value="">Choose your platform</option>
-                    {PLATFORMS.map((platform) => <option key={platform} value={platform}>{PLATFORM_LABELS[platform]}</option>)}
+                    {PLATFORMS.map((platform) => <option key={platform} value={platform}>{platform === "other" ? "Other (including Mac / Epic)" : PLATFORM_LABELS[platform]}</option>)}
                   </select>
+                  <div className="filing-field-note" id="platform-hint">
+                    <span>{draft.platform === "other" ? "Other covers Mac, Epic Games Store, and setups not listed. Name the system and store under Your system and settings below." : "Choose the platform and store where you play."}</span>
+                  </div>
                   <FieldError name="platform" error={errors.platform} />
                 </div>
                 <div className="filing-field">
