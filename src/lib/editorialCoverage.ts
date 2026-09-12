@@ -28,7 +28,7 @@ export const reviewedCoverage = [
     sourceId: "khraze-gaming",
     sourceTitle: "Crimson Desert: Charting the Unknown DLC - First Details Gameplay, Ship Navigation & More",
     reviewedHeadline: "KhrazeGaming breaks down the expansion reveal",
-    reviewedExcerpt: "KhrazeGaming’s video covers the first Crimson Desert expansion details, including ship navigation and new islands. Watch the creator’s take alongside the official announcement.",
+    reviewedExcerpt: "KhrazeGaming’s video covers ship navigation and new islands shown in the Crimson Desert expansion reveal.",
     excerptReviewStatus: "reviewed",
     type: "video",
     topic: "expansion",

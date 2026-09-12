@@ -106,7 +106,7 @@ test.describe("integrated newspaper public UI", () => {
       "https://github.com/Statusnone420/Crimson-Desert-Report-Hub",
     );
     await expect(page.getByRole("contentinfo").getByRole("link", { name: "Add a check-in →", exact: true })).toHaveAttribute("href", "/issues");
-    await expect(page.locator("#lead").getByRole("link", { name: "Patch 2.02.00 adds Mac cross-save" })).toHaveAttribute("href", "/articles/patch-2-02-00");
+    await expect(page.locator("#lead").getByRole("link", { name: "Crimson Desert patch 2.02.00 adds Mac cross-save" })).toHaveAttribute("href", "/articles/patch-2-02-00");
     await expect(page.getByText(/Add a quick check-in to an existing issue/)).toBeVisible();
     await expect(page.getByRole("link", { name: /All \d+ published issues/ })).toHaveAttribute("href", "/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toHaveCount(0);

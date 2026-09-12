@@ -87,9 +87,9 @@ test("the new report is readable from News and is present in RSS and Atom", asyn
   await expect(page.locator(".article-heading .article-deck")).toHaveText(patch20200.description);
   await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "News", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".article-hero img")).toBeVisible();
-  await expect(page.locator("#article-body")).toContainText("At publication, the update was available");
-  await expect(page.locator("#article-body")).toContainText("Mac App Store update was still in progress");
-  await expect(page.getByRole("heading", { name: "What is still unconfirmed?", exact: true })).toBeVisible();
+  await expect(page.locator("#article-body")).toContainText("At publication, the patch was available on Steam for PC and Mac, PlayStation, Xbox and Epic.");
+  await expect(page.locator("#article-body")).toContainText("Mac App Store players were still waiting, with no release time announced.");
+  await expect(page.locator("#unconfirmed")).toContainText("The Hub has not tested Mac transfers or these fixes on affected saves.");
   // Wait for navigation metadata to settle; still require exactly one canonical URL.
   await expect.poll(() => page.locator('link[rel="canonical"]').evaluateAll((links) => links.map((link) => link.getAttribute("href"))))
     .toEqual([`${SITE_URL}${patch20200.path}`]);

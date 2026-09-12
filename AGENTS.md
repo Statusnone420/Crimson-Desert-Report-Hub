@@ -72,6 +72,11 @@ Universal rules. Obey host precedence; among recognized instruction files, the m
 
 ## Code Review Rules
 
+### Original articles and editorial summaries
+
+- Before writing or editing article prose, headlines, decks, or editorial summaries, read and apply [.agents/skills/article-writing/SKILL.md](.agents/skills/article-writing/SKILL.md). It contains the owner's reporting voice and the approved example.
+- Review the article and its metadata/feed summaries together. Preserve source conditions and the historical reporting date. Style review requires reading the prose; a word blacklist or passing tests cannot establish voice or factual support. Article work does not authorize publication.
+
 ### Evidence and provider boundaries
 
 Search changed public queries, serializers, and provider persistence paths:

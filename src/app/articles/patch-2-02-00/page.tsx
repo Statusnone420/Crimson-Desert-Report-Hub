@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { PublicShell } from "@/components/dispatch/Chrome";
-import { chartingTheUnknown, patch20200 } from "@/lib/editorialArticles";
+import { patch20200 } from "@/lib/editorialArticles";
 import { SITE_NAME, SITE_URL, siteFeedAlternateTypes } from "@/lib/site";
 import { newsArticleJsonLd, serializeJsonLd } from "@/lib/structuredData";
 
@@ -63,22 +63,20 @@ export default function Patch20200Article() {
               priority
               style={{ aspectRatio: "923 / 522", objectFit: "contain" }}
             />
-            <figcaption>Official Patch 2.02.00 artwork, courtesy of Pearl Abyss. Illustration, not evidence of a fix.</figcaption>
+            <figcaption>Patch 2.02.00 artwork. Image: Pearl Abyss.</figcaption>
           </figure>
           <section className="mobile-brief" aria-label="Patch at a glance">
             <p className="eyebrow">At publication · September 11, 2026</p>
             <dl>
               <div><dt>Live</dt><dd>Steam PC and Mac, PlayStation, Xbox, Epic</dd></div>
               <div><dt>Later</dt><dd>Mac App Store · update in progress</dd></div>
-              <div><dt>Focus</dt><dd>Mac cross-save and targeted fixes</dd></div>
+              <div><dt>Changes</dt><dd>Mac cross-save, quest and storage fixes</dd></div>
             </dl>
             <details>
               <summary>Jump to a section</summary>
               <div className="mobile-contents">
-                <a href="#mac">Mac cross-save and the store distinction</a>
-                <a href="#fixes">Where the fixes matter</a>
-                <a href="#support">Support after the reveal</a>
-                <a href="#unconfirmed">What is still unconfirmed?</a>
+                <a href="#mac">Mac cross-save</a>
+                <a href="#fixes">Quest and storage fixes</a>
                 <a href="#sources">Sources &amp; updates</a>
               </div>
             </details>
@@ -87,9 +85,8 @@ export default function Patch20200Article() {
             <aside className="article-rail" aria-label="Article contents">
               <p className="eyebrow">In this report</p>
               <a href="#mac">Mac cross-save</a>
-              <a href="#fixes">Where the fixes matter</a>
-              <a href="#support">Support after the reveal</a>
-              <a href="#unconfirmed">Still unconfirmed</a>
+              <a href="#fixes">Quest and storage fixes</a>
+              <a href="#sources">Sources</a>
               <div className="release-note">
                 <p className="kicker">The official record</p>
                 <strong>2.02.00</strong>
@@ -98,27 +95,16 @@ export default function Patch20200Article() {
               </div>
             </aside>
             <div id="article-body" className="article-body">
-              <p className="opening">There is plenty to look forward to in <em>Charting the Unknown</em>, and it is good to see Pywel getting attention right now. Eight days after the expansion reveal, Patch 2.02.00 brings Mac cross-save alongside fixes for a startup crash, blocked quests, housing and missing stored items.</p>
+              <p id="mac" className="opening">Crimson Desert patch 2.02.00 adds Mac cross-save. Pearl Abyss&apos;s <a href={patchNotes.url} target="_blank" rel="noreferrer noopener">September 11 patch notes</a> also list fixes for broken quests, disappearing stored items and a crash when starting a new game with DLSS Frame Generation enabled.</p>
+              <p>At publication, the patch was available on Steam for PC and Mac, PlayStation, Xbox and Epic. Mac App Store players were still waiting, with no release time announced.</p>
+              <p>Pearl Abyss&apos;s <a href={crossSaveInformation.url} target="_blank" rel="noreferrer noopener">cross-save guide</a> still listed Mac support as coming later at the September 11 check. That conflicted with the patch announcement.</p>
 
-              <h2 id="mac">Mac cross-save</h2>
-              <p>The <a href={patchNotes.url} target="_blank" rel="noreferrer noopener">September 11 notes</a> add cross-save support on Mac. At publication, the update was available on Steam for PC and Mac, PlayStation, Xbox and Epic Games Store. The Mac App Store update was still in progress, with no release time given.</p>
-              <p>The App Store delay concerns this patch. Separately, Pearl Abyss says <em>Charting the Unknown</em> will not be available on the Mac App Store at launch.</p>
-              <p>Cross-save lets players continue a save across supported platforms. At the September 11 check, Pearl Abyss’s <a href={crossSaveInformation.url} target="_blank" rel="noreferrer noopener">account information page</a> still said Mac support was coming later, despite the newer patch notes announcing it.</p>
-
-              <h2 id="fixes">Where the fixes matter</h2>
-              <p>Pearl Abyss says it fixed a crash when starting a new game with DLSS Frame Generation enabled.</p>
-              <p>Several repairs concern progress and possessions: housing failing to unlock at Howling Hill Camp with a full inventory, a blocked Thornbriar Fortress liberation, trade storage losing items on some save loads, and a disappearing letter stopping <em>The Words of Alustin</em>. These are the changes to check first if a save has been stuck.</p>
-              <p>The remaining notes cover a palm-attack chain, lantern visibility, shaking interface text, localization including Arabic display, indoor armor noise and a blindfold-related visual issue. The notes do not say whether previously lost items or every already-blocked save will recover automatically.</p>
-              <a className="inline-source" href={patchNotes.url} target="_blank" rel="noreferrer noopener">Read every fix and the current platform rollout ↗</a>
-
-              <h2 id="support">Support continues after the reveal</h2>
-              <p>On September 3, Pearl Abyss <a href={dlcAnnouncement.url} target="_blank" rel="noreferrer noopener">put the expansion on the calendar</a>: October 15 at 6 pm Eastern, with ships, islands and underwater exploration among its announced features. Our <Link href={chartingTheUnknown.path}>Charting the Unknown report</Link> covers those features.</p>
-
-              <section id="unconfirmed" className="editorial-note" aria-labelledby="unconfirmed-heading">
-                <h2 id="unconfirmed-heading">What is still unconfirmed?</h2>
-                <p>The Hub has not tested Mac save transfers or verified these fixes on affected saves. The patch notes describe Pearl Abyss’s changes; they do not establish the result on a particular player’s setup.</p>
-                <p>If a problem persists, <Link href="/issues">add a check-in to an existing issue</Link> with your experience and platform. The <Link href="/patches">Patch Desk</Link> keeps the current official record alongside player follow-up.</p>
-              </section>
+              <h2 id="fixes">Quest and storage fixes</h2>
+              <p>Pearl Abyss lists fixes for two progression bugs: one prevented players from liberating Thornbriar Fortress, and another made a letter disappear during <em>The Words of Alustin</em>.</p>
+              <p>Raising the banner at Howling Hill Camp with a full inventory could also stop housing from unlocking. The notes include a fix for that bug and for items disappearing from Trade Goods Storage when loading certain saves.</p>
+              <p>Other changes address a Force Palm combo, lantern visibility, shaking UI text, localization including Arabic, and two visual bugs affecting armor and a blindfold.</p>
+              <p id="unconfirmed">The notes do not say whether previously lost items return or whether every already-blocked save recovers. The Hub has not tested Mac transfers or these fixes on affected saves.</p>
+              <p id="support"><a href={dlcAnnouncement.url} target="_blank" rel="noreferrer noopener">Charting the Unknown</a> launches October 15, 2026, at 6 p.m. Eastern. Pearl Abyss says the expansion will not be available through the Mac App Store at launch.</p>
               <section id="sources" className="article-sources">
                 <h2>Sources &amp; updates</h2>
                 <p>{patch20200.sourceNote} Checked September 11, 2026. Platform availability and account-page wording reflect that check. This report retains its original publication date.</p>

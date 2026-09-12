@@ -269,7 +269,7 @@ test.describe("public catch-up journey", () => {
     const report = await opened;
     try {
       await expect(report).toHaveURL(/\/articles\/patch-2-02-00$/);
-      await expect(report.getByRole("heading", { level: 1, name: "Patch 2.02.00 adds Mac cross-save" })).toBeVisible();
+      await expect(report.getByRole("heading", { level: 1, name: "Crimson Desert patch 2.02.00 adds Mac cross-save" })).toBeVisible();
     } finally {
       await report.close();
     }
