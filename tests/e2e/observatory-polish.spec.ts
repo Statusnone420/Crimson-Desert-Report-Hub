@@ -1,5 +1,26 @@
 import { expect, test } from "@playwright/test";
 
+test("scrolling under a stationary pointer preserves the selected review reading", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile-chromium", "Hover is a desktop interaction.");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/observatory");
+  const selectedDate = page.locator(".obs-chart-readout p > span").first();
+  const latest = await selectedDate.innerText();
+  const firstBar = page.locator(".obs-review-hit").first();
+  const box = await firstBar.boundingBox();
+  const centerY = page.viewportSize()!.height / 2;
+  const centerX = box!.x + box!.width / 2;
+  await page.mouse.move(centerX, centerY);
+  await expect(selectedDate).toHaveText(latest);
+  await firstBar.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
+  // Scrolling can synthesize pointer-enter without the reader moving the mouse.
+  await expect(firstBar).toBeInViewport();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(selectedDate).toHaveText(latest);
+  await page.mouse.move(centerX + 1, centerY);
+  await expect(firstBar).toHaveAttribute("aria-pressed", "true");
+});
+
 test("recorded Twitch history stays usable with an explicit capture timestamp", async ({ page }, testInfo) => {
   await page.goto("/observatory#platform-activity");
   const activity = page.locator("#platform-activity");

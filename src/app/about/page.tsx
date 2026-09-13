@@ -1,3 +1,4 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import type { ResolvingMetadata } from "next";
 import { connection } from "next/server";
 import Link from "next/link";
@@ -250,23 +251,20 @@ export default async function AboutPage() {
             Everything else is in the public repo — how the counting works, what gets stored, what it costs to
             run, and every rule a moderator follows.
           </p>
-          <p className="method-outro__copy">
-            <Link href="/privacy" className="dispatch-link">
+          <div className="reading-resources">
+            <ReadingLink variant="source" href="/privacy">
               Privacy
-            </Link>
-            {" · "}
-            <a href={WIKI.privacy} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+            </ReadingLink>
+            <ReadingLink variant="source" href={WIKI.privacy} target="_blank" rel="noreferrer noopener">
               Privacy &amp; moderation
-            </a>
-            {" · "}
-            <a href={WIKI.sources} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+            </ReadingLink>
+            <ReadingLink variant="source" href={WIKI.sources} target="_blank" rel="noreferrer noopener">
               Data sources
-            </a>
-            {" · "}
-            <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+            </ReadingLink>
+            <ReadingLink variant="source" href={SOURCE_URL} target="_blank" rel="noreferrer noopener">
               View the source on GitHub
-            </a>
-          </p>
+            </ReadingLink>
+          </div>
         </div>
       </div>
     </PublicShell>

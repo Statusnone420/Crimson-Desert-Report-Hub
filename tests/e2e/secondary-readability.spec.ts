@@ -57,7 +57,7 @@ test.describe("secondary public states remain readable", () => {
     const method = page.locator(".board-method");
     await method.locator("summary").click();
     await expect(method).toHaveAttribute("open", "");
-    await expect(method.getByRole("link", { name: "Read the method →" })).toBeVisible();
+    await expect(method.getByRole("link", { name: "Read the method" })).toBeVisible();
     await expectReadableText(method.locator("a, summary"));
     await expectStandaloneTargets(method.locator("summary"));
     await expectHealthyPage(page, problems);

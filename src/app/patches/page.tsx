@@ -1,5 +1,5 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import type { ResolvingMetadata } from "next";
-import Link from "next/link";
 import { ClaimsRecord } from "@/components/newspaper/ClaimsRecord";
 import { ClaimVerdicts } from "@/components/newspaper/ClaimVerdicts";
 import { PublicShell } from "@/components/dispatch/Chrome";
@@ -44,15 +44,15 @@ export default async function PatchesPage() {
       <div id="patch-top" className="dispatch-container article-paper patch-paper">
         <a className="skip" href="#claims">Skip to fix claims</a>
         <section className="patch-heading">
-          <Link className="back-link" href="/">← Back to the front page</Link>
+          <ReadingLink variant="quiet" direction="back" className="back-link" href="/"> Back to the front page</ReadingLink>
           <p className="kicker">The patch desk</p>
           <h1>{patchVerified ? `Patch ${patch.version}` : "Current patch unavailable"}</h1>
           <p className="patch-deck">What changed. What players are seeing.</p>
           {!patchVerified ? <p className="patch-intro">The current patch could not be verified. Check Pearl Abyss’s updates or try again shortly.</p> : null}
           {patchIntroduction ? <p className="patch-intro">{patchIntroduction}</p> : null}
           <div className="patch-heading-actions">
-            {report ? <Link className="action" href={report.path}>Read the report →</Link> : null}
-            <a className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">{patchVerified ? "Read Pearl Abyss’s complete notes ↗" : "Browse Pearl Abyss’s updates ↗"}</a>
+            {report ? <ReadingLink className="action" href={report.path}>Read the report</ReadingLink> : null}
+            <ReadingLink className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">{patchVerified ? "Read Pearl Abyss’s complete notes " : "Browse Pearl Abyss’s updates "}</ReadingLink>
           </div>
         </section>
         <div className="patch-register" aria-label="Patch summary">
@@ -89,8 +89,8 @@ export default async function PatchesPage() {
             <p>{data.evidenceUnavailable ? "The player record could not be read right now." : "A quiet board does not mean every issue is fixed."}</p>
           </div>
           <div className="patch-player-actions">
-            <Link href="/issues">View player reports →</Link>
-            <a href="#patch-top">Back to top ↑</a>
+            <ReadingLink href="/issues">View player reports</ReadingLink>
+            <ReadingLink variant="quiet" direction="up" href="#patch-top">Back to top</ReadingLink>
           </div>
         </section>
       </div>

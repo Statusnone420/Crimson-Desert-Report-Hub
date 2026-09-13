@@ -1,3 +1,4 @@
+import { ReadingLink, DirectionIcon } from "@/components/newspaper/ReadingLink";
 import type { ResolvingMetadata } from "next";
 import Link from "next/link";
 import { PublicShell } from "@/components/dispatch/Chrome";
@@ -21,7 +22,7 @@ export const revalidate = 300;
 export default async function IssuesPage() {
   const { clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed = false, officialClaimsByCluster = {}, officialClaimsUnavailable = false, checkinsAvailable = true } = await getIssuesData();
   if (boardReadFailed) {
-    return <PublicShell active="issues"><div className="dispatch-container"><section className="board-empty" aria-labelledby="board-unavailable-title"><h1 id="board-unavailable-title">The issue board is unavailable.</h1><p>The public issue records could not be read. Check-ins need a visible issue; try again later.</p><Link href="/patches" className="dispatch-primary-action">Read the patch record →</Link></section></div></PublicShell>;
+    return <PublicShell active="issues"><div className="dispatch-container"><section className="board-empty" aria-labelledby="board-unavailable-title"><h1 id="board-unavailable-title">The issue board is unavailable.</h1><p>The public issue records could not be read. Check-ins need a visible issue; try again later.</p><ReadingLink href="/patches">Read the patch record</ReadingLink></section></div></PublicShell>;
   }
 
   const active = clusters.filter(needsFullIssueCard);
@@ -71,10 +72,10 @@ export default async function IssuesPage() {
     <PublicShell active="issues">
       <div id="issues-top" className="dispatch-container article-paper issues-paper">
         <a className="skip" href="#board">Skip to the issue board</a>
-        <section className="board-heading"><Link className="back-link" href="/">← Back to the front page</Link><div className="board-heading-row"><div><p className="kicker">Issue board · Patch {currentPatch.version}</p><h1>What are you seeing?</h1><p className="board-deck">Find an issue. Choose your experience and platform.</p><p className="board-contribution-note">No account. No written report. A fresh tally for every patch.</p></div><Link href="/patches" className="board-patch-link"><span>Coming from the patch notes?</span><strong>Read the claims record</strong><span>Visit the patch desk →</span></Link></div></section>
+        <section className="board-heading"><ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink><div className="board-heading-row"><div><p className="kicker">Issue board · Patch {currentPatch.version}</p><h1>What are you seeing?</h1><p className="board-deck">Find an issue. Choose your experience and platform.</p><p className="board-contribution-note">No account. No written report. A fresh tally for every patch.</p></div><Link href="/patches" className="board-patch-link"><span>Coming from the patch notes?</span><strong>Read the claims record</strong><span className="reading-cue">Visit the patch desk <DirectionIcon /></span></Link></div></section>
         {!checkinsAvailable ? <p className="np-error" role="status">Current-patch check-ins could not be loaded. Earlier records remain visible; new responses are temporarily unavailable.</p> : null}
         <IssueBoard published={active.map(entryFrom)} watchlist={candidates.map(entryFrom)} monitoredCount={monitored.length} emptyPatchVersion={currentPatch.version} />
-        <div className="article-bottom"><Link href="/patches">← Back to the patch desk</Link><a href="#issues-top">Back to top ↑</a></div>
+        <div className="article-bottom"><ReadingLink variant="quiet" direction="back" href="/patches">Back to the patch desk</ReadingLink><ReadingLink variant="quiet" direction="up" href="#issues-top">Back to top</ReadingLink></div>
       </div>
     </PublicShell>
   );

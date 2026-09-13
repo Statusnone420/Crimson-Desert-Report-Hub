@@ -7,7 +7,7 @@ export default function PageTransition({ children }) {
 
   return (
     <motion.div
-      initial={reducedMotion ? false : { opacity: 0 }}
+      initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: reducedMotion ? 0 : 0.28, ease: 'easeOut' }}
     >

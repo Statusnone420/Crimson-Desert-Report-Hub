@@ -4,6 +4,7 @@ import { routeOpenGraph, SITE_DESCRIPTION, SITE_NAME, SITE_OG_DESCRIPTION, SITE_
 import "./globals.css";
 import "@/components/newspaper/newspaper.css";
 import "@/components/newspaper/interactions.css";
+import "@/components/newspaper/reading.css";
 import "@/components/newspaper/operator.css";
 import "@/components/operator/workspace.css";
 import "@/components/catchup/catchup.css";

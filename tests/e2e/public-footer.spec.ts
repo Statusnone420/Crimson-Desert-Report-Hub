@@ -16,17 +16,17 @@ for (const theme of ["light", "dark"] as const) {
       await expect(links.getByRole("link", { name: "Watch", exact: true })).toHaveAttribute("href", "/watch");
       await expect(links.getByRole("link", { name: "RSS feed for original reports", exact: true })).toHaveAttribute("href", "/rss.xml");
       await expect(links.getByRole("link", { name: "Atom feed for original reports", exact: true })).toHaveAttribute("href", "/feed.xml");
-      await expect(links.getByRole("link", { name: "Add a check-in →", exact: true })).toHaveAttribute("href", "/issues");
+      await expect(links.getByRole("link", { name: "Add a check-in", exact: true })).toHaveAttribute("href", "/issues");
       await expect(footer).toContainText("No ads · No trackers");
       await expect(footer).toContainText("Not affiliated with or endorsed by Pearl Abyss.");
-      await expect(footer.getByRole("link", { name: "Image source ↗", exact: true })).toHaveAttribute("href", /^https:\/\//);
-      await expect(page.getByRole("link", { name: "Back to top ↑", exact: true })).toHaveCount(1);
+      await expect(footer.getByRole("link", { name: "Image source", exact: true })).toHaveAttribute("href", /^https:\/\//);
+      await expect(page.getByRole("link", { name: "Back to top", exact: true })).toHaveCount(1);
       if (name === "patches") {
         const ending = page.getByRole("region", { name: "The player record", exact: true });
-        await expect(ending.getByRole("link", { name: "View player reports →", exact: true })).toHaveCount(1);
-        await expect(page.getByRole("link", { name: "Next: The player record →", exact: true })).toHaveCount(0);
+        await expect(ending.getByRole("link", { name: "View player reports", exact: true })).toHaveCount(1);
+        await expect(page.getByRole("link", { name: "Next: The player record", exact: true })).toHaveCount(0);
       } else {
-        await expect(page.getByRole("link", { name: "More from the news desk →", exact: true })).toHaveAttribute("href", "/news");
+        await expect(page.getByRole("link", { name: "More from the news desk", exact: true })).toHaveAttribute("href", "/news");
       }
       for (const link of await links.getByRole("link").all()) {
         expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);

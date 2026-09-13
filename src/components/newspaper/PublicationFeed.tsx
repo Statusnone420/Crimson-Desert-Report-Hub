@@ -1,3 +1,4 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import { getEditorialCoverage } from "@/lib/editorialCoverage";
 import { editorialSourceById } from "@/lib/editorialSources";
 
@@ -17,7 +18,7 @@ export function PublicationFeed({ type = "article" }: { type?: "article" | "vide
       </div>
       <div>
         <p>{item.excerpt}</p>
-        <a className="action" title={item.sourceTitle} href={item.url} target="_blank" rel="noreferrer noopener">{type === "video" ? "Watch on YouTube" : "Read at the source"} ↗</a>
+        <ReadingLink className="action" title={item.sourceTitle} href={item.url} target="_blank" rel="noreferrer noopener">{type === "video" ? "Watch on YouTube" : "Read at the source"}</ReadingLink>
       </div>
     </article>)}</div>
   </section>;

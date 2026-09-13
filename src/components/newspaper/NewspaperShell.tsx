@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ReadingLink } from "./ReadingLink";
 import type { ReactNode } from "react";
 import { NewspaperHeader } from "./NewspaperHeader";
 import { isVercelPreview } from "@/lib/previewGuard";
@@ -23,20 +23,18 @@ export function NewspaperShell({ children, active, home = false }: { children: R
           <div className="np-footer-top">
             <p className="np-trust">No ads · No trackers</p>
             <div className="np-footer-links" role="navigation" aria-label="Footer navigation">
-              <Link href="/watch">Watch</Link>
-              <a href={SITE_RSS_PATH} aria-label="RSS feed for original reports">RSS</a>
-              <a href={SITE_FEED_PATH} aria-label="Atom feed for original reports">Atom</a>
-              <Link href="/about">About</Link>
-              <Link href="/privacy">Privacy</Link>
-              <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener">Open source</a>
-              <Link href="/issues">Add a check-in →</Link>
+              <ReadingLink variant="quiet" href="/watch">Watch</ReadingLink>
+              <ReadingLink variant="quiet" native href={SITE_RSS_PATH} aria-label="RSS feed for original reports">RSS</ReadingLink>
+              <ReadingLink variant="quiet" native href={SITE_FEED_PATH} aria-label="Atom feed for original reports">Atom</ReadingLink>
+              <ReadingLink variant="quiet" href="/about">About</ReadingLink>
+              <ReadingLink variant="quiet" href="/privacy">Privacy</ReadingLink>
+              <ReadingLink variant="quiet" href={SOURCE_URL}>Open source</ReadingLink>
+              <ReadingLink variant="quiet" href="/issues">Add a check-in</ReadingLink>
             </div>
           </div>
           <p className="media-notice">
             Unofficial fan site. Game imagery © Pearl Abyss. Not affiliated with or endorsed by Pearl Abyss.{" "}
-            <a href="https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1" target="_blank" rel="noreferrer noopener">
-              Image source ↗
-            </a>
+            <ReadingLink variant="quiet" href="https://crimsondesert.pearlabyss.com/en-US/Media?_mediatype=1">Image source</ReadingLink>
           </p>
         </footer>
       </div>

@@ -1,3 +1,4 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import type { ResolvingMetadata } from "next";
 import Link from "next/link";
 import { PublicShell } from "@/components/dispatch/Chrome";
@@ -21,7 +22,7 @@ export default function NewsPage() {
     <PublicShell active="news">
       <div className="dispatch-container">
         <section className="article-heading">
-          <Link className="back-link" href="/">← Back to the front page</Link>
+          <ReadingLink variant="quiet" direction="back" className="back-link" href="/"> Back to the front page</ReadingLink>
           <p className="kicker">The news desk</p>
           <h1>Crimson Desert news</h1>
           <p className="article-deck">Source-backed reports on the game, its expansions, and the official record.</p>
@@ -36,7 +37,7 @@ export default function NewsPage() {
                 <Link href={article.path}><h3>{article.title}</h3></Link>
                 <p>{article.description}</p>
                 <p className="small">{article.sourceNote}</p>
-                <Link className="action" href={article.path}>Read the report →</Link>
+                <ReadingLink className="action" href={article.path}>Read the report</ReadingLink>
               </article>
             ))}
           </div>
@@ -46,7 +47,7 @@ export default function NewsPage() {
           <p className="kicker">The record</p>
           <h2 id="news-sourcing">Sources stay with the story</h2>
           <p className="small">This desk publishes original reports with their source links. Public scanner results remain separate source context, not articles by the Report Hub.</p>
-          <Link className="action" href={chartingTheUnknown.path}>Read the full expansion article →</Link>
+          <ReadingLink className="action" href={chartingTheUnknown.path}>Read the full expansion article</ReadingLink>
         </section>
       </div>
     </PublicShell>

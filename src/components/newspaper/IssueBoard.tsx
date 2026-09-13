@@ -1,7 +1,7 @@
 "use client";
 
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import Image from "next/image";
-import Link from "next/link";
 import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ConfirmButtons } from "@/components/ConfirmButtons";
@@ -46,8 +46,8 @@ function OfficialIssueClaims({ issue }: { issue: IssueBoardEntry }) {
                 {claim.section ? <p className="dispatch-claim-section">{claim.section}</p> : null}
                 <blockquote>{claim.text}</blockquote>
                 <div className="dispatch-claim-links">
-                  <Link href={`/patches#claim-${claim.key}`}>Find this fix in the patch record →</Link>
-                  <a href={claim.officialUrl} target="_blank" rel="noreferrer noopener">Pearl Abyss source ↗</a>
+                  <ReadingLink href={`/patches#claim-${claim.key}`}>Find this fix in the patch record</ReadingLink>
+                  <ReadingLink href={claim.officialUrl} target="_blank" rel="noreferrer noopener">Pearl Abyss source</ReadingLink>
                 </div>
               </li>
             ))}
@@ -57,7 +57,7 @@ function OfficialIssueClaims({ issue }: { issue: IssueBoardEntry }) {
       ) : (
         <>
           <p>{issue.officialClaimsUnavailable ? "The exact official claim could not be read." : "No confirmed official claim is attached to this issue."}</p>
-          <Link href="/patches#claims">Review the official fix record →</Link>
+          <ReadingLink href="/patches#claims">Review the official fix record</ReadingLink>
         </>
       )}
     </section>
@@ -100,7 +100,7 @@ export function IssueBoard({ published, watchlist, monitoredCount, emptyPatchVer
     <div className="board-results-note"><p role="status">Showing {visible.length} of {entries.length} {view === "published" ? (entries.length === 1 ? "published issue" : "published issues") : "public watchlist leads"}</p><span>Current public board</span></div>
     <div id="board-results">{view === "published" ? <div className="player-desk-layout"><div className="player-dispatches">{visible.map((issue) => <PublishedIssue key={issue.id} issue={issue} />)}</div>{watchlistCount > 0 ? <WatchIndex watchlist={watchlist} monitoredCount={monitoredCount} categories={categories} openWatchlist={openWatchlist} /> : null}</div> : <Watchlist visible={visible} categories={categories} />}{visible.length === 0 ? <EmptyBoard view={view} resetFilters={resetFilters} emptyPatchVersion={emptyPatchVersion} hasFilters={filtered} /> : null}</div>
     {view === "watchlist" && monitoredCount > 0 ? <p className="board-monitored">The board also monitors {plural(monitoredCount, "additional watchlist issue")}. These entries have no public title, so filters cannot match them.</p> : null}
-    <details className="board-method"><summary>What these check-ins mean</summary><p>Check-ins describe personal experiences on the named patch. They are not verified unique players or proof that an issue affects everyone. One network has one answer per issue per patch; changing an answer replaces it. Shared networks share that answer. Earlier reports and scanner leads stay separate. Quiet does not mean fixed. <Link href="/about#method">Read the method →</Link></p></details>
+    <details className="board-method"><summary>What these check-ins mean</summary><p>Check-ins describe personal experiences on the named patch. They are not verified unique players or proof that an issue affects everyone. One network has one answer per issue per patch; changing an answer replaces it. Shared networks share that answer. Earlier reports and scanner leads stay separate. Quiet does not mean fixed. <ReadingLink href="/about#registers">Read the method</ReadingLink></p></details>
   </section>;
 }
 
@@ -126,5 +126,5 @@ function EmptyBoard({ view, resetFilters, emptyPatchVersion, hasFilters }: { vie
       ? "New topics come from corroborated public sources or maintainer curation. Check-ins can add an experience to an existing public topic."
       : "New public leads will appear here when they are available. There is no written-report inbox."
     : "Try another search or category. An empty result does not mean the game is free of issues.";
-  return <div className="board-empty"><span className="category-symbol" aria-hidden="true" style={{ maskImage: "url(/icons/scroll-text.svg)" }} /><h2>{title}</h2><p>{description}</p>{isEmpty ? <Link href="/patches">Read the patch record →</Link> : <button onClick={resetFilters}>Show all {view === "published" ? "published issues" : "public leads"} →</button>}</div>;
+  return <div className="board-empty"><span className="category-symbol" aria-hidden="true" style={{ maskImage: "url(/icons/scroll-text.svg)" }} /><h2>{title}</h2><p>{description}</p>{isEmpty ? <ReadingLink href="/patches">Read the patch record</ReadingLink> : <button onClick={resetFilters}>Show all {view === "published" ? "published issues" : "public leads"} →</button>}</div>;
 }

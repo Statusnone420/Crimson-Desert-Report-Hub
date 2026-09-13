@@ -96,7 +96,7 @@ test("the new report is readable from News and is present in RSS and Atom", asyn
   const schema = JSON.parse(await page.locator('script[type="application/ld+json"]').innerText());
   expect(schema).toMatchObject({ "@type": "NewsArticle", headline: patch20200.title, datePublished: patch20200.publishedAt });
   for (const source of patch20200.sources) {
-    await expect(page.locator("#sources").getByRole("link", { name: `${source.label} ↗`, exact: true })).toHaveAttribute("href", source.url);
+    await expect(page.locator("#sources").getByRole("link", { name: `${source.label} ${new URL(source.url).hostname}`, exact: true })).toHaveAttribute("href", source.url);
   }
   await expectHealthyPage(page, problems);
   await page.evaluate(() => document.fonts.ready);

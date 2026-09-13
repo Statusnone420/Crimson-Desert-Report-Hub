@@ -36,7 +36,7 @@ test("missing services stay unavailable instead of becoming a false zero", async
   await page.goto("/patches");
   await expect(page.getByRole("heading", { name: "Current patch unavailable" })).toBeVisible();
   await expect(page.getByRole("main")).not.toContainText("1.13.01");
-  await expect(page.getByRole("link", { name: "Browse Pearl Abyss’s updates ↗" })).toHaveAttribute("href", "https://crimsondesert.pearlabyss.com/en-US/News/Notice");
+  await expect(page.getByRole("link", { name: "Browse Pearl Abyss’s updates" })).toHaveAttribute("href", "https://crimsondesert.pearlabyss.com/en-US/News/Notice");
   await expect(page.getByText("unreadable", { exact: true })).toHaveCount(3);
   for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
@@ -50,7 +50,7 @@ test("missing services stay unavailable instead of becoming a false zero", async
   await page.goto("/issues");
   await expect(page.getByRole("heading", { name: "The issue board is unavailable." })).toBeVisible();
   await expect(page.getByText("The public issue records could not be read. Check-ins need a visible issue; try again later.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Read the patch record →" })).toHaveAttribute("href", "/patches");
+  await expect(page.getByRole("link", { name: "Read the patch record" })).toHaveAttribute("href", "/patches");
   await expectNoSyntheticCrowd(page);
 
   await page.goto("/observatory");
@@ -99,7 +99,7 @@ test("connected empty tables render honest zero states", async ({ page }) => {
 
   await page.goto("/patches");
   await expect(page.getByRole("heading", { name: "Patch 2.02.00", exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Read the report →", exact: true })).toHaveAttribute("href", "/articles/patch-2-02-00");
+  await expect(page.getByRole("link", { name: "Read the report", exact: true })).toHaveAttribute("href", "/articles/patch-2-02-00");
   await expect(page.getByText("0", { exact: true })).toHaveCount(3);
   await expect(page.getByText("These are different records. An official fix claim does not establish that a player’s issue is resolved.")).toBeVisible();
   await expect(page.getByText("A quiet board does not mean every issue is fixed.")).toBeVisible();

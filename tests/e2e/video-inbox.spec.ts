@@ -65,7 +65,7 @@ test.describe("private video review inbox", () => {
 
     await page.goto("/watch");
     await expect(page.getByRole("heading", { name: "Crimson Desert, in motion" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Watch the official reveal ↗" })).toHaveAttribute(
+    await expect(page.getByRole("link", { name: "Watch the official reveal" })).toHaveAttribute(
       "href",
       "https://www.youtube.com/watch?v=HaCtG1F_hfE",
     );

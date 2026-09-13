@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import { useState } from "react";
 import type { Category } from "@/lib/constants";
 import { CATEGORY_LABELS } from "@/lib/constants";
@@ -67,7 +67,7 @@ export function HomeNumbers({ steam, radar, steamUnavailable }: { steam: SteamPu
               </div>
             </>
           ) : <p className="np-error">The scanner record could not be read. Counts are unavailable.</p>}
-          <Link className="chart-link" href="/observatory#scanner-radar">Explore the source radar →</Link>
+          <ReadingLink variant="quiet" className="chart-link" href="/observatory#scanner-radar">Explore the source radar</ReadingLink>
         </section>
         <section>
           <h3>Daily review-count change</h3>
@@ -106,7 +106,7 @@ export function HomeNumbers({ steam, radar, steamUnavailable }: { steam: SteamPu
               </div>
               <p className="legend">Bar height shows change size. Blue is an increase; red is a decrease.</p>
               <p className="np-capture-note">Latest capture: {new Date(latest.collectedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC. Reviews are context, not issue evidence.</p>
-              <Link className="chart-link" href="/observatory#review-record">Read the review record →</Link>
+              <ReadingLink variant="quiet" className="chart-link" href="/observatory#review-record">Read the review record</ReadingLink>
             </>
           )}
         </section>

@@ -506,7 +506,7 @@ test.describe("public catch-up journey", () => {
     await expect(milestones).toHaveCount(6);
     await expect(page.locator(".cu-journey-filter p, .cu-rail-selection").filter({ visible: true }).first()).toContainText("After patch 1.18.02");
 
-    const showAll = page.getByRole("link", { name: "Show all history →" }).filter({ visible: true }).first();
+    const showAll = page.getByRole("link", { name: "Show all history" }).filter({ visible: true }).first();
     await expect(showAll).toBeVisible();
     await showAll.click();
 

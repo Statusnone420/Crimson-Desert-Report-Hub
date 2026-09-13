@@ -1,3 +1,4 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
 import Image from "next/image";
 import Link from "next/link";
 import { editorialArticles, type EditorialArticle } from "@/lib/editorialArticles";
@@ -44,7 +45,7 @@ export function FrontPageReports({ articles = editorialArticles }: { articles?: 
           <h2 id="lead-headline" className="headline"><Link href={lead.path}>{lead.title}</Link></h2>
           <ReportDateline article={lead} />
           <p className="dek">{lead.description}</p>
-          <Link className="action" href={lead.path}>Read the report →</Link>
+          <ReadingLink className="action" href={lead.path}>Read the report</ReadingLink>
         </div>
         <ReportImage article={lead} lead />
       </article>
@@ -57,11 +58,11 @@ export function FrontPageReports({ articles = editorialArticles }: { articles?: 
           <ReportImage article={secondary} />
           <div className="front-page-secondary-summary">
             <p>{secondary.description}</p>
-            <Link className="action" href={secondary.path}>Read the report →</Link>
+            <ReadingLink className="action" href={secondary.path}>Read the report</ReadingLink>
           </div>
         </article>
       ) : null}
-      <Link className="chart-link" href="/news">More from the news desk →</Link>
+      <ReadingLink variant="quiet" className="chart-link" href="/news">More from the news desk</ReadingLink>
     </section>
   );
 }
