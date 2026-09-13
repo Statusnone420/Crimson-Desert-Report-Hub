@@ -47,7 +47,7 @@ function OfficialIssueClaims({ issue }: { issue: IssueBoardEntry }) {
                 <blockquote>{claim.text}</blockquote>
                 <div className="dispatch-claim-links">
                   <ReadingLink href={`/patches#claim-${claim.key}`}>Find this fix in the patch record</ReadingLink>
-                  <ReadingLink href={claim.officialUrl} target="_blank" rel="noreferrer noopener">Pearl Abyss source</ReadingLink>
+                  <ReadingLink variant="quiet" href={claim.officialUrl} target="_blank" rel="noreferrer noopener">Pearl Abyss source</ReadingLink>
                 </div>
               </li>
             ))}
@@ -100,7 +100,7 @@ export function IssueBoard({ published, watchlist, monitoredCount, emptyPatchVer
     <div className="board-results-note"><p role="status">Showing {visible.length} of {entries.length} {view === "published" ? (entries.length === 1 ? "published issue" : "published issues") : "public watchlist leads"}</p><span>Current public board</span></div>
     <div id="board-results">{view === "published" ? <div className="player-desk-layout"><div className="player-dispatches">{visible.map((issue) => <PublishedIssue key={issue.id} issue={issue} />)}</div>{watchlistCount > 0 ? <WatchIndex watchlist={watchlist} monitoredCount={monitoredCount} categories={categories} openWatchlist={openWatchlist} /> : null}</div> : <Watchlist visible={visible} categories={categories} />}{visible.length === 0 ? <EmptyBoard view={view} resetFilters={resetFilters} emptyPatchVersion={emptyPatchVersion} hasFilters={filtered} /> : null}</div>
     {view === "watchlist" && monitoredCount > 0 ? <p className="board-monitored">The board also monitors {plural(monitoredCount, "additional watchlist issue")}. These entries have no public title, so filters cannot match them.</p> : null}
-    <details className="board-method"><summary>What these check-ins mean</summary><p>Check-ins describe personal experiences on the named patch. They are not verified unique players or proof that an issue affects everyone. One network has one answer per issue per patch; changing an answer replaces it. Shared networks share that answer. Earlier reports and scanner leads stay separate. Quiet does not mean fixed. <ReadingLink href="/about#registers">Read the method</ReadingLink></p></details>
+    <details className="board-method"><summary>What these check-ins mean</summary><p>Check-ins describe personal experiences on the named patch. They are not verified unique players or proof that an issue affects everyone. One network has one answer per issue per patch; changing an answer replaces it. Shared networks share that answer. Earlier reports and scanner leads stay separate. Quiet does not mean fixed. <a href="/about#registers">Read the method</a></p></details>
   </section>;
 }
 

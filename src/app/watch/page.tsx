@@ -16,7 +16,7 @@ export default function WatchPage() {
   const hasCreator = selections.some((selection) => selection.kind === "creator");
   return <PublicShell active="watch">
     <section className="article-heading">
-      <ReadingLink variant="quiet" direction="back" className="back-link" href="/"> Back to the front page</ReadingLink>
+      <ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink>
       <p className="kicker">Watch</p>
       <h1>Crimson Desert, in motion</h1>
       <p className="article-deck">{hasCreator ? "The official Charting the Unknown reveal, then one creator’s reading of it." : "Pearl Abyss’s Charting the Unknown reveal trailer."}</p>
