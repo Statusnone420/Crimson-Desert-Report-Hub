@@ -49,7 +49,7 @@ export default function Patch20200Article() {
         <a className="skip" href="#article-body">Skip to article</a>
         <article>
           <div className="article-heading">
-            <ReadingLink variant="quiet" direction="back" className="back-link" href="/news"> Back to the news desk</ReadingLink>
+            <ReadingLink variant="quiet" direction="back" className="back-link" href="/news">Back to the news desk</ReadingLink>
             <p className="kicker">Patch 2.02.00 · News</p>
             <h1>{patch20200.title}</h1>
             <p className="article-deck">{patch20200.description}</p>

@@ -44,7 +44,7 @@ export default async function PatchesPage() {
       <div id="patch-top" className="dispatch-container article-paper patch-paper">
         <a className="skip" href="#claims">Skip to fix claims</a>
         <section className="patch-heading">
-          <ReadingLink variant="quiet" direction="back" className="back-link" href="/"> Back to the front page</ReadingLink>
+          <ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink>
           <p className="kicker">The patch desk</p>
           <h1>{patchVerified ? `Patch ${patch.version}` : "Current patch unavailable"}</h1>
           <p className="patch-deck">What changed. What players are seeing.</p>
@@ -52,7 +52,7 @@ export default async function PatchesPage() {
           {patchIntroduction ? <p className="patch-intro">{patchIntroduction}</p> : null}
           <div className="patch-heading-actions">
             {report ? <ReadingLink className="action" href={report.path}>Read the report</ReadingLink> : null}
-            <ReadingLink className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">{patchVerified ? "Read Pearl Abyss’s complete notes " : "Browse Pearl Abyss’s updates "}</ReadingLink>
+            <ReadingLink className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">{patchVerified ? "Read Pearl Abyss’s complete notes" : "Browse Pearl Abyss’s updates"}</ReadingLink>
           </div>
         </section>
         <div className="patch-register" aria-label="Patch summary">

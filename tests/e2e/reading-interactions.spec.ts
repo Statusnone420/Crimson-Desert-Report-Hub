@@ -104,3 +104,119 @@ for (const theme of ["light", "dark"]) {
     await expect(page.locator("#registers")).toBeInViewport();
   });
 }
+
+test("confirmed CSS collisions no longer distort shared reading controls", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("newspaper-theme", "dark"));
+  await page.goto("/");
+  await page.evaluate(() => document.fonts.ready);
+
+  const defects = await page.evaluate(() => {
+    const problems: string[] = [];
+    const styleOf = (element: Element) => getComputedStyle(element);
+    const visible = (selector: string) => [...document.querySelectorAll(selector)].filter((element) => {
+      const box = element.getBoundingClientRect();
+      return box.width > 1 && box.height > 1;
+    });
+
+    for (const link of visible(".stories article .reading-link--action")) {
+      const style = styleOf(link);
+      const parent = link.parentElement?.getBoundingClientRect();
+      const box = link.getBoundingClientRect();
+      if (Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom) > 1) {
+        problems.push(`stories padding ${style.padding} on ${link.textContent?.trim()}`);
+      }
+      if (parent && box.width / parent.width > 0.92) {
+        problems.push(`stories stretch ${Math.round(box.width)}/${Math.round(parent.width)} on ${link.textContent?.trim()}`);
+      }
+    }
+
+    for (const link of visible(".report-actions .reading-link--action")) {
+      const style = styleOf(link);
+      if (Number.parseFloat(style.paddingLeft) < 12 || Number.parseFloat(style.paddingRight) < 12) {
+        problems.push(`report-actions padding ${style.padding}`);
+      }
+    }
+
+    for (const link of visible(".charts .reading-link")) {
+      const svg = link.querySelector("svg");
+      if (!svg) continue;
+      const svgStyle = styleOf(svg);
+      if (svgStyle.margin !== "0px") problems.push(`charts svg margin ${svgStyle.margin}`);
+      if (svgStyle.width !== "18px" || svgStyle.height !== "18px") problems.push(`charts svg size ${svgStyle.width} ${svgStyle.height}`);
+      const icon = link.querySelector(".reading-link__icon");
+      if (icon) {
+        const iconBox = icon.getBoundingClientRect();
+        const svgBox = svg.getBoundingClientRect();
+        const dx = Math.abs((svgBox.left + svgBox.width / 2) - (iconBox.left + iconBox.width / 2));
+        const dy = Math.abs((svgBox.top + svgBox.height / 2) - (iconBox.top + iconBox.height / 2));
+        if (dx > 2 || dy > 2) problems.push(`charts arrow offset ${dx.toFixed(1)},${dy.toFixed(1)}`);
+      }
+    }
+
+    return problems;
+  });
+  expect(defects).toEqual([]);
+
+  const wireLink = page.locator(".np-wire .reading-link--action").first();
+  if (await wireLink.count()) {
+    const wire = await wireLink.evaluate((link) => {
+      const parent = link.parentElement?.getBoundingClientRect();
+      const box = link.getBoundingClientRect();
+      return parent ? box.width / parent.width : 1;
+    });
+    expect(wire).toBeLessThan(0.85);
+  }
+
+  await page.goto("/watch");
+  await page.evaluate(() => document.fonts.ready);
+  const watch = await page.locator(".watch-copy .reading-link--action").first().evaluate((link) => {
+    const parent = link.parentElement?.getBoundingClientRect();
+    const box = link.getBoundingClientRect();
+    const style = getComputedStyle(link);
+    return {
+      stretch: parent ? box.width / parent.width : 1,
+      paddingTop: Number.parseFloat(style.paddingTop),
+      paddingBottom: Number.parseFloat(style.paddingBottom),
+    };
+  });
+  expect(watch.stretch).toBeLessThan(0.85);
+  expect(Math.abs(watch.paddingTop - watch.paddingBottom)).toBeLessThanOrEqual(1);
+
+  await page.goto("/issues");
+  const method = page.locator(".board-method a").filter({ hasText: "Read the method" });
+  await expect(method).toHaveAttribute("href", "/about#registers");
+  await expect(method).not.toHaveClass(/reading-link/);
+  expect(await method.evaluate((link) => getComputedStyle(link).display)).not.toBe("flex");
+});
+
+test("reading actions keep hover, focus, and reduced-motion cues without changing the box", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  const action = page.locator(".front-page-secondary .reading-link--action").first();
+  await expect(action).toBeVisible();
+  const rest = await action.evaluate((link) => {
+    const style = getComputedStyle(link);
+    const svg = link.querySelector("svg");
+    return {
+      padding: style.padding,
+      width: link.getBoundingClientRect().width,
+      transform: svg ? getComputedStyle(svg).transform : "none",
+    };
+  });
+  await action.hover();
+  const hover = await action.evaluate((link) => {
+    const style = getComputedStyle(link);
+    const svg = link.querySelector("svg");
+    return {
+      padding: style.padding,
+      width: link.getBoundingClientRect().width,
+      color: style.color,
+      transform: svg ? getComputedStyle(svg).transform : "none",
+    };
+  });
+  expect(hover.padding).toBe(rest.padding);
+  expect(Math.abs(hover.width - rest.width)).toBeLessThanOrEqual(2);
+  expect(hover.transform).toBe("none");
+  await action.focus();
+  expect(await action.evaluate((link) => getComputedStyle(link).outlineStyle)).toBe("solid");
+});

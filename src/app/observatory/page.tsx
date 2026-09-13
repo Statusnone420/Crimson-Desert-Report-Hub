@@ -33,7 +33,7 @@ export default async function ObservatoryPage() {
       <div id="observatory-top" className="dispatch-container observatory-paper">
         <a className="skip" href="#review-record">Skip to the charts</a>
         <section className="observatory-heading">
-          <ReadingLink variant="quiet" direction="back" className="back-link" href="/"> Back to the front page</ReadingLink>
+          <ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink>
           <p className="kicker">The Observatory · {isCurrentPatchVerified(radar.patch) ? `Patch ${radar.patch.version}` : "Current patch unverified"}</p>
           <h1>The game, in context.</h1>
           <p>Recorded reviews, audience activity, and the signals coming in from across the web.</p>

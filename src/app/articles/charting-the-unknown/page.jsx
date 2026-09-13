@@ -52,7 +52,7 @@ export default function ExpansionArticle() {
       <ReadingMotion />
       <article>
         <div className="article-heading">
-          <ReadingLink variant="quiet" direction="back" className="back-link" href="/"> Back to the front page</ReadingLink>
+          <ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink>
           <p className="kicker">The expansion · News</p>
           <h1>{chartingTheUnknown.title}</h1>
           <p className="article-deck">{chartingTheUnknown.description}</p>
@@ -93,7 +93,7 @@ export default function ExpansionArticle() {
         </div>
       </article>
       <section className="related-stories"><p className="kicker">Keep reading</p><h2>Current patch coverage</h2><div><Link href="/patches"><Image src="/official/combat.jpg" width={1920} height={1080} sizes="200px" alt="Two armored fighters clashing in a stone courtyard"/><span><small>Patch coverage</small><strong>Official fixes and community check-ins</strong><span>Return to the patch desk <DirectionIcon /></span></span></Link><Link href="/observatory"><span><small>The Observatory</small><strong>The game in numbers</strong><span>Explore review movement and tracked leads <DirectionIcon /></span></span></Link></div></section>
-      <div className="article-bottom"><ReadingLink variant="quiet" direction="back" href="/"> Crimson Desert Report Hub</ReadingLink><ReadingLink variant="quiet" direction="up" href="#main-top">Back to top</ReadingLink></div>
+      <div className="article-bottom"><ReadingLink variant="quiet" direction="back" href="/">Crimson Desert Report Hub</ReadingLink><ReadingLink variant="quiet" direction="up" href="#main-top">Back to top</ReadingLink></div>
     </div></PublicShell>
   );
 }

@@ -22,7 +22,7 @@ export default function NewsPage() {
     <PublicShell active="news">
       <div className="dispatch-container">
         <section className="article-heading">
-          <ReadingLink variant="quiet" direction="back" className="back-link" href="/"> Back to the front page</ReadingLink>
+          <ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink>
           <p className="kicker">The news desk</p>
           <h1>Crimson Desert news</h1>
           <p className="article-deck">Source-backed reports on the game, its expansions, and the official record.</p>

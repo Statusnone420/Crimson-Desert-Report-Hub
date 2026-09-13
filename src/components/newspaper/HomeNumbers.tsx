@@ -49,7 +49,7 @@ export function HomeNumbers({ steam, radar, steamUnavailable }: { steam: SteamPu
             <>
               <p className="small">{number(radar.recurring.trackedLeads)} scanner leads · not confirmed bugs</p>
               {categories.length >= 3 && (
-                <svg viewBox="0 0 440 390" role="img" aria-label={`Tracked leads: ${categories.map((category) => `${categoryLabel(category.category, CATEGORY_LABELS)} ${category.tracked}`).join("; ")}`}>
+                <svg className="radar-plot" viewBox="0 0 440 390" role="img" aria-label={`Tracked leads: ${categories.map((category) => `${categoryLabel(category.category, CATEGORY_LABELS)} ${category.tracked}`).join("; ")}`}>
                   <g className="grid">
                     {[1, 2, 3, 4, 5].map((value) => <polygon key={value} points={categories.map((_, index) => point(value * radarMax / 5, index).join(",")).join(" ")} />)}
                     {categories.map((category, index) => <line key={category.category} x1="220" y1="185" x2={point(radarMax, index)[0]} y2={point(radarMax, index)[1]} />)}

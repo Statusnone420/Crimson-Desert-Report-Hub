@@ -110,8 +110,8 @@
   gap: 20px;
   padding-top: 20px;
 }
-.newspaper .dispatch-actions:has(.confirmation-checkin) > a { margin-top: 45px; }
-.newspaper .dispatch-actions > a {
+.newspaper .dispatch-actions:has(.confirmation-checkin) > a:not(.reading-link) { margin-top: 45px; }
+.newspaper .dispatch-actions > a:not(.reading-link) {
   display: inline-flex;
   align-items: center;
   min-height: 48px;
@@ -122,7 +122,7 @@
   font-weight: 600;
   transition: border-color var(--control-duration), background-color var(--control-duration);
 }
-.newspaper .dispatch-actions > a:hover { border-color: var(--blue); background: var(--control-surface); color: var(--blue); }
+.newspaper .dispatch-actions > a:not(.reading-link):hover { border-color: var(--blue); background: var(--control-surface); color: var(--blue); }
 .newspaper .watch-entry .confirmation-checkin__status { margin: 12px 0 0; font-size: 14px; }
 .newspaper .verdict-rail { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
 .newspaper .verdict-rail > p:first-child { margin: 0 0 14px; font: 24px/1.2 var(--serif), serif; }
@@ -175,16 +175,8 @@
 .newspaper .obs-share-days, .newspaper .obs-capture-pages { gap: 12px; }
 
 /* Reading links remain light; the lead story earns the filled primary action. */
-.newspaper :is(.action, .chart-link, .claim-source, .dispatch-claim-links a, .article-meta a, .np-footer-links a, .back-link) {
-  text-underline-offset: .24em;
-  text-decoration-thickness: 1px;
-  transition: color var(--control-duration), text-decoration-color var(--control-duration);
-}
-.newspaper :is(.action, .chart-link, .claim-source, .dispatch-claim-links a, .article-meta a, .np-footer-links a, .back-link):hover { text-decoration-line: underline; }
-.newspaper .dispatch-claim-links a, .newspaper .article-body a { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--blue) 45%, transparent); text-underline-offset: .2em; }
-.newspaper .dispatch-claim-links a:hover, .newspaper .article-body a:hover { text-decoration-color: currentColor; }
-.newspaper .front-page-lead .action { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 12px 18px; border: 1px solid var(--ink); border-radius: 4px; background: var(--ink); color: var(--paper); font: 600 15px/1.4 var(--sans), sans-serif; transition: background-color var(--control-duration), border-color var(--control-duration); }
-.newspaper .front-page-lead .action:hover { background: var(--red); border-color: var(--red); color: var(--paper); text-decoration: none; }
+.newspaper .dispatch-claim-links a:not(.reading-link), .newspaper .article-body a:not(.reading-link) { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--blue) 45%, transparent); text-underline-offset: .2em; }
+.newspaper .dispatch-claim-links a:not(.reading-link):hover, .newspaper .article-body a:not(.reading-link):hover { text-decoration-color: currentColor; }
 .newspaper :is(.dispatch-excerpt, .board-method, .claims-verdicts, .obs-method, .watch-entry details) > summary { font-weight: 500; transition: color var(--control-duration); }
 .newspaper :is(.dispatch-excerpt, .board-method, .claims-verdicts, .obs-method, .watch-entry details) > summary:hover { color: var(--blue); }
 .newspaper :is(.dispatch-excerpt, .board-method, .claims-verdicts, .obs-method, .watch-entry details)[open] > summary { color: var(--blue); }
@@ -236,8 +228,8 @@
   .newspaper .confirmation-checkin__platforms { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); padding: 12px; }
   .newspaper .confirmation-checkin__platform-question, .newspaper .confirmation-checkin__status { grid-column: 1/-1; }
   .newspaper .confirmation-checkin__platforms .tap-btn { justify-content: center; text-align: center; }
-  .newspaper .dispatch-actions > a { width: 100%; justify-content: center; }
-  .newspaper .dispatch-actions:has(.confirmation-checkin) > a { margin-top: 0; }
+  .newspaper .dispatch-actions > a:not(.reading-link) { width: 100%; justify-content: center; }
+  .newspaper .dispatch-actions:has(.confirmation-checkin) > a:not(.reading-link) { margin-top: 0; }
   .newspaper .board-view-switch { gap: 18px; }
   .newspaper .board-view-switch button { gap: 8px; font-size: clamp(21px, 6vw, 26px); }
   .newspaper .board-view-count { min-width: 24px; min-height: 24px; font-size: 13px; }
