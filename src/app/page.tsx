@@ -13,7 +13,7 @@ import { serializeJsonLd, webSiteJsonLd } from "@/lib/structuredData";
 
 export const revalidate = 300;
 // The 16:9 source must cover the full portrait-frame height before cropping.
-const storyImageSizes = "(max-width:650px) 110px, (max-width:1000px) 42vw, 430px";
+const storyImageSizes = "(max-width:650px) 100vw, (max-width:1000px) 42vw, 430px";
 export default async function HomePage() {
   const [data, scanner, radar] = await Promise.all([getDashboardData(), getPublicScannerData(), getPatchRadarData()]);
   const patch = data.currentPatch;
