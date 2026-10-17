@@ -210,6 +210,21 @@ describe("activity components", () => {
     expect(unavailable).not.toContain("On the radar");
   });
 
+  it("gives no percentage against a usual of zero players", () => {
+    const zero = history();
+    // The same time in earlier weeks recorded zero players, so there is nothing to compare against.
+    for (const capture of zero.playerCaptures) {
+      if (capture.capturedAt.endsWith("T16:00:00.000Z") && capture.capturedAt < "2026-10-17") capture.playerCount = 0;
+    }
+    const html = renderToStaticMarkup(createElement(BeforeYouPlay, {
+      history: zero,
+      latestPatch: { version: "2.03.02", publishedAt: "2026-09-23T04:45:00Z", fixes: 3 },
+      watch: null,
+    }));
+    expect(html).not.toMatch(/Infinity|NaN/);
+    expect(html).toContain("at this time is 0 (median of the last 3), so no percentage is given.");
+  });
+
   it("counts only the game's Steam forum threads, not other Steam Community pages", async () => {
     const rows = [
       { id: "1", category: "crash_startup", cluster_id: "a", canonical_url: "https://steamcommunity.com/app/3321460/discussions/0/600000000000000001" },

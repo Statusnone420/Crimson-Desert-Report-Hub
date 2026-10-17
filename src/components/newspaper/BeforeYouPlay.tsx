@@ -43,7 +43,8 @@ function PlayersTile({ history }: { history: ActivityHistory }) {
   const max = Math.max(1, ...recent.map((point) => point.value), ...ranges.map((range) => range.high)) * 1.08;
   // Captures arrive every two hours; a longer silence breaks the line instead of bridging it.
   const maxGap = 3.25 * 3_600_000;
-  const difference = typical ? (latest.playerCount / typical.median - 1) * 100 : null;
+  // A usual of zero has no percentage to compare against.
+  const difference = typical && typical.median > 0 ? (latest.playerCount / typical.median - 1) * 100 : null;
   return (
     <div className="dd-tile">
       <p className="dd-tile-label">Playing on Steam</p>
@@ -52,7 +53,9 @@ function PlayersTile({ history }: { history: ActivityHistory }) {
       <p className="dd-tile-delta">
         {typical && difference !== null
           ? `${Math.abs(difference).toFixed(0)}% ${difference < 0 ? "below" : "above"} the usual for a ${typical.weekday} at this time (median of the last ${typical.samples}: ${number(typical.median)}).`
-          : "Not enough earlier weeks yet to say what is usual for this time."}
+          : typical
+            ? `The usual for a ${typical.weekday} at this time is 0 (median of the last ${typical.samples}), so no percentage is given.`
+            : "Not enough earlier weeks yet to say what is usual for this time."}
       </p>
       <div className="dd-spark">
         <svg viewBox={`0 0 ${CHART_WIDTH} ${PANEL_HEIGHT}`} preserveAspectRatio="none" role="img"
