@@ -71,16 +71,17 @@ test("original reports keep their hierarchy across screen sizes and themes", asy
           viewportHeight: window.innerHeight,
         };
       });
+      // The recorded readings open the page on the first screen; the two newest reports follow.
+      expect(geometry.readings.top).toBeLessThan(geometry.viewportHeight);
+      expect(geometry.lead.top).toBeGreaterThanOrEqual(geometry.readings.bottom);
       expect(geometry.secondary.top).toBeGreaterThanOrEqual(geometry.lead.bottom);
-      // The recorded readings follow the two newest reports and come before the official record.
-      expect(geometry.readings.top).toBeGreaterThanOrEqual(geometry.secondary.bottom);
-      expect(geometry.record.top).toBeGreaterThanOrEqual(geometry.readings.bottom);
-      if (geometry.coverage) expect(geometry.coverage.top).toBeGreaterThanOrEqual(geometry.readings.bottom);
+      expect(geometry.record.top).toBeGreaterThanOrEqual(geometry.secondary.bottom);
+      if (geometry.coverage) expect(geometry.coverage.top).toBeGreaterThanOrEqual(geometry.secondary.bottom);
       expect(geometry.headings[0]).toBeGreaterThan(geometry.headings[1]);
       if (width <= 900) {
         expect(geometry.copy.bottom).toBeLessThanOrEqual(geometry.image.top);
-        expect(geometry.action.top).toBeGreaterThanOrEqual(0);
-        expect(geometry.action.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
+        // The lead's reading link stays within one screen of the lead's top, above its artwork.
+        expect(geometry.action.bottom - geometry.lead.top).toBeLessThanOrEqual(geometry.viewportHeight);
       } else {
         expect(geometry.image.right).toBeLessThan(geometry.copy.left);
       }

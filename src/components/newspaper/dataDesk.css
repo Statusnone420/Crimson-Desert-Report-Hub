@@ -87,13 +87,16 @@ html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,
 .newspaper .dd-swatch{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-2px}
 
 @media (max-width:900px){
-  .newspaper .dd-tiles{grid-template-columns:1fr}
-  .newspaper .dd-tile{border-left:0;border-top:1px solid var(--line);padding:14px 0 8px}
-  .newspaper .dd-tile:first-child{border-top:0}
+  /* Three narrower columns keep the band short above the reports on a tablet. */
+  .newspaper .dd-tile{padding:14px 16px 8px}
+  .newspaper .dd-tile-value{font-size:46px}
   .newspaper .dd-watch{grid-template-columns:1fr}
 }
 @media (max-width:650px){
   .newspaper{--dd-axis:36px}
+  .newspaper .dd-tiles{grid-template-columns:1fr}
+  .newspaper .dd-tile{border-left:0;border-top:1px solid var(--line);padding:14px 0 8px}
+  .newspaper .dd-tile:first-child{border-top:0}
   .newspaper .dd-panel-plot{height:68px}
   .newspaper .dd-patch-label.is-wide-only{display:none}
   .newspaper .dd-tile-value{font-size:54px}
