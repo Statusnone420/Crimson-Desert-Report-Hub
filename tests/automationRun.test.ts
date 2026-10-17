@@ -2949,6 +2949,37 @@ describe("runAutomationMonitor", () => {
       }
       expect(tables.issue_clusters).toHaveLength(1);
     });
+
+    it.each([
+      { cluster: "crash_startup", extracted: "other" },
+      { cluster: "other", extracted: "crash_startup" },
+    ])("keeps an adopted $cluster record in its cluster when an unsure re-extraction says $extracted", async ({ cluster, extracted }) => {
+      resetDb({
+        issue_clusters: [storedCluster({ category: cluster })],
+        // Stored after an adoption: the record carries its cluster's category and fingerprint.
+        source_signals: [storedSignal({ category: cluster, semantic_fingerprint: semanticFingerprint("Map closes the game", cluster) })],
+      });
+      configureProviders();
+      mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+        issueTitle: "Map closes the game", category: extracted, platform: "ps5", confidence: "high",
+        summary: "Opening the map closes the game.", clusterAssignment: "unsure", clusterReason: "No clear match.", clusterSlug: null,
+        extractionProvider: "openrouter", extractionModel: "openai/gpt-5.6-luna", llmCallsUsed: 1, llmCostUsd: 0.0002,
+      });
+      mocks.tavilySearch.mockImplementationOnce(async () => searchHit("Map crash", "Crimson Desert crashes when opening the map on PS5."));
+      mocks.tavilySearch.mockResolvedValue([]);
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+      expect(result.signalsReobserved).toBe(1);
+      expect(tables.issue_clusters).toHaveLength(1);
+      expect(sourceSignalRows()[0]).toMatchObject({
+        cluster_id: "cluster-map-crash",
+        seen_count: 2,
+        category: cluster,
+        semantic_fingerprint: semanticFingerprint("Map closes the game", cluster),
+      });
+    });
   });
 
   it("reports only successfully persisted signals after a partial batch failure", async () => {

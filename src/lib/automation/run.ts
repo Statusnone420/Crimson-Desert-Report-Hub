@@ -2214,9 +2214,12 @@ async function findExistingSignalCluster(
 }
 
 /**
- * The routable cluster a source was stored in on an earlier observation, when
- * the new extraction still names the same category. A changed category means
- * the page may now describe another problem, so it routes afresh.
+ * The routable cluster a source was stored in on an earlier observation. The
+ * source stays when the new extraction names the cluster's category, or when the
+ * stored record already matched its cluster and the new label differs only by
+ * "other" (see `categoriesCompatible`), so an adopted category survives an unsure
+ * re-extraction. Any other change of category means the page may now describe
+ * another problem, so it routes afresh.
  */
 async function findStoredSignalCluster(
   supabase: ReturnType<typeof createServiceClient>,
@@ -2225,14 +2228,17 @@ async function findStoredSignalCluster(
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from("source_signals")
-    .select("cluster_id")
+    .select("cluster_id, category")
     .eq("external_id_hash", signal.externalHash)
     .not("cluster_id", "is", null)
     .limit(1);
   if (error) throw new Error(`stored signal cluster read failed: ${error.message}`);
-  const clusterId = ((data ?? []) as { cluster_id?: string | null }[])[0]?.cluster_id ?? null;
-  const cluster = clusterId ? routableClusters.find((candidate) => candidate.id === clusterId) : undefined;
-  return cluster && cluster.category === signal.extraction.category ? cluster.id : null;
+  const stored = ((data ?? []) as { cluster_id?: string | null; category?: string | null }[])[0];
+  const cluster = stored?.cluster_id ? routableClusters.find((candidate) => candidate.id === stored.cluster_id) : undefined;
+  if (!cluster) return null;
+  const category = String(cluster.category);
+  const extracted = signal.extraction.category;
+  return category === extracted || (stored?.category === category && categoriesCompatible(category, extracted)) ? cluster.id : null;
 }
 
 /** The routed cluster when it is the model's validated sure assignment, not a keyword fallback. */
@@ -2241,17 +2247,18 @@ function sureSemanticRoute(signal: PreparedSignal, routed: RoutableCluster | nul
 }
 
 /**
- * A sure assignment may cross categories when either side is "other" (see
- * `categoriesCompatible`), in both directions. The signal then takes its
- * cluster's category, so the record and its cluster agree.
+ * A signal stored in a cluster whose category differs from its own only by
+ * "other" (see `categoriesCompatible`) takes the cluster's category, so the
+ * record and its cluster agree. That covers a sure assignment across the two, a
+ * same-scan duplicate reaching the cluster from the route cache, and a
+ * re-observed source staying in the cluster it was stored in.
  */
 function adoptedClusterCategory(
   signal: PreparedSignal,
   clusterId: string | null,
   routableClusters: RoutableCluster[],
 ): Category | null {
-  if (!clusterId || signal.extraction.clusterAssignment !== "sure") return null;
-  const cluster = routableClusters.find((candidate) => candidate.id === clusterId && candidate.slug === signal.extraction.clusterSlug);
+  const cluster = clusterId ? routableClusters.find((candidate) => candidate.id === clusterId) : undefined;
   const category = cluster ? String(cluster.category) : null;
   return category
     && category !== signal.extraction.category
@@ -2261,24 +2268,14 @@ function adoptedClusterCategory(
     : null;
 }
 
-type AdoptedCategory = { clusterId: string; category: Category };
-
-/**
- * Within one scan, a later signal with the same fingerprint reaches the same
- * cluster from the route cache without its own sure assignment, so it takes the
- * category the first one adopted. `adoptedBySemantic` records each adoption.
- */
+/** The signal as it is stored: in its cluster's category, with a fingerprint to match. */
 function withAdoptedCategory(
   signal: PreparedSignal,
   clusterId: string | null,
   routableClusters: RoutableCluster[],
-  adoptedBySemantic: Map<string, AdoptedCategory>,
 ): PreparedSignal {
-  const earlier = adoptedBySemantic.get(signal.semantic);
-  const category = adoptedClusterCategory(signal, clusterId, routableClusters)
-    ?? (earlier && earlier.clusterId === clusterId ? earlier.category : null);
-  if (!category || !clusterId) return signal;
-  adoptedBySemantic.set(signal.semantic, { clusterId, category });
+  const category = adoptedClusterCategory(signal, clusterId, routableClusters);
+  if (!category) return signal;
   // The stored fingerprint must match the stored category, so a later source
   // with the same title and the cluster's category finds this record.
   return {
@@ -2802,7 +2799,7 @@ async function persistOneSignal(
   let promoted = false;
 
   try {
-    persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters, new Map()), clusterId, now, runId);
+    persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters), clusterId, now, runId);
     if (persistence.previousClusterId && persistence.previousClusterId !== clusterId) {
       touchedClusters.add(persistence.previousClusterId);
     }
@@ -2833,7 +2830,6 @@ async function persistSignals(
 ): Promise<{ persistedSteamReviewHashes: Set<string>; error: unknown | null }> {
   const persistedSteamReviewHashes = new Set<string>();
   const clusterBySemantic = new Map<string, string>();
-  const adoptedBySemantic = new Map<string, AdoptedCategory>();
   const touchedClusters = new Set<string>();
   let persistenceError: unknown = null;
 
@@ -2842,7 +2838,7 @@ async function persistSignals(
     for (const signal of signals) {
       const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
       if (clusterId) touchedClusters.add(clusterId);
-      const persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters, adoptedBySemantic), clusterId, now, runId);
+      const persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters), clusterId, now, runId);
       if (signal.source === "steam_review" && signal.steam?.recommendationHash) {
         persistedSteamReviewHashes.add(signal.steam.recommendationHash);
       }
