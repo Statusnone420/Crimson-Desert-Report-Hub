@@ -8,6 +8,22 @@ import { CRIMSON_DESERT_STEAM_APP_ID } from "@/lib/automation/steam";
  */
 export const STEAM_FORUM_URL = `https://steamcommunity.com/app/${CRIMSON_DESERT_STEAM_APP_ID}/discussions/0/`;
 
+const FORUM_THREAD_PATH = new RegExp(`^/app/${CRIMSON_DESERT_STEAM_APP_ID}/discussions/\\d+/\\d+/?$`);
+
+/**
+ * A thread in one of the game's Steam Community forums. A guide, a forum's own
+ * index or another game's page shares the domain but is not a thread.
+ */
+export function isSteamForumThreadUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.hostname.replace(/^www\./, "") === "steamcommunity.com" && FORUM_THREAD_PATH.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export type SteamForumTopic = {

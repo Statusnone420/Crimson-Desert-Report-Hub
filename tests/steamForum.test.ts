@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   fetchSteamForumTopics,
+  isSteamForumThreadUrl,
   parseSteamForumTime,
   parseSteamForumTopics,
   STEAM_FORUM_URL,
@@ -134,6 +135,27 @@ describe("parseSteamForumTopics", () => {
     const topics = parseSteamForumTopics(html, NOW);
 
     expect(topics.map((topic) => [topic.topicId, topic.sticky])).toEqual([["1", true]]);
+  });
+});
+
+describe("isSteamForumThreadUrl", () => {
+  it("accepts threads in the game's own forums and nothing else on the domain", () => {
+    for (const url of [
+      `${STEAM_FORUM_URL}600000000000000001`,
+      `${STEAM_FORUM_URL}600000000000000001/`,
+      "https://steamcommunity.com/app/3321460/discussions/7/600000000000000002?ctp=3",
+      "https://www.steamcommunity.com/app/3321460/discussions/0/600000000000000003",
+    ]) expect(isSteamForumThreadUrl(url)).toBe(true);
+    for (const url of [
+      STEAM_FORUM_URL,
+      "https://steamcommunity.com/sharedfiles/filedetails/?id=3500000000",
+      "https://steamcommunity.com/app/1000000/discussions/0/600000000000000004",
+      "https://steamcommunity.com/games/3321460/announcements/detail/600000000000000005",
+      "https://steamcommunity.com/app/3321460/discussions/search/?q=crash",
+      "https://example.com/app/3321460/discussions/0/600000000000000006",
+      "not a url",
+      null,
+    ]) expect(isSteamForumThreadUrl(url)).toBe(false);
   });
 });
 

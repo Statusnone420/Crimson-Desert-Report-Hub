@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
+import { isSteamForumThreadUrl } from "@/lib/automation/steamForum";
 import { summarizeBoardWatch, type BoardWatchRead, type BoardWatchSummary } from "@/lib/boardWatch";
 import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
@@ -19,7 +20,7 @@ export async function readBoardWatchSummary(
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const { data, error } = await supabase
       .from("source_signals")
-      .select("id, category, cluster_id")
+      .select("id, category, cluster_id, canonical_url")
       .eq("source_domain", "steamcommunity.com")
       .neq("public_status", "hidden")
       // A row kept without a cluster (a junk title, say) is not a watched topic.
@@ -28,8 +29,9 @@ export async function readBoardWatchSummary(
       .order("id")
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
     if (error) throw new Error(`Board watch read failed: ${error.message}`);
-    const pageRows = (data ?? []) as { category?: unknown; cluster_id?: unknown }[];
-    rows.push(...pageRows);
+    const pageRows = (data ?? []) as { category?: unknown; cluster_id?: unknown; canonical_url?: unknown }[];
+    // Pages call these Steam forum threads, so a guide or another game's page on the domain is not counted.
+    rows.push(...pageRows.filter((row) => isSteamForumThreadUrl(row.canonical_url)));
     if (pageRows.length < PAGE_SIZE) return summarizeBoardWatch(rows, currentPatch.version);
   }
   // More rows than the guard allows would be undercounted; show nothing rather than a wrong figure.

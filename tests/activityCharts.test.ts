@@ -13,6 +13,7 @@ import {
 } from "@/lib/activityCharts";
 import { buildActivityDays, type ActivityHistory } from "@/lib/activityHistory";
 import { summarizeBoardWatch } from "@/lib/boardWatch";
+import { readBoardWatchSummary } from "@/lib/boardWatch.server";
 import { BeforeYouPlay } from "@/components/newspaper/BeforeYouPlay";
 import { DailyReviews, reviewDayClass } from "@/components/newspaper/DailyReviews";
 import { UpdateTimeline } from "@/components/newspaper/UpdateTimeline";
@@ -196,6 +197,25 @@ describe("activity components", () => {
     expect(unavailable).toContain("Steam review totals could not be read.");
     expect(unavailable).toContain("The official patch record could not be read.");
     expect(unavailable).not.toContain("On the radar");
+  });
+
+  it("counts only the game's Steam forum threads, not other Steam Community pages", async () => {
+    const rows = [
+      { id: "1", category: "crash_startup", cluster_id: "a", canonical_url: "https://steamcommunity.com/app/3321460/discussions/0/600000000000000001" },
+      { id: "2", category: "crash_startup", cluster_id: "b", canonical_url: "https://steamcommunity.com/sharedfiles/filedetails/?id=3500000000" },
+      { id: "3", category: "audio", cluster_id: "c", canonical_url: "https://steamcommunity.com/app/1000000/discussions/0/600000000000000002" },
+    ];
+    type Query = Record<"select" | "eq" | "neq" | "not" | "gte" | "order", () => Query> & {
+      range: () => Promise<{ data: typeof rows; error: null }>;
+    };
+    const query: Query = {
+      select: () => query, eq: () => query, neq: () => query, not: () => query, gte: () => query, order: () => query,
+      range: async () => ({ data: rows, error: null }),
+    };
+    const supabase = { from: () => query } as unknown as Parameters<typeof readBoardWatchSummary>[0];
+    expect(await readBoardWatchSummary(supabase, { version: "2.03.02", publishedAt: "2026-09-23T04:45:00Z" })).toEqual({
+      patchVersion: "2.03.02", threads: 1, topics: 1, systems: [{ category: "crash_startup", threads: 1 }],
+    });
   });
 
   it("reports failed notes and scanner reads as unavailable, not as an empty record", () => {
