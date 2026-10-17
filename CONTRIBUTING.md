@@ -52,6 +52,10 @@ Other useful commands:
 
 GitHub Actions calls the same script. Pull requests to `main` run the quick core checks (`npm run verify:core`) on Linux. The browser suite runs on GitHub only on request, through **Actions → CI → Run workflow** with **Also run the browser suite on GitHub** ticked.
 
+## Pull requests from forks
+
+Pull requests from forks are welcome for review and discussion, but they are not merged directly. A required check blocks the merge, and tests and preview builds run only if the maintainer approves them. When a change is accepted, the maintainer checks it locally, applies it on a branch in this repository, credits you in that pull request, and closes yours.
+
 ## Database changes
 
 Write migrations as new files in `supabase/migrations/`. Test the ordered SQL on a local stack with `npm run db:start` and `npm run db:reset` (Docker Engine must be running). Never link the local stack to a hosted project, and never run `supabase db push`. Applying a migration to the hosted database is a maintainer release step.
