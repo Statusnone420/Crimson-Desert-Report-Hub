@@ -229,6 +229,30 @@ describe("activity components", () => {
     expect(html).toContain("at this time is 0 (median of the last 3), so no percentage is given.");
   });
 
+  it("counts a patch's age in UTC calendar days, like the date beside it", () => {
+    const render = (publishedAt: string) => renderToStaticMarkup(createElement(BeforeYouPlay, {
+      history: history(), latestPatch: { version: "2.04.01", publishedAt, fixes: 2 }, watch: null,
+    }));
+    // Checked Oct 17 at 16:30 UTC: a patch from 20:00 the day before is a day old, not "today".
+    expect(render("2026-10-16T20:00:00Z")).toContain("Oct 16 · 1 day ago");
+    expect(render("2026-10-17T01:00:00Z")).toContain("Oct 17 · today");
+  });
+
+  it("darkens the last weekly bar only when it is this week's", () => {
+    const monday = history();
+    // Early on Monday Oct 12 the new week has no share yet, so the last bar is the week before.
+    monday.days = monday.days.filter((day) => day.day <= "2026-10-12");
+    Object.assign(monday.days.at(-1)!, { newReviews: null, newPositive: null });
+    monday.checkedAt = "2026-10-12T01:00:00.000Z";
+    const early = renderToStaticMarkup(createElement(BeforeYouPlay, { history: monday, latestPatch: null, watch: null }));
+    expect(early).toContain("This week has no share yet.");
+    expect(early).not.toContain("The dark bar is this week so far.");
+    expect(early).not.toContain('class="dd-column"');
+    const later = renderToStaticMarkup(createElement(BeforeYouPlay, { history: history(), latestPatch: null, watch: null }));
+    expect(later).toContain("The dark bar is this week so far.");
+    expect(later).toContain('class="dd-column"');
+  });
+
   it("counts only the game's Steam forum threads, not other Steam Community pages", async () => {
     const rows = [
       { id: "1", category: "crash_startup", cluster_id: "a", canonical_url: "https://steamcommunity.com/app/3321460/discussions/0/600000000000000001" },

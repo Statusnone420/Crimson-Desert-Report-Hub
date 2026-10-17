@@ -4,6 +4,8 @@ import {
   reviewShare,
   typicalPlayers,
   usualRangeAt,
+  utcDay,
+  utcWeekStart,
   weeklyReviewShares,
   type ActivityHistory,
 } from "@/lib/activityHistory";
@@ -82,6 +84,9 @@ function MoodTile({ history }: { history: ActivityHistory }) {
     return <div className="dd-tile"><p className="dd-tile-label">Steam mood, last 7 days</p><p className="dd-tile-sub">Not enough daily review records this week to give a share.</p></div>;
   }
   const slot = CHART_WIDTH / Math.max(1, weeks.length);
+  // A week without a share has no bar, so the last bar is this week's only when its week is this one.
+  const now = Date.parse(history.checkedAt);
+  const current = Number.isFinite(now) && weeks.at(-1)?.weekStart === utcWeekStart(utcDay(now));
   return (
     <div className="dd-tile">
       <p className="dd-tile-label">Steam mood, last 7 days</p>
@@ -94,12 +99,12 @@ function MoodTile({ history }: { history: ActivityHistory }) {
             {weeks.map((week, index) => {
               const height = (Math.min(100, Math.max(60, week.share)) - 60) / 40 * PANEL_HEIGHT;
               const width = Math.min(slot * 0.6, slot - 6);
-              return <rect key={week.weekStart} className={index === weeks.length - 1 ? "dd-column" : "dd-column is-quiet"} x={index * slot + (slot - width) / 2} y={PANEL_HEIGHT - height} width={width} height={height} />;
+              return <rect key={week.weekStart} className={index === weeks.length - 1 && current ? "dd-column" : "dd-column is-quiet"} x={index * slot + (slot - width) / 2} y={PANEL_HEIGHT - height} width={width} height={height} />;
             })}
           </svg>
         </div>
       ) : null}
-      <p className="dd-tile-note">Bars: each week&apos;s share since {dateLabel(weeks[0]?.weekStart ?? history.days[0].day)}, axis from 60%. The dark bar is this week so far.</p>
+      <p className="dd-tile-note">Bars: each week&apos;s share since {dateLabel(weeks[0]?.weekStart ?? history.days[0].day)}, axis from 60%. {current ? "The dark bar is this week so far." : "This week has no share yet."}</p>
     </div>
   );
 }
@@ -108,7 +113,11 @@ type LatestPatch = { version: string; publishedAt: string | null; fixes: number 
 
 function PatchTile({ patch, now }: { patch: LatestPatch | null; now: number }) {
   if (!patch) return <div className="dd-tile"><p className="dd-tile-label">Latest official patch</p><p className="np-error">The official patch record could not be read.</p></div>;
-  const days = patch.publishedAt ? Math.floor((now - Date.parse(patch.publishedAt)) / DAY_MS) : null;
+  // Days between UTC calendar dates, to match the date shown beside them.
+  const published = patch.publishedAt ? Date.parse(patch.publishedAt) : Number.NaN;
+  const days = Number.isFinite(published) && Number.isFinite(now)
+    ? Math.round((Date.parse(`${utcDay(now)}T00:00:00Z`) - Date.parse(`${utcDay(published)}T00:00:00Z`)) / DAY_MS)
+    : null;
   return (
     <div className="dd-tile">
       <p className="dd-tile-label">Latest official patch</p>

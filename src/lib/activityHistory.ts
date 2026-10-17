@@ -46,6 +46,12 @@ export function utcDay(time: number): string {
   return new Date(time).toISOString().slice(0, 10);
 }
 
+/** The Monday that starts a day's UTC week. */
+export function utcWeekStart(day: string): string {
+  const time = Date.parse(`${day}T00:00:00Z`);
+  return utcDay(time - ((new Date(time).getUTCDay() + 6) % 7) * DAY_MS);
+}
+
 function finiteTime(value: unknown): number | null {
   if (typeof value !== "string") return null;
   const time = Date.parse(value);
@@ -168,8 +174,7 @@ export type WeeklyShare = ReviewShare & { weekStart: string };
 export function weeklyReviewShares(days: ActivityDay[], weeks: number): WeeklyShare[] {
   const groups = new Map<string, ActivityDay[]>();
   for (const day of days) {
-    const time = Date.parse(`${day.day}T00:00:00Z`);
-    const weekStart = utcDay(time - ((new Date(time).getUTCDay() + 6) % 7) * DAY_MS);
+    const weekStart = utcWeekStart(day.day);
     groups.set(weekStart, [...(groups.get(weekStart) ?? []), day]);
   }
   return [...groups.entries()]
