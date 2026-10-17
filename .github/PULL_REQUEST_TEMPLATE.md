@@ -4,8 +4,8 @@ What changed and why?
 
 ## Verification
 
-- [ ] `npm run verify` passed locally on the final files before push (includes all core and browser checks).
-- [ ] The PR still matches the locally verified files, and the required `verify` check passes before merge.
+- [ ] The checks that cover this change pass locally.
+- [ ] GitHub's `verify`, `browser` and `migrations` checks pass on the final commit before merge.
 - [ ] If paid model or provider routing changed, a separately authorized, budget-capped check completed one real generation on the expected provider in a supported environment. Record a blocker if unavailable; local mocks or deterministic fallback are not proof. Fresh Vercel-preview sign-in is disabled.
 
 ## Safety
