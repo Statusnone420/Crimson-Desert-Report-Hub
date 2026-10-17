@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import { summarizeBoardWatch, type BoardWatchSummary } from "@/lib/boardWatch";
+import { summarizeBoardWatch, type BoardWatchRead, type BoardWatchSummary } from "@/lib/boardWatch";
 import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
@@ -36,14 +36,18 @@ export async function readBoardWatchSummary(
   throw new Error("Board watch read exceeded its page guard");
 }
 
-/** Null means unavailable: the board then keeps its plain message instead of showing zeros. */
+/**
+ * Null when there is no verified patch to count against. A failed read is
+ * "unavailable", so pages say the counts could not be read instead of hiding them.
+ */
 export const getBoardWatchSummary = cache(async (
   currentPatch: WatchPatch,
-): Promise<BoardWatchSummary | null> => {
-  if (!hasSupabaseServiceConfig()) return null;
+): Promise<BoardWatchRead> => {
+  if (!isCurrentPatchVerified(currentPatch) || !currentPatch.publishedAt) return null;
+  if (!hasSupabaseServiceConfig()) return "unavailable";
   try {
     return await readBoardWatchSummary(createServiceClient(), currentPatch);
   } catch {
-    return null;
+    return "unavailable";
   }
 });

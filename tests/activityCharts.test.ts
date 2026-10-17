@@ -147,4 +147,17 @@ describe("activity components", () => {
     expect(unavailable).toContain("The official patch record could not be read.");
     expect(unavailable).not.toContain("On the radar");
   });
+
+  it("reports failed notes and scanner reads as unavailable, not as an empty record", () => {
+    const html = renderToStaticMarkup(createElement(BeforeYouPlay, {
+      history: history(),
+      latestPatch: { version: "2.03.02", publishedAt: "2026-09-23T04:45:00Z", fixes: null, notesUnavailable: true },
+      watch: "unavailable",
+    }));
+    expect(html).toContain("the official notes could not be read");
+    expect(html).not.toContain("official notes not listed yet");
+    expect(html).toContain("On the radar");
+    expect(html).toContain("The scanner&#x27;s thread counts could not be read.");
+    expect(html).not.toContain("The scanner is watching");
+  });
 });

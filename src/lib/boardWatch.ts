@@ -13,6 +13,9 @@ export type BoardWatchSummary = {
   systems: { category: Category; threads: number }[];
 };
 
+/** Null means there is no verified patch to count against; "unavailable" means the read failed. */
+export type BoardWatchRead = BoardWatchSummary | "unavailable" | null;
+
 export function summarizeBoardWatch(rows: { category?: unknown; cluster_id?: unknown }[], patchVersion: string): BoardWatchSummary {
   const bySystem = new Map<Category, number>();
   const topics = new Set<string>();

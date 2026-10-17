@@ -8,7 +8,7 @@ import { ConfirmButtons } from "@/components/ConfirmButtons";
 import type { CheckinCounts, ConfirmationKind } from "@/lib/confirmations";
 import type { IssueReadoutAsk, ReadoutTone } from "@/lib/readout";
 import type { PublicIssueClaim } from "@/lib/publicClaimContext.server";
-import type { BoardWatchSummary } from "@/lib/boardWatch";
+import type { BoardWatchRead, BoardWatchSummary } from "@/lib/boardWatch";
 import { CATEGORY_LABELS } from "@/lib/constants";
 
 type BoardView = "published" | "watchlist";
@@ -76,7 +76,7 @@ export function filterBoardEntries(entries: IssueBoardEntry[], query: string, ca
   return entries.filter((entry) => (category === "all" || entry.category === category) && `${entry.title} ${entry.categoryLabel}`.toLocaleLowerCase().includes(search));
 }
 
-export function IssueBoard({ published: publicEntries, watchlist: watchEntries, emptyPatchVersion, watching = null }: { published: IssueBoardEntry[]; watchlist: IssueBoardEntry[]; emptyPatchVersion: string; watching?: BoardWatchSummary | null }) {
+export function IssueBoard({ published: publicEntries, watchlist: watchEntries, emptyPatchVersion, watching = null }: { published: IssueBoardEntry[]; watchlist: IssueBoardEntry[]; emptyPatchVersion: string; watching?: BoardWatchRead }) {
   const issueHash = useSyncExternalStore(subscribeToIssueHash, issueHashSnapshot, serverIssueHash);
   const [selection, setSelection] = useState<{ hash: string; view: BoardView } | null>(null);
   const [saved, setSaved] = useState<{ hash: string; issue: IssueBoardEntry; source: IssueBoardEntry } | null>(null);
@@ -181,7 +181,7 @@ function WatchSummary({ watching }: { watching: BoardWatchSummary }) {
   return <p className="board-watch">The scanner is watching {plural(watching.topics, "topic")} from {plural(watching.threads, "Steam forum thread")} first seen on {watching.patchVersion}.{systems ? ` The most threads: ${systems}.` : ""} These are leads, not confirmed reports.</p>;
 }
 
-function EmptyBoard({ view, resetFilters, emptyPatchVersion, hasFilters, watchlistCount, openWatchlist, watching }: { view: BoardView; resetFilters: () => void; emptyPatchVersion: string; hasFilters: boolean; watchlistCount: number; openWatchlist: () => void; watching: BoardWatchSummary | null }) {
+function EmptyBoard({ view, resetFilters, emptyPatchVersion, hasFilters, watchlistCount, openWatchlist, watching }: { view: BoardView; resetFilters: () => void; emptyPatchVersion: string; hasFilters: boolean; watchlistCount: number; openWatchlist: () => void; watching: BoardWatchRead }) {
   const isEmpty = !hasFilters;
   const title = isEmpty
     ? view === "published" ? `No published issues yet for ${emptyPatchVersion}.` : "No public watchlist topics yet."
@@ -195,7 +195,9 @@ function EmptyBoard({ view, resetFilters, emptyPatchVersion, hasFilters, watchli
     <span className="category-symbol" aria-hidden="true" style={{ maskImage: "url(/icons/scroll-text.svg)" }} />
     <h2>{title}</h2>
     <p>{description}</p>
-    {isEmpty && view === "published" && watching && watching.threads > 0 ? <WatchSummary watching={watching} /> : null}
+    {isEmpty && view === "published" && watching === "unavailable"
+      ? <p className="board-watch np-error">The scanner&apos;s thread counts for this patch could not be read.</p>
+      : isEmpty && view === "published" && watching && watching !== "unavailable" && watching.threads > 0 ? <WatchSummary watching={watching} /> : null}
     <div className="board-empty-actions">
       {isEmpty && view === "published" && watchlistCount > 0 ? <button className="reading-link reading-link--action" onClick={() => openWatchlist()}><span className="reading-link__label">Browse {plural(watchlistCount, "watchlist topic")}</span><DirectionIcon /></button> : null}
       {isEmpty ? <ReadingLink href="/patches">Read the patch record</ReadingLink> : <button onClick={resetFilters}>Show all {view === "published" ? "published issues" : "watchlist topics"} →</button>}

@@ -7,7 +7,7 @@ import {
   weeklyReviewShares,
   type ActivityHistory,
 } from "@/lib/activityHistory";
-import type { BoardWatchSummary } from "@/lib/boardWatch";
+import type { BoardWatchRead } from "@/lib/boardWatch";
 import { CATEGORY_LABELS } from "@/lib/constants";
 
 const DAY_MS = 86_400_000;
@@ -101,7 +101,7 @@ function MoodTile({ history }: { history: ActivityHistory }) {
   );
 }
 
-type LatestPatch = { version: string; publishedAt: string | null; fixes: number | null };
+type LatestPatch = { version: string; publishedAt: string | null; fixes: number | null; notesUnavailable?: boolean };
 
 function PatchTile({ patch, now }: { patch: LatestPatch | null; now: number }) {
   if (!patch) return <div className="dd-tile"><p className="dd-tile-label">Latest official patch</p><p className="np-error">The official patch record could not be read.</p></div>;
@@ -112,7 +112,9 @@ function PatchTile({ patch, now }: { patch: LatestPatch | null; now: number }) {
       <p className="dd-tile-value">{patch.version}</p>
       <p className="dd-tile-sub">
         {patch.publishedAt ? `${dateLabel(patch.publishedAt)}${days !== null && days >= 0 ? ` · ${days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`}` : ""} · ` : ""}
-        {patch.fixes === null ? "official notes not listed yet" : `${patch.fixes} listed ${patch.fixes === 1 ? "fix" : "fixes"}`}
+        {patch.fixes !== null
+          ? `${patch.fixes} listed ${patch.fixes === 1 ? "fix" : "fixes"}`
+          : patch.notesUnavailable ? "the official notes could not be read" : "official notes not listed yet"}
       </p>
       <ReadingLink variant="quiet" className="dd-tile-link" href="/catch-up">What changed since you last played</ReadingLink>
     </div>
@@ -126,10 +128,11 @@ export function BeforeYouPlay({
 }: {
   history: ActivityHistory;
   latestPatch: LatestPatch | null;
-  watch: BoardWatchSummary | null;
+  watch: BoardWatchRead;
 }) {
   const now = Date.parse(history.checkedAt);
-  const systems = watch?.systems.slice(0, 3).map((system) => `${CATEGORY_LABELS[system.category].toLowerCase()} ${system.threads}`).join(", ");
+  const summary = watch === "unavailable" ? null : watch;
+  const systems = summary?.systems.slice(0, 3).map((system) => `${CATEGORY_LABELS[system.category].toLowerCase()} ${system.threads}`).join(", ");
   return (
     <section className="dd-brief" aria-labelledby="before-you-play-title">
       <div className="dd-brief-heading">
@@ -142,15 +145,20 @@ export function BeforeYouPlay({
         <MoodTile history={history} />
         <PatchTile patch={latestPatch} now={now} />
       </div>
-      {watch && watch.threads > 0 ? (
+      {summary && summary.threads > 0 ? (
         <div className="dd-watch">
           <p className="kicker">On the radar</p>
           <p>
-            The scanner is watching <strong>{number(watch.topics)} {watch.topics === 1 ? "topic" : "topics"}</strong> from{" "}
-            <strong>{number(watch.threads)} Steam forum {watch.threads === 1 ? "thread" : "threads"}</strong> first seen on {watch.patchVersion}
+            The scanner is watching <strong>{number(summary.topics)} {summary.topics === 1 ? "topic" : "topics"}</strong> from{" "}
+            <strong>{number(summary.threads)} Steam forum {summary.threads === 1 ? "thread" : "threads"}</strong> first seen on {summary.patchVersion}
             {systems ? `. The most threads: ${systems}.` : "."} These are leads, not confirmed reports.
           </p>
           <ReadingLink variant="quiet" href="/issues">Read the issue board</ReadingLink>
+        </div>
+      ) : watch === "unavailable" ? (
+        <div className="dd-watch">
+          <p className="kicker">On the radar</p>
+          <p className="np-error">The scanner&apos;s thread counts could not be read.</p>
         </div>
       ) : null}
       <ReadingLink variant="quiet" className="dd-brief-link" href="/observatory#patch-seismograph">Open the data desk</ReadingLink>

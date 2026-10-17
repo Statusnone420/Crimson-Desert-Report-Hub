@@ -27,7 +27,14 @@ describe("issue board empty state", () => {
     expect(html).not.toContain("audio 1");
   });
 
-  it("keeps the plain message when the counts are unavailable or zero", () => {
+  it("says the counts could not be read when their read failed", () => {
+    const html = renderToStaticMarkup(createElement(IssueBoard, { published: [], watchlist: [], emptyPatchVersion: "2.03.02", watching: "unavailable" }));
+    expect(html).toContain("No published issues yet for 2.03.02.");
+    expect(html).toContain("The scanner&#x27;s thread counts for this patch could not be read.");
+    expect(html).not.toContain("The scanner is watching");
+  });
+
+  it("keeps the plain message when there is no verified patch or nothing to count", () => {
     for (const value of [null, { ...watching, threads: 0, topics: 0, systems: [] }]) {
       const html = renderToStaticMarkup(createElement(IssueBoard, { published: [], watchlist: [], emptyPatchVersion: "2.03.02", watching: value }));
       expect(html).toContain("No published issues yet for 2.03.02.");
