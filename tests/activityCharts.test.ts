@@ -146,6 +146,17 @@ describe("activity components", () => {
     expect(html).toContain("Twitch viewer counts could not be read.");
   });
 
+  it("does not read an unread patch record as a quiet one", () => {
+    const quiet = renderToStaticMarkup(createElement(UpdateTimeline, { history: history(), patches: [] }));
+    expect(quiet).toContain("No official release since then.");
+    expect(quiet).toContain('<th scope="col">Release</th>');
+    const unread = renderToStaticMarkup(createElement(UpdateTimeline, { history: history(), patches: [], patchesUnavailable: true }));
+    expect(unread).not.toContain("No official release");
+    expect(unread).not.toContain("Labeled lines mark official updates");
+    expect(unread).toContain("Updates are not marked, because the official patch record could not be read.");
+    expect(unread).not.toContain('<th scope="col">Release</th>');
+  });
+
   it("colors review days red when worse and blue when better than the usual, and leaves small days uncolored", () => {
     expect([-12, -6, -3, -2, 0, 2, 2.1, 7, 15].map(reviewDayClass)).toEqual([
       "rv-w3", "rv-w2", "rv-w1", "rv-z", "rv-z", "rv-z", "rv-b1", "rv-b2", "rv-b3",

@@ -144,7 +144,13 @@ function lanes(history: ActivityHistory): Lane[] {
   ];
 }
 
-function LaneChart({ lane, history, patches, releases }: { lane: Lane; history: ActivityHistory; patches: ChartPatch[]; releases: Release[] }) {
+function LaneChart({ lane, history, patches, patchesUnavailable, releases }: {
+  lane: Lane;
+  history: ActivityHistory;
+  patches: ChartPatch[];
+  patchesUnavailable: boolean;
+  releases: Release[];
+}) {
   const first = history.days.findIndex(lane.recorded);
   if (lane.state === "unavailable") return <p className="dd-panel-state np-error">{lane.unavailableText}</p>;
   if (first < 0) return <p className="dd-panel-state">{lane.emptyText}</p>;
@@ -162,9 +168,11 @@ function LaneChart({ lane, history, patches, releases }: { lane: Lane; history: 
   // Open on the latest full day; today's partial day is one step to the right.
   const lastComplete = days.findLastIndex((day, index) => index !== partial && lane.recorded(day));
   const since = first === 0 ? `Shown for the last ${days.length} days.` : `Recorded since ${dayLabel(days[0].day)}.`;
+  // An unread patch record is not an empty one, so it never reads as "no release".
+  const quiet = markers.length || patchesUnavailable ? "" : " No official release since then.";
   return (
     <>
-      <p className="dd-measure-title"><strong>{lane.title}</strong> <span>{lane.how(days)} {since}{markers.length ? "" : " No official release since then."}</span></p>
+      <p className="dd-measure-title"><strong>{lane.title}</strong> <span>{lane.how(days)} {since}{quiet}</span></p>
       <DayScrubber id={`day-${lane.id}`} label={lane.slider} items={items} initialIndex={lastComplete < 0 ? days.length - 1 : lastComplete}>
         <PatchLabels markers={markers} />
         <Plot ticks={ticks} markers={markers}>{marks}</Plot>
@@ -174,7 +182,12 @@ function LaneChart({ lane, history, patches, releases }: { lane: Lane; history: 
   );
 }
 
-export function UpdateTimeline({ history, patches }: { history: ActivityHistory; patches: ChartPatch[] }) {
+export function UpdateTimeline({ history, patches, patchesUnavailable = false }: {
+  history: ActivityHistory;
+  patches: ChartPatch[];
+  /** The official patch record could not be read, so `patches` is empty for want of data. */
+  patchesUnavailable?: boolean;
+}) {
   const days = history.days;
   if (days.length === 0) {
     return <p className="np-error">The activity record could not be read. No counts are assumed to be zero.</p>;
@@ -190,17 +203,24 @@ export function UpdateTimeline({ history, patches }: { history: ActivityHistory;
   const rolling = rollingReviewShares(completeDays(history));
   const today = partialDay(history);
   const releasesOn = (day: string) => releases.filter((release) => release.day === day).map((release) => release.version).join(", ");
+  const marking = patchesUnavailable
+    ? "Updates are not marked, because the official patch record could not be read."
+    : "Labeled lines mark official updates; short ticks mark hotfixes.";
 
   return (
     <figure className="dd-figure dd-timeline" aria-labelledby="timeline-title">
       <figcaption className="dd-figcaption">
         <h3 id="timeline-title">Day by day</h3>
-        <p>One measure at a time, each from the day its records start. Labeled lines mark official updates; short ticks mark hotfixes. Today&apos;s partial day is drawn lighter.</p>
+        <p>{`One measure at a time, each from the day its records start. ${marking} Today's partial day is drawn lighter.`}</p>
       </figcaption>
       <MeasureTabs
         id="timeline"
         label="Measure"
-        tabs={lanes(history).map((lane) => ({ id: lane.id, label: lane.label, content: <LaneChart lane={lane} history={history} patches={patches} releases={releases} /> }))}
+        tabs={lanes(history).map((lane) => ({
+          id: lane.id,
+          label: lane.label,
+          content: <LaneChart lane={lane} history={history} patches={patches} patchesUnavailable={patchesUnavailable} releases={releases} />,
+        }))}
       />
       <details className="dd-table">
         <summary>Read the daily numbers</summary>
@@ -208,13 +228,13 @@ export function UpdateTimeline({ history, patches }: { history: ActivityHistory;
           <table>
             <caption>Daily records, UTC. A blank cell was not recorded.</caption>
             <thead>
-              <tr><th scope="col">Day</th><th scope="col">Release</th><th scope="col">New reviews</th><th scope="col">Positive, last 7 days</th><th scope="col">Twitch avg</th><th scope="col">Twitch peak</th><th scope="col">Players min</th><th scope="col">Players avg</th><th scope="col">Players max</th></tr>
+              <tr><th scope="col">Day</th>{patchesUnavailable ? null : <th scope="col">Release</th>}<th scope="col">New reviews</th><th scope="col">Positive, last 7 days</th><th scope="col">Twitch avg</th><th scope="col">Twitch peak</th><th scope="col">Players min</th><th scope="col">Players avg</th><th scope="col">Players max</th></tr>
             </thead>
             <tbody>
               {days.map((day, index) => ({ day, index })).reverse().map(({ day, index }) => (
                 <tr key={day.day}>
                   <th scope="row">{day.day === today ? `${dayLabel(day.day)} (today so far)` : dayLabel(day.day)}</th>
-                  <td>{releasesOn(day.day)}</td>
+                  {patchesUnavailable ? null : <td>{releasesOn(day.day)}</td>}
                   <td>{day.newReviews === null ? "" : number(day.newReviews)}</td>
                   <td>{rolling[index] == null ? "" : `${rolling[index]!.toFixed(1)}%`}</td>
                   <td>{day.twitchAvg === null ? "" : number(day.twitchAvg)}</td>

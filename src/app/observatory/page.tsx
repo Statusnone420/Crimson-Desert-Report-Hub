@@ -64,7 +64,7 @@ export default async function ObservatoryPage() {
           {publications.unavailable
             ? <p className="np-error">The official patch record could not be read, so updates are not compared or marked.</p>
             : <UpdateWindows history={activity} patches={patches} />}
-          <UpdateTimeline history={activity} patches={patches} />
+          <UpdateTimeline history={activity} patches={patches} patchesUnavailable={publications.unavailable} />
         </section>
         <section id="daily-reviews" tabIndex={-1} className="obs-section" aria-labelledby="daily-reviews-title">
           <DailyReviews history={activity} patches={patches} />
