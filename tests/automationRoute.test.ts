@@ -25,6 +25,21 @@ describe("routeToWatchlistCluster", () => {
     expect(result).toEqual(clusters.find((cluster) => cluster.slug === "performance_regression"));
   });
 
+  it("routes a sure LLM slug across categories when either side is other", () => {
+    const withOther: RoutableCluster[] = [...clusters, { id: "cluster-fly", slug: "auto-fly-glitch", title: "Fly glitch", category: "other" }];
+    const result = routeToWatchlistCluster(
+      {
+        issueTitle: "Fly glitch crashes the game",
+        summary: "",
+        category: "crash_startup",
+        llmClusterAssignment: "sure",
+        llmClusterSlug: "auto-fly-glitch",
+      },
+      withOther,
+    );
+    expect(result?.slug).toBe("auto-fly-glitch");
+  });
+
   it("routes map-open crash language to map_open_crash_persistent when there is no LLM slug", () => {
     const result = routeToWatchlistCluster(
       {

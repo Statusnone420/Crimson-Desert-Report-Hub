@@ -30,6 +30,17 @@ const KEYWORD_ROUTES: { slug: string; category: Category; patterns: RegExp[] }[]
 ];
 
 /**
+ * A model's sure assignment may join a cluster of the same category, or cross
+ * categories when either side is "other": that catch-all is where one problem
+ * most often lands under two labels. Two specific categories that differ stay
+ * apart, which keeps a confident wrong match (frame drops into a crash
+ * cluster) from merging.
+ */
+export function categoriesCompatible(clusterCategory: string, signalCategory: string): boolean {
+  return clusterCategory === signalCategory || clusterCategory === "other" || signalCategory === "other";
+}
+
+/**
  * Pick the watchlist cluster a signal belongs to.
  * Preference order: validated LLM assignment > keyword route (first match wins,
  * ordered most-specific first) > null (caller creates a new cluster).
@@ -39,7 +50,7 @@ export function routeToWatchlistCluster(input: RoutingInput, clusters: RoutableC
 
   if (input.llmClusterAssignment === "sure" && input.llmClusterSlug) {
     const match = bySlug.get(input.llmClusterSlug);
-    if (match?.category === input.category) return match;
+    if (match && categoriesCompatible(String(match.category), input.category)) return match;
   }
 
   const text = `${input.issueTitle} ${input.summary}`;

@@ -12,6 +12,17 @@ const JUNK_TITLES = [
   /^(?:steam community :: )?crimson desert(?: enhanced)?(?: general discussions| discussões gerais)?(?: - reddit)?$/,
   /^crimson desert - .*\bforum - page \d+/,
   /^post - x$/,
+  /^@[\w.]+$/,
+  // Store and release notices: a sale, or news that a patch is out.
+  /\bon sale for \d{1,2}% off\b/,
+  /\b(?:patch|update|hotfix) \d+\.\d{1,2}(?:\.\d{1,2})? released (?:&|and) detailed\b/,
+  /\breceived (?:an? )?(?:update|patch|hotfix) \d+\.\d{1,2}(?:\.\d{1,2})? bringing\b/,
+  /^(?:update|patch|hotfix) \d+\.\d{1,2}(?:\.\d{1,2})? (?:broadly )?addresses\b/,
+  // An official fix line quoted as the title, unless the title says it persists.
+  /^["“']?(?:fixed|improved|resolved) an issue where\b(?!.*\b(?:still|but|again|persists?|not fixed)\b)/,
+  // Wiki and roundup pages that list many issues.
+  /\bglitches (?:&|and) exploits\b/,
+  /\b(?:known|reported)(?:\/(?:known|reported))? issues roundup\b/,
   // The extraction fallback when a page has no title.
   /^crimson desert community signal$/,
   // The model's placeholders for a source without a game issue.

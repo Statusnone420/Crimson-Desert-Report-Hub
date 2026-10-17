@@ -1003,8 +1003,8 @@ describe("runAutomationMonitor", () => {
     expect(JSON.stringify(progress)).not.toContain(privateMarker);
   });
 
-  it("selects a deterministic bounded 24 named plus 24 active auto semantic options with descriptions", async () => {
-    const { selectSemanticClusterOptions } = await importRunner();
+  it("offers the 24 newest named clusters plus the active auto clusters that share a source's words", async () => {
+    const { createSemanticClusterOptions, MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS } = await importRunner();
     const named = [
       {
         id: "named-recent",
@@ -1064,21 +1064,33 @@ describe("runAutomationMonitor", () => {
     const auto = Array.from({ length: 25 }, (_, index) => ({
       id: `auto-${index}`,
       slug: `auto-semantic-${String(index).padStart(2, "0")}`,
-      title: `Auto semantic ${index}`,
+      title: `Stutter in town ${index}`,
       category: "performance",
-      description: `Auto description ${index}.`,
+      description: `Hitching while riding through the market ${index}.`,
       last_signal_at: `2026-07-${String(25 - index).padStart(2, "0")}T12:00:00.000Z`,
       created_at: "2026-07-01T00:00:00.000Z",
+      signal_count: 1,
       admin_visibility_override: index <= 1 ? "force_hidden" : null,
       lifecycle_reason: index === 1 ? "Merged into auto-semantic-02 (duplicate)." : null,
     }));
+    const autoCluster = (slug: string, title: string, category: string, extra: Record<string, unknown> = {}) => ({
+      id: slug, slug, title, category, description: null, created_at: "2026-07-01T00:00:00.000Z", signal_count: 2, ...extra,
+    });
+    const topical = [
+      // An old cluster in another category stays reachable by its distinctive words.
+      autoCluster("auto-lyselia-softlock", "Lyselia dialogue softlock after the fourth sanctuary", "other", { last_signal_at: "2026-06-01T00:00:00.000Z" }),
+      autoCluster("auto-sanctuary-map", "Sanctuary icon missing from the map", "graphics_visual"),
+      // Empty and merged clusters are never proposed.
+      autoCluster("auto-lyselia-empty", "Lyselia softlock", "quest_progression", { signal_count: 0 }),
+      autoCluster("auto-lyselia-merged", "Lyselia softlock repeat", "quest_progression", { lifecycle_reason: "Merged into auto-lyselia-softlock." }),
+    ];
 
-    const options = selectSemanticClusterOptions([...named, ...auto]);
+    const optionsFor = createSemanticClusterOptions([...named, ...auto, ...topical]);
+    const options = optionsFor("Stuck in Lyselia's dialogue after the 4th sanctuary, cannot continue");
     const namedOptions = options.filter((option) => !option.slug.startsWith("auto-"));
     const autoOptions = options.filter((option) => option.slug.startsWith("auto-"));
 
     expect(namedOptions).toHaveLength(24);
-    expect(autoOptions).toHaveLength(24);
     expect(namedOptions.slice(0, 3).map((option) => option.slug)).toEqual([
       "watch-recent",
       "watch-alpha",
@@ -1086,10 +1098,16 @@ describe("runAutomationMonitor", () => {
     ]);
     expect(namedOptions.at(-1)?.slug).toBe("watch-created-newer");
     expect(namedOptions.map((option) => option.slug)).not.toContain("watch-oldest");
-    expect(autoOptions.map((option) => option.slug)).toContain("auto-semantic-00");
-    expect(autoOptions.map((option) => option.slug)).not.toContain("auto-semantic-01");
     expect(options[0]).toMatchObject({ slug: "watch-recent", description: "Recent named context." });
-    expect(autoOptions[0]).toMatchObject({ slug: "auto-semantic-00", description: "Auto description 0." });
+    expect(autoOptions.map((option) => option.slug)).toEqual(["auto-lyselia-softlock", "auto-sanctuary-map"]);
+    expect(autoOptions[0]).toMatchObject({ category: "other", title: "Lyselia dialogue softlock after the fourth sanctuary" });
+
+    // Without shared words no automatic cluster is offered; with many, the cap holds.
+    expect(optionsFor("Audio cuts out in cutscenes").filter((option) => option.slug.startsWith("auto-"))).toEqual([]);
+    const stutter = optionsFor("Stutter and hitching in the market town").filter((option) => option.slug.startsWith("auto-"));
+    expect(stutter).toHaveLength(MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS);
+    // Ties fall back to recency; a temporary visibility override does not remove a cluster, a merge does.
+    expect(stutter.map((option) => option.slug).slice(0, 2)).toEqual(["auto-semantic-00", "auto-semantic-02"]);
   });
 
   it("immediately restores automatic cluster and signal visibility after force-hidden is cleared", async () => {
@@ -2783,6 +2801,61 @@ describe("runAutomationMonitor", () => {
     expect(tables.issue_clusters.find((row) => row.id === "old-cluster")).toMatchObject({ signal_count: 0 });
     expect(newCluster).toMatchObject({ signal_count: 1 });
     expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: newCluster!.id });
+  });
+
+  describe("cluster stability and category", () => {
+    const url = "https://example.com/map-crash-thread";
+    const storedCluster = (overrides: Record<string, unknown> = {}) => ({
+      id: "cluster-map-crash", slug: "auto-map-crash", title: "Map crash on console", category: "crash_startup",
+      description: "The game closes when the map opens.", fix_status: "reported", confidence: "medium",
+      is_public: false, auto_public: false, signal_count: 1, visibility_revision: 0, ...overrides,
+    });
+    const storedSignal = (overrides: Record<string, unknown> = {}) => ({
+      id: "signal-map-crash", source: "web_search", source_type: "web_search", source_url: url, canonical_url: url,
+      external_id_hash: externalIdHash("web_search", url), title: "Map crash", summary: "The map crashes the game.",
+      source_domain: "example.com", source_published_at: "2026-07-04T12:00:00.000Z", semantic_fingerprint: "earlier-wording",
+      cluster_id: "cluster-map-crash", category: "crash_startup", confidence: "medium", observed_at: "2026-07-05T11:00:00.000Z",
+      public_status: "private", seen_count: 1, first_seen_at: "2026-07-05T11:00:00.000Z", ...overrides,
+    });
+    const searchHit = (title: string, snippet: string) => [{
+      title, url, snippet, sourceDomain: "example.com",
+      observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+    }];
+
+    it("keeps a re-observed source in its cluster when only the wording of the same problem changes", async () => {
+      resetDb({ issue_clusters: [storedCluster()], source_signals: [storedSignal()] });
+      configureProviders();
+      mocks.tavilySearch.mockImplementationOnce(async () => searchHit("Map crash PS5", "Crimson Desert map crash on PS5 every time."));
+      mocks.tavilySearch.mockResolvedValue([]);
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+      expect(result.signalsReobserved).toBe(1);
+      expect(tables.issue_clusters).toHaveLength(1);
+      expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-map-crash", seen_count: 2 });
+    });
+
+    it("gives an \"other\" signal the category of the specific cluster a sure assignment places it in", async () => {
+      resetDb({ issue_clusters: [storedCluster()] });
+      configureProviders();
+      mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+        issueTitle: "Map closes the game", category: "other", platform: "ps5", confidence: "high",
+        summary: "Opening the map closes the game.", clusterAssignment: "sure",
+        clusterReason: "The same map crash.", clusterSlug: "auto-map-crash",
+        extractionProvider: "openrouter", extractionModel: "openai/gpt-5.6-luna", llmCallsUsed: 1, llmCostUsd: 0.0002,
+      });
+      mocks.tavilySearch.mockImplementationOnce(async () => searchHit("Map crash", "Crimson Desert crashes when opening the map on PS5."));
+      mocks.tavilySearch.mockResolvedValue([]);
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+      const [, options] = mocks.extractSignalWithOpenRouter.mock.calls[0] as unknown as [unknown, { clusterOptions: { slug: string }[] }];
+      expect(options.clusterOptions.map((option) => option.slug)).toContain("auto-map-crash");
+      expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-map-crash", category: "crash_startup" });
+      expect(tables.issue_clusters).toHaveLength(1);
+    });
   });
 
   it("reports only successfully persisted signals after a partial batch failure", async () => {

@@ -66,9 +66,9 @@ describe("activity after the patch", () => {
   };
 
   it("keeps an older thread with a reply after the patch as a lead, never as publishable evidence", () => {
-    const result = evaluateCurrentPatchEligibility({ ...thread, sourceActiveAt: "2026-10-05T08:00:00Z" }, patch);
-    expect(result).toEqual({ canStore: true, canPublish: false, reason: "active_after_patch" });
-    expect(isPostCurrentPatchEvidence({ ...thread, sourceActiveAt: "2026-10-05T08:00:00Z" }, patch)).toBe(false);
+    const active = { ...thread, sourceActiveAt: "2026-10-05T08:00:00Z" };
+    expect(evaluateCurrentPatchEligibility(active, patch)).toEqual({ canStore: true, canPublish: false, reason: "active_after_patch" });
+    expect(isPostCurrentPatchEvidence(active, patch)).toBe(false);
   });
 
   it.each([
