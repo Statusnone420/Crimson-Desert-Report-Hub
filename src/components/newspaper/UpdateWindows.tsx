@@ -116,8 +116,12 @@ export function takeaway(window: UpdateWindow, measures: Measure[]): string | nu
     }
   });
   const after = window.measures[compared[0]].after;
-  const span = after.state === "value" && after.open ? `In the ${days(after.days)} so far after ${window.version}` : `In the week after ${window.version}`;
-  return `${span} (${dayLabel(window.publishedAt.slice(0, 10))}), against the week before: ${parts.join("; ")}.`;
+  // A side that a neighboring update cut short is named by its length, never as a week.
+  const span = after.state === "value" && after.open
+    ? `In the ${days(after.days)} so far after ${window.version}`
+    : window.span.after < WINDOW_DAYS ? `In the ${days(window.span.after)} after ${window.version}` : `In the week after ${window.version}`;
+  const before = window.span.before < WINDOW_DAYS ? `the ${days(window.span.before)} before` : "the week before";
+  return `${span} (${dayLabel(window.publishedAt.slice(0, 10))}), against ${before}: ${parts.join("; ")}.`;
 }
 
 /** Why a measure has no column: a failed read, no records, or records that start too late. */
@@ -128,11 +132,11 @@ function missingNote(measure: Measure, history: ActivityHistory): { text: string
   return { text: `${RECORDS[measure]} begin on ${dayLabel(first)}, so no update has ${MIN_DAYS} recorded days on both sides yet.`, failed: false };
 }
 
-/** Why an update inside the recorded days has no comparison at all. */
-function omittedText(update: OmittedUpdate, firstDay: string): string {
+/** Why an update inside the days shown has no comparison at all. */
+function omittedText(update: OmittedUpdate, dayCount: number): string {
   return update.reason === "today"
     ? `${update.version} was released today, so the week after it has not begun.`
-    : `${update.version} (${dayLabel(update.day)}) came less than a week after these records begin on ${dayLabel(firstDay)}, so it has no full week before it to compare.`;
+    : `${update.version} (${dayLabel(update.day)}) came less than a week into the last ${dayCount} days shown, so its week before falls outside them.`;
 }
 
 export function UpdateWindows({ history, patches }: { history: ActivityHistory; patches: ChartPatch[] }) {
@@ -144,7 +148,7 @@ export function UpdateWindows({ history, patches }: { history: ActivityHistory; 
     return (
       <p className="obs-note">
         {omitted.length
-          ? omitted.map((update) => omittedText(update, history.days[0].day)).join(" ")
+          ? omitted.map((update) => omittedText(update, history.days.length)).join(" ")
           : "No official update was released in the recorded days, so there is nothing to compare yet."}
       </p>
     );

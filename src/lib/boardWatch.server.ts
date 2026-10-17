@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import { isSteamForumThreadUrl } from "@/lib/automation/steamForum";
+import { steamForumTopicId } from "@/lib/automation/steamForum";
 import { summarizeBoardWatch, type BoardWatchRead, type BoardWatchSummary } from "@/lib/boardWatch";
 import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
@@ -17,6 +17,7 @@ export async function readBoardWatchSummary(
 ): Promise<BoardWatchSummary | null> {
   if (!isCurrentPatchVerified(currentPatch) || !currentPatch.publishedAt) return null;
   const rows: { category?: unknown; cluster_id?: unknown }[] = [];
+  const threadIds = new Set<string>();
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const { data, error } = await supabase
       .from("source_signals")
@@ -30,8 +31,14 @@ export async function readBoardWatchSummary(
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
     if (error) throw new Error(`Board watch read failed: ${error.message}`);
     const pageRows = (data ?? []) as { category?: unknown; cluster_id?: unknown; canonical_url?: unknown }[];
-    // Pages call these Steam forum threads, so a guide or another game's page on the domain is not counted.
-    rows.push(...pageRows.filter((row) => isSteamForumThreadUrl(row.canonical_url)));
+    for (const row of pageRows) {
+      // Pages call these Steam forum threads, so a guide or another game's page on the domain is
+      // not counted, and a thread also stored under one of its comment pages counts once.
+      const threadId = steamForumTopicId(row.canonical_url);
+      if (threadId === null || threadIds.has(threadId)) continue;
+      threadIds.add(threadId);
+      rows.push(row);
+    }
     if (pageRows.length < PAGE_SIZE) return summarizeBoardWatch(rows, currentPatch.version);
   }
   // More rows than the guard allows would be undercounted; show nothing rather than a wrong figure.

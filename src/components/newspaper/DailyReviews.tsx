@@ -48,7 +48,11 @@ export function DailyReviews({ history, patches }: { history: ActivityHistory; p
     const share = readable ? (newPositive / newReviews) * 100 : null;
     const deviation = share === null ? null : share - usual.share;
     const counted = newReviews === null ? "" : `${newReviews.toLocaleString("en-US")} new ${newReviews === 1 ? "review" : "reviews"}`;
-    if (newReviews === null) return { day: day.day, newReviews, share, deviation, className: "is-empty", detail: "No Steam review record for this day" };
+    if (newReviews === null) {
+      // A day's change needs the day before as well, so a recorded day can still have none.
+      const detail = day.totalReviews === null ? "No Steam review record for this day" : "No change to show: the day before has no Steam review record";
+      return { day: day.day, newReviews, share, deviation, className: "is-empty", detail };
+    }
     if (newReviews < 0) {
       return { day: day.day, newReviews, share, deviation, className: "is-loss", detail: `Net ${newReviews.toLocaleString("en-US")} reviews: more were removed than added` };
     }
@@ -98,7 +102,7 @@ export function DailyReviews({ history, patches }: { history: ActivityHistory; p
           <li><i className="dd-swatch is-small" aria-hidden="true" />under {DAY_MIN_REVIEWS} new reviews</li>
           {shown.has("is-loss") ? <li><i className="dd-swatch is-loss" aria-hidden="true" />more removed than added</li> : null}
           {shown.has("is-partial") ? <li><i className="dd-swatch is-partial" aria-hidden="true" />today so far</li> : null}
-          {shown.has("is-empty") ? <li><i className="dd-swatch is-empty" aria-hidden="true" />no record</li> : null}
+          {shown.has("is-empty") ? <li><i className="dd-swatch is-empty" aria-hidden="true" />no share to show</li> : null}
         </ul>
       </div>
       <DayScrubber id="daily-reviews" label="Choose a day: each day's Steam reviews" items={items} initialIndex={lastComplete < 0 ? days.length - 1 : lastComplete}>

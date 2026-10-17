@@ -126,7 +126,8 @@ describe("update by update", () => {
 
   it("says why an update in the recorded days is not compared instead of claiming none was released", () => {
     const soon = renderToStaticMarkup(createElement(UpdateWindows, { history: history(), patches: [{ version: "1.17.00", publishedAt: "2026-08-03T03:00:00Z", fixes: 7 }] }));
-    expect(soon).toContain("1.17.00 (Aug 3) came less than a week after these records begin on Aug 1, so it has no full week before it to compare.");
+    // The 61 days shown begin on Aug 1, whether or not every measure has records that far back.
+    expect(soon).toContain("1.17.00 (Aug 3) came less than a week into the last 61 days shown, so its week before falls outside them.");
     expect(soon).not.toContain("No official update was released");
     // Sep 30 is today, still being recorded.
     const today = renderToStaticMarkup(createElement(UpdateWindows, { history: history(), patches: [{ version: "2.05.00", publishedAt: "2026-09-30T02:00:00Z", fixes: 5 }] }));
@@ -139,6 +140,18 @@ describe("update by update", () => {
     expect(sentence).toBe("In the week after 2.00.00 (Aug 25), against the week before: new reviews averaged 200 a day, up 100%; 70.0% of them were positive, 10.0 points worse; Twitch viewers averaged 300, up 200%.");
     expect(sentence).not.toMatch(/caus|because|due to|led to|drove|boost|hurt/i);
     expect(takeaway(update, ["players"])).toBeNull();
+  });
+
+  it("names a side cut short by a neighboring update by its length, not as a week", () => {
+    const close = [
+      { version: "2.10.00", publishedAt: "2026-09-10T02:00:00Z", fixes: 4 },
+      { version: "2.11.00", publishedAt: "2026-09-16T02:00:00Z", fixes: 6 },
+    ];
+    // Six days apart: five days between them, on the after side of one and the before side of the other.
+    const [later, earlier] = updateWindows(history(), close);
+    expect(earlier.span).toEqual({ before: 7, after: 5 });
+    expect(takeaway(earlier, ["reviews"])).toMatch(/^In the 5 days after 2\.10\.00 \(Sep 10\), against the week before: /);
+    expect(takeaway(later, ["reviews"])).toMatch(/^In the week after 2\.11\.00 \(Sep 16\), against the 5 days before: /);
   });
 
   it("names a failed read and an empty patch record honestly", () => {

@@ -1,6 +1,7 @@
 import { ReadingLink } from "./ReadingLink";
 import { CHART_WIDTH, PANEL_HEIGHT, timeBandPath, timeLinePath } from "@/lib/activityCharts";
 import {
+  completeDays,
   reviewShare,
   typicalPlayers,
   usualRangeAt,
@@ -76,12 +77,13 @@ function MoodTile({ history }: { history: ActivityHistory }) {
   if (history.lanes.reviews === "unavailable") {
     return <div className="dd-tile"><p className="dd-tile-label">Steam mood, last 7 days</p><p className="np-error">Steam review totals could not be read.</p></div>;
   }
-  const lastDays = history.days.slice(-7);
+  // The last 7 full days, as on the Observatory: today's partial day is left out.
+  const lastDays = completeDays(history).slice(-7);
   const recent = reviewShare(lastDays, 3);
   const lifetime = history.days.findLast((day) => day.lifetimePositive !== null)?.lifetimePositive ?? null;
   const weeks = weeklyReviewShares(history.days, 12);
   if (!recent) {
-    return <div className="dd-tile"><p className="dd-tile-label">Steam mood, last 7 days</p><p className="dd-tile-sub">Not enough daily review records this week to give a share.</p></div>;
+    return <div className="dd-tile"><p className="dd-tile-label">Steam mood, last 7 days</p><p className="dd-tile-sub">Not enough daily review records in the last 7 days to give a share.</p></div>;
   }
   const slot = CHART_WIDTH / Math.max(1, weeks.length);
   // A week without a share has no bar, so the last bar is this week's only when its week is this one.

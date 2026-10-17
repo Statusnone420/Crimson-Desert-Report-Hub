@@ -68,7 +68,8 @@ function lanes(history: ActivityHistory): Lane[] {
       unavailableText: "Steam review totals could not be read.",
       recorded: (day) => day.newReviews !== null,
       describe: (day) => {
-        if (day.newReviews === null) return "no review record";
+        // A day's change needs the day before as well, so a recorded day can still have none.
+        if (day.newReviews === null) return day.totalReviews === null ? "no review record" : "no change to show: the day before has no review record";
         if (day.newReviews < 0) return `net ${number(day.newReviews)} reviews: more were removed than added`;
         return `${number(day.newReviews)} new ${day.newReviews === 1 ? "review" : "reviews"}`;
       },
@@ -226,7 +227,7 @@ export function UpdateTimeline({ history, patches, patchesUnavailable = false }:
         <summary>Read the daily numbers</summary>
         <div className="dd-table-scroll">
           <table>
-            <caption>Daily records, UTC. A blank cell was not recorded.</caption>
+            <caption>Daily records, UTC. A blank cell means no record, or no release that day. A day&apos;s change needs the day before, and the 7-day share needs 5 full days.</caption>
             <thead>
               <tr><th scope="col">Day</th>{patchesUnavailable ? null : <th scope="col">Release</th>}<th scope="col">New reviews</th><th scope="col">Positive, last 7 days</th><th scope="col">Twitch avg</th><th scope="col">Twitch peak</th><th scope="col">Players min</th><th scope="col">Players avg</th><th scope="col">Players max</th></tr>
             </thead>

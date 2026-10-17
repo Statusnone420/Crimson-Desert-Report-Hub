@@ -44,6 +44,8 @@ export type UpdateWindow = {
   fixes: number;
   /** Hotfixes released during the week after. */
   hotfixes: string[];
+  /** Days in each window: fewer than a week when a neighboring update cuts it short. */
+  span: { before: number; after: number };
   measures: Record<Measure, Comparison>;
 };
 
@@ -151,7 +153,8 @@ export function updateWindows(
         return [measure, compare(measure, side(measure, lane, beforeWindow), side(measure, lane, afterWindow))];
       })) as Record<Measure, Comparison>;
       const hotfixes = releases.filter((release) => !release.update && release.day >= afterFrom && release.day <= afterTo).map((release) => release.version);
-      return [{ version: update.version, publishedAt: update.publishedAt, fixes: update.fixes, hotfixes, measures }];
+      const span = { before: beforeWindow.length, after: afterWindow.length };
+      return [{ version: update.version, publishedAt: update.publishedAt, fixes: update.fixes, hotfixes, span, measures }];
     })
     .reverse();
 }

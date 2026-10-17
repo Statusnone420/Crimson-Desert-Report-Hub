@@ -253,11 +253,29 @@ describe("activity components", () => {
     expect(later).toContain('class="dd-column"');
   });
 
-  it("counts only the game's Steam forum threads, not other Steam Community pages", async () => {
+  it("says what a blank cell in the daily table means", () => {
+    const html = renderToStaticMarkup(createElement(UpdateTimeline, { history: history(), patches: [] }));
+    expect(html).toContain("A blank cell means no record, or no release that day.");
+    expect(html).toContain("the 7-day share needs 5 full days.");
+    expect(html).not.toContain("A blank cell was not recorded.");
+  });
+
+  it("gives the front page's 7-day review share from full days, leaving out today", () => {
+    const skewed = history();
+    // Today so far: 100 new reviews, none positive. The last 7 full days are 80% positive.
+    Object.assign(skewed.days.at(-1)!, { newReviews: 100, newPositive: 0 });
+    const html = renderToStaticMarkup(createElement(BeforeYouPlay, { history: skewed, latestPatch: null, watch: null }));
+    expect(html).toContain('<p class="dd-tile-value">80%</p>');
+    expect(html).toContain("of 700 new Steam reviews were positive.");
+  });
+
+  it("counts each of the game's Steam forum threads once, and no other Steam Community page", async () => {
     const rows = [
       { id: "1", category: "crash_startup", cluster_id: "a", canonical_url: "https://steamcommunity.com/app/3321460/discussions/0/600000000000000001" },
       { id: "2", category: "crash_startup", cluster_id: "b", canonical_url: "https://steamcommunity.com/sharedfiles/filedetails/?id=3500000000" },
       { id: "3", category: "audio", cluster_id: "c", canonical_url: "https://steamcommunity.com/app/1000000/discussions/0/600000000000000002" },
+      // The same thread, stored again under its second comment page.
+      { id: "4", category: "crash_startup", cluster_id: "a", canonical_url: "https://steamcommunity.com/app/3321460/discussions/0/600000000000000001?ctp=2" },
     ];
     type Query = Record<"select" | "eq" | "neq" | "not" | "gte" | "order", () => Query> & {
       range: () => Promise<{ data: typeof rows; error: null }>;
