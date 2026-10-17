@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { SOURCE_URL } from "../../src/lib/site";
 import { collectConsoleProblems, expectHealthyPage } from "./helpers";
 
 const E2E_NOW = new Date("2026-07-20T00:10:00.000Z");
@@ -101,7 +102,7 @@ test.describe("integrated newspaper public UI", () => {
     await expect(nav.getByRole("link", { name: "Observatory" })).toHaveAttribute("href", "/observatory");
     await expect(page.getByRole("contentinfo").getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
     await expect(page.getByRole("contentinfo").getByText("No ads · No trackers")).toBeVisible();
-    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Open source" })).toHaveCount(0);
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Source code on GitHub", exact: true })).toHaveAttribute("href", SOURCE_URL);
     await expect(page.getByRole("contentinfo").getByRole("link", { name: "Add a check-in", exact: true })).toHaveAttribute("href", "/issues");
     await expect(page.locator("#lead").getByRole("link", { name: "Charting the Unknown delayed two weeks to October 29" })).toHaveAttribute("href", "/articles/charting-the-unknown-delay");
     await expect(page.getByText(/Add a quick check-in to an existing issue/)).toBeVisible();
@@ -206,7 +207,7 @@ test.describe("integrated newspaper public UI", () => {
     await expect(page.getByText("There is no player sign-in or registration. Check-ins do not ask for email.")).toBeVisible();
     await expect(page.getByText("The database does not store raw IP addresses.")).toBeVisible();
     await expect(page.getByRole("link", { name: "Method · privacy" })).toHaveAttribute("href", "/about#privacy");
-    await expect(page.locator('a[href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub"], a[href^="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/"]')).toHaveCount(0);
+    await expect(page.getByRole("main").locator('a[href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub"], a[href^="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/"]')).toHaveCount(0);
     await expect(page.getByRole("contentinfo").getByRole("link", { name: "Community", exact: true })).toHaveCount(0);
     await expect(page.getByText(/Unofficial fan site/)).toBeVisible();
     await expectNoPrivateMarkers(page);

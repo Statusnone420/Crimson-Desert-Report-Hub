@@ -3,6 +3,7 @@ import { readdirSync } from "node:fs";
 import path from "node:path";
 import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 import nextConfig from "../../next.config";
+import { SOURCE_URL } from "../../src/lib/site";
 import { collectConsoleProblems, expectHealthyPage } from "./helpers";
 
 // Cover each public page template, including authored articles, generated
@@ -155,6 +156,12 @@ for (const route of routes) {
     await page.emulateMedia({ reducedMotion: "reduce" });
     const response = await page.goto(route, { waitUntil: "domcontentloaded" });
     expect(response?.status()).toBe(route === "/missing-public-page" ? 404 : 200);
+    // The AGPL source offer: every public page, the 404 included, links to the code.
+    const source = page.getByRole("contentinfo").getByRole("link", { name: "Source code on GitHub", exact: true });
+    await expect(source).toBeVisible();
+    await expect(source).toHaveAttribute("href", SOURCE_URL);
+    await expect(source).toHaveAttribute("target", "_blank");
+    await expect(source).toHaveAttribute("rel", /\bnoopener\b/);
     await expect(page.getByRole("main")).toHaveCount(1);
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
     for (const role of ["button", "link", "textbox", "searchbox", "combobox", "slider"] as const) {
