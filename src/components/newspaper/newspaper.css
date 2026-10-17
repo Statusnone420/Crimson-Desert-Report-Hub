@@ -506,6 +506,9 @@ body:has(.newspaper) > .dispatch-grain{display:none}
 /* One closing block: navigation first, attribution directly beneath it. */
 .newspaper .np-footer-top{display:flex;justify-content:space-between;align-items:center;gap:4px 24px}
 .newspaper .np-footer .media-notice{max-width:86ch;margin:8px 0 0;padding:0;font-size:12px;line-height:1.6}
+.newspaper .np-trust{display:flex;align-items:center;flex-wrap:wrap;gap:0 4px}
+.newspaper .np-footer .np-source-link{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;color:var(--muted)}
+.newspaper .np-footer .np-source-link:hover,.newspaper .np-footer .np-source-link:focus-visible{color:var(--ink)}
 
 /* Keep the full front-page nameplate; interior pages open with their content. */
 @media(min-width:651px){

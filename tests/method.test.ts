@@ -46,11 +46,12 @@ describe("method reference", () => {
     expect(aboutSource).toContain('id="privacy"');
   });
 
-  it("prints the footer trust line without promoting the source repository", () => {
+  it("prints the footer trust line with an icon link to the source repository", () => {
     expect(chromeSource).toContain("No ads");
     expect(chromeSource).toContain("No trackers");
     expect(chromeSource).not.toContain("Open source");
-    expect(chromeSource).not.toContain("SOURCE_URL");
+    expect(chromeSource).toContain("href={SOURCE_URL}");
+    expect(chromeSource).toContain('aria-label="Source code on GitHub"');
   });
 
   it("renders the dateline at request time instead of freezing the deployment day", () => {

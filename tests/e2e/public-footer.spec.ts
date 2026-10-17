@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { SOURCE_URL } from "../../src/lib/site";
 import { collectConsoleProblems, expectHealthyPage } from "./helpers";
 
 for (const theme of ["light", "dark"] as const) {
@@ -19,7 +20,9 @@ for (const theme of ["light", "dark"] as const) {
       await expect(links.getByRole("link", { name: "Add a check-in", exact: true })).toHaveAttribute("href", "/issues");
       await expect(links.getByRole("link", { name: "Contact", exact: true })).toHaveAttribute("href", "/contact");
       await expect(links.getByRole("link", { name: "Community", exact: true })).toHaveCount(0);
-      await expect(links.getByRole("link", { name: "Open source", exact: true })).toHaveCount(0);
+      // The source link is an icon beside the trust line, outside the text links.
+      const source = footer.getByRole("link", { name: "Source code on GitHub", exact: true });
+      await expect(source).toHaveAttribute("href", SOURCE_URL);
       await expect(footer).toContainText("No ads · No trackers");
       await expect(footer).toContainText("Not affiliated with or endorsed by Pearl Abyss.");
       await expect(footer.getByRole("link", { name: "Image source", exact: true })).toHaveAttribute("href", /^https:\/\//);
@@ -34,6 +37,9 @@ for (const theme of ["light", "dark"] as const) {
       for (const link of await links.getByRole("link").all()) {
         expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }
+      const sourceBox = (await source.boundingBox())!;
+      expect(sourceBox.width).toBeGreaterThanOrEqual(44);
+      expect(sourceBox.height).toBeGreaterThanOrEqual(44);
       if (testInfo.project.name === "mobile-chromium") {
         expect((await footer.boundingBox())!.height).toBeLessThanOrEqual(240);
       }
@@ -58,7 +64,8 @@ test("public information stays readable without access to the source repository"
   for (const route of ["/about", "/privacy", "/contact"]) {
     await page.goto(route);
     const main = page.getByRole("main");
-    await expect(page.locator('a[href*="github.com/Statusnone420"]')).toHaveCount(0);
+    // Only the shared footer links to the source; the page content itself does not.
+    await expect(main.locator('a[href*="github.com/Statusnone420"]')).toHaveCount(0);
     await expect(main).not.toContainText(/open.source|source repository/i);
     if (route === "/about") {
       await expect(main.getByRole("link", { name: "Privacy", exact: true })).toHaveAttribute("href", "/privacy");
