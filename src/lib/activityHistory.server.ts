@@ -49,7 +49,8 @@ async function readForward(
     if (pageRows.length < PAGE_SIZE || typeof last !== "string") return rows;
     page = await next(last);
   }
-  return rows;
+  // Pages run oldest first, so stopping here would drop the newest captures.
+  throw new LaneUnavailable(`${table} read exceeded its page guard`);
 }
 
 async function lane<T>(read: () => Promise<T[]>): Promise<{ rows: T[]; state: LaneState }> {
