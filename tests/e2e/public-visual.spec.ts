@@ -282,7 +282,9 @@ test.describe("integrated newspaper public UI", () => {
     const operator = page.getByRole("navigation", { name: "Operator" });
     await expect(operator.getByRole("link", { name: "Overview" })).toHaveAttribute("href", "/operator");
     await expect(operator.getByRole("link", { name: "Reports", exact: true })).toHaveAttribute("aria-current", "page");
-    await expect(operator.getByRole("link", { name: "Videos" })).toHaveAttribute("href", "/operator?view=videos");
+    // Retired views leave the sidebar but stay reachable; one shows only while it is open.
+    await expect(operator.getByRole("link", { name: "Videos" })).toHaveCount(0);
+    await expect(operator.getByRole("link", { name: "Dossiers" })).toHaveCount(0);
     await expect(operator.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/operator?view=scanner");
     await page.getByRole("button", { name: /Export CSV/ }).click();
     await expect(page.getByText("Export all report-review rows?")).toBeVisible();

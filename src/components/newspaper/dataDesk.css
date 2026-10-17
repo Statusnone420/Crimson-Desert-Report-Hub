@@ -1,0 +1,99 @@
+/* Activity charts and the front-page readings band. Colours were checked for
+   contrast and colour-vision separation against both papers; the dark chart
+   blue is one step deeper than the link blue so marks stay in range. */
+.newspaper{--dd-series:#2457a1;--dd-wash:rgba(36,87,161,.11);--dd-band:rgba(83,85,80,.15);--dd-grid:color-mix(in srgb,var(--line) 32%,transparent);--dd-patch:var(--red);--dd-quiet:#a8a59b;--dd-axis:44px;--mood-n3:#a51e23;--mood-n2:#c4675e;--mood-n1:#db9f96;--mood-z:#a8a59b;--mood-p1:#93abcd;--mood-p2:#5e83b9;--mood-p3:#2457a1}
+html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,.16);--dd-band:rgba(184,187,192,.16);--dd-quiet:#4a4c50;--mood-n3:#e15b62;--mood-n2:#a74147;--mood-n1:#70292d;--mood-z:#4a4c50;--mood-p1:#3e5378;--mood-p2:#5672a3;--mood-p3:#6490e4}
+
+/* Front-page readings band */
+.newspaper .dd-brief{padding:30px 0 24px;border-bottom:2px solid var(--ink)}
+.newspaper .dd-brief-heading h2{font:400 clamp(34px,4.4vw,52px)/1.08 var(--serif),serif;margin:8px 0;text-wrap:balance}
+.newspaper .dd-brief-deck{font-size:15px;line-height:1.55;color:var(--muted);max-width:64ch}
+.newspaper .dd-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--line);margin-top:20px}
+.newspaper .dd-tile{min-width:0;padding:16px 26px 8px;border-left:1px solid var(--line)}
+.newspaper .dd-tile:first-child{border-left:0;padding-left:0}
+.newspaper .dd-tile:last-child{padding-right:0}
+.newspaper .dd-tile-label{font-size:14px;font-weight:600}
+.newspaper .dd-tile-value{font:400 64px/1 var(--serif),serif;margin:10px 0 6px}
+.newspaper .dd-tile-sub{font-size:14px;line-height:1.5;color:var(--muted)}
+.newspaper .dd-tile-delta{font-size:14px;line-height:1.5;margin-top:6px}
+.newspaper .dd-tile-note{font-size:12px;line-height:1.5;color:var(--muted);margin-top:6px}
+.newspaper .dd-tile-link{margin-top:12px}
+.newspaper .dd-spark{position:relative;height:56px;margin-top:12px}
+.newspaper .dd-spark svg{display:block;width:100%;height:100%;overflow:visible}
+.newspaper .dd-spark-dot{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--dd-series);box-shadow:0 0 0 2px var(--paper);transform:translate(-50%,-50%);pointer-events:none}
+.newspaper .dd-watch{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 18px;align-items:baseline;border-top:1px solid var(--line);margin-top:18px;padding-top:14px;font-size:15px;line-height:1.55}
+.newspaper .dd-watch strong{font-weight:600}
+.newspaper .dd-brief-link{margin-top:14px}
+
+/* Charts */
+.newspaper .dd-figure{margin:0;padding-top:6px}
+.newspaper .dd-figcaption h3{font:400 clamp(28px,3.4vw,40px)/1.1 var(--serif),serif;text-wrap:balance}
+.newspaper .dd-figcaption p{font-size:15px;line-height:1.55;color:var(--muted);max-width:72ch;margin-top:6px}
+.newspaper .dd-scrub{margin-top:14px}
+.newspaper .dd-readout{min-height:48px;font-size:14px;line-height:1.5;border-left:2px solid var(--red);padding:2px 0 2px 12px;margin-bottom:10px}
+.newspaper .dd-readout strong{font-weight:600;margin-right:4px}
+.newspaper .dd-scrub-area{position:relative;margin-left:var(--dd-axis)}
+.newspaper .dd-hit{position:absolute;inset:0;cursor:crosshair;touch-action:pan-y}
+.newspaper .dd-cursor{position:absolute;top:0;bottom:26px;width:0;border-left:1px solid var(--ink);pointer-events:none}
+.newspaper .dd-patch-strip{position:relative;height:24px}
+.newspaper .dd-patch-tick{position:absolute;bottom:0;height:6px;border-left:1px solid var(--dd-patch);opacity:.55}
+.newspaper .dd-patch-tick.is-update{height:10px;opacity:1}
+.newspaper .dd-patch-label{position:absolute;bottom:11px;left:0;transform:translateX(-50%);font-size:12px;font-weight:600;line-height:1;white-space:nowrap;color:var(--ink)}
+.newspaper .dd-panel{margin-top:12px}
+.newspaper .dd-panel-title{font-size:13px;line-height:1.4;margin-bottom:6px}
+.newspaper .dd-panel-title strong{font-weight:600}
+.newspaper .dd-panel-title span{color:var(--muted)}
+.newspaper .dd-panel-plot{position:relative;height:88px}
+.newspaper .dd-panel-plot svg{display:block;width:100%;height:100%;overflow:visible}
+.newspaper .dd-yaxis span{position:absolute;right:calc(100% + 6px);transform:translateY(-50%);font-size:11px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.newspaper .dd-gridline{stroke:var(--dd-grid);stroke-width:1}
+.newspaper .dd-baseline{stroke:var(--line);stroke-width:1}
+.newspaper .dd-patch-line{stroke:var(--dd-patch);stroke-width:1;opacity:.3}
+.newspaper .dd-patch-line.is-update{opacity:.75}
+.newspaper .dd-line{fill:none;stroke:var(--dd-series);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.newspaper .dd-wash{fill:var(--dd-wash)}
+.newspaper .dd-band{fill:var(--dd-band)}
+.newspaper .dd-column{fill:var(--dd-series)}
+.newspaper .dd-column.is-quiet{fill:var(--dd-quiet)}
+.newspaper .dd-reference{stroke:var(--muted);stroke-width:1}
+.newspaper .dd-reference-label{position:absolute;right:0;transform:translateY(-130%);font-size:11px;line-height:1;color:var(--muted);background:var(--paper);padding:1px 3px}
+.newspaper .dd-panel-note{position:absolute;left:0;top:50%;transform:translateY(-50%);text-align:center;font-size:12px;line-height:1.3;color:var(--muted)}
+.newspaper .dd-panel-state{font-size:14px;line-height:1.5;color:var(--muted);padding-top:28px}
+.newspaper .dd-months{position:relative;height:26px;margin-top:4px}
+.newspaper .dd-months span{position:absolute;top:6px;font-size:11px;line-height:1;color:var(--muted);white-space:nowrap;transform:translateX(-50%)}
+.newspaper .dd-slider{display:block;font-size:13px;color:var(--muted);margin:10px 0 0 var(--dd-axis)}
+.newspaper .dd-slider-input{display:block;width:calc(100% - var(--dd-axis));margin-left:var(--dd-axis);min-height:32px;accent-color:var(--red)}
+.newspaper .dd-table{margin-top:14px}
+.newspaper .dd-table-scroll{max-height:340px;overflow:auto}
+.newspaper .dd-table table{font-size:12px;font-variant-numeric:tabular-nums}
+.newspaper .dd-table th,.newspaper .dd-table td{white-space:nowrap}
+.newspaper .dd-source{font-size:12px;line-height:1.5;color:var(--muted);margin-top:12px;max-width:80ch}
+
+/* Mood ribbon */
+.newspaper .dd-ribbon{display:flex;gap:1px;height:38px}
+.newspaper .dd-cell{flex:1 1 0;min-width:0;border-radius:1px}
+.newspaper .dd-cell.is-empty{background:transparent}
+.newspaper .dd-cell.is-small,.newspaper .dd-swatch.is-small{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+.newspaper .mood-n3{background:var(--mood-n3)}
+.newspaper .mood-n2{background:var(--mood-n2)}
+.newspaper .mood-n1{background:var(--mood-n1)}
+.newspaper .mood-z{background:var(--mood-z)}
+.newspaper .mood-p1{background:var(--mood-p1)}
+.newspaper .mood-p2{background:var(--mood-p2)}
+.newspaper .mood-p3{background:var(--mood-p3)}
+.newspaper .dd-legend{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0;margin:12px 0 0;font-size:12px;color:var(--muted)}
+.newspaper .dd-swatch{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-2px}
+
+@media (max-width:900px){
+  .newspaper .dd-tiles{grid-template-columns:1fr}
+  .newspaper .dd-tile{border-left:0;border-top:1px solid var(--line);padding:14px 0 8px}
+  .newspaper .dd-tile:first-child{border-top:0}
+  .newspaper .dd-watch{grid-template-columns:1fr}
+}
+@media (max-width:650px){
+  .newspaper{--dd-axis:36px}
+  .newspaper .dd-panel-plot{height:68px}
+  .newspaper .dd-patch-label.is-wide-only{display:none}
+  .newspaper .dd-tile-value{font-size:54px}
+  .newspaper .dd-ribbon{height:30px}
+}
