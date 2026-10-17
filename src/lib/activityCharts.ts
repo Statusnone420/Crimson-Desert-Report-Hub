@@ -3,6 +3,7 @@
  * wide viewBox stretched to the container; text sits in HTML at the same
  * percentages, so labels stay readable at any width.
  */
+import { patchTypeLabel } from "@/lib/dispatchBrief";
 
 export const CHART_WIDTH = 1000;
 export const PANEL_HEIGHT = 100;
@@ -151,7 +152,8 @@ export function patchMarkers(
     .sort((a, b) => a.time - b.time)
     .map((patch) => {
       const x = ((patch.time - first) / (end - first)) * 100;
-      const update = /\.00$/.test(patch.version);
+      // The site's one rule: a missing or zero third part is an update.
+      const update = patchTypeLabel(patch.version) === "UPDATE";
       let label: PatchMarker["label"] = null;
       if (update && x - lastAlways >= ALWAYS_LABEL_SPACING) {
         label = "always";

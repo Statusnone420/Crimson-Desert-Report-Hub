@@ -62,6 +62,18 @@ describe("chart geometry", () => {
     ]);
     expect(monthTicks(days)).toEqual([{ x: 0, label: "Sep 1" }]);
   });
+
+  it("reads a two-part version as an update, like the publication record", () => {
+    const days = Array.from({ length: 30 }, (_, index) => ({ day: `2026-09-${String(index + 1).padStart(2, "0")}` }));
+    const markers = patchMarkers(days, [
+      { version: "2.03", publishedAt: "2026-09-18T01:00:00Z", fixes: 14 },
+      { version: "2.03.01", publishedAt: "2026-09-25T14:00:00Z", fixes: 3 },
+    ]);
+    expect(markers.map((marker) => [marker.version, marker.update, marker.label])).toEqual([
+      ["2.03", true, "always"],
+      ["2.03.01", false, null],
+    ]);
+  });
 });
 
 function history(lanes: ActivityHistory["lanes"] = { players: "ready", twitch: "ready", reviews: "ready" }): ActivityHistory {
