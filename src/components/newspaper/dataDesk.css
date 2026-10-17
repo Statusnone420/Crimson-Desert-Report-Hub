@@ -27,6 +27,8 @@ html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,
 
 /* Charts */
 .newspaper .dd-figure{margin:0;padding-top:6px}
+/* The paper's figcaption is an image overlay; a chart caption sits in the flow. */
+.newspaper .dd-figcaption{position:static;color:var(--ink);font-size:inherit;font-style:normal;text-shadow:none}
 .newspaper .dd-figcaption h3{font:400 clamp(28px,3.4vw,40px)/1.1 var(--serif),serif;text-wrap:balance}
 .newspaper .dd-figcaption p{font-size:15px;line-height:1.55;color:var(--muted);max-width:72ch;margin-top:6px}
 .newspaper .dd-scrub{margin-top:14px}

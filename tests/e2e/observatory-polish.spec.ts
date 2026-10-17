@@ -218,3 +218,22 @@ test("Steam player captures can be explored without changing the Twitch controls
   await expect(players).toContainText("excludes offline play and other platforms");
   await expect(page.getByRole("group", { name: "Twitch window" }).getByRole("button", { name: "24 hours", exact: true })).toHaveAttribute("aria-pressed", "true");
 });
+
+test("chart captions stay above their charts and the section bar stays short on a phone", async ({ page }, testInfo) => {
+  await page.goto("/observatory");
+  // The paper's figcaption is an image overlay; a chart caption must stay in the flow.
+  const positions = await page.locator(".dd-figcaption").evaluateAll((captions) => captions.map((caption) => getComputedStyle(caption).position));
+  expect(positions.length).toBeGreaterThan(0);
+  expect(positions.filter((position) => position !== "static")).toEqual([]);
+  const seismograph = page.locator("#patch-seismograph .dd-figure");
+  const caption = await seismograph.locator(".dd-figcaption").boundingBox();
+  const readout = await seismograph.locator(".dd-readout").boundingBox();
+  expect(caption!.y + caption!.height).toBeLessThanOrEqual(readout!.y);
+  if (testInfo.project.name !== "mobile-chromium") return;
+  const bar = page.getByRole("navigation", { name: "Observatory sections" });
+  expect((await bar.boundingBox())!.height).toBeLessThanOrEqual(120);
+  await page.locator("#scanner-radar").evaluate((element) => element.scrollIntoView({ block: "start", behavior: "instant" }));
+  const current = bar.locator('a[aria-current="location"]');
+  await expect(current).toHaveAttribute("href", "#scanner-radar");
+  await expect(current).toBeInViewport();
+});
