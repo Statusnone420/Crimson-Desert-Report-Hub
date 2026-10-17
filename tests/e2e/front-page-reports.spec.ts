@@ -65,14 +65,17 @@ test("original reports keep their hierarchy across screen sizes and themes", asy
           secondary: rect(".front-page-secondary"),
           // An older edition can have no dated press coverage; the live record still follows.
           coverage: document.querySelector('[aria-label="Selected press coverage"]') ? rect('[aria-label="Selected press coverage"]') : null,
+          readings: rect(".dd-brief"),
           record: rect(".stories"),
           headings: [...document.querySelectorAll(".front-page-reports h2")].map((heading) => Number.parseFloat(getComputedStyle(heading).fontSize)),
           viewportHeight: window.innerHeight,
         };
       });
       expect(geometry.secondary.top).toBeGreaterThanOrEqual(geometry.lead.bottom);
-      expect(geometry.record.top).toBeGreaterThanOrEqual(geometry.secondary.bottom);
-      if (geometry.coverage) expect(geometry.coverage.top).toBeGreaterThanOrEqual(geometry.secondary.bottom);
+      // The recorded readings follow the two newest reports and come before the official record.
+      expect(geometry.readings.top).toBeGreaterThanOrEqual(geometry.secondary.bottom);
+      expect(geometry.record.top).toBeGreaterThanOrEqual(geometry.readings.bottom);
+      if (geometry.coverage) expect(geometry.coverage.top).toBeGreaterThanOrEqual(geometry.readings.bottom);
       expect(geometry.headings[0]).toBeGreaterThan(geometry.headings[1]);
       if (width <= 900) {
         expect(geometry.copy.bottom).toBeLessThanOrEqual(geometry.image.top);
