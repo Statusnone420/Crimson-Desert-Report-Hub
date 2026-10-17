@@ -136,6 +136,8 @@ describe("activity components", () => {
     expect(timeline).toContain("dd-column is-loss");
     expect(timeline).toContain("A short mark under the line means more reviews were removed than added.");
     const strip = renderToStaticMarkup(createElement(DailyReviews, { history: lossy, patches: [] }));
+    // Neither day has a readable share, so the usual averages two days fewer.
+    expect(strip).toContain("against the 20-day usual");
     expect(strip).toContain("dd-cell is-loss");
     expect(strip).toContain("more removed than added");
     expect(strip).toContain("dd-cell is-empty");
@@ -165,7 +167,9 @@ describe("activity components", () => {
     expect(html).toContain("Each day&#x27;s Steam reviews");
     expect(html).toContain("Blue days were better than usual, red days worse");
     // Every share names its window, and today stays out of the usual.
-    expect(html).toContain("against the 24-day usual of 80.0%");
+    // Named after the days it averages: 22 full days with a share, not the 24 rows
+    // shown (today is still partial, and the first day has no change yet).
+    expect(html).toContain("against the 22-day usual of 80.0%");
     expect(html).toContain("dd-cell is-partial");
     expect(html).toContain("Oct 17 (today so far)");
     expect(html).toContain('aria-label="Choose a day: each day&#x27;s Steam reviews"');

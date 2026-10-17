@@ -37,9 +37,10 @@ export function DailyReviews({ history, patches }: { history: ActivityHistory; p
   const today = partialDay(history);
   // The usual leaves out today's partial day, which is still being recorded.
   const usual = reviewShare(completeDays(history), 5);
-  const usualName = `${days.length}-day usual`;
   if (history.lanes.reviews === "unavailable") return <p className="np-error">Steam review totals could not be read.</p>;
   if (!usual || days.length === 0) return <p className="obs-note">Not enough daily Steam review records yet to compare days.</p>;
+  // Named after the days it averages: full days with a readable share, not every row shown.
+  const usualName = `${usual.days}-day usual`;
   const markers = patchMarkers(days, patches);
   const cells: Cell[] = days.map((day) => {
     const { newReviews, newPositive } = day;
