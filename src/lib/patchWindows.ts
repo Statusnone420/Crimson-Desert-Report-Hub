@@ -6,7 +6,7 @@
  * is context, never proof the update caused it.
  */
 import { patchTypeLabel } from "@/lib/dispatchBrief";
-import { completeDays, reviewShare, utcDay, type ActivityDay, type ActivityHistory, type LaneState } from "@/lib/activityHistory";
+import { completeDays, partialDay, reviewShare, utcDay, type ActivityDay, type ActivityHistory, type LaneState } from "@/lib/activityHistory";
 
 const DAY_MS = 86_400_000;
 /** Days on each side of an update. */
@@ -154,6 +154,30 @@ export function updateWindows(
       return [{ version: update.version, publishedAt: update.publishedAt, fixes: update.fixes, hotfixes, measures }];
     })
     .reverse();
+}
+
+export type OmittedUpdate = { version: string; day: string; reason: "today" | "start" };
+
+/**
+ * Official updates inside the recorded days that `updateWindows` leaves out, and
+ * why. It skips only two kinds: one released today, whose week after has not
+ * begun, and one whose week before reaches past the first recorded day.
+ */
+export function omittedUpdates(
+  history: ActivityHistory,
+  patches: { version: string; publishedAt: string | null; fixes: number }[],
+): OmittedUpdate[] {
+  const first = history.days[0]?.day;
+  const last = history.days.at(-1)?.day;
+  if (!first || !last) return [];
+  const compared = new Set(updateWindows(history, patches).map((window) => window.version));
+  const today = partialDay(history);
+  return patches.flatMap((patch) => {
+    const time = patch.publishedAt ? Date.parse(patch.publishedAt) : Number.NaN;
+    if (!Number.isFinite(time) || patchTypeLabel(patch.version) !== "UPDATE" || compared.has(patch.version)) return [];
+    const day = utcDay(time);
+    return day >= first && day <= last ? [{ version: patch.version, day, reason: day === today ? "today" as const : "start" as const }] : [];
+  });
 }
 
 /** The first recorded day for a measure, or null without any record. */

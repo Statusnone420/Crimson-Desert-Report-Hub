@@ -97,18 +97,40 @@ describe("update windows", () => {
 });
 
 describe("update by update", () => {
-  it("shows a column only for measures with a comparison and explains the rest", () => {
+  it("shows a column for measures with a comparison or a week still filling, and explains the rest", () => {
     const html = renderToStaticMarkup(createElement(UpdateWindows, { history: history(), patches }));
     expect(html).toContain("Update by update");
     for (const text of ["New reviews a day", "Positive share", "Twitch viewers", "Week before → week after", "100 → 200", "up 100%", "10.0 points worse", "then hotfix 2.00.01", "too close to 2.02.00", "too early to tell, 3 days so far"]) {
       expect(html).toContain(text);
     }
-    // No update has five player days on both sides: a note, not a column of gaps.
-    expect(html).not.toContain("<dt>Playing on Steam</dt>");
-    expect(html).toContain("Steam player counts begin on Sep 20, so no update has 5 recorded days on both sides yet.");
+    // 2.03 has six player days before it and its week after is still filling: a column that says so.
+    expect(html).toContain("<dt>Playing on Steam</dt>");
+    expect(html).toContain("12,000 before");
     expect(html).toContain("blue marks a better share");
     // The newest update with a comparison leads in one plain sentence.
     expect(html).toContain("In the week after 2.00.00 (Aug 25), against the week before: new reviews averaged 200 a day, up 100%;");
+    // Without 2.03, no update has five player days on both sides: a note, not a column of gaps.
+    const settled = renderToStaticMarkup(createElement(UpdateWindows, { history: history(), patches: patches.filter((patch) => patch.version !== "2.03") }));
+    expect(settled).not.toContain("<dt>Playing on Steam</dt>");
+    expect(settled).toContain("Steam player counts begin on Sep 20, so no update has 5 recorded days on both sides yet.");
+  });
+
+  it("keeps the reason when the only update's week after is still filling", () => {
+    const only = [{ version: "2.03", publishedAt: "2026-09-26T01:00:00Z", fixes: 14 }];
+    const html = renderToStaticMarkup(createElement(UpdateWindows, { history: history(), patches: only }));
+    for (const text of ["200 before", "70.0% before", "300 before", "12,000 before", "too early to tell, 3 days so far"]) {
+      expect(html).toContain(text);
+    }
+    expect(html).not.toContain("so no update has");
+  });
+
+  it("says why an update in the recorded days is not compared instead of claiming none was released", () => {
+    const soon = renderToStaticMarkup(createElement(UpdateWindows, { history: history(), patches: [{ version: "1.17.00", publishedAt: "2026-08-03T03:00:00Z", fixes: 7 }] }));
+    expect(soon).toContain("1.17.00 (Aug 3) came less than a week after these records begin on Aug 1, so it has no full week before it to compare.");
+    expect(soon).not.toContain("No official update was released");
+    // Sep 30 is today, still being recorded.
+    const today = renderToStaticMarkup(createElement(UpdateWindows, { history: history(), patches: [{ version: "2.05.00", publishedAt: "2026-09-30T02:00:00Z", fixes: 5 }] }));
+    expect(today).toContain("2.05.00 was released today, so the week after it has not begun.");
   });
 
   it("states what was recorded around an update without saying why", () => {

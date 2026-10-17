@@ -5,12 +5,14 @@ import {
   firstRecordedDay,
   MEASURES,
   MIN_DAYS,
+  omittedUpdates,
   SAME_PERCENT,
   SAME_POINTS,
   updateWindows,
   WINDOW_DAYS,
   type Comparison,
   type Measure,
+  type OmittedUpdate,
   type Side,
   type UpdateWindow,
 } from "@/lib/patchWindows";
@@ -126,14 +128,34 @@ function missingNote(measure: Measure, history: ActivityHistory): { text: string
   return { text: `${RECORDS[measure]} begin on ${dayLabel(first)}, so no update has ${MIN_DAYS} recorded days on both sides yet.`, failed: false };
 }
 
+/** Why an update inside the recorded days has no comparison at all. */
+function omittedText(update: OmittedUpdate, firstDay: string): string {
+  return update.reason === "today"
+    ? `${update.version} was released today, so the week after it has not begun.`
+    : `${update.version} (${dayLabel(update.day)}) came less than a week after these records begin on ${dayLabel(firstDay)}, so it has no full week before it to compare.`;
+}
+
 export function UpdateWindows({ history, patches }: { history: ActivityHistory; patches: ChartPatch[] }) {
   if (history.days.length === 0) return null;
   const windows = updateWindows(history, patches);
   if (windows.length === 0) {
-    return <p className="obs-note">No official update was released in the recorded days, so there is nothing to compare yet.</p>;
+    // An update left out for want of records is not an empty release record.
+    const omitted = omittedUpdates(history, patches);
+    return (
+      <p className="obs-note">
+        {omitted.length
+          ? omitted.map((update) => omittedText(update, history.days[0].day)).join(" ")
+          : "No official update was released in the recorded days, so there is nothing to compare yet."}
+      </p>
+    );
   }
-  // A measure without a single comparison gets a note instead of a column of gaps.
-  const shown = MEASURES.filter((measure) => windows.some((window) => window.measures[measure].direction !== null));
+  // A measure gets a column once an update compares it, or while an update's week
+  // after is still filling against a recorded week before, so its card says
+  // "too early to tell". Any other measure gets a note instead of a column of gaps.
+  const shown = MEASURES.filter((measure) => windows.some((window) => {
+    const { before, after, direction } = window.measures[measure];
+    return direction !== null || (before.state === "value" && after.state === "early");
+  }));
   const notes = [...new Map(MEASURES.filter((measure) => !shown.includes(measure))
     .map((measure) => missingNote(measure, history))
     .map((note) => [note.text, note])).values()];
