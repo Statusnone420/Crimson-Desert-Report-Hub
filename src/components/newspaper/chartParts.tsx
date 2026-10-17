@@ -1,21 +1,27 @@
 import type { ReactNode } from "react";
-import { CHART_WIDTH, monthTicks, PANEL_HEIGHT, shortVersion, type AxisTick, type PatchMarker } from "@/lib/activityCharts";
+import { CHART_WIDTH, monthTicks, PANEL_HEIGHT, type AxisTick, type PatchMarker } from "@/lib/activityCharts";
 
 export type ChartPatch = { version: string; publishedAt: string | null; fixes: number };
 
 export const dayLabel = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
-/** Labels above the plot: updates carry their version, hotfixes are short ticks. */
+/**
+ * Labels above the plot: each update carries its version and hotfixes are short
+ * ticks. Narrow screens stagger the labels into two or three rows instead of
+ * hiding any, and labels at the edges turn inward so they stay on the page.
+ */
 export function PatchLabels({ markers }: { markers: PatchMarker[] }) {
   return (
     <div className="dd-patch-strip" aria-hidden="true">
       {markers.map((marker) => (
         <span
           key={marker.version}
-          className={"dd-patch-tick" + (marker.update ? " is-update" : "")}
+          className={marker.order === null ? "dd-patch-tick" : `dd-patch-tick is-update r2-${marker.order % 2} r3-${marker.order % 3}`}
           style={{ left: `${marker.x}%` }}
         >
-          {marker.label ? <span className={"dd-patch-label" + (marker.label === "wide" ? " is-wide-only" : "")}>{shortVersion(marker.version)}</span> : null}
+          {marker.order === null ? null : (
+            <span className={"dd-patch-label" + (marker.x < 6 ? " is-start" : marker.x > 94 ? " is-end" : "")}>{marker.version}</span>
+          )}
         </span>
       ))}
     </div>

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { UpdateWindows } from "@/components/newspaper/UpdateWindows";
 import type { ActivityDay, ActivityHistory } from "@/lib/activityHistory";
 import { updateWindows } from "@/lib/patchWindows";
+import { takeaway } from "@/components/newspaper/UpdateWindows";
 
 const DAY_MS = 86_400_000;
 
@@ -55,11 +56,11 @@ describe("update windows", () => {
     expect(update.measures.players).toMatchObject({ before: { state: "missing" }, after: { state: "missing" }, direction: null });
   });
 
-  it("leaves out the release day and stops a week at a neighbouring update", () => {
+  it("leaves out the release day and stops a week at a neighboring update", () => {
     const windows = updateWindows(history(), patches);
     // 2.01.00 and 2.02.00 are four days apart: three days between them on each side.
-    expect(windows.find((window) => window.version === "2.01.00")!.measures.reviews.after).toEqual({ state: "close", neighbour: "2.02.00" });
-    expect(windows.find((window) => window.version === "2.02.00")!.measures.reviews.before).toEqual({ state: "close", neighbour: "2.01.00" });
+    expect(windows.find((window) => window.version === "2.01.00")!.measures.reviews.after).toEqual({ state: "close", neighbor: "2.02.00" });
+    expect(windows.find((window) => window.version === "2.02.00")!.measures.reviews.before).toEqual({ state: "close", neighbor: "2.01.00" });
     // 1.18.00's week after ends on Aug 22, so the higher counts from Aug 25 never reach it.
     expect(windows.find((window) => window.version === "1.18.00")!.measures.reviews).toMatchObject({ change: 0, direction: "same" });
   });
@@ -67,7 +68,8 @@ describe("update windows", () => {
   it("says when the week after is still filling and when a measure began too late", () => {
     const latest = updateWindows(history(), patches)[0];
     expect(latest.version).toBe("2.03");
-    expect(latest.measures.reviews.after).toEqual({ state: "early", days: 4 });
+    // Sep 30 is today, still being recorded, so only Sep 27 to 29 count.
+    expect(latest.measures.reviews.after).toEqual({ state: "early", days: 3 });
     // Players from Sep 20: six recorded days before Sep 26 are enough.
     expect(latest.measures.players.before).toMatchObject({ state: "value", value: 12000, days: 6 });
     // Players from Sep 13 give 2.02.00's week after only three recorded days.
@@ -98,13 +100,23 @@ describe("update by update", () => {
   it("shows a column only for measures with a comparison and explains the rest", () => {
     const html = renderToStaticMarkup(createElement(UpdateWindows, { history: history(), patches }));
     expect(html).toContain("Update by update");
-    for (const text of ["New reviews a day", "Positive share", "Twitch viewers", "100 → 200", "up 100%", "10.0 points worse", "then hotfix 2.00.01", "too close to 2.02.00", "too early to tell, 4 days so far"]) {
+    for (const text of ["New reviews a day", "Positive share", "Twitch viewers", "Week before → week after", "100 → 200", "up 100%", "10.0 points worse", "then hotfix 2.00.01", "too close to 2.02.00", "too early to tell, 3 days so far"]) {
       expect(html).toContain(text);
     }
     // No update has five player days on both sides: a note, not a column of gaps.
     expect(html).not.toContain("<dt>Playing on Steam</dt>");
     expect(html).toContain("Steam player counts begin on Sep 20, so no update has 5 recorded days on both sides yet.");
     expect(html).toContain("blue marks a better share");
+    // The newest update with a comparison leads in one plain sentence.
+    expect(html).toContain("In the week after 2.00.00 (Aug 25), against the week before: new reviews averaged 200 a day, up 100%;");
+  });
+
+  it("states what was recorded around an update without saying why", () => {
+    const update = updateWindows(history(), patches).find((window) => window.version === "2.00.00")!;
+    const sentence = takeaway(update, ["reviews", "share", "twitch"]);
+    expect(sentence).toBe("In the week after 2.00.00 (Aug 25), against the week before: new reviews averaged 200 a day, up 100%; 70.0% of them were positive, 10.0 points worse; Twitch viewers averaged 300, up 200%.");
+    expect(sentence).not.toMatch(/caus|because|due to|led to|drove|boost|hurt/i);
+    expect(takeaway(update, ["players"])).toBeNull();
   });
 
   it("names a failed read and an empty patch record honestly", () => {

@@ -246,7 +246,7 @@ test("the day-by-day chart shows one measure at a time and keeps each one's day"
   await expect(measures.getByRole("button", { name: "New reviews a day", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(reviews).toBeVisible();
   await expect(twitch).toBeHidden();
-  const slider = reviews.getByRole("slider", { name: "Move through the days" });
+  const slider = reviews.getByRole("slider", { name: "Choose a day: new Steam reviews" });
   await slider.focus();
   await slider.press("Home");
   const first = await reviews.locator(".dd-readout").innerText();
@@ -257,6 +257,15 @@ test("the day-by-day chart shows one measure at a time and keeps each one's day"
   await expect(twitch.locator(".dd-measure-title")).toContainText("Watching on Twitch");
   await measures.getByRole("button", { name: "New reviews a day", exact: true }).click();
   await expect(reviews.locator(".dd-readout")).toHaveText(first, { useInnerText: true });
+  // Touch-sized steppers beside the slider, and today's partial day named as such.
+  const next = reviews.getByRole("button", { name: "Next day" });
+  await next.click();
+  await expect(reviews.locator(".dd-readout")).not.toHaveText(first, { useInnerText: true });
+  for (const control of [next, reviews.getByRole("button", { name: "Previous day" }), slider]) {
+    expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  await slider.press("End");
+  await expect(reviews.locator(".dd-readout")).toContainText("today so far");
   // Updates are compared only when the record has one; the fixture has a hotfix alone.
   await expect(page.locator("#updates")).toContainText("No official update was released in the recorded days");
   await expect(page.locator("#daily-reviews")).not.toContainText(/warmer|cooler|mood/i);

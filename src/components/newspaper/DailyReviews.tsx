@@ -1,12 +1,12 @@
 import { DayScrubber, type ScrubItem } from "./DayScrubber";
 import { dayLabel, MonthAxis, PatchLabels, type ChartPatch } from "./chartParts";
 import { patchMarkers, slotCenter } from "@/lib/activityCharts";
-import { reviewShare, type ActivityHistory } from "@/lib/activityHistory";
+import { completeDays, partialDay, reviewShare, type ActivityHistory } from "@/lib/activityHistory";
 
-/** Fewer new reviews than this in a day make its share too noisy to colour. */
+/** Fewer new reviews than this in a day make its share too noisy to color. */
 export const DAY_MIN_REVIEWS = 50;
 
-/** Worse days are red and better days blue, matching how people read the two colours. */
+/** Worse days are red and better days blue, matching how people read the two colors. */
 const STEPS = [
   { className: "rv-w3", label: "10+ points worse" },
   { className: "rv-w2", label: "5–10 worse" },
@@ -17,7 +17,7 @@ const STEPS = [
   { className: "rv-b3", label: "10+ points better" },
 ] as const;
 
-/** Points from the period average to a colour step; edges round toward the neutral middle. */
+/** Points from the usual share to a color step; edges round toward the neutral middle. */
 export function reviewDayClass(deviation: number): string {
   const size = Math.abs(deviation);
   if (size <= 2) return "rv-z";
@@ -30,62 +30,80 @@ function against(deviation: number, unit: string): string | null {
   return `${Math.abs(deviation).toFixed(1)}${unit} ${deviation < 0 ? "worse" : "better"}`;
 }
 
+type Cell = { day: string; newReviews: number | null; share: number | null; deviation: number | null; className: string; detail: string };
+
 export function DailyReviews({ history, patches }: { history: ActivityHistory; patches: ChartPatch[] }) {
   const days = history.days;
-  const period = reviewShare(days, 5);
+  const today = partialDay(history);
+  // The usual leaves out today's partial day, which is still being recorded.
+  const usual = reviewShare(completeDays(history), 5);
+  const usualName = `${days.length}-day usual`;
   if (history.lanes.reviews === "unavailable") return <p className="np-error">Steam review totals could not be read.</p>;
-  if (!period || days.length === 0) return <p className="obs-note">Not enough daily Steam review records yet to compare days.</p>;
+  if (!usual || days.length === 0) return <p className="obs-note">Not enough daily Steam review records yet to compare days.</p>;
   const markers = patchMarkers(days, patches);
-  const cells = days.map((day, index) => {
-    const readable = day.newReviews !== null && day.newPositive !== null && day.newReviews > 0 && day.newPositive >= 0 && day.newPositive <= day.newReviews;
-    const share = readable ? (day.newPositive! / day.newReviews!) * 100 : null;
-    const deviation = share === null ? null : share - period.share;
-    const small = readable && day.newReviews! < DAY_MIN_REVIEWS;
-    return { day, index, share, deviation, small, className: deviation === null ? "is-empty" : small ? "is-small" : reviewDayClass(deviation) };
+  const cells: Cell[] = days.map((day) => {
+    const { newReviews, newPositive } = day;
+    const readable = newReviews !== null && newPositive !== null && newReviews > 0 && newPositive >= 0 && newPositive <= newReviews;
+    const share = readable ? (newPositive / newReviews) * 100 : null;
+    const deviation = share === null ? null : share - usual.share;
+    const counted = newReviews === null ? "" : `${newReviews.toLocaleString("en-US")} new ${newReviews === 1 ? "review" : "reviews"}`;
+    if (newReviews === null) return { day: day.day, newReviews, share, deviation, className: "is-empty", detail: "No Steam review record for this day" };
+    if (newReviews < 0) {
+      return { day: day.day, newReviews, share, deviation, className: "is-loss", detail: `Net ${newReviews.toLocaleString("en-US")} reviews: more were removed than added` };
+    }
+    if (share === null || deviation === null) {
+      return { day: day.day, newReviews, share, deviation, className: "is-empty", detail: newReviews === 0 ? "No net change in Steam reviews" : `${counted}; changed votes make the share unreadable` };
+    }
+    const reading = `${counted}, ${share.toFixed(1)}% positive`;
+    if (day.day === today) return { day: day.day, newReviews, share, deviation, className: "is-partial", detail: `${reading} so far. The day is not colored until it is complete` };
+    const small = newReviews < DAY_MIN_REVIEWS;
+    return {
+      day: day.day, newReviews, share, deviation,
+      className: small ? "is-small" : reviewDayClass(deviation),
+      detail: `${reading}, ${against(deviation, " points")?.concat(` than the ${usualName}`) ?? `level with the ${usualName}`}${small ? `. Under ${DAY_MIN_REVIEWS} reviews, so not colored` : ""}`,
+    };
   });
-  const items: ScrubItem[] = cells.map(({ day, index, share, deviation, small }) => ({
-    x: slotCenter(index, days.length),
-    title: dayLabel(day.day),
-    detail: share === null || deviation === null
-      ? "No readable change in Steam reviews that day"
-      : `${day.newReviews!.toLocaleString("en-US")} new reviews, ${share.toFixed(1)}% positive, ${against(deviation, " points")?.concat(" than the average") ?? "level with the average"}${small ? " · a small day, not coloured" : ""}`,
-  }));
-  const lastReadable = cells.findLastIndex((cell) => cell.share !== null);
+  const title = (day: string) => (day === today ? `${dayLabel(day)}, today so far` : dayLabel(day));
+  const items: ScrubItem[] = cells.map((cell, index) => ({ x: slotCenter(index, days.length), title: title(cell.day), detail: cell.detail }));
+  const lastComplete = cells.findLastIndex((cell) => cell.share !== null && cell.day !== today);
   const firstRecord = days.findIndex((day) => day.totalReviews !== null);
+  const shown = new Set(cells.map((cell) => cell.className));
 
   return (
     <figure className="dd-figure" aria-labelledby="daily-reviews-title">
       <figcaption className="dd-figcaption">
         <h3 id="daily-reviews-title">Each day&apos;s Steam reviews</h3>
         <p>
-          One square per day: the share of that day&apos;s new Steam reviews that were positive, against the average for these days, {period.share.toFixed(1)}%.
-          Blue days were better than usual, red days worse, grey days within 2 points. Days with under {DAY_MIN_REVIEWS} new reviews are outlined, not coloured.
+          One square per day: the share of that day&apos;s new Steam reviews that were positive, against the <span className="dd-nowrap">{usualName}</span> of {usual.share.toFixed(1)}%.
+          Blue days were better than usual, red days worse, gray days within 2 points.
         </p>
       </figcaption>
-      <DayScrubber id="daily-reviews" label="Move through the days" items={items} initialIndex={lastReadable < 0 ? days.length - 1 : lastReadable}>
+      <ul className="dd-legend" aria-label={`Color key, against the ${usualName}`}>
+        {STEPS.map((step) => <li key={step.className}><i className={`dd-swatch ${step.className}`} aria-hidden="true" />{step.label}</li>)}
+        <li><i className="dd-swatch is-small" aria-hidden="true" />under {DAY_MIN_REVIEWS} new reviews</li>
+        {shown.has("is-loss") ? <li><i className="dd-swatch is-loss" aria-hidden="true" />more removed than added</li> : null}
+        {shown.has("is-partial") ? <li><i className="dd-swatch is-partial" aria-hidden="true" />today so far</li> : null}
+      </ul>
+      <DayScrubber id="daily-reviews" label="Choose a day: each day's Steam reviews" items={items} initialIndex={lastComplete < 0 ? days.length - 1 : lastComplete}>
         <PatchLabels markers={markers} />
         <div className="dd-ribbon" aria-hidden="true">
-          {cells.map((cell) => <span key={cell.day.day} className={`dd-cell ${cell.className}`} />)}
+          {cells.map((cell) => <span key={cell.day} className={`dd-cell ${cell.className}`} />)}
         </div>
         <MonthAxis days={days} />
       </DayScrubber>
-      <ul className="dd-legend" aria-label="Colour key, against the average">
-        {STEPS.map((step) => <li key={step.className}><i className={`dd-swatch ${step.className}`} aria-hidden="true" />{step.label}</li>)}
-        <li><i className="dd-swatch is-small" aria-hidden="true" />under {DAY_MIN_REVIEWS} new reviews</li>
-      </ul>
       <details className="dd-table">
         <summary>Read the daily shares</summary>
         <div className="dd-table-scroll">
           <table>
-            <caption>Net new Steam reviews per day, UTC, against the average of {period.share.toFixed(1)}%.</caption>
-            <thead><tr><th scope="col">Day</th><th scope="col">New reviews</th><th scope="col">Positive</th><th scope="col">Against the average</th></tr></thead>
+            <caption>Net new Steam reviews per day, UTC, against the {usualName} of {usual.share.toFixed(1)}%.</caption>
+            <thead><tr><th scope="col">Day</th><th scope="col">New reviews</th><th scope="col">Positive</th><th scope="col">Against the {usualName} (points)</th></tr></thead>
             <tbody>
               {[...cells].reverse().map((cell) => (
-                <tr key={cell.day.day}>
-                  <th scope="row">{dayLabel(cell.day.day)}</th>
-                  <td>{cell.day.newReviews === null ? "" : cell.day.newReviews.toLocaleString("en-US")}</td>
+                <tr key={cell.day}>
+                  <th scope="row">{cell.day === today ? `${dayLabel(cell.day)} (today so far)` : dayLabel(cell.day)}</th>
+                  <td>{cell.newReviews === null ? "" : cell.newReviews.toLocaleString("en-US")}</td>
                   <td>{cell.share === null ? "" : `${cell.share.toFixed(1)}%`}</td>
-                  <td>{cell.deviation === null ? "" : against(cell.deviation, "") ?? "level"}</td>
+                  <td>{cell.deviation === null || cell.day === today ? "" : against(cell.deviation, "") ?? "level"}</td>
                 </tr>
               ))}
             </tbody>

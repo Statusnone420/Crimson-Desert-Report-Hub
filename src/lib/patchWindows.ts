@@ -1,12 +1,12 @@
 /**
  * The week before each official update against the week after it, built from
  * the same daily records as the activity charts. The release day is left out
- * because it mixes both sides, a week stops early at a neighbouring update, and
+ * because it mixes both sides, a week stops early at a neighboring update, and
  * a side is compared only with enough recorded days. Movement around an update
  * is context, never proof the update caused it.
  */
 import { patchTypeLabel } from "@/lib/dispatchBrief";
-import { reviewShare, utcDay, type ActivityDay, type ActivityHistory, type LaneState } from "@/lib/activityHistory";
+import { completeDays, reviewShare, utcDay, type ActivityDay, type ActivityHistory, type LaneState } from "@/lib/activityHistory";
 
 const DAY_MS = 86_400_000;
 /** Days on each side of an update. */
@@ -25,8 +25,8 @@ export type Side =
   | { state: "unavailable" }
   /** The week after the latest update is still filling. */
   | { state: "early"; days: number }
-  /** A neighbouring update leaves too few days. */
-  | { state: "close"; neighbour: string }
+  /** A neighboring update leaves too few days. */
+  | { state: "close"; neighbor: string }
   | { state: "missing" }
   | { state: "few"; days: number };
 
@@ -76,11 +76,11 @@ function read(measure: Measure, days: ActivityDay[]): { days: number; value: num
 function side(
   measure: Measure,
   lane: LaneState,
-  window: { days: ActivityDay[]; length: number; open: boolean; neighbour: string | null },
+  window: { days: ActivityDay[]; length: number; open: boolean; neighbor: string | null },
 ): Side {
   if (lane === "unavailable") return { state: "unavailable" };
   if (window.length < MIN_DAYS) {
-    return window.open || !window.neighbour ? { state: "early", days: window.length } : { state: "close", neighbour: window.neighbour };
+    return window.open || !window.neighbor ? { state: "early", days: window.length } : { state: "close", neighbor: window.neighbor };
   }
   const { days, value } = read(measure, window.days);
   if (value !== null) return { state: "value", value, days, open: window.open };
@@ -104,13 +104,15 @@ function compare(measure: Measure, before: Side, after: Side): Comparison {
 /**
  * One entry per official update (a missing or zero third version part) inside
  * the recorded days, newest first. An update whose week before reaches past the
- * first recorded day is left out rather than shown as unrecorded.
+ * first recorded day is left out rather than shown as unrecorded. Today's
+ * partial day is never part of a week: the week after the latest update stays
+ * "so far" until each day in it is complete.
  */
 export function updateWindows(
   history: ActivityHistory,
   patches: { version: string; publishedAt: string | null; fixes: number }[],
 ): UpdateWindow[] {
-  const days = history.days;
+  const days = completeDays(history);
   if (!days.length) return [];
   const first = days[0].day;
   const last = days.at(-1)!.day;
@@ -142,8 +144,8 @@ export function updateWindows(
       const afterTo = earlier(shiftDay(update.day, WINDOW_DAYS), next ? shiftDay(next.day, -1) : "9999-12-31");
       const afterOpen = afterTo > last;
       const afterEnd = earlier(afterTo, last);
-      const beforeWindow = { days: between(beforeFrom, beforeTo), length: Math.max(0, spanDays(beforeFrom, beforeTo)), open: false, neighbour: previous?.version ?? null };
-      const afterWindow = { days: between(afterFrom, afterEnd), length: afterEnd < afterFrom ? 0 : spanDays(afterFrom, afterEnd), open: afterOpen, neighbour: next?.version ?? null };
+      const beforeWindow = { days: between(beforeFrom, beforeTo), length: Math.max(0, spanDays(beforeFrom, beforeTo)), open: false, neighbor: previous?.version ?? null };
+      const afterWindow = { days: between(afterFrom, afterEnd), length: afterEnd < afterFrom ? 0 : spanDays(afterFrom, afterEnd), open: afterOpen, neighbor: next?.version ?? null };
       const measures = Object.fromEntries(MEASURES.map((measure) => {
         const lane = history.lanes[LANES[measure]];
         return [measure, compare(measure, side(measure, lane, beforeWindow), side(measure, lane, afterWindow))];

@@ -193,7 +193,7 @@ function SteamShare({
           : <><span><i className="obs-key-positive" />{number(selected.totalPositive)} positive</span><span><i className="obs-key-negative" />{number(selected.totalNegative)} negative</span></>}
       </p>
       <div className="obs-share-summary">
-        <p className="obs-note">Positive share across recorded readings · scale {minimum}–{maximum}%. This is the share of all recorded reviews.</p>
+        <p className="obs-note">All-time positive share at each reading · scale {minimum}–{maximum}%. It counts every review since launch.</p>
         <div className="obs-share-chart">
           <div className="obs-y-axis" aria-hidden="true">{[maximum, (maximum + minimum) / 2, minimum].map((tick, index) => <span key={tick} style={{ top: index * 50 + "%" }}>{tick.toFixed(1)}%</span>)}</div>
           <div className="obs-share-plot">
@@ -242,7 +242,7 @@ function ReviewRecord({ data, radar }: { data: PublicScannerData; radar: PatchRa
 
   return (
     <section id="review-record" tabIndex={-1} className="obs-section" aria-labelledby="review-title">
-      <div className="obs-section-heading"><div><p className="kicker">Steam reviews</p><h2 id="review-title">The review record</h2></div><div className="obs-review-totals"><span><strong>{number(latest.totalReviews)}</strong> total reviews</span><span><strong>{latest.positivePercentage.toFixed(1)}%</strong> recorded positive share</span></div></div>
+      <div className="obs-section-heading"><div><p className="kicker">Steam reviews</p><h2 id="review-title">The review record</h2></div><div className="obs-review-totals"><span><strong>{number(latest.totalReviews)}</strong> total reviews</span><span><strong>{latest.positivePercentage.toFixed(1)}%</strong> positive share, all time</span></div></div>
       {change ? <p className="obs-window-summary">Between <b>{displayDate(points[0].snapshotDay)}</b> and <b>{displayDate(points.at(-1)!.snapshotDay)}</b>, the recorded total changed by <strong>{signed(change.reviews)} reviews</strong>. Positive share {Math.abs(change.positiveShare) < 0.05 ? "was unchanged at the displayed precision" : `changed by ${signed(Number(change.positiveShare.toFixed(1)))} percentage points`}.</p> : null}
       <div className="obs-review-controls">
         <Options label="Review chart" value={metric} onChange={(value) => setMetric(String(value))} options={[["movement", "Review movement"], ["share", "Positive share"]]} />

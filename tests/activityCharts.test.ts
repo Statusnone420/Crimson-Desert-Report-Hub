@@ -44,7 +44,7 @@ describe("chart geometry", () => {
     expect(path.match(/M/g)).toHaveLength(2);
   });
 
-  it("labels updates, thins crowded labels, and leaves hotfixes as ticks", () => {
+  it("labels every update in order and leaves hotfixes as ticks", () => {
     const days = Array.from({ length: 30 }, (_, index) => ({ day: `2026-09-${String(index + 1).padStart(2, "0")}` }));
     const markers = patchMarkers(days, [
       { version: "2.01.00", publishedAt: "2026-09-04T04:20:00Z", fixes: 29 },
@@ -54,10 +54,11 @@ describe("chart geometry", () => {
       { version: "1.18.00", publishedAt: "2026-08-15T03:43:00Z", fixes: 26 },
       { version: "2.04.00", publishedAt: null, fixes: 0 },
     ]);
-    expect(markers.map((marker) => [marker.version, marker.label])).toEqual([
-      ["2.01.00", "always"],
-      ["2.02.00", "wide"],
-      ["2.03.00", "always"],
+    // The order staggers labels on narrow screens instead of hiding any.
+    expect(markers.map((marker) => [marker.version, marker.order])).toEqual([
+      ["2.01.00", 0],
+      ["2.02.00", 1],
+      ["2.03.00", 2],
       ["2.03.01", null],
     ]);
     expect(monthTicks(days)).toEqual([{ x: 0, label: "Sep 1" }]);
@@ -69,8 +70,8 @@ describe("chart geometry", () => {
       { version: "2.03", publishedAt: "2026-09-18T01:00:00Z", fixes: 14 },
       { version: "2.03.01", publishedAt: "2026-09-25T14:00:00Z", fixes: 3 },
     ]);
-    expect(markers.map((marker) => [marker.version, marker.update, marker.label])).toEqual([
-      ["2.03", true, "always"],
+    expect(markers.map((marker) => [marker.version, marker.update, marker.order])).toEqual([
+      ["2.03", true, 0],
       ["2.03.01", false, null],
     ]);
   });
@@ -104,7 +105,7 @@ describe("activity components", () => {
       history: history(),
       patches: [{ version: "2.03.02", publishedAt: "2026-09-23T04:45:00Z", fixes: 3 }, { version: "2.04.00", publishedAt: "2026-10-01T02:00:00Z", fixes: 20 }],
     }));
-    for (const text of ["New reviews a day", "Twitch viewers", "Steam players", "Watching on Twitch", "Playing on Steam", "Read the daily numbers", "Move through the days"]) {
+    for (const text of ["New reviews a day", "Twitch viewers", "Steam players", "Watching on Twitch", "Playing on Steam", "Read the daily numbers", "Choose a day: new Steam reviews", "Choose a day: Twitch viewers", "Choose a day: Steam players"]) {
       expect(html).toContain(text);
     }
     // The first measure shows; the others wait, still drawn, for their button.
@@ -113,10 +114,30 @@ describe("activity components", () => {
     // New reviews need two daily totals, so that chart starts a day later and says so.
     expect(html).toContain("Recorded since Sep 25.");
     expect(html).toContain("Shown for the last 24 days.");
-    // Only releases inside the plotted days are marked: 2.03.02 predates this window.
-    expect(html).toContain(">2.04<");
+    // One version format: the label, the readout and the table all say 2.04.00.
+    expect(html).toContain(">2.04.00</span>");
     expect(html).toContain("<td>2.04.00</td>");
+    // Only releases inside the plotted days are marked: 2.03.02 predates this window.
     expect(html).not.toContain("2.03.02");
+    // Today is drawn lighter, named in the table, and the readout opens on the last full day.
+    expect(html).toContain("dd-column is-partial");
+    expect(html).toContain("Oct 17 (today so far)");
+    expect(html).toContain("<strong>Oct 16</strong>");
+    // One announcement per day: the slider's value text, not a live readout as well.
+    expect(html).not.toContain("aria-live");
+  });
+
+  it("marks a day that lost reviews differently from a day without a record", () => {
+    const lossy = history();
+    Object.assign(lossy.days[5], { newReviews: -12, newPositive: -9 });
+    Object.assign(lossy.days[6], { newReviews: null, newPositive: null });
+    const timeline = renderToStaticMarkup(createElement(UpdateTimeline, { history: lossy, patches: [] }));
+    expect(timeline).toContain("dd-column is-loss");
+    expect(timeline).toContain("A short mark under the line means more reviews were removed than added.");
+    const strip = renderToStaticMarkup(createElement(DailyReviews, { history: lossy, patches: [] }));
+    expect(strip).toContain("dd-cell is-loss");
+    expect(strip).toContain("more removed than added");
+    expect(strip).toContain("dd-cell is-empty");
   });
 
   it("names an unavailable lane instead of drawing it as zero", () => {
@@ -131,11 +152,16 @@ describe("activity components", () => {
     const html = renderToStaticMarkup(createElement(DailyReviews, { history: history(), patches: [] }));
     expect(html).toContain("Each day&#x27;s Steam reviews");
     expect(html).toContain("Blue days were better than usual, red days worse");
+    // Every share names its window, and today stays out of the usual.
+    expect(html).toContain("against the 24-day usual of 80.0%");
+    expect(html).toContain("dd-cell is-partial");
+    expect(html).toContain("Oct 17 (today so far)");
+    expect(html).toContain('aria-label="Choose a day: each day&#x27;s Steam reviews"');
     expect(html).toContain("10+ points worse");
     expect(html).toContain("10+ points better");
     expect(html).toContain("under 50 new reviews");
     expect(html).toContain("dd-cell is-empty");
-    expect(html).not.toMatch(/warm|cool|mood/i);
+    expect(html).not.toMatch(/warm|cool|mood|colour/i);
   });
 
   it("shows the latest readings with honest fallbacks and only counts from the scanner", () => {

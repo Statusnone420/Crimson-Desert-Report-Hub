@@ -100,15 +100,30 @@ export function timeBandPath(points: { time: number; low: number; high: number }
 
 export type ColumnRect = { index: number; x: number; width: number; y: number; height: number };
 
+function columnSlot(count: number) {
+  const slot = CHART_WIDTH / Math.max(1, count);
+  return { slot, width: Math.max(1, Math.min(slot * 0.7, slot - 2)) };
+}
+
 /** One column per day with a value above zero; the slot keeps a gap on each side. */
 export function columnRects(values: (number | null)[], max: number): ColumnRect[] {
-  const slot = CHART_WIDTH / Math.max(1, values.length);
-  const width = Math.max(1, Math.min(slot * 0.7, slot - 2));
+  const { slot, width } = columnSlot(values.length);
   return values.flatMap((value, index) => {
     if (value === null || value <= 0) return [];
     const top = y(value, 0, max);
     return [{ index, x: index * slot + (slot - width) / 2, width, y: top, height: PANEL_HEIGHT - top }];
   });
+}
+
+/** Height below the baseline of the mark for a day that lost more than it gained. */
+export const LOSS_MARK = 4;
+
+/** A short mark under the baseline for each day below zero, so it never reads as a day without a record. */
+export function lossRects(values: (number | null)[]): ColumnRect[] {
+  const { slot, width } = columnSlot(values.length);
+  return values.flatMap((value, index) => (value !== null && value < 0
+    ? [{ index, x: index * slot + (slot - width) / 2, width, y: PANEL_HEIGHT, height: LOSS_MARK }]
+    : []));
 }
 
 export type AxisTick = { value: number; top: number; label: string };
@@ -124,16 +139,13 @@ export type PatchMarker = {
   update: boolean;
   /** Percent across the plot. */
   x: number;
-  /** "always" labels fit a 320px phone; "wide" ones show from tablet width up. */
-  label: "always" | "wide" | null;
+  /** Position among the labeled updates, which staggers labels on narrow screens; null for hotfixes. */
+  order: number | null;
 };
 
-const ALWAYS_LABEL_SPACING = 11;
-const WIDE_LABEL_SPACING = 3.5;
-
 /**
- * Official releases inside the plotted days. Updates (x.yy.00) carry a label,
- * thinned so neighbours never collide; hotfixes are ticks without one.
+ * Official releases inside the plotted days. Every update carries a label in
+ * its official version format; hotfixes are ticks without one.
  */
 export function patchMarkers(
   days: { day: string }[],
@@ -142,8 +154,7 @@ export function patchMarkers(
   if (!days.length) return [];
   const first = Date.parse(`${days[0].day}T00:00:00Z`);
   const end = Date.parse(`${days.at(-1)!.day}T00:00:00Z`) + 86_400_000;
-  let lastAlways = -Infinity;
-  let lastWide = -Infinity;
+  let order = 0;
   return patches
     .flatMap((patch) => {
       const time = patch.publishedAt ? Date.parse(patch.publishedAt) : Number.NaN;
@@ -154,21 +165,8 @@ export function patchMarkers(
       const x = ((patch.time - first) / (end - first)) * 100;
       // The site's one rule: a missing or zero third part is an update.
       const update = patchTypeLabel(patch.version) === "UPDATE";
-      let label: PatchMarker["label"] = null;
-      if (update && x - lastAlways >= ALWAYS_LABEL_SPACING) {
-        label = "always";
-        lastAlways = x;
-        lastWide = x;
-      } else if (update && x - lastWide >= WIDE_LABEL_SPACING) {
-        label = "wide";
-        lastWide = x;
-      }
-      return { version: patch.version, publishedAt: patch.publishedAt, fixes: patch.fixes, update, x, label };
+      return { version: patch.version, publishedAt: patch.publishedAt, fixes: patch.fixes, update, x, order: update ? order++ : null };
     });
-}
-
-export function shortVersion(version: string): string {
-  return version.replace(/\.00$/, "");
 }
 
 /** The first of each month inside the plotted days. */

@@ -12,6 +12,7 @@ import {
   type Comparison,
   type Measure,
   type Side,
+  type UpdateWindow,
 } from "@/lib/patchWindows";
 
 const LABELS: Record<Measure, string> = {
@@ -52,7 +53,7 @@ function reason(side: Side, which: "before" | "after", alone: boolean): string {
     case "early":
       return side.days > 0 ? `too early to tell, ${days(side.days)} so far` : "too early to tell";
     case "close":
-      return `too close to ${side.neighbour}`;
+      return `too close to ${side.neighbor}`;
     case "missing":
       return alone ? `not recorded ${which}` : "not recorded yet";
     case "few":
@@ -84,6 +85,39 @@ function Change({ measure, comparison }: { measure: Measure; comparison: Compari
   return <span className="dd-change-reason">{after.state === "early" ? reason(after, "after", false) : reason(before, "before", false)}</span>;
 }
 
+/** How a change reads inside the takeaway, after the comparison is named once. */
+function moved(measure: Measure, { change, direction }: Comparison): string {
+  if (direction === "same" || direction === null) return "about the same";
+  if (measure === "share") return `${Math.abs(change ?? 0).toFixed(1)} points ${direction === "up" ? "better" : "worse"}`;
+  return change === null ? direction : `${direction} ${Math.round(Math.abs(change))}%`;
+}
+
+/**
+ * One plain sentence for an update: what was recorded in the week after it
+ * against the week before. It reports movement and never says why.
+ */
+export function takeaway(window: UpdateWindow, measures: Measure[]): string | null {
+  const compared = measures.filter((measure) => window.measures[measure].after.state === "value" && window.measures[measure].direction !== null);
+  if (!compared.length) return null;
+  const parts = compared.map((measure) => {
+    const comparison = window.measures[measure];
+    const value = comparison.after.state === "value" ? format(measure, comparison.after.value) : "";
+    switch (measure) {
+      case "reviews":
+        return `new reviews averaged ${value} a day, ${moved(measure, comparison)}`;
+      case "share":
+        return `${value} of ${compared.includes("reviews") ? "them" : "new reviews"} were positive, ${moved(measure, comparison)}`;
+      case "twitch":
+        return `Twitch viewers averaged ${value}, ${moved(measure, comparison)}`;
+      case "players":
+        return `Steam players averaged ${value}, ${moved(measure, comparison)}`;
+    }
+  });
+  const after = window.measures[compared[0]].after;
+  const span = after.state === "value" && after.open ? `In the ${days(after.days)} so far after ${window.version}` : `In the week after ${window.version}`;
+  return `${span} (${dayLabel(window.publishedAt.slice(0, 10))}), against the week before: ${parts.join("; ")}.`;
+}
+
 /** Why a measure has no column: a failed read, no records, or records that start too late. */
 function missingNote(measure: Measure, history: ActivityHistory): { text: string; failed: boolean } {
   if (history.lanes[measure === "share" ? "reviews" : measure] === "unavailable") return { text: `${RECORDS[measure]} could not be read.`, failed: true };
@@ -103,15 +137,22 @@ export function UpdateWindows({ history, patches }: { history: ActivityHistory; 
   const notes = [...new Map(MEASURES.filter((measure) => !shown.includes(measure))
     .map((measure) => missingNote(measure, history))
     .map((note) => [note.text, note])).values()];
+  // The newest update with a comparison leads in words.
+  const lead = windows.map((window) => takeaway(window, shown)).find((sentence) => sentence !== null) ?? null;
   return (
     <figure className="dd-figure dd-updates" aria-labelledby="update-windows-title" style={{ "--dd-cols": Math.max(1, shown.length) } as CSSProperties}>
       <figcaption className="dd-figcaption">
         <h3 id="update-windows-title">Update by update</h3>
-        <p>Each official update&apos;s week before against its week after: {WINDOW_DAYS} days on each side, leaving out the release day. A week stops early when another update arrives, and each side needs {MIN_DAYS} days of records.</p>
+        {lead ? <p className="dd-takeaway">{lead}</p> : null}
+        <p>
+          Each value reads week before → week after: {WINDOW_DAYS} days on each side, leaving out the release day and today. A week stops
+          early when another update arrives, and each side needs {MIN_DAYS} days of records.
+        </p>
       </figcaption>
       {shown.length ? (
         <div className="dd-cards-head" aria-hidden="true">
-          <span>Update</span>
+          <span className="dd-cards-head-update">Update</span>
+          <span className="dd-cards-head-window">Week before → week after</span>
           {shown.map((measure) => <span key={measure}>{LABELS[measure]}</span>)}
         </div>
       ) : null}

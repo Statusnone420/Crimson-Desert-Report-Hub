@@ -129,6 +129,18 @@ export function buildActivityDays(input: {
   return days;
 }
 
+/** The UTC day still being recorded: the last day, when it is the day of the reading. */
+export function partialDay(history: ActivityHistory): string | null {
+  const last = history.days.at(-1)?.day ?? null;
+  const time = Date.parse(history.checkedAt);
+  return last !== null && Number.isFinite(time) && utcDay(time) === last ? last : null;
+}
+
+/** Every day with a full UTC day of captures, leaving out today's partial one. */
+export function completeDays(history: ActivityHistory): ActivityDay[] {
+  return partialDay(history) === null ? history.days : history.days.slice(0, -1);
+}
+
 /** A day whose net change can be read as a share: more new reviews than removals, and a sane positive count. */
 function readableChange(day: ActivityDay): day is ActivityDay & { newReviews: number; newPositive: number } {
   return day.newReviews !== null && day.newPositive !== null && day.newReviews > 0
