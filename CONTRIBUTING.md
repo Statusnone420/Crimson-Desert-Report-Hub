@@ -36,10 +36,10 @@ To use your own development database, copy `.env.local.example` to `.env.local`,
 
 ## Verification before a pull request
 
-GitHub runs the full gate on every pull request to `main`, on hosted Linux runners:
+GitHub runs the full gate on every pull request to `main`, on GitHub-hosted runners:
 
 - `verify`: lint, unit tests, type checks and the production build (`npm run verify:core`).
-- `browser`: the desktop, mobile and operator browser tests, the patch publication tests, the Twitch-history fixtures, the empty and unavailable states, and the Turnstile tests (`npm run verify:browser`).
+- `browser`: the desktop, mobile and operator browser tests, the patch publication tests, the Twitch-history fixtures, the empty and unavailable states, and the Turnstile tests (`npm run verify:browser`). It runs on Windows because the screenshot baselines are drawn there; on macOS or Linux, the screenshot test can fail locally from font rendering alone.
 - `migrations`: every migration in `supabase/migrations/`, applied in order on a throwaway local database, then the database tests in `supabase/tests/`.
 
 Before you push, run the checks that cover your change, such as `npm test` or one Playwright spec. To run the whole gate on your own machine, stage your changes and run:
