@@ -61,7 +61,7 @@ html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,
 .newspaper .dd-panel-state{font-size:14px;line-height:1.5;color:var(--muted);padding-top:28px}
 .newspaper .dd-months{position:relative;height:26px;margin-top:4px}
 .newspaper .dd-months span{position:absolute;top:6px;font-size:11px;line-height:1;color:var(--muted);white-space:nowrap;transform:translateX(-50%)}
-.newspaper .dd-slider{display:block;font-size:13px;color:var(--muted);margin:10px 0 0 var(--dd-axis)}
+.newspaper .dd-slider{display:block;font-size:14px;color:var(--muted);margin:10px 0 0 var(--dd-axis)}
 .newspaper .dd-slider-input{display:block;width:calc(100% - var(--dd-axis));margin-left:var(--dd-axis);min-height:32px;accent-color:var(--red)}
 .newspaper .dd-table{margin-top:14px}
 .newspaper .dd-table-scroll{max-height:340px;overflow:auto}
