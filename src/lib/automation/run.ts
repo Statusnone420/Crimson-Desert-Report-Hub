@@ -2255,9 +2255,24 @@ function adoptedClusterCategory(
   return category && category !== "other" && (CATEGORIES as readonly string[]).includes(category) ? (category as Category) : null;
 }
 
-function withAdoptedCategory(signal: PreparedSignal, clusterId: string | null, routableClusters: RoutableCluster[]): PreparedSignal {
-  const category = adoptedClusterCategory(signal, clusterId, routableClusters);
-  if (!category) return signal;
+type AdoptedCategory = { clusterId: string; category: Category };
+
+/**
+ * Within one scan, a later "other" signal with the same fingerprint reaches the
+ * same cluster from the route cache without its own sure assignment, so it takes
+ * the category the first one adopted. `adoptedBySemantic` records each adoption.
+ */
+function withAdoptedCategory(
+  signal: PreparedSignal,
+  clusterId: string | null,
+  routableClusters: RoutableCluster[],
+  adoptedBySemantic: Map<string, AdoptedCategory>,
+): PreparedSignal {
+  const earlier = adoptedBySemantic.get(signal.semantic);
+  const category = adoptedClusterCategory(signal, clusterId, routableClusters)
+    ?? (signal.extraction.category === "other" && earlier && earlier.clusterId === clusterId ? earlier.category : null);
+  if (!category || !clusterId) return signal;
+  adoptedBySemantic.set(signal.semantic, { clusterId, category });
   // The stored fingerprint must match the stored category, so a later source
   // with the same title and the specific category finds this record.
   return {
@@ -2781,7 +2796,7 @@ async function persistOneSignal(
   let promoted = false;
 
   try {
-    persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters), clusterId, now, runId);
+    persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters, new Map()), clusterId, now, runId);
     if (persistence.previousClusterId && persistence.previousClusterId !== clusterId) {
       touchedClusters.add(persistence.previousClusterId);
     }
@@ -2812,6 +2827,7 @@ async function persistSignals(
 ): Promise<{ persistedSteamReviewHashes: Set<string>; error: unknown | null }> {
   const persistedSteamReviewHashes = new Set<string>();
   const clusterBySemantic = new Map<string, string>();
+  const adoptedBySemantic = new Map<string, AdoptedCategory>();
   const touchedClusters = new Set<string>();
   let persistenceError: unknown = null;
 
@@ -2820,7 +2836,7 @@ async function persistSignals(
     for (const signal of signals) {
       const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
       if (clusterId) touchedClusters.add(clusterId);
-      const persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters), clusterId, now, runId);
+      const persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters, adoptedBySemantic), clusterId, now, runId);
       if (signal.source === "steam_review" && signal.steam?.recommendationHash) {
         persistedSteamReviewHashes.add(signal.steam.recommendationHash);
       }
