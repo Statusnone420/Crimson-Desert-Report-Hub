@@ -1,8 +1,10 @@
 /* Activity charts and the front-page readings band. Colours were checked for
    contrast and colour-vision separation against both papers; the dark chart
-   blue is one step deeper than the link blue so marks stay in range. */
-.newspaper{--dd-series:#2457a1;--dd-wash:rgba(36,87,161,.11);--dd-band:rgba(83,85,80,.15);--dd-grid:color-mix(in srgb,var(--line) 32%,transparent);--dd-patch:var(--red);--dd-quiet:#a8a59b;--dd-axis:44px;--mood-n3:#a51e23;--mood-n2:#c4675e;--mood-n1:#db9f96;--mood-z:#a8a59b;--mood-p1:#93abcd;--mood-p2:#5e83b9;--mood-p3:#2457a1}
-html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,.16);--dd-band:rgba(184,187,192,.16);--dd-quiet:#4a4c50;--mood-n3:#e15b62;--mood-n2:#a74147;--mood-n1:#70292d;--mood-z:#4a4c50;--mood-p1:#3e5378;--mood-p2:#5672a3;--mood-p3:#6490e4}
+   blue is one step deeper than the link blue so marks stay in range. In the
+   review colours blue is better than usual and red worse, so update markers
+   stay neutral. */
+.newspaper{--dd-series:#2457a1;--dd-wash:rgba(36,87,161,.11);--dd-band:rgba(83,85,80,.15);--dd-grid:color-mix(in srgb,var(--line) 32%,transparent);--dd-patch:var(--muted);--dd-quiet:#a8a59b;--dd-axis:44px;--rv-w3:#a51e23;--rv-w2:#c4675e;--rv-w1:#db9f96;--rv-z:#a8a59b;--rv-b1:#93abcd;--rv-b2:#5e83b9;--rv-b3:#2457a1;--dd-better:var(--rv-b3);--dd-worse:var(--rv-w3)}
+html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,.16);--dd-band:rgba(184,187,192,.16);--dd-quiet:#4a4c50;--rv-w3:#e15b62;--rv-w2:#a74147;--rv-w1:#70292d;--rv-z:#4a4c50;--rv-b1:#3e5378;--rv-b2:#5672a3;--rv-b3:#6490e4}
 
 /* Front-page readings band */
 .newspaper .dd-brief{padding:30px 0 24px;border-bottom:2px solid var(--ink)}
@@ -27,62 +29,85 @@ html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,
 
 /* Charts */
 .newspaper .dd-figure{margin:0;padding-top:6px}
+.newspaper .dd-figure + .dd-figure{margin-top:40px}
 /* The paper's figcaption is an image overlay; a chart caption sits in the flow. */
 .newspaper .dd-figcaption{position:static;color:var(--ink);font-size:inherit;font-style:normal;text-shadow:none}
 .newspaper .dd-figcaption h3{font:400 clamp(28px,3.4vw,40px)/1.1 var(--serif),serif;text-wrap:balance}
 .newspaper .dd-figcaption p{font-size:15px;line-height:1.55;color:var(--muted);max-width:72ch;margin-top:6px}
 .newspaper .dd-scrub{margin-top:14px}
-.newspaper .dd-readout{min-height:48px;font-size:14px;line-height:1.5;border-left:2px solid var(--red);padding:2px 0 2px 12px;margin-bottom:10px}
+.newspaper .dd-readout{min-height:48px;font-size:14px;line-height:1.5;border-left:2px solid var(--ink);padding:2px 0 2px 12px;margin-bottom:10px}
 .newspaper .dd-readout strong{font-weight:600;margin-right:4px}
 .newspaper .dd-scrub-area{position:relative;margin-left:var(--dd-axis)}
 .newspaper .dd-hit{position:absolute;inset:0;cursor:crosshair;touch-action:pan-y}
 .newspaper .dd-cursor{position:absolute;top:0;bottom:26px;width:0;border-left:1px solid var(--ink);pointer-events:none}
 .newspaper .dd-patch-strip{position:relative;height:24px}
-.newspaper .dd-patch-tick{position:absolute;bottom:0;height:6px;border-left:1px solid var(--dd-patch);opacity:.55}
+.newspaper .dd-patch-tick{position:absolute;bottom:0;height:5px;border-left:1px solid var(--dd-patch);opacity:.7}
 .newspaper .dd-patch-tick.is-update{height:10px;opacity:1}
 .newspaper .dd-patch-label{position:absolute;bottom:11px;left:0;transform:translateX(-50%);font-size:12px;font-weight:600;line-height:1;white-space:nowrap;color:var(--ink)}
-.newspaper .dd-panel{margin-top:12px}
-.newspaper .dd-panel-title{font-size:13px;line-height:1.4;margin-bottom:6px}
-.newspaper .dd-panel-title strong{font-weight:600}
-.newspaper .dd-panel-title span{color:var(--muted)}
-.newspaper .dd-panel-plot{position:relative;height:88px}
-.newspaper .dd-panel-plot svg{display:block;width:100%;height:100%;overflow:visible}
+.newspaper .dd-plot{position:relative;height:200px}
+.newspaper .dd-plot svg{display:block;width:100%;height:100%;overflow:visible}
 .newspaper .dd-yaxis span{position:absolute;right:calc(100% + 6px);transform:translateY(-50%);font-size:11px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .newspaper .dd-gridline{stroke:var(--dd-grid);stroke-width:1}
 .newspaper .dd-baseline{stroke:var(--line);stroke-width:1}
-.newspaper .dd-patch-line{stroke:var(--dd-patch);stroke-width:1;opacity:.3}
-.newspaper .dd-patch-line.is-update{opacity:.75}
+.newspaper .dd-patch-line{stroke:var(--dd-patch);stroke-width:1;opacity:.45}
 .newspaper .dd-line{fill:none;stroke:var(--dd-series);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
 .newspaper .dd-wash{fill:var(--dd-wash)}
 .newspaper .dd-band{fill:var(--dd-band)}
 .newspaper .dd-column{fill:var(--dd-series)}
 .newspaper .dd-column.is-quiet{fill:var(--dd-quiet)}
-.newspaper .dd-reference{stroke:var(--muted);stroke-width:1}
-.newspaper .dd-reference-label{position:absolute;right:0;transform:translateY(-130%);font-size:11px;line-height:1;color:var(--muted);background:var(--paper);padding:1px 3px}
-.newspaper .dd-panel-note{position:absolute;left:0;top:50%;transform:translateY(-50%);text-align:center;font-size:12px;line-height:1.3;color:var(--muted)}
-.newspaper .dd-panel-state{font-size:14px;line-height:1.5;color:var(--muted);padding-top:28px}
+.newspaper .dd-panel-state{font-size:14px;line-height:1.5;color:var(--muted);padding:28px 0}
 .newspaper .dd-months{position:relative;height:26px;margin-top:4px}
 .newspaper .dd-months span{position:absolute;top:6px;font-size:11px;line-height:1;color:var(--muted);white-space:nowrap;transform:translateX(-50%)}
 .newspaper .dd-slider{display:block;font-size:14px;color:var(--muted);margin:10px 0 0 var(--dd-axis)}
-.newspaper .dd-slider-input{display:block;width:calc(100% - var(--dd-axis));margin-left:var(--dd-axis);min-height:32px;accent-color:var(--red)}
+.newspaper .dd-slider-input{display:block;width:calc(100% - var(--dd-axis));margin-left:var(--dd-axis);min-height:32px;accent-color:var(--dd-series)}
 .newspaper .dd-table{margin-top:14px}
 .newspaper .dd-table-scroll{max-height:340px;overflow:auto}
 .newspaper .dd-table table{font-size:12px;font-variant-numeric:tabular-nums}
 .newspaper .dd-table th,.newspaper .dd-table td{white-space:nowrap}
 .newspaper .dd-source{font-size:12px;line-height:1.5;color:var(--muted);margin-top:12px;max-width:80ch}
 
-/* Mood ribbon */
+/* Update by update: one row per update, one column per measure */
+.newspaper .dd-updates{--dd-cols:3}
+.newspaper .dd-cards-head,.newspaper .dd-card{display:grid;grid-template-columns:minmax(150px,1.1fr) repeat(var(--dd-cols),minmax(0,1fr));gap:0 24px}
+.newspaper .dd-cards-head{margin-top:20px;padding-bottom:8px;border-bottom:1px solid var(--ink);font-size:13px;font-weight:600;color:var(--muted)}
+.newspaper .dd-cards{list-style:none;margin:0;padding:0}
+.newspaper .dd-card{align-items:start;padding:14px 0;border-bottom:1px solid var(--line)}
+.newspaper .dd-card-update{min-width:0}
+.newspaper .dd-card-update h4{font:400 26px/1.1 var(--serif),serif}
+.newspaper .dd-card-update p{font-size:13px;line-height:1.45;color:var(--muted);margin-top:4px}
+.newspaper .dd-card-measures{grid-column:2/-1;display:grid;grid-template-columns:repeat(var(--dd-cols),minmax(0,1fr));gap:0 24px;margin:0}
+.newspaper .dd-card-measures>div{min-width:0}
+/* The column heads name each value on wide screens; the terms stay for screen readers. */
+.newspaper .dd-card-measures dt{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.newspaper .dd-card-measures dd{display:flex;flex-direction:column;gap:3px;margin:0;font-size:15px;line-height:1.35;text-align:left}
+.newspaper .dd-change-values{font-weight:600;font-variant-numeric:tabular-nums}
+.newspaper .dd-change{font-size:14px}
+.newspaper .dd-change-mark{display:inline-block;min-width:1.1em;font-style:normal;color:var(--ink)}
+.newspaper .dd-change.is-tone.is-up .dd-change-mark,.newspaper .dd-cards-key .dd-change-mark.is-up{color:var(--dd-better)}
+.newspaper .dd-change.is-tone.is-down .dd-change-mark,.newspaper .dd-cards-key .dd-change-mark.is-down{color:var(--dd-worse)}
+.newspaper .dd-change-reason{font-size:14px;color:var(--muted)}
+.newspaper .dd-cards-key{font-size:13px;line-height:1.5;color:var(--muted);margin-top:12px;max-width:80ch}
+.newspaper .dd-cards-key .dd-change-mark{min-width:0}
+
+/* Day by day: one measure at a time */
+.newspaper .dd-measures{margin-top:12px}
+.newspaper .dd-measure-options{flex-wrap:wrap;gap:0 24px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.newspaper .dd-measure-title{font-size:14px;line-height:1.5;max-width:80ch}
+.newspaper .dd-measure-title strong{font-weight:600;margin-right:4px}
+.newspaper .dd-measure-title span{color:var(--muted)}
+
+/* Each day's Steam reviews */
 .newspaper .dd-ribbon{display:flex;gap:1px;height:38px}
 .newspaper .dd-cell{flex:1 1 0;min-width:0;border-radius:1px}
 .newspaper .dd-cell.is-empty{background:transparent}
 .newspaper .dd-cell.is-small,.newspaper .dd-swatch.is-small{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
-.newspaper .mood-n3{background:var(--mood-n3)}
-.newspaper .mood-n2{background:var(--mood-n2)}
-.newspaper .mood-n1{background:var(--mood-n1)}
-.newspaper .mood-z{background:var(--mood-z)}
-.newspaper .mood-p1{background:var(--mood-p1)}
-.newspaper .mood-p2{background:var(--mood-p2)}
-.newspaper .mood-p3{background:var(--mood-p3)}
+.newspaper .rv-w3{background:var(--rv-w3)}
+.newspaper .rv-w2{background:var(--rv-w2)}
+.newspaper .rv-w1{background:var(--rv-w1)}
+.newspaper .rv-z{background:var(--rv-z)}
+.newspaper .rv-b1{background:var(--rv-b1)}
+.newspaper .rv-b2{background:var(--rv-b2)}
+.newspaper .rv-b3{background:var(--rv-b3)}
 .newspaper .dd-legend{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0;margin:12px 0 0;font-size:12px;color:var(--muted)}
 .newspaper .dd-swatch{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-2px}
 
@@ -91,14 +116,27 @@ html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,
   .newspaper .dd-tile{padding:14px 16px 8px}
   .newspaper .dd-tile-value{font-size:46px}
   .newspaper .dd-watch{grid-template-columns:1fr}
+  .newspaper .dd-plot{height:180px}
+  .newspaper .dd-cards-head,.newspaper .dd-card{grid-template-columns:minmax(120px,.9fr) repeat(var(--dd-cols),minmax(0,1fr));gap:0 16px}
+  .newspaper .dd-card-measures{gap:0 16px}
 }
 @media (max-width:650px){
   .newspaper{--dd-axis:36px}
   .newspaper .dd-tiles{grid-template-columns:1fr}
   .newspaper .dd-tile{border-left:0;border-top:1px solid var(--line);padding:14px 0 8px}
   .newspaper .dd-tile:first-child{border-top:0}
-  .newspaper .dd-panel-plot{height:68px}
+  .newspaper .dd-plot{height:150px}
   .newspaper .dd-patch-label.is-wide-only{display:none}
   .newspaper .dd-tile-value{font-size:54px}
   .newspaper .dd-ribbon{height:30px}
+  /* Each update becomes a block, with each value named beside it. */
+  .newspaper .dd-cards-head{display:none}
+  .newspaper .dd-cards{border-top:1px solid var(--ink);margin-top:16px}
+  .newspaper .dd-card{display:block;padding:14px 0}
+  .newspaper .dd-card-measures{display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px}
+  .newspaper .dd-card-measures>div{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,5fr);gap:12px;align-items:baseline}
+  .newspaper .dd-card-measures dt{position:static;width:auto;height:auto;overflow:visible;clip-path:none;white-space:normal;font-size:13px;line-height:1.35;color:var(--muted)}
+  .newspaper .dd-card-measures dd{gap:1px;font-size:14px}
+  .newspaper .dd-change,.newspaper .dd-change-reason{font-size:13px}
+  .newspaper .dd-measure-options{gap:0 18px}
 }

@@ -225,9 +225,9 @@ test("chart captions stay above their charts and the section bar stays short on 
   const positions = await page.locator(".dd-figcaption").evaluateAll((captions) => captions.map((caption) => getComputedStyle(caption).position));
   expect(positions.length).toBeGreaterThan(0);
   expect(positions.filter((position) => position !== "static")).toEqual([]);
-  const seismograph = page.locator("#patch-seismograph .dd-figure");
-  const caption = await seismograph.locator(".dd-figcaption").boundingBox();
-  const readout = await seismograph.locator(".dd-readout").boundingBox();
+  const timeline = page.locator("#updates .dd-timeline");
+  const caption = await timeline.locator(".dd-figcaption").boundingBox();
+  const readout = await timeline.locator(".dd-measure:not([hidden]) .dd-readout").boundingBox();
   expect(caption!.y + caption!.height).toBeLessThanOrEqual(readout!.y);
   if (testInfo.project.name !== "mobile-chromium") return;
   const bar = page.getByRole("navigation", { name: "Observatory sections" });
@@ -236,4 +236,28 @@ test("chart captions stay above their charts and the section bar stays short on 
   const current = bar.locator('a[aria-current="location"]');
   await expect(current).toHaveAttribute("href", "#scanner-radar");
   await expect(current).toBeInViewport();
+});
+
+test("the day-by-day chart shows one measure at a time and keeps each one's day", async ({ page }) => {
+  await page.goto("/observatory#updates");
+  const measures = page.getByRole("group", { name: "Measure" });
+  const reviews = page.locator("#timeline-reviews");
+  const twitch = page.locator("#timeline-twitch");
+  await expect(measures.getByRole("button", { name: "New reviews a day", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(reviews).toBeVisible();
+  await expect(twitch).toBeHidden();
+  const slider = reviews.getByRole("slider", { name: "Move through the days" });
+  await slider.focus();
+  await slider.press("Home");
+  const first = await reviews.locator(".dd-readout").innerText();
+  await measures.getByRole("button", { name: "Twitch viewers", exact: true }).click();
+  await expect(twitch).toBeVisible();
+  await expect(reviews).toBeHidden();
+  await expect(measures.getByRole("button", { name: "Twitch viewers", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(twitch.locator(".dd-measure-title")).toContainText("Watching on Twitch");
+  await measures.getByRole("button", { name: "New reviews a day", exact: true }).click();
+  await expect(reviews.locator(".dd-readout")).toHaveText(first, { useInnerText: true });
+  // Updates are compared only when the record has one; the fixture has a hotfix alone.
+  await expect(page.locator("#updates")).toContainText("No official update was released in the recorded days");
+  await expect(page.locator("#daily-reviews")).not.toContainText(/warmer|cooler|mood/i);
 });

@@ -3,8 +3,9 @@ import { SectionNavigation } from "@/components/newspaper/SectionNavigation";
 import type { ResolvingMetadata } from "next";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { Observatory } from "@/components/newspaper/Observatory";
-import { MoodRibbon } from "@/components/newspaper/MoodRibbon";
-import { PatchSeismograph } from "@/components/newspaper/PatchSeismograph";
+import { DailyReviews } from "@/components/newspaper/DailyReviews";
+import { UpdateTimeline } from "@/components/newspaper/UpdateTimeline";
+import { UpdateWindows } from "@/components/newspaper/UpdateWindows";
 import { getActivityHistory } from "@/lib/activityHistory.server";
 import { getPatchPublications } from "@/lib/patchPublications.server";
 import { getPublicScannerData } from "@/lib/queries";
@@ -26,8 +27,8 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
 export const revalidate = 3600;
 
 const sections = [
-  { id: "patch-seismograph", label: "Around the patches" },
-  { id: "mood-ribbon", label: "The mood ribbon" },
+  { id: "updates", label: "Around the updates" },
+  { id: "daily-reviews", label: "Daily reviews" },
   { id: "review-record", label: "The review record" },
   { id: "platform-activity", label: "Platform activity" },
   { id: "scanner-radar", label: "The source radar" },
@@ -50,7 +51,7 @@ export default async function ObservatoryPage() {
   return (
     <PublicShell active="observatory">
       <div id="observatory-top" className="dispatch-container observatory-paper">
-        <a className="skip" href="#patch-seismograph">Skip to the charts</a>
+        <a className="skip" href="#updates">Skip to the charts</a>
         <section className="observatory-heading">
           <ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink>
           <p className="kicker">The Observatory · {isCurrentPatchVerified(radar.patch) ? `Patch ${radar.patch.version}` : "Current patch unverified"}</p>
@@ -58,13 +59,15 @@ export default async function ObservatoryPage() {
           <p>Recorded reviews, audience activity, and the signals coming in from across the web.</p>
         </section>
         <SectionNavigation sections={sections} label="Observatory sections" />
-        <section id="patch-seismograph" tabIndex={-1} className="obs-section" aria-labelledby="patches-title">
-          <div className="obs-section-heading"><div><p className="kicker">Around the patches</p><h2 id="patches-title">What moved when the game changed</h2></div><p>Twitch, Steam reviews and Steam players, with every official release marked. Movement around a patch is not proof the patch caused it.</p></div>
-          {publications.unavailable ? <p className="np-error">The official patch record could not be read, so releases are not marked.</p> : null}
-          <PatchSeismograph history={activity} patches={patches} />
+        <section id="updates" tabIndex={-1} className="obs-section" aria-labelledby="updates-title">
+          <div className="obs-section-heading"><div><p className="kicker">Around the updates</p><h2 id="updates-title">What changed after each update</h2></div><p>Steam reviews, Twitch viewers and Steam players in the week before and the week after each official update. Movement around an update does not prove the update caused it.</p></div>
+          {publications.unavailable
+            ? <p className="np-error">The official patch record could not be read, so updates are not compared or marked.</p>
+            : <UpdateWindows history={activity} patches={patches} />}
+          <UpdateTimeline history={activity} patches={patches} />
         </section>
-        <section id="mood-ribbon" tabIndex={-1} className="obs-section" aria-labelledby="mood-title">
-          <MoodRibbon history={activity} patches={patches} />
+        <section id="daily-reviews" tabIndex={-1} className="obs-section" aria-labelledby="daily-reviews-title">
+          <DailyReviews history={activity} patches={patches} />
         </section>
         <Observatory data={data} radar={radar} players={players} />
         <div className="observatory-footer">

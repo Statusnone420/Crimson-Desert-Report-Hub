@@ -14,8 +14,8 @@ import {
 import { buildActivityDays, type ActivityHistory } from "@/lib/activityHistory";
 import { summarizeBoardWatch } from "@/lib/boardWatch";
 import { BeforeYouPlay } from "@/components/newspaper/BeforeYouPlay";
-import { MoodRibbon, moodClass } from "@/components/newspaper/MoodRibbon";
-import { PatchSeismograph } from "@/components/newspaper/PatchSeismograph";
+import { DailyReviews, reviewDayClass } from "@/components/newspaper/DailyReviews";
+import { UpdateTimeline } from "@/components/newspaper/UpdateTimeline";
 
 describe("chart geometry", () => {
   it("rounds axis tops up to readable values", () => {
@@ -99,14 +99,20 @@ function history(lanes: ActivityHistory["lanes"] = { players: "ready", twitch: "
 }
 
 describe("activity components", () => {
-  it("renders the seismograph with every panel, releases and a table twin", () => {
-    const html = renderToStaticMarkup(createElement(PatchSeismograph, {
+  it("charts one measure at a time, each from its first record, with releases and a table twin", () => {
+    const html = renderToStaticMarkup(createElement(UpdateTimeline, {
       history: history(),
       patches: [{ version: "2.03.02", publishedAt: "2026-09-23T04:45:00Z", fixes: 3 }, { version: "2.04.00", publishedAt: "2026-10-01T02:00:00Z", fixes: 20 }],
     }));
-    for (const text of ["Watching on Twitch", "New Steam reviews", "Share positive", "Playing on Steam", "Read the daily numbers", "Move through the days"]) {
+    for (const text of ["New reviews a day", "Twitch viewers", "Steam players", "Watching on Twitch", "Playing on Steam", "Read the daily numbers", "Move through the days"]) {
       expect(html).toContain(text);
     }
+    // The first measure shows; the others wait, still drawn, for their button.
+    expect(html).toContain('aria-pressed="true"');
+    expect(html.match(/class="dd-measure" hidden=""/g)).toHaveLength(2);
+    // New reviews need two daily totals, so that chart starts a day later and says so.
+    expect(html).toContain("Recorded since Sep 25.");
+    expect(html).toContain("Shown for the last 24 days.");
     // Only releases inside the plotted days are marked: 2.03.02 predates this window.
     expect(html).toContain(">2.04<");
     expect(html).toContain("<td>2.04.00</td>");
@@ -114,18 +120,22 @@ describe("activity components", () => {
   });
 
   it("names an unavailable lane instead of drawing it as zero", () => {
-    const html = renderToStaticMarkup(createElement(PatchSeismograph, { history: history({ players: "ready", twitch: "unavailable", reviews: "ready" }), patches: [] }));
+    const html = renderToStaticMarkup(createElement(UpdateTimeline, { history: history({ players: "ready", twitch: "unavailable", reviews: "ready" }), patches: [] }));
     expect(html).toContain("Twitch viewer counts could not be read.");
   });
 
-  it("colours mood days by their distance from the period average and leaves small days uncoloured", () => {
-    expect([-12, -6, -3, -2, 0, 2, 2.1, 7, 15].map(moodClass)).toEqual([
-      "mood-n3", "mood-n2", "mood-n1", "mood-z", "mood-z", "mood-z", "mood-p1", "mood-p2", "mood-p3",
+  it("colours review days red when worse and blue when better than the average, and leaves small days uncoloured", () => {
+    expect([-12, -6, -3, -2, 0, 2, 2.1, 7, 15].map(reviewDayClass)).toEqual([
+      "rv-w3", "rv-w2", "rv-w1", "rv-z", "rv-z", "rv-z", "rv-b1", "rv-b2", "rv-b3",
     ]);
-    const html = renderToStaticMarkup(createElement(MoodRibbon, { history: history(), patches: [] }));
-    expect(html).toContain("The mood ribbon");
+    const html = renderToStaticMarkup(createElement(DailyReviews, { history: history(), patches: [] }));
+    expect(html).toContain("Each day&#x27;s Steam reviews");
+    expect(html).toContain("Blue days were better than usual, red days worse");
+    expect(html).toContain("10+ points worse");
+    expect(html).toContain("10+ points better");
     expect(html).toContain("under 50 new reviews");
     expect(html).toContain("dd-cell is-empty");
+    expect(html).not.toMatch(/warm|cool|mood/i);
   });
 
   it("shows the latest readings with honest fallbacks and only counts from the scanner", () => {

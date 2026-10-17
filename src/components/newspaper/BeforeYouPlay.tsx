@@ -161,7 +161,7 @@ export function BeforeYouPlay({
           <p className="np-error">The scanner&apos;s thread counts could not be read.</p>
         </div>
       ) : null}
-      <ReadingLink variant="quiet" className="dd-brief-link" href="/observatory#patch-seismograph">Open the data desk</ReadingLink>
+      <ReadingLink variant="quiet" className="dd-brief-link" href="/observatory#updates">Open the data desk</ReadingLink>
     </section>
   );
 }
