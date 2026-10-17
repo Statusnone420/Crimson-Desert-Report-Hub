@@ -145,7 +145,7 @@ describe("activity components", () => {
     expect(html).toContain("Twitch viewer counts could not be read.");
   });
 
-  it("colours review days red when worse and blue when better than the average, and leaves small days uncoloured", () => {
+  it("colors review days red when worse and blue when better than the usual, and leaves small days uncolored", () => {
     expect([-12, -6, -3, -2, 0, 2, 2.1, 7, 15].map(reviewDayClass)).toEqual([
       "rv-w3", "rv-w2", "rv-w1", "rv-z", "rv-z", "rv-z", "rv-b1", "rv-b2", "rv-b3",
     ]);
@@ -157,8 +157,10 @@ describe("activity components", () => {
     expect(html).toContain("dd-cell is-partial");
     expect(html).toContain("Oct 17 (today so far)");
     expect(html).toContain('aria-label="Choose a day: each day&#x27;s Steam reviews"');
-    expect(html).toContain("10+ points worse");
-    expect(html).toContain("10+ points better");
+    // One scale from worse to better above the strip, read in words by screen readers.
+    expect(html.indexOf("dd-scale-steps")).toBeLessThan(html.indexOf("dd-ribbon"));
+    expect(html).toContain("10 or more points worse");
+    expect(html).toContain("10 or more points better");
     expect(html).toContain("under 50 new reviews");
     expect(html).toContain("dd-cell is-empty");
     expect(html).not.toMatch(/warm|cool|mood|colour/i);

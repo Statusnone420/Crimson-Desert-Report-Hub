@@ -3,8 +3,8 @@
    blue is one step deeper than the link blue so marks stay in range. In the
    review colors blue is better than usual and red worse, so update markers
    stay neutral. */
-.newspaper{--dd-series:#2457a1;--dd-wash:rgba(36,87,161,.11);--dd-band:rgba(83,85,80,.15);--dd-grid:color-mix(in srgb,var(--line) 32%,transparent);--dd-patch:var(--muted);--dd-quiet:#a8a59b;--dd-axis:44px;--rv-w3:#a51e23;--rv-w2:#c4675e;--rv-w1:#db9f96;--rv-z:#a8a59b;--rv-b1:#93abcd;--rv-b2:#5e83b9;--rv-b3:#2457a1;--dd-better:var(--rv-b3);--dd-worse:var(--rv-w3)}
-html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,.16);--dd-band:rgba(184,187,192,.16);--dd-quiet:#4a4c50;--rv-w3:#e15b62;--rv-w2:#a74147;--rv-w1:#70292d;--rv-z:#4a4c50;--rv-b1:#3e5378;--rv-b2:#5672a3;--rv-b3:#6490e4}
+.newspaper{--dd-series:#2457a1;--dd-wash:rgba(36,87,161,.11);--dd-band:rgba(83,85,80,.15);--dd-grid:color-mix(in srgb,var(--line) 32%,transparent);--dd-patch:var(--muted);--dd-quiet:#a8a59b;--dd-axis:44px;--rv-w3:#a51e23;--rv-w2:#c4675e;--rv-w1:#db9f96;--rv-z:#e2dfd6;--rv-b1:#93abcd;--rv-b2:#5e83b9;--rv-b3:#2457a1;--dd-better:var(--rv-b3);--dd-worse:var(--rv-w3)}
+html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,.16);--dd-band:rgba(184,187,192,.16);--dd-quiet:#4a4c50;--rv-w3:#e15b62;--rv-w2:#a74147;--rv-w1:#70292d;--rv-z:#1a1b1e;--rv-b1:#3e5378;--rv-b2:#5672a3;--rv-b3:#6490e4}
 
 /* Front-page readings band */
 .newspaper .dd-brief{padding:30px 0 24px;border-bottom:2px solid var(--ink)}
@@ -117,7 +117,9 @@ html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,
 .newspaper .dd-ribbon{display:flex;gap:1px;height:38px}
 .newspaper .dd-cell{flex:1 1 0;min-width:0;border-radius:1px}
 .newspaper .dd-cell.is-empty{background:transparent}
-.newspaper .dd-cell.is-small,.newspaper .dd-swatch.is-small{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+/* Under 50 reviews: a thin center line, which stays visible at phone cell widths. */
+.newspaper .dd-cell.is-small,.newspaper .dd-swatch.is-small{background:linear-gradient(to right,transparent calc(50% - .5px),var(--muted) calc(50% - .5px) calc(50% + .5px),transparent calc(50% + .5px))}
+.newspaper .dd-swatch.is-empty{box-shadow:inset 0 0 0 1px var(--line)}
 .newspaper .dd-cell.is-loss,.newspaper .dd-swatch.is-loss{background:linear-gradient(to top,var(--muted) 0 30%,transparent 30%)}
 .newspaper .dd-cell.is-partial,.newspaper .dd-swatch.is-partial{background:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 5px)}
 .newspaper .rv-w3{background:var(--rv-w3)}
@@ -127,7 +129,16 @@ html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,
 .newspaper .rv-b1{background:var(--rv-b1)}
 .newspaper .rv-b2{background:var(--rv-b2)}
 .newspaper .rv-b3{background:var(--rv-b3)}
-.newspaper .dd-legend{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0;margin:12px 0 0;font-size:12px;color:var(--muted)}
+.newspaper .dd-legend{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0;margin:10px 0 0;font-size:12px;color:var(--muted)}
+/* One scale from worse to better, read left to right, above the strip. */
+.newspaper .dd-scale{margin-top:14px}
+.newspaper .dd-scale-title{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.newspaper .dd-scale-row{display:flex;align-items:flex-start;gap:10px;font-size:12px;color:var(--muted)}
+.newspaper .dd-scale-end{line-height:14px;white-space:nowrap}
+.newspaper .dd-scale-steps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));flex:0 1 420px;min-width:0;list-style:none;margin:0;padding:0}
+.newspaper .dd-scale-steps li{display:grid;justify-items:center;gap:4px;min-width:0;margin:0;text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap}
+.newspaper .dd-scale-swatch{display:block;width:100%;height:14px}
+.newspaper .dd-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .newspaper .dd-swatch{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-2px}
 
 @media (max-width:900px){

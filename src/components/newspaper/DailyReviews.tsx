@@ -8,13 +8,13 @@ export const DAY_MIN_REVIEWS = 50;
 
 /** Worse days are red and better days blue, matching how people read the two colors. */
 const STEPS = [
-  { className: "rv-w3", label: "10+ points worse" },
-  { className: "rv-w2", label: "5–10 worse" },
-  { className: "rv-w1", label: "2–5 worse" },
-  { className: "rv-z", label: "within 2 points" },
-  { className: "rv-b1", label: "2–5 better" },
-  { className: "rv-b2", label: "5–10 better" },
-  { className: "rv-b3", label: "10+ points better" },
+  { className: "rv-w3", tick: "10+", spoken: "10 or more points worse" },
+  { className: "rv-w2", tick: "5–10", spoken: "5 to 10 points worse" },
+  { className: "rv-w1", tick: "2–5", spoken: "2 to 5 points worse" },
+  { className: "rv-z", tick: "±2", spoken: "within 2 points" },
+  { className: "rv-b1", tick: "2–5", spoken: "2 to 5 points better" },
+  { className: "rv-b2", tick: "5–10", spoken: "5 to 10 points better" },
+  { className: "rv-b3", tick: "10+", spoken: "10 or more points better" },
 ] as const;
 
 /** Points from the usual share to a color step; edges round toward the neutral middle. */
@@ -78,12 +78,28 @@ export function DailyReviews({ history, patches }: { history: ActivityHistory; p
           Blue days were better than usual, red days worse, gray days within 2 points.
         </p>
       </figcaption>
-      <ul className="dd-legend" aria-label={`Color key, against the ${usualName}`}>
-        {STEPS.map((step) => <li key={step.className}><i className={`dd-swatch ${step.className}`} aria-hidden="true" />{step.label}</li>)}
-        <li><i className="dd-swatch is-small" aria-hidden="true" />under {DAY_MIN_REVIEWS} new reviews</li>
-        {shown.has("is-loss") ? <li><i className="dd-swatch is-loss" aria-hidden="true" />more removed than added</li> : null}
-        {shown.has("is-partial") ? <li><i className="dd-swatch is-partial" aria-hidden="true" />today so far</li> : null}
-      </ul>
+      <div className="dd-scale">
+        <p className="dd-scale-title">Points against the <span className="dd-nowrap">{usualName}</span></p>
+        <div className="dd-scale-row">
+          <span className="dd-scale-end" aria-hidden="true">Worse</span>
+          <ol className="dd-scale-steps" aria-label={`Color scale, against the ${usualName}`}>
+            {STEPS.map((step) => (
+              <li key={step.className}>
+                <i className={`dd-scale-swatch ${step.className}`} aria-hidden="true" />
+                <span aria-hidden="true">{step.tick}</span>
+                <span className="dd-sr">{step.spoken}</span>
+              </li>
+            ))}
+          </ol>
+          <span className="dd-scale-end" aria-hidden="true">Better</span>
+        </div>
+        <ul className="dd-legend" aria-label="Days without a color">
+          <li><i className="dd-swatch is-small" aria-hidden="true" />under {DAY_MIN_REVIEWS} new reviews</li>
+          {shown.has("is-loss") ? <li><i className="dd-swatch is-loss" aria-hidden="true" />more removed than added</li> : null}
+          {shown.has("is-partial") ? <li><i className="dd-swatch is-partial" aria-hidden="true" />today so far</li> : null}
+          {shown.has("is-empty") ? <li><i className="dd-swatch is-empty" aria-hidden="true" />no record</li> : null}
+        </ul>
+      </div>
       <DayScrubber id="daily-reviews" label="Choose a day: each day's Steam reviews" items={items} initialIndex={lastComplete < 0 ? days.length - 1 : lastComplete}>
         <PatchLabels markers={markers} />
         <div className="dd-ribbon" aria-hidden="true">
