@@ -1,0 +1,117 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+const aboutSource = readFileSync(path.join(process.cwd(), "src", "app", "about", "page.tsx"), "utf8");
+const chromeSource = readFileSync(
+  path.join(process.cwd(), "src", "components", "newspaper", "NewspaperShell.tsx"),
+  "utf8",
+);
+
+/** Visible prose only: JSX text nodes, with tags and expressions removed. */
+function proseLength(source: string): number {
+  const body = source.slice(source.indexOf("return ("));
+  return body
+    .replace(/\{[^{}]*\}/g, "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim().length;
+}
+
+/**
+ * Method is the canonical reference the rest of the site points at. The phased
+ * copy diet deletes inline explainers on the strength of these anchors, so an
+ * anchor going missing must fail here rather than becoming a dead link later.
+ */
+describe("method reference", () => {
+  const anchors = [
+    "registers",
+    "player-verdicts",
+    "radar",
+    "freshness",
+    "privacy",
+    "quiet",
+    "source",
+    "official-support",
+  ];
+
+  it("renders an element for every settled anchor", () => {
+    for (const anchor of anchors) {
+      expect(aboutSource).toContain(`id="${anchor}"`);
+    }
+  });
+
+  it("keeps a dedicated privacy page while the method privacy anchor still exists", () => {
+    expect(chromeSource).toContain('href="/privacy"');
+    expect(aboutSource).toContain('id="privacy"');
+  });
+
+  it("prints the footer trust line without promoting the source repository", () => {
+    expect(chromeSource).toContain("No ads");
+    expect(chromeSource).toContain("No trackers");
+    expect(chromeSource).not.toContain("Open source");
+    expect(chromeSource).not.toContain("SOURCE_URL");
+  });
+
+  it("renders the dateline at request time instead of freezing the deployment day", () => {
+    expect(aboutSource).toContain('import { connection } from "next/server";');
+    expect(aboutSource).toContain("export default async function AboutPage()");
+    expect(aboutSource).toContain("await connection();");
+  });
+
+  it("answers in the summary so a deep link reads while collapsed", () => {
+    // Each collapsible row must carry a visible answer, not just a question.
+    const rows = aboutSource.match(/className="method-row__ask"/g) ?? [];
+    const answers = aboutSource.match(/className="method-row__say"/g) ?? [];
+    expect(rows.length).toBe(answers.length);
+    expect(rows.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it("stays a short answer sheet, not a reference manual", () => {
+    // This ceiling is the guardrail
+    // that keeps the page from drifting back into an essay. Raised once, in
+    // Phase 3b, to seat the number-word glossary: locking a public vocabulary
+    // without a glossary would leave defined words with nowhere to look them
+    // up. The required scanner privacy disclosure adds a small, factual second
+    // exception. The headroom stays deliberately thin so the next addition
+    // argues for itself too.
+    expect(proseLength(aboutSource)).toBeLessThan(4200);
+    expect(aboutSource).toContain('href="/privacy"');
+    expect(aboutSource).not.toMatch(/public repo|View the source on GitHub|docs\/wiki\//);
+  });
+
+  it("describes saved provider policy without promising a permanent default model", () => {
+    const privacy = aboutSource.slice(aboutSource.indexOf('id="privacy"'), aboutSource.indexOf('id="quiet"'));
+
+    expect(privacy).toContain("Maintainers select and test the model, provider, and retention policy before activation.");
+    expect(privacy).toContain("https://openrouter.ai/docs/guides/privacy/data-collection");
+    expect(privacy).toContain("https://openrouter.ai/docs/guides/features/zdr");
+    expect(privacy).toContain("Requests follow the saved privacy and spending limits.");
+    expect(privacy).toContain("selected, routing is restricted to endpoints with that policy.");
+    expect(privacy).toContain("Other routes may retain data");
+    expect(privacy).toContain("Check-ins do not call these models.");
+    expect(privacy).not.toMatch(/Luna|DeepSeek|defaults to|is powered by/);
+  });
+
+  it("dates the official claim rather than starting anything that runs", () => {
+    const verdicts = aboutSource.slice(
+      aboutSource.indexOf('id="player-verdicts"'),
+      aboutSource.indexOf('id="radar"'),
+    );
+
+    expect(verdicts).toContain("When the patch desk records an official fix claim, it notes the date.");
+    // The property that matters survives the rename: silence is never a fix.
+    expect(verdicts).toContain("No amount of silence turns a claimed fix into a confirmed one");
+    // Nothing elapses, so no wording may suggest it does.
+    expect(verdicts).not.toMatch(/clock|countdown|deadline/i);
+  });
+
+  it("does not overpromise moderation or certainty the code cannot back", () => {
+    // Excerpts can be deterministic enum-derived summaries with no human in
+    // the loop; a lead is never evidence; quiet is never a fix.
+    expect(aboutSource).not.toMatch(/reviewed by a moderator before any excerpt/i);
+    expect(aboutSource).not.toMatch(/verified by (?:our|the) team/i);
+    expect(aboutSource).not.toMatch(/guarantee[sd]?\b/i);
+    expect(aboutSource).toContain("raw IP storage");
+  });
+});

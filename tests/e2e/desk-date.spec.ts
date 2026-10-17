@@ -1,0 +1,59 @@
+import { expect, test } from "@playwright/test";
+import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+
+// The desk day must not follow the reader's local timezone.
+test.use({ timezoneId: "Asia/Tokyo" });
+
+test("all public mastheads use today's desk date despite older server renders", async ({ page }) => {
+  // The fixture server renders in July. A September browser must never inherit
+  // that date, even when navigating between independently cached routes.
+  await page.clock.setFixedTime(new Date("2026-09-06T13:00:00Z"));
+  const problems = collectConsoleProblems(page);
+  for (const route of ["/", "/issues", "/about", "/privacy", "/news", "/contact"]) {
+    await page.goto(route);
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Sunday, September 6, 2026");
+    await expectHealthyPage(page, problems);
+  }
+});
+
+test("cached HTML cannot print a stale date when JavaScript is disabled", async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  try {
+    for (const route of ["/", "/issues", "/about", "/contact"]) {
+      // This assertion covers server-rendered text. A cold image optimization
+      // must not hold it behind the full load event when JavaScript is off.
+      const response = await page.goto(`http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? 3100}${route}`, { waitUntil: "domcontentloaded" });
+      expect(response?.status()).toBe(200);
+      await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Eastern Time");
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+test("open mastheads roll over at New York midnight and refresh on return", async ({ context }) => {
+  // One clock controls the entire context. Let navigation finish before pausing it.
+  await context.clock.install({ time: new Date("2026-09-07T03:00:00Z") });
+  const pages = await Promise.all([context.newPage(), context.newPage(), context.newPage()]);
+  const routes = ["/", "/issues", "/about"];
+  for (const [index, page] of pages.entries()) {
+    await page.goto(routes[index]);
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Sunday, September 6, 2026");
+  }
+  await context.clock.pauseAt(new Date("2026-09-07T03:59:50Z"));
+  await context.clock.runFor(10_100);
+  for (const page of pages) {
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Monday, September 7, 2026");
+  }
+  await context.clock.setSystemTime(new Date("2026-09-08T13:00:00Z"));
+  for (const page of pages) {
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Tuesday, September 8, 2026");
+  }
+  await context.clock.setSystemTime(new Date("2026-09-09T13:00:00Z"));
+  for (const page of pages) {
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText("Wednesday, September 9, 2026");
+  }
+});

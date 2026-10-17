@@ -1,0 +1,104 @@
+import { ReadingLink } from "@/components/newspaper/ReadingLink";
+import type { ResolvingMetadata } from "next";
+import { ClaimsRecord } from "@/components/newspaper/ClaimsRecord";
+import { ClaimVerdicts } from "@/components/newspaper/ClaimVerdicts";
+import { PublicShell } from "@/components/dispatch/Chrome";
+import { claimReviewKey } from "@/lib/claimReview";
+import { uniqueClaimAttributions } from "@/lib/claims";
+import { isCurrentPatchVerified, matchesPatchVersion } from "@/lib/patchWatch";
+import { getDashboardData } from "@/lib/queries";
+import { routeMetadata } from "@/lib/site";
+import { getPatchPublications } from "@/lib/patchPublications.server";
+import { PatchArchive } from "@/components/newspaper/PatchArchive";
+import { patchPath } from "@/lib/patchPublications";
+
+export const revalidate = 300;
+
+export function generateMetadata(_props: object, parent: ResolvingMetadata) {
+  return routeMetadata(
+    "Crimson Desert patch notes: what changed",
+    "/patches",
+    "Follow the latest Crimson Desert patch notes, official fix claims, and player reports. See what changed and what still needs checking.",
+    parent,
+  );
+}
+
+export default async function PatchesPage() {
+  const [data, publications] = await Promise.all([getDashboardData(), getPatchPublications()]);
+  const patch = data.currentPatch;
+  const patchVerified = isCurrentPatchVerified(patch);
+  const report = patchVerified ? publications.articles.find((article) => matchesPatchVersion(article.patchVersion, patch.version)) : undefined;
+  const patchIntroduction = patchVerified ? report?.description ?? patch.summary : null;
+  const verifying = data.topClusters.filter((cluster) => cluster.fix_claimed_patch_version === patch.version);
+  const attributed = uniqueClaimAttributions(data.claimedFixes, verifying);
+  const contested = [...attributed.values()].filter((cluster) => {
+    const poll = cluster.readout.poll;
+    return poll !== null && poll.stillCount > poll.fixedCount && poll.stillCount > 0;
+  }).length;
+  const reportLabel = data.evidenceUnavailable ? "Player record unavailable" : `Player report${data.total === 1 ? "" : "s"} this patch`;
+  const verdictsUnavailable = data.evidenceUnavailable || data.claimsUnavailable;
+  const contestedLabel = verdictsUnavailable
+    ? "Claim verdicts unavailable"
+    : `Claim${contested === 1 ? "" : "s"} with more players saying it still happens`;
+
+  return (
+    <PublicShell active="patches">
+      <div id="patch-top" className="dispatch-container article-paper patch-paper">
+        <a className="skip" href="#claims">Skip to fix claims</a>
+        <section className="patch-heading">
+          <ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink>
+          <p className="kicker">The patch desk</p>
+          <h1>{patchVerified ? `Patch ${patch.version}` : "Current patch unavailable"}</h1>
+          <p className="patch-deck">What changed. What players are seeing.</p>
+          {!patchVerified ? <p className="patch-intro">The current patch could not be verified. Check Pearl Abyss’s updates or try again shortly.</p> : null}
+          {patchIntroduction ? <p className="patch-intro">{patchIntroduction}</p> : null}
+          <div className="patch-heading-actions">
+            {report ? <ReadingLink className="action" href={report.path}>{report.publicationKind === "rundown" ? "Read the rundown" : "Read the report"}</ReadingLink> : null}
+            {publications.editions.some((edition) => matchesPatchVersion(edition.version, patch.version)) ? <ReadingLink variant="quiet" href={patchPath(patch.version)}>Permanent patch record</ReadingLink> : null}
+            <ReadingLink variant="quiet" href="#archive">Browse older patches</ReadingLink>
+            <ReadingLink className="action" href={patch.officialUrl} target="_blank" rel="noreferrer noopener">{patchVerified ? "Read Pearl Abyss’s complete notes" : "Browse Pearl Abyss’s updates"}</ReadingLink>
+          </div>
+        </section>
+        <div className="patch-register" aria-label="Patch summary">
+          <div><strong className={data.claimsUnavailable ? "patch-count-unavailable" : undefined}>{data.claimsUnavailable ? "unreadable" : data.claimedFixes.length}</strong><span>Official fix claims{data.claimedFixTotal !== null && data.claimedFixTotal > data.claimedFixes.length ? " stored" : ""}</span></div>
+          <div><strong className={data.evidenceUnavailable ? "patch-count-unavailable" : undefined}>{data.evidenceUnavailable ? "unreadable" : data.total}</strong><span>{reportLabel}</span></div>
+          <div><strong className={verdictsUnavailable ? "patch-count-unavailable" : undefined}>{verdictsUnavailable ? "unreadable" : contested}</strong><span>{contestedLabel}</span></div>
+          <p>These are different records. An official fix claim does not establish that a player’s issue is resolved.</p>
+        </div>
+        <ClaimsRecord
+          claims={data.claimedFixes.map((claim) => ({
+            ...claim,
+            key: claimReviewKey(patch.version, claim.fixText),
+          }))}
+          claimsUnavailable={data.claimsUnavailable}
+          sourceTotal={data.claimedFixTotal}
+          officialUrl={patch.officialUrl}
+        />
+        {!data.claimsUnavailable ? (
+          <ClaimVerdicts
+            claims={data.claimedFixes}
+            clusters={verifying.map((cluster) => ({
+              id: cluster.id,
+              category: cluster.category,
+              fix_claimed_at: cluster.fix_claimed_at ?? null,
+              readout: { poll: cluster.readout.poll },
+            }))}
+            patchPublishedAt={patch.publishedAt}
+            evidenceUnavailable={data.evidenceUnavailable}
+          />
+        ) : null}
+        <section className="patch-player-record" aria-labelledby="player-record-heading">
+          <div>
+            <h2 id="player-record-heading">The player record</h2>
+            <p>{data.evidenceUnavailable ? "The player record could not be read right now." : "A quiet board does not mean every issue is fixed."}</p>
+          </div>
+          <div className="patch-player-actions">
+            <ReadingLink href="/issues">View player reports</ReadingLink>
+            <ReadingLink variant="quiet" direction="up" href="#patch-top">Back to top</ReadingLink>
+          </div>
+        </section>
+        <PatchArchive editions={publications.editions} unavailable={publications.unavailable} />
+      </div>
+    </PublicShell>
+  );
+}

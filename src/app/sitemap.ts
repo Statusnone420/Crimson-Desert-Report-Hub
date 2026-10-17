@@ -1,0 +1,35 @@
+import type { MetadataRoute } from "next";
+import { getPatchPublications } from "@/lib/patchPublications.server";
+import { patchPath } from "@/lib/patchPublications";
+import { SITE_FEED_PATH, SITE_RSS_PATH, SITE_URL } from "@/lib/site";
+
+// Articles and rundowns use their latest revision or publication dates. The remaining
+// records deliberately omit it rather than treating every deployment as an update.
+// Do not freeze an empty build-time catalogue when CI has no database credentials.
+export const dynamic = "force-dynamic";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const { articles, editions, unavailable } = await getPatchPublications();
+  if (unavailable) throw new Error("Patch sitemap temporarily unavailable");
+  return [
+    { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
+    { url: `${SITE_URL}/news`, changeFrequency: "weekly", priority: 0.9 },
+    { url: `${SITE_URL}/catch-up`, changeFrequency: "weekly", priority: 0.8 },
+    ...articles.map((article) => ({
+      url: `${SITE_URL}${article.path}`,
+      lastModified: article.updatedAt ?? article.publishedAt,
+      changeFrequency: "monthly" as const,
+      priority: 0.8,
+    })),
+    { url: `${SITE_URL}/watch`, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${SITE_URL}/patches`, changeFrequency: "hourly", priority: 0.6 },
+    ...editions.map((edition) => ({ url: `${SITE_URL}${patchPath(edition.version)}`, changeFrequency: "monthly" as const, priority: 0.6 })),
+    { url: `${SITE_URL}/issues`, changeFrequency: "hourly", priority: 0.5 },
+    { url: `${SITE_URL}/observatory`, changeFrequency: "hourly", priority: 0.5 },
+    { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.3 },
+    { url: `${SITE_URL}/contact`, changeFrequency: "monthly", priority: 0.3 },
+    { url: `${SITE_URL}${SITE_FEED_PATH}`, changeFrequency: "weekly", priority: 0.2 },
+    { url: `${SITE_URL}${SITE_RSS_PATH}`, changeFrequency: "weekly", priority: 0.2 },
+    { url: `${SITE_URL}/privacy`, changeFrequency: "monthly", priority: 0.3 },
+  ];
+}

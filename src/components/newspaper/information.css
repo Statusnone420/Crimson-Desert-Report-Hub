@@ -1,0 +1,42 @@
+/* Information and recovery pages share the same readable newspaper frame. */
+.newspaper .information-page { max-width: 1040px; margin-inline: auto; }
+.newspaper .information-page__heading { border: 0; padding: 42px 0 36px; }
+.newspaper .information-page__heading h1 { margin: 12px 0 18px; font: 48px/1.08 var(--serif), serif; color: var(--ink); }
+.newspaper .information-page__intro { max-width: 65ch; color: var(--muted); font: 18px/1.6 var(--sans), sans-serif; }
+.newspaper .information-page .privacy-note { max-width: none; padding: 26px 0; }
+.newspaper .information-page .privacy-note h2 { font-size: 30px; }
+.newspaper .information-page .privacy-note p { max-width: 75ch; font-size: 16px; }
+.newspaper .information-page .privacy-note .kicker { color: var(--red); font-size: 13px; }
+.newspaper .information-page .reading-resources { grid-template-columns: 1fr; }
+
+/* Four destinations, laid out as ruled newspaper sections rather than a
+   narrow column stranded inside the full-width masthead. */
+.newspaper .contact-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 48px; }
+.newspaper .contact-sections .privacy-note { display: flex; flex-direction: column; }
+.newspaper .contact-sections .reading-resources { grid-template-columns: 1fr; margin-top: auto; padding-top: 20px; }
+
+/* A definition is prose, not one of the newspaper's right-aligned statistics. */
+.newspaper .information-page .method-registers { grid-template-columns: 16rem minmax(0, 1fr); gap: 12px 32px; border-top-color: var(--line); }
+.newspaper .information-page .method-registers__term { color: var(--ink); font: 600 16px/1.6 var(--sans), sans-serif; }
+.newspaper .information-page .method-registers__def { color: var(--muted); font: 16px/1.6 var(--sans), sans-serif; text-align: left; }
+.newspaper .information-page .method-row__q { grid-template-columns: 16rem minmax(0, 1fr) 20px; gap: 8px 32px; }
+.newspaper .information-page .method-row__say,
+.newspaper .information-page .method-row__more p,
+.newspaper .information-page .method-outro__copy { font-size: 16px; line-height: 1.65; }
+.newspaper .information-page .method-row__more,
+.newspaper .information-page .method-outro { margin-left: calc(16rem + 32px); max-width: 65ch; }
+.newspaper .recovery-page { min-height: 65vh; padding-bottom: 48px; }
+.newspaper .recovery-actions { display: flex; flex-wrap: wrap; gap: 16px 24px; }
+
+@media (max-width: 899px) {
+  .newspaper .contact-sections { grid-template-columns: 1fr; }
+  .newspaper .information-page .method-registers { grid-template-columns: 1fr; gap: 4px; }
+  .newspaper .information-page .method-row__q { grid-template-columns: minmax(0, 1fr) 20px; gap: 8px 16px; }
+  .newspaper .information-page .method-row__more,
+  .newspaper .information-page .method-outro { margin-left: 0; }
+}
+@media (max-width: 650px) {
+  .newspaper .information-page__heading { padding: 30px 0; }
+  .newspaper .information-page__heading h1 { font-size: 36px; }
+  .newspaper .information-page__intro { font-size: 16px; }
+}

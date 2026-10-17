@@ -1,0 +1,45 @@
+Crimson Desert Report Hub
+Copyright (C) 2026 Statusnone
+https://github.com/Statusnone420/Crimson-Desert-Report-Hub
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License, version 3 only, as
+published by the Free Software Foundation. The full license text is in LICENSE.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+
+ADDITIONAL TERMS (GNU AGPL version 3, section 7)
+
+These terms apply to every copy of this program, to modified versions, and to
+works based on it, whether conveyed as source, as object code, or by letting
+users interact with it over a computer network.
+
+1. Attribution, section 7(b). Keep this NOTICE file and every copyright
+   notice in the source. A version with an interactive user interface must
+   show this attribution in its Appropriate Legal Notices, for example on an
+   About page or in the site footer:
+
+     Based on Crimson Desert Report Hub by Statusnone
+     https://github.com/Statusnone420/Crimson-Desert-Report-Hub
+
+2. Origin, section 7(c). Do not present a modified version as the original
+   Crimson Desert Report Hub, and do not suggest that Statusnone endorses it.
+   Mark modified versions as changed from the original.
+
+3. Names and marks, section 7(e). This license grants no rights to the name
+   "Crimson Desert Report Hub" or its masthead as a trade name or brand, or
+   to any Pearl Abyss trademark.
+
+
+NOT COVERED BY THIS LICENSE
+
+- Crimson Desert, Pearl Abyss, and their names, logos, screenshots, artwork and
+  other game assets belong to Pearl Abyss. This project is an independent fan
+  project and is not affiliated with or endorsed by Pearl Abyss. Official images
+  in public/official/ are credited in public/official/sources.json.
+- Fonts keep their own licenses (SIL Open Font License 1.1); see the license
+  files in src/app/fonts/ and docs/share-card/fonts/LICENSE.md.
+- Third-party packages keep their own licenses.

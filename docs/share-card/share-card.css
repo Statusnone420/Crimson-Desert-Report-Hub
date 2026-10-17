@@ -1,0 +1,65 @@
+/* Matches the public newspaper's DESIGN.md tokens and self-hosted type. */
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  src: url("fonts/instrument-serif-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Instrument Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  src: url("fonts/instrument-sans-latin.woff2") format("woff2");
+}
+:root {
+  --paper: #f6f4ee;
+  --ink: #11130f;
+  --muted: #535550;
+  --rule: #777971;
+  --crimson: #a51e23;
+  --serif: "Instrument Serif", Georgia, serif;
+  --sans: "Instrument Sans", Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1200px; height: 630px; overflow: hidden; }
+body { background: var(--paper); color: var(--ink); }
+.card { margin: 28px 44px 0; border-top: 6px double var(--ink); }
+.folio {
+  display: flex; justify-content: space-between;
+  padding: 17px 0 0;
+  font: 16px/1.2 var(--sans);
+  color: var(--muted);
+}
+.masthead {
+  padding: 20px 0 24px;
+  text-align: center;
+  white-space: nowrap;
+  font: 92px/1.1 var(--serif);
+  letter-spacing: -.035em;
+}
+.masthead em { font-style: normal; color: var(--crimson); }
+.sections {
+  display: flex; justify-content: center; gap: 48px;
+  padding: 13px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 4px solid var(--ink);
+  font: 500 17px/1.2 var(--sans);
+}
+.feature {
+  display: grid; grid-template-columns: 440px 1fr; gap: 36px;
+  margin: 25px 0 22px;
+  align-items: center;
+}
+.photo { display: block; width: 440px; height: 248px; object-fit: cover; object-position: center bottom; }
+.patch-photo { object-fit: contain; }
+.copy { min-width: 0; border-left: 1px solid var(--rule); padding-left: 36px; }
+.copy h2 { font: 66px/1.02 var(--serif); letter-spacing: -.02em; }
+.deck { margin-top: 20px; font: 22px/1.45 var(--sans); color: var(--muted); }
+.patch-title { font: 64px/1.02 var(--serif); letter-spacing: -.02em; color: var(--crimson); }
+.patch-headline { margin-top: 10px; font: 46px/1.03 var(--serif); }
+.copy:has(.patch-title) .deck { margin-top: 14px; font-size: 20px; }
+.foot {
+  display: flex; justify-content: space-between;
+  border-top: 1px solid var(--rule); padding-top: 12px;
+  font: 14px/1.2 var(--sans); color: var(--muted);
+}

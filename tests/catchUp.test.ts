@@ -1,0 +1,193 @@
+import { describe, expect, it } from "vitest";
+import {
+  catchUpDate,
+  catchUpHash,
+  catchUpSelectionLabel,
+  parseCatchUpHash,
+  parseCatchUpChapter,
+  selectCatchUpMilestones,
+  type CatchUpSelection,
+} from "@/lib/catchUp";
+import { CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES, type CatchUpMilestone } from "@/lib/catchUpContent";
+
+const delay = CATCH_UP_MILESTONES.find((item) => item.id === "announcement-charting-the-unknown-delay")!;
+
+const NOW = new Date("2026-09-06T12:00:00.000Z");
+
+describe("catch-up selection URLs", () => {
+  it("includes the selected patch and retains that choice in shared chapter links", () => {
+    const latest = CATCH_UP_MILESTONES.filter((item) => item.patch).at(-1)!;
+    const hash = `#patch=${latest.patch}&include=1&chapter=${latest.id}`;
+    const selection = parseCatchUpHash(hash);
+    expect(selectCatchUpMilestones(selection)).toEqual([latest, delay]);
+    expect(catchUpHash(selection, latest.id)).toBe(hash);
+    expect(catchUpSelectionLabel(selection)).toBe(`Patch ${latest.patch} and later`);
+  });
+
+  it("includes a selected hotfix before the later hotfix with the same timestamp", () => {
+    const selection = parseCatchUpHash("#patch=2.00.01&include=1");
+    expect(selectCatchUpMilestones(selection).slice(0, 2).map((item) => item.patch)).toEqual(["2.00.01", "2.00.02"]);
+  });
+
+  it("interprets a date-only link as local midnight and rejects local tomorrow", () => {
+    const localNow = new Date(2026, 8, 6, 20);
+    expect(parseCatchUpHash("#since=2026-09-06", localNow)).toEqual({ kind: "since", value: new Date(2026, 8, 6).toISOString() });
+    expect(parseCatchUpHash("#since=2026-09-07", localNow)).toEqual({ kind: "highlights" });
+  });
+
+  it.each<[CatchUpSelection, string]>([
+    [{ kind: "highlights" }, ""],
+    [{ kind: "all" }, "#history=all"],
+    [{ kind: "patch", value: "2.00.01" }, "#patch=2.00.01"],
+    [{ kind: "since", value: "2026-08-28T00:00:00.000Z" }, "#since=2026-08-28T00%3A00%3A00.000Z"],
+  ])("round-trips %j", (selection, hash) => {
+    expect(catchUpHash(selection)).toBe(hash);
+    expect(parseCatchUpHash(hash, NOW)).toEqual(selection);
+  });
+
+  it.each([
+    "#patch=unknown",
+    "#since=not-a-date",
+    "#since=2026-02-30",
+    "#since=2026-09-07",
+    "#since=2026-09-06T12:00:00.001Z",
+    "#since=2026-09-05T12:00:00+02:00",
+    "#anything=else",
+  ])("falls back to highlights for malformed, unsupported, or future input: %s", (hash) => {
+    expect(parseCatchUpHash(hash, NOW)).toEqual({ kind: "highlights" });
+  });
+
+  it("prefers a valid patch when the hash also carries a date", () => {
+    expect(parseCatchUpHash("#since=2026-09-01&patch=2.00.01", NOW)).toEqual({ kind: "patch", value: "2.00.01" });
+  });
+
+  it.each<CatchUpSelection>([
+    { kind: "highlights" },
+    { kind: "all" },
+    { kind: "patch", value: "1.13.00" },
+    { kind: "since", value: "2026-07-03T00:00:00.000Z" },
+  ])("retains the edition alongside a chapter in %j", (selection) => {
+    const chapter = selectCatchUpMilestones(selection)[0].id;
+    const hash = catchUpHash(selection, chapter);
+    expect(parseCatchUpHash(hash, NOW)).toEqual(selection);
+    expect(parseCatchUpChapter(hash)).toBe(chapter);
+    const link = new URL(`/catch-up${hash}`, "https://example.com");
+    expect(link.search).toBe("");
+  });
+
+  it("retains the edition when linking to the brief", () => {
+    const hash = catchUpHash({ kind: "all" }, "cu-brief");
+    expect(hash).toBe("#history=all&chapter=cu-brief");
+    expect(parseCatchUpChapter(hash)).toBe("cu-brief");
+    expect(parseCatchUpHash(hash, NOW)).toEqual({ kind: "all" });
+  });
+
+  it("retains remembered reading dates in shared chapter links", () => {
+    const hash = "#since=2026-08-28T00%3A00%3A00.000Z&remembered=1&chapter=update-2-02-00";
+    const selection = parseCatchUpHash(hash, NOW);
+    expect(selection).toEqual({ kind: "since", value: "2026-08-28T00:00:00.000Z", remembered: true });
+    expect(catchUpHash(selection, "update-2-02-00")).toBe(hash);
+  });
+
+  it.each(["", "#history=all", "#chapter=missing", "#chapter=cu-title", "#chapter=%3Cscript%3E"])("ignores unknown chapter targets: %s", (hash) => {
+    expect(parseCatchUpChapter(hash)).toBeNull();
+  });
+});
+
+describe("catch-up milestone selection", () => {
+  it("provides nonempty takeaways for every update and announcement", () => {
+    for (const milestone of CATCH_UP_MILESTONES.filter((item) => item.kind !== "hotfix")) {
+      expect(milestone.highlights.length, milestone.id).toBeGreaterThan(0);
+      expect(milestone.highlights.every((highlight) => highlight.trim().length > 0), milestone.id).toBe(true);
+    }
+  });
+
+  it("returns all 21 milestones for full history", () => {
+    expect(selectCatchUpMilestones({ kind: "all" })).toEqual(CATCH_UP_MILESTONES);
+    expect(selectCatchUpMilestones({ kind: "all" })).toHaveLength(21);
+  });
+
+  it("retains the full history when a direct caller supplies an unknown patch", () => {
+    expect(selectCatchUpMilestones({ kind: "patch", value: "1.00.00" })).toEqual(CATCH_UP_MILESTONES);
+  });
+
+  it("keeps the default highlights at the eight entries from patch 2.00.00 onward", () => {
+    const highlights = CATCH_UP_MILESTONES.filter((item) => Date.parse(item.publishedAt) >= Date.parse(CATCH_UP_HIGHLIGHTS_START));
+    expect(CATCH_UP_HIGHLIGHTS_START).toBe(CATCH_UP_MILESTONES.find((item) => item.patch === "2.00.00")?.publishedAt);
+    expect(highlights).toHaveLength(8);
+    expect(selectCatchUpMilestones({ kind: "highlights" })).toEqual(highlights);
+  });
+
+  it("includes the full July history for an explicit early date", () => {
+    const selected = selectCatchUpMilestones({ kind: "since", value: "2026-07-03T00:00:00.000Z" });
+    expect(selected).toHaveLength(21);
+    expect(selected[0].patch).toBe("1.13.00");
+  });
+
+  it("starts after patch 1.13.00 and keeps every later milestone", () => {
+    const selected = selectCatchUpMilestones({ kind: "patch", value: "1.13.00" });
+    expect(selected).toHaveLength(20);
+    expect(selected[0].patch).toBe("1.13.01");
+    expect(selected.some((item) => item.patch === "1.13.00")).toBe(false);
+  });
+
+  it("starts strictly after the selected patch, including a later same-day patch", () => {
+    const selected = selectCatchUpMilestones({ kind: "patch", value: "2.00.01" });
+    expect(selected.map((item) => item.patch ?? item.id)).toEqual([
+      "2.00.02",
+      "charting-the-unknown-announcement",
+      "2.01.00",
+      "2.02.00",
+      "2.03.00",
+      "announcement-charting-the-unknown-delay",
+    ]);
+    const selectedPatch = CATCH_UP_MILESTONES.find((item) => item.patch === "2.00.01");
+    expect(selectedPatch).toBeDefined();
+    expect(selected[0].publishedAt).toBe(selectedPatch?.publishedAt);
+  });
+
+  it("shows 2.03.00 after 2.02.00 and accepts the latest patch and chapter links", () => {
+    const now = new Date("2026-09-18T12:00:00Z");
+    const selected = selectCatchUpMilestones({ kind: "patch", value: "2.02.00" });
+    expect(selected.map((item) => item.patch ?? item.id)).toEqual(["2.03.00", delay.id]);
+    expect(selected[0].publishedAt).toBe("2026-09-18T01:00:00Z");
+    expect(parseCatchUpChapter("#chapter=update-2-03-00")).toBe("update-2-03-00");
+    const latest = parseCatchUpHash("#patch=2.03.00", now);
+    expect(latest).toEqual({ kind: "patch", value: "2.03.00" });
+    expect(selectCatchUpMilestones(latest)).toEqual([delay]);
+  });
+
+  it("uses exact instants for date selections", () => {
+    const milestones: CatchUpMilestone[] = [
+      { ...CATCH_UP_MILESTONES[0], id: "before", publishedAt: "2026-08-28T00:00:00.000Z" },
+      { ...CATCH_UP_MILESTONES[1], id: "after", publishedAt: "2026-08-28T00:00:00.001Z" },
+    ];
+    expect(selectCatchUpMilestones({ kind: "since", value: "2026-08-28T00:00:00.000Z" }, milestones).map((item) => item.id)).toEqual(["after"]);
+  });
+
+  it("includes later additions for remembered dates while explicit dates keep the official chronology", () => {
+    const milestones = [
+      { ...CATCH_UP_MILESTONES[0], id: "older", publishedAt: "2026-09-10T05:30:00Z" },
+      { ...CATCH_UP_MILESTONES[0], id: "added-later", publishedAt: "2026-09-11T05:30:00Z", availableAt: "2026-09-13T00:00:00Z" },
+      { ...CATCH_UP_MILESTONES[0], id: "new-patch", publishedAt: "2026-09-13T05:30:00Z" },
+    ];
+    const now = new Date("2026-09-14T00:00:00Z");
+    const since = "#since=2026-09-12T12:00:00Z";
+    expect(selectCatchUpMilestones(parseCatchUpHash(since, now), milestones).map((item) => item.id)).toEqual(["new-patch"]);
+    const remembered = parseCatchUpHash(`${since}&remembered=1`, now);
+    expect(selectCatchUpMilestones(remembered, milestones).map((item) => item.id)).toEqual(["added-later", "new-patch"]);
+    const completed = parseCatchUpHash("#since=2026-09-13T05:30:00Z&remembered=1", now);
+    expect(selectCatchUpMilestones(completed, milestones)).toEqual([]);
+  });
+});
+
+describe("catch-up labels", () => {
+  it("keeps official dates in UTC and personal selections on their local day", () => {
+    expect(catchUpDate("2026-09-03T23:30:00-04:00")).toBe("September 4");
+    expect(catchUpDate("2026-09-03T23:30:00-04:00", true)).toBe("September 4, 2026");
+    expect(catchUpSelectionLabel({ kind: "highlights" })).toBe("The recent highlights");
+    expect(catchUpSelectionLabel({ kind: "all" })).toBe("Full history");
+    expect(catchUpSelectionLabel({ kind: "patch", value: "2.00.01" })).toBe("After patch 2.00.01");
+    expect(catchUpSelectionLabel({ kind: "since", value: new Date(2026, 8, 4).toISOString() })).toBe("Since September 4");
+  });
+});

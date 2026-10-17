@@ -1,0 +1,1087 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  countPostCurrentPatchReportsByCluster,
+  countCurrentPatchCandidateSignalsByCluster,
+  countRowsAtOrAfterClaimByCluster,
+  countDistinctVerifiedReportsByCluster,
+  excerptsByClusterForCurrentPatch,
+  getPublicObservations,
+  getCandidateSignalCountsByCluster,
+  getPublicSignalClusterIdsForCurrentPatch,
+  splitPublicObservationLanes,
+  filterExactPatchReports,
+  filterPublicCurrentPatchSignals,
+  filterPatchFamilyReports,
+  groupConfirmationRowsByCluster,
+  latestReportAtFromRows,
+  publicFindingsFromSignals,
+  readConfirmationRowsByClusterForPatchFamily,
+  readExcerptsByClusterForCurrentPatch,
+  reportPlatformCountsByCluster,
+} from "@/lib/queries";
+import { isDisplayableDatedObservation, isPublicObservationEligible } from "@/lib/observationDisplay";
+
+vi.mock("server-only", () => ({}));
+
+type ObservationQueryRow = {
+  id: string;
+  patch_version: string;
+  kind: "patch_release" | "press_reception" | "fix_announcement" | "community_ask";
+  is_public: boolean;
+  title: string;
+  url: string;
+  source_domain: string | null;
+  snippet: string | null;
+  source_published_at: string | null;
+  created_at?: string | null;
+  observed_at: string;
+  seen_count: number;
+};
+
+function observationClient(rows: ObservationQueryRow[], error: { message: string } | null = null) {
+  return {
+    from(table: string) {
+      expect(table).toBe("patch_observations");
+      const filters: ((row: ObservationQueryRow) => boolean)[] = [];
+      // Postgres does not quietly mismatch an unparseable timestamp comparison —
+      // it rejects the request. Modelling that is what makes "never send a raw,
+      // possibly malformed patch time into .gte()" a testable claim rather than
+      // a hope: a silently-empty result would look identical to a correct one.
+      let comparisonError: { message: string } | null = null;
+      const requireTimestamp = (operator: string, column: string, value: string) => {
+        if (Number.isNaN(new Date(value).getTime())) {
+          comparisonError = {
+            message: `invalid input syntax for type timestamptz: "${value}" (${column}=${operator})`,
+          };
+        }
+      };
+      const query = {
+        select() {
+          return query;
+        },
+        eq(column: string, value: string | boolean) {
+          filters.push((row) => row[column as keyof ObservationQueryRow] === value);
+          return query;
+        },
+        in(column: string, values: string[]) {
+          filters.push((row) => values.includes(String(row[column as keyof ObservationQueryRow])));
+          return query;
+        },
+        not(column: string, operator: string, value: unknown) {
+          if (operator === "is" && value === null) {
+            filters.push((row) => row[column as keyof ObservationQueryRow] != null);
+          }
+          return query;
+        },
+        is(column: string, value: unknown) {
+          if (value === null) {
+            filters.push((row) => row[column as keyof ObservationQueryRow] == null);
+          }
+          return query;
+        },
+        lte(column: string, value: string) {
+          requireTimestamp("lte", column, value);
+          filters.push((row) => {
+            const current = row[column as keyof ObservationQueryRow];
+            return typeof current === "string" && new Date(current).getTime() <= new Date(value).getTime();
+          });
+          return query;
+        },
+        gte(column: string, value: string) {
+          requireTimestamp("gte", column, value);
+          filters.push((row) => {
+            const current = row[column as keyof ObservationQueryRow];
+            return typeof current === "string" && new Date(current).getTime() >= new Date(value).getTime();
+          });
+          return query;
+        },
+        order() {
+          return query;
+        },
+        limit(count: number) {
+          const failure = error ?? comparisonError;
+          return Promise.resolve({
+            data: failure ? null : rows.filter((row) => filters.every((filter) => filter(row))).slice(0, count),
+            error: failure,
+          });
+        },
+      };
+      return query;
+    },
+  };
+}
+
+describe("getPublicObservations", () => {
+  it("keeps separate eight-row budgets for coverage and community asks", async () => {
+    const rows: ObservationQueryRow[] = [
+      ...Array.from({ length: 8 }, (_, index): ObservationQueryRow => ({
+        id: `coverage-${index}`,
+        patch_version: "1.13.01",
+        kind: "press_reception",
+        is_public: true,
+        title: `Crimson Desert coverage ${index}`,
+        url: `https://example.com/crimson-desert-coverage-${index}`,
+        source_domain: "example.com",
+        snippet: "Coverage",
+        source_published_at: `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`,
+        observed_at: `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`,
+        seen_count: 1,
+      })),
+      {
+        id: "ask-current",
+        patch_version: "1.13.01",
+        kind: "community_ask" as const,
+        is_public: true,
+        title: "Current-patch Crimson Desert community ask",
+        url: "https://reddit.com/r/CrimsonDesert/current-ask",
+        source_domain: "reddit.com",
+        snippet: "Ask",
+        source_published_at: "2026-07-16T13:00:00Z",
+        observed_at: "2026-07-16T13:00:00Z",
+        seen_count: 2,
+      },
+      {
+        id: "ask-old-patch",
+        patch_version: "1.13.00",
+        kind: "community_ask" as const,
+        is_public: true,
+        title: "Old-patch Crimson Desert community ask",
+        url: "https://reddit.com/r/CrimsonDesert/old-ask",
+        source_domain: "reddit.com",
+        snippet: "Old ask",
+        source_published_at: "2026-07-16T14:00:00Z",
+        observed_at: "2026-07-16T14:00:00Z",
+        seen_count: 9,
+      },
+    ];
+
+    const lanes = await getPublicObservations(observationClient(rows) as never, {
+      version: "1.13.01",
+      publishedAt: null,
+    });
+
+    expect(lanes.coverage).toHaveLength(8);
+    expect(lanes.asks).toEqual([
+      expect.objectContaining({ id: "ask-current", title: "Current-patch Crimson Desert community ask" }),
+    ]);
+    expect([...lanes.coverage, ...lanes.asks].map((observation) => observation.id)).not.toContain("ask-old-patch");
+  });
+
+  it("stands down only the undated-ask lane when the patch publication time is malformed", async () => {
+    // The failure this pins: sending an unparseable patch time straight into
+    // .gte() made the database reject the undated-ask read, and one failed lane
+    // query blanked BOTH lanes. Failing closed means dropping the undated asks,
+    // not the dated rows that were never in question.
+    const rows: ObservationQueryRow[] = [
+      {
+        id: "dated-coverage",
+        patch_version: "1.13.01",
+        kind: "press_reception",
+        is_public: true,
+        title: "Crimson Desert 1.13.01 performance test",
+        url: "https://example.com/crimson-desert-perf",
+        source_domain: "example.com",
+        snippet: "We measured the patch.",
+        source_published_at: "2026-07-16T12:00:00Z",
+        created_at: "2026-07-16T12:00:00Z",
+        observed_at: "2026-07-16T12:00:00Z",
+        seen_count: 1,
+      },
+      {
+        id: "dated-ask",
+        patch_version: "1.13.01",
+        kind: "community_ask",
+        is_public: true,
+        title: "Crimson Desert horse mane preset request",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/ask/",
+        source_domain: "reddit.com",
+        snippet: "Please add mane presets.",
+        source_published_at: "2026-07-16T13:00:00Z",
+        created_at: "2026-07-16T13:00:00Z",
+        observed_at: "2026-07-16T13:00:00Z",
+        seen_count: 2,
+      },
+      {
+        id: "undated-ask",
+        patch_version: "1.13.01",
+        kind: "community_ask",
+        is_public: true,
+        title: "Day 12 of asking for a Crimson Desert photo mode",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/photo-mode/",
+        source_domain: "reddit.com",
+        snippet: "Please add a photo mode.",
+        source_published_at: null,
+        created_at: "2026-07-16T14:00:00Z",
+        observed_at: "2026-07-16T14:00:00Z",
+        seen_count: 3,
+      },
+    ];
+
+    const lanes = await getPublicObservations(observationClient(rows) as never, {
+      version: "1.13.01",
+      publishedAt: "not a date",
+    });
+
+    expect(lanes.coverage.map((observation) => observation.id)).toEqual(["dated-coverage"]);
+    expect(lanes.asks.map((observation) => observation.id)).toEqual(["dated-ask"]);
+    expect(lanes.asks.every((observation) => observation.timestamp.kind === "published")).toBe(true);
+    // Not a collapsed read: the lanes carry rows, and the undated ask is the
+    // only thing missing.
+    expect([...lanes.coverage, ...lanes.asks]).toHaveLength(2);
+  });
+
+  it("keeps out-of-era dates from consuming the per-lane budget ahead of valid rows", async () => {
+    const coverageRow = (id: string, sourcePublishedAt: string): ObservationQueryRow => ({
+      id,
+      patch_version: "1.13.01",
+      kind: "press_reception",
+      is_public: true,
+      title: `Crimson Desert coverage ${id}`,
+      url: `https://example.com/crimson-desert-${id}`,
+      source_domain: "example.com",
+      snippet: "Coverage",
+      source_published_at: sourcePublishedAt,
+      observed_at: sourcePublishedAt,
+      seen_count: 1,
+    });
+    // Bad rows listed first: a far-future date sorts ahead of everything under
+    // source-date desc, so without a server-side gate it would fill the limit.
+    // "patch-day" is a date-only source (midnight UTC) on the patch's publish
+    // day — in-era even though the patch note carries a later clock time.
+    const rows = [
+      coverageRow("future-1", "2099-01-01T00:00:00Z"),
+      coverageRow("future-2", "2099-01-02T00:00:00Z"),
+      coverageRow("pre-era", "2026-07-10T00:00:00Z"),
+      coverageRow("patch-day", "2026-07-15T00:00:00Z"),
+      ...Array.from({ length: 7 }, (_, index) =>
+        coverageRow(`valid-${index}`, `2026-07-16T12:${String(index).padStart(2, "0")}:00Z`),
+      ),
+    ];
+
+    const lanes = await getPublicObservations(observationClient(rows) as never, {
+      version: "1.13.01",
+      publishedAt: "2026-07-15T06:00:00Z",
+    });
+
+    expect(lanes.coverage).toHaveLength(8);
+    expect(lanes.coverage.map((observation) => observation.id)).toContain("patch-day");
+    expect(lanes.coverage.map((observation) => observation.id)).toEqual(
+      expect.not.arrayContaining(["future-1", "future-2", "pre-era"]),
+    );
+  });
+
+  it("shows only real-dated items inside the patch era, sorted by source date", () => {
+    const base = {
+      patch_version: "1.15.00",
+      is_public: true,
+      source_domain: "reddit.com",
+      snippet: "Crimson Desert update notes.",
+      seen_count: 1,
+    };
+    const lanes = splitPublicObservationLanes(
+      [
+        {
+          ...base,
+          id: "undated",
+          kind: "patch_release",
+          title: "Crimson Desert 1.15.00 patch notes mirror",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/undated/",
+          source_published_at: null,
+          observed_at: "2026-07-24T17:00:00Z",
+        },
+        {
+          ...base,
+          id: "pre-era",
+          kind: "press_reception",
+          title: "Crimson Desert wishlist milestone coverage",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/pre-era/",
+          source_published_at: "2026-03-03T12:00:00Z",
+          observed_at: "2026-07-24T17:00:00Z",
+        },
+        {
+          ...base,
+          id: "older-dated",
+          kind: "press_reception",
+          title: "Crimson Desert 1.15.00 mount lockup coverage",
+          url: "https://example.com/crimson-desert-mount-coverage",
+          source_domain: "example.com",
+          source_published_at: "2026-07-24T09:00:00Z",
+          observed_at: "2026-07-24T10:00:00Z",
+        },
+        {
+          ...base,
+          id: "newer-dated",
+          kind: "patch_release",
+          title: "Crimson Desert Update 1.15.00 official patch notes",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/current/",
+          source_published_at: "2026-07-24T15:00:00Z",
+          // Observed BEFORE the older-dated row: source date must win the sort.
+          observed_at: "2026-07-24T09:30:00Z",
+        },
+        {
+          ...base,
+          id: "dated-ask",
+          kind: "community_ask",
+          title: "Crimson Desert horse mane preset request",
+          url: "https://www.reddit.com/r/CrimsonDesert/comments/ask/",
+          source_published_at: "2026-07-24T12:00:00Z",
+          observed_at: "2026-07-24T13:00:00Z",
+          seen_count: 4,
+        },
+      ],
+      { version: "1.15.00", publishedAt: "2026-07-24T00:00:00Z" },
+    );
+
+    expect(lanes.coverage.map((observation) => observation.id)).toEqual(["newer-dated", "older-dated"]);
+    expect(lanes.asks.map((observation) => observation.id)).toEqual(["dated-ask"]);
+    expect(lanes.asks[0].timestamp).toEqual({ kind: "published", value: "2026-07-24T12:00:00Z" });
+  });
+
+  describe("lane clocks", () => {
+    const PATCH = { version: "1.15.00", publishedAt: "2026-07-24T00:00:00Z" };
+    const NOW = Date.parse("2026-07-28T12:00:00Z");
+    const askRow = (overrides: Partial<ObservationQueryRow> = {}): ObservationQueryRow => ({
+      id: "ask",
+      patch_version: "1.15.00",
+      kind: "community_ask",
+      is_public: true,
+      title: "Day 12 of asking for a Crimson Desert photo mode",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/photo-mode/",
+      source_domain: "reddit.com",
+      snippet: "Please add a photo mode.",
+      source_published_at: null,
+      created_at: "2026-07-26T08:00:00Z",
+      observed_at: "2026-07-26T08:00:00Z",
+      seen_count: 3,
+      ...overrides,
+    });
+
+    it("renders an eligible undated ask on its first-discovery time", () => {
+      const lanes = splitPublicObservationLanes([askRow()], PATCH, NOW);
+      expect(lanes.asks).toHaveLength(1);
+      expect(lanes.asks[0].timestamp).toEqual({
+        kind: "first_seen_by_radar",
+        value: "2026-07-26T08:00:00Z",
+      });
+    });
+
+    it("drops an undated ask first discovered before the current patch shipped", () => {
+      const lanes = splitPublicObservationLanes(
+        [askRow({ created_at: "2026-07-20T08:00:00Z" })],
+        PATCH,
+        NOW,
+      );
+      expect(lanes.asks).toEqual([]);
+    });
+
+    it("fails closed on undated asks when the patch publication time is unavailable", () => {
+      for (const publishedAt of [null, "not a date"]) {
+        const lanes = splitPublicObservationLanes([askRow()], { version: "1.15.00", publishedAt }, NOW);
+        expect(lanes.asks).toEqual([]);
+      }
+    });
+
+    it("still requires a publication date on From the Wire", () => {
+      const undatedCoverage: ObservationQueryRow = {
+        id: "undated-coverage",
+        patch_version: "1.15.00",
+        kind: "press_reception",
+        is_public: true,
+        title: "Crimson Desert 1.15.00 performance test",
+        url: "https://example.com/crimson-desert-perf",
+        source_domain: "example.com",
+        snippet: "We measured the patch.",
+        source_published_at: null,
+        created_at: "2026-07-26T08:00:00Z",
+        observed_at: "2026-07-26T08:00:00Z",
+        seen_count: 1,
+      };
+      const lanes = splitPublicObservationLanes([undatedCoverage], PATCH, NOW);
+      expect(lanes.coverage).toEqual([]);
+      expect(lanes.asks).toEqual([]);
+    });
+
+    it("never copies first-discovery time into a published timestamp", () => {
+      const lanes = splitPublicObservationLanes([askRow()], PATCH, NOW);
+      expect(lanes.asks[0].timestamp.kind).toBe("first_seen_by_radar");
+      expect(lanes.coverage.every((observation) => observation.timestamp.kind === "published")).toBe(true);
+    });
+
+    it("keeps a hidden or off-topic undated ask out of the lane", () => {
+      expect(splitPublicObservationLanes([askRow({ is_public: false })], PATCH, NOW).asks).toEqual([]);
+      expect(
+        splitPublicObservationLanes(
+          [askRow({ title: "Day 12 of asking for a photo mode", url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/x/" })],
+          PATCH,
+          NOW,
+        ).asks,
+      ).toEqual([]);
+    });
+
+    it("prefers a real publication date over first-discovery time when both exist", () => {
+      const lanes = splitPublicObservationLanes(
+        [askRow({ source_published_at: "2026-07-25T09:00:00Z" })],
+        PATCH,
+        NOW,
+      );
+      expect(lanes.asks[0].timestamp).toEqual({ kind: "published", value: "2026-07-25T09:00:00Z" });
+    });
+  });
+
+  it("gates on date presence alone when the patch has no recorded publish date", () => {
+    const nowMs = Date.parse("2026-07-24T12:00:00Z");
+    expect(isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, null, nowMs)).toBe(true);
+    expect(isDisplayableDatedObservation({ source_published_at: null }, null, nowMs)).toBe(false);
+    expect(isDisplayableDatedObservation({ source_published_at: "not a date" }, null, nowMs)).toBe(false);
+    expect(
+      isDisplayableDatedObservation({ source_published_at: "2026-07-01T00:00:00Z" }, "2026-07-24T00:00:00Z", nowMs),
+    ).toBe(false);
+    // Date-only provider dates land at midnight UTC: a patch-day source stays
+    // in-era even when the patch note carries a later clock time that day.
+    expect(
+      isDisplayableDatedObservation({ source_published_at: "2026-07-08T00:00:00Z" }, "2026-07-08T05:51:00Z", nowMs),
+    ).toBe(true);
+    expect(
+      isDisplayableDatedObservation({ source_published_at: "2026-07-07T23:59:00Z" }, "2026-07-08T05:51:00Z", nowMs),
+    ).toBe(false);
+    // Bogus future dates from providers stay off the lanes (48h skew allowed).
+    expect(isDisplayableDatedObservation({ source_published_at: "2026-07-25T12:00:00Z" }, null, nowMs)).toBe(true);
+    expect(isDisplayableDatedObservation({ source_published_at: "2030-01-01T00:00:00Z" }, null, nowMs)).toBe(false);
+  });
+
+  it("revalidates legacy public rows without deleting production data", () => {
+    const shared = {
+      id: "observation",
+      patch_version: "1.14.00",
+      kind: "patch_release" as const,
+      is_public: true,
+      source_domain: "reddit.com",
+      observed_at: "2026-07-22T12:00:00Z",
+      seen_count: 1,
+    };
+
+    expect(isPublicObservationEligible({
+      ...shared,
+      title: "Any plans for MCP? : r/ProtonMail",
+      url: "https://www.reddit.com/r/ProtonMail/comments/example/mcp/",
+      snippet: "A Proton Lumo feature request.",
+    }, "1.14.00")).toBe(false);
+    expect(isPublicObservationEligible({
+      ...shared,
+      title: "[Updates] Patch Notes Version 1.03.01 (All Platforms Hotfix)",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/example/old_patch/",
+      snippet: "Crimson Desert update notes.",
+    }, "1.14.00")).toBe(false);
+    expect(isPublicObservationEligible({
+      ...shared,
+      title: "Crimson Desert Version 1.14.00 patch notes",
+      url: "https://www.reddit.com/r/CrimsonDesert/comments/example/current_patch/",
+      snippet: "Current Crimson Desert update notes.",
+    }, "1.14.00")).toBe(true);
+  });
+
+  it("degrades a missing observation table to empty public lanes", async () => {
+    await expect(
+      getPublicObservations(
+        observationClient([], { message: "relation patch_observations does not exist" }) as never,
+        { version: "1.13.01", publishedAt: null },
+      ),
+    ).resolves.toEqual({ coverage: [], asks: [] });
+  });
+});
+
+describe("countDistinctVerifiedReportsByCluster", () => {
+  it("counts one verified report per report id", () => {
+    const counts = countDistinctVerifiedReportsByCluster([
+      { report_id: "report-a", bug_reports: { cluster_id: "cluster-one" } },
+      { report_id: "report-a", bug_reports: { cluster_id: "cluster-one" } },
+      { report_id: "report-b", bug_reports: { cluster_id: "cluster-one" } },
+      { report_id: "report-c", bug_reports: { cluster_id: "cluster-two" } },
+      { report_id: "report-d", bug_reports: null },
+    ]);
+
+    expect(counts).toEqual({
+      "cluster-one": 2,
+      "cluster-two": 1,
+    });
+  });
+});
+
+describe("filterPatchFamilyReports", () => {
+  it("keeps approved reports in the current patch family only", () => {
+    const rows = filterPatchFamilyReports(
+      [
+        { cluster_id: "old-major", patch_version: "1.12.00" },
+        { cluster_id: "family-base", patch_version: "1.13.00" },
+        { cluster_id: "family-hotfix", patch_version: "1.13.01" },
+        { cluster_id: "missing", patch_version: null },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+    );
+
+    expect(rows.map((row) => row.cluster_id)).toEqual(["family-base", "family-hotfix"]);
+  });
+});
+
+describe("latestReportAtFromRows", () => {
+  it("uses the newest report after patch-family filtering", () => {
+    const rows = filterPatchFamilyReports(
+      [
+        { cluster_id: "old-major", patch_version: "1.12.00", created_at: "2026-07-08T13:00:00.000Z" },
+        { cluster_id: "family-base", patch_version: "1.13.00", created_at: "2026-07-08T11:00:00.000Z" },
+        { cluster_id: "family-hotfix", patch_version: "1.13.01", created_at: "2026-07-08T12:00:00.000Z" },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+    );
+
+    expect(latestReportAtFromRows(rows)).toBe("2026-07-08T12:00:00.000Z");
+  });
+});
+
+describe("countPostCurrentPatchReportsByCluster", () => {
+  it("requires the report's selected patch to match the current hotfix", () => {
+    const counts = countPostCurrentPatchReportsByCluster(
+      [
+        {
+          cluster_id: "pre-hotfix-report",
+          category: "performance",
+          platform: "PC (Steam)",
+          patch_version: "1.13.00",
+          created_at: "2026-07-08T12:00:00.000Z",
+        },
+        {
+          cluster_id: "current-hotfix-report",
+          category: "performance",
+          platform: "PC (Steam)",
+          patch_version: "1.13.01",
+          created_at: "2026-07-08T12:00:00.000Z",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+    );
+
+    expect(counts).toEqual({ "current-hotfix-report": 1 });
+  });
+});
+
+describe("filterExactPatchReports", () => {
+  it("does not use an older family report to dispute a newer hotfix claim", () => {
+    const rows = [
+      { id: "older", patch_version: "1.13.00" },
+      { id: "current", patch_version: "1.13.01" },
+      { id: "unknown", patch_version: null },
+    ];
+    expect(filterExactPatchReports(rows, "1.13.01").map((row) => row.id)).toEqual(["current"]);
+  });
+
+  it("counts equivalent version spellings as the exact current patch", () => {
+    const rows = [
+      { id: "no-leading-zero", patch_version: "1.13.1" },
+      { id: "exact", patch_version: "1.13.01" },
+      { id: "older", patch_version: "1.13.00" },
+    ];
+    expect(filterExactPatchReports(rows, "1.13.01").map((row) => row.id)).toEqual(["no-leading-zero", "exact"]);
+  });
+});
+
+describe("countRowsAtOrAfterClaimByCluster", () => {
+  it("counts only evidence timestamped at or after each cluster's fix claim", () => {
+    const counts = countRowsAtOrAfterClaimByCluster(
+      [
+        { cluster_id: "claimed", happened_at: "2026-07-08T09:59:59Z" },
+        { cluster_id: "claimed", happened_at: "2026-07-08T10:00:00Z" },
+        { cluster_id: "claimed", happened_at: "2026-07-08T11:00:00Z" },
+        { cluster_id: "unclaimed", happened_at: "2026-07-08T11:00:00Z" },
+        { cluster_id: "claimed", happened_at: null },
+      ],
+      { claimed: "2026-07-08T10:00:00Z", unclaimed: null },
+      (row) => row.happened_at,
+    );
+
+    expect(counts).toEqual({ claimed: 2 });
+  });
+});
+
+describe("countCurrentPatchCandidateSignalsByCluster", () => {
+  it("keeps private questions current-patch scoped without returning their text", () => {
+    const counts = countCurrentPatchCandidateSignalsByCluster(
+      [
+        {
+          cluster_id: "current",
+          source: "web_search",
+          source_type: "web_search",
+          title: "Possible Crimson Desert input issue after 1.13.01",
+          summary: "A recent player mention.",
+          source_url: "https://forum.example.com/current",
+          source_published_at: "2026-07-09T00:00:00Z",
+        },
+        {
+          cluster_id: "old",
+          source: "web_search",
+          source_type: "web_search",
+          title: "Input issue in 1.12.00",
+          summary: "An older patch mention.",
+          source_url: "https://forum.example.com/old",
+          source_published_at: "2026-06-01T00:00:00Z",
+        },
+        {
+          cluster_id: "unsupported",
+          source: "web_search",
+          source_type: "web_search",
+          title: "Crackwatch repack thread",
+          summary: "Pirated files, not a player issue report.",
+          source_url: "https://example.com/repack-1-13-01",
+          source_published_at: "2026-07-09T00:00:00Z",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(counts).toEqual({ current: 1 });
+  });
+
+  it("excludes private Steam review context from radar candidate counts", () => {
+    const counts = countCurrentPatchCandidateSignalsByCluster(
+      [
+        {
+          cluster_id: "steam-context-only",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Crimson Desert stutters after patch 1.13.01.",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          source_published_at: "2026-07-09T00:00:00Z",
+          source: "steam_review",
+          source_type: "steam_review",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(counts).toEqual({});
+  });
+
+  it("excludes official publisher pages from radar candidate counts", () => {
+    const counts = countCurrentPatchCandidateSignalsByCluster(
+      [
+        {
+          cluster_id: "official-context-only",
+          title: "Crimson Desert – Known Issues after patch 1.13.01",
+          summary: "The game crashes when riding a bear. Quest cannot progress.",
+          source_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          source_published_at: "2026-07-09T00:00:00Z",
+          source: "web_search",
+          source_type: "web_search",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(counts).toEqual({});
+  });
+
+  it("paginates every private candidate before aggregating counts", async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, index) => ({
+      id: `candidate-${index}`,
+      cluster_id: "cluster-one",
+      source: "web_search",
+      source_type: "web_search",
+      title: "Crimson Desert input issue after 1.13.01",
+      summary: "A current-patch player issue.",
+      source_url: `https://forum.example.com/crimson-desert/${index}`,
+      source_published_at: "2026-07-09T00:00:00Z",
+    }));
+    const secondPage = [
+      {
+        id: "candidate-1000",
+        cluster_id: "cluster-two",
+        source: "web_search",
+        source_type: "web_search",
+        title: "Crimson Desert crash after 1.13.01",
+        summary: "A current-patch player issue.",
+        source_url: "https://forum.example.com/crimson-desert/1000",
+        source_published_at: "2026-07-09T00:00:00Z",
+      },
+    ];
+    const pages = [firstPage, secondPage];
+    const rangeCalls: [number, number][] = [];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("source_signals");
+        return {
+          select(columns: string) {
+            expect(columns).toBe(
+              "id, cluster_id, source, source_type, title, summary, source_url, source_published_at, extracted_facts",
+            );
+            return {
+              eq(column: string, value: string) {
+                expect([column, value]).toEqual(["public_status", "private"]);
+                return {
+                  order(columnName: string) {
+                    expect(columnName).toBe("id");
+                    return {
+                      async range(from: number, to: number) {
+                        rangeCalls.push([from, to]);
+                        return { data: pages.shift() ?? [], error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const counts = await getCandidateSignalCountsByCluster(
+      supabase as never,
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00Z" },
+    );
+
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    expect(counts).toEqual({ "cluster-one": 1000, "cluster-two": 1 });
+  });
+});
+
+describe("excerptsByClusterForCurrentPatch", () => {
+  it("filters stale excerpts before applying the public excerpt cap", () => {
+    const staleRows = Array.from({ length: 120 }, (_, index) => ({
+      excerpt_text: `old excerpt ${index}`,
+      created_at: "2026-07-08T13:00:00.000Z",
+      bug_reports: { cluster_id: "old-cluster", platform: "PC (Steam)", patch_version: "1.12.00" },
+    }));
+    const grouped = excerptsByClusterForCurrentPatch(
+      [
+        ...staleRows,
+        {
+          excerpt_text: "current patch excerpt",
+          created_at: "2026-07-08T12:00:00.000Z",
+          bug_reports: { cluster_id: "current-cluster", platform: "Base PS5", patch_version: "1.13.01" },
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+      100,
+    );
+
+    expect(grouped["old-cluster"]).toBeUndefined();
+    expect(grouped["current-cluster"]).toEqual([{ text: "current patch excerpt", platform: "Base PS5" }]);
+  });
+});
+
+describe("readExcerptsByClusterForCurrentPatch", () => {
+  it("paginates approved excerpts before filtering by patch", async () => {
+    const staleRows = Array.from({ length: 1000 }, (_, index) => ({
+      excerpt_text: `old excerpt ${index}`,
+      created_at: "2026-07-08T13:00:00.000Z",
+      bug_reports: { cluster_id: "old-cluster", platform: "PC (Steam)", patch_version: "1.12.00" },
+    }));
+    const rangeCalls: [number, number][] = [];
+    const pages = [
+      staleRows,
+      [
+        {
+          excerpt_text: "current patch excerpt",
+          created_at: "2026-07-08T12:00:00.000Z",
+          bug_reports: { cluster_id: "current-cluster", platform: "Base PS5", patch_version: "1.13.01" },
+        },
+      ],
+    ];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("approved_excerpts");
+        return {
+          select(columns: string) {
+            expect(columns).toBe("excerpt_text, created_at, bug_reports!inner(cluster_id, platform, patch_version)");
+            return {
+              eq(column: string, value: string) {
+                expect([column, value]).toEqual(["bug_reports.moderation_status", "approved"]);
+                return {
+                  order() {
+                    return {
+                      async range(from: number, to: number) {
+                        rangeCalls.push([from, to]);
+                        return { data: pages.shift() ?? [], error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const grouped = await readExcerptsByClusterForCurrentPatch(
+      supabase as never,
+      { version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z" },
+      100,
+    );
+
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    expect(grouped["old-cluster"]).toBeUndefined();
+    expect(grouped["current-cluster"]).toEqual([{ text: "current patch excerpt", platform: "Base PS5" }]);
+  });
+});
+
+describe("publicFindingsFromSignals", () => {
+  it("maps already-public signal links without exposing private review fields", () => {
+    const findings = publicFindingsFromSignals([
+      {
+        id: "signal-1",
+        cluster_id: "cluster-fps",
+        source: "web_search",
+        source_url: "https://www.reddit.com/r/CrimsonDesert/comments/example/",
+        title: "FPS drops after patch 1.13",
+        summary: "Players mention frame-rate drops after the patch.",
+        category: "performance",
+        confidence: "high",
+        observed_at: "2026-07-08T12:00:00.000Z",
+        source_published_at: "2026-07-08T11:30:00.000Z",
+        public_status: "public",
+        extracted_facts: { sourcePatchVersions: ["1.13"], forumProcessed: { inputHash: "private-proof" } },
+      },
+    ]);
+
+    expect(findings).toEqual([
+      {
+        id: "signal-1",
+        title: "FPS drops after patch 1.13",
+        summary: "Players mention frame-rate drops after the patch.",
+        source: "web_search",
+        sourceUrl: "https://www.reddit.com/r/CrimsonDesert/comments/example/",
+        sourceHost: "reddit.com",
+        confidence: "high",
+        observedAt: "2026-07-08T12:00:00.000Z",
+        clusterId: "cluster-fps",
+      },
+    ]);
+    expect(JSON.stringify(findings)).not.toContain("raw_text");
+    expect(JSON.stringify(findings)).not.toContain("reject");
+    expect(JSON.stringify(findings)).not.toContain("private");
+  });
+});
+
+describe("filterPublicCurrentPatchSignals", () => {
+  it("uses original patch references for public and private counts without exposing the proof", () => {
+    const base = {
+      cluster_id: "kept", source: "web_search", source_type: "web_search",
+      source_url: "https://forum.example.com/crimson-desert/fps",
+      title: "Crimson Desert frame drops", summary: "Recent patches, including 2.03.02, still have frame drops.",
+      source_published_at: "2026-09-01T00:00:00Z",
+    };
+    const rows = [
+      { ...base, extracted_facts: { sourcePatchVersions: ["2.03.02"] } },
+      { ...base, cluster_id: "invented", summary: "Frame drops after patch 2.03.02.", extracted_facts: { sourcePatchVersions: [] } },
+    ];
+    const patch = { version: "2.03.02", publishedAt: "2026-10-01T00:00:00Z" };
+    expect(filterPublicCurrentPatchSignals(rows, patch).map((row) => row.cluster_id)).toEqual(["kept"]);
+    expect(countCurrentPatchCandidateSignalsByCluster(rows, patch)).toEqual({ kept: 1 });
+  });
+
+  it("revalidates stored public rows for game context and the Steam privacy boundary", () => {
+    const base = {
+      cluster_id: "cluster-one",
+      category: "performance",
+      confidence: "medium" as const,
+      observed_at: "2026-07-22T12:00:00.000Z",
+      source_published_at: "2026-07-22T10:00:00.000Z",
+      public_status: "public" as const,
+    };
+    const rows = filterPublicCurrentPatchSignals(
+      [
+        {
+          ...base,
+          id: "valid",
+          source: "web_search",
+          source_url: "https://example.com/crimson-desert-performance",
+          title: "Crimson Desert patch 1.13.01 FPS drops",
+          summary: "Players report stutter after the current patch.",
+        },
+        {
+          ...base,
+          id: "protonmail",
+          source: "web_search",
+          source_url: "https://www.reddit.com/r/ProtonMail/comments/example/mcp",
+          title: "Any plans for MCP?",
+          summary: "A Proton Lumo feature request.",
+        },
+        {
+          ...base,
+          id: "pubg-spliced-snippet",
+          source: "web_search",
+          source_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/example/guerilla_warfare_mortars",
+          title: "guerilla warfare mortars off the roof : r/PUBATTLEGROUNDS",
+          summary: "[Request] Pearl Abyss, please add one of these to r/CrimsonDesert.",
+        },
+        {
+          ...base,
+          id: "steam-private-context",
+          source: "steam_review",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Players report stutter after patch 1.13.01.",
+        },
+        {
+          // A stored official row keeps public_status until its cluster's next
+          // visibility refresh — this filter is what keeps it off the public
+          // evidence cards in the meantime. Provider context, never evidence.
+          ...base,
+          id: "official-provider-context",
+          source: "web_search",
+          source_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          title: "Crimson Desert – Known Issues after patch 1.13.01",
+          summary: "The game crashes when riding a bear. Quest cannot progress.",
+        },
+      ],
+      { version: "1.13.01", publishedAt: "2026-07-22T09:00:00.000Z" },
+    );
+
+    expect(rows.map((row) => row.id)).toEqual(["valid"]);
+  });
+});
+
+describe("getPublicSignalClusterIdsForCurrentPatch", () => {
+  it("selects source provenance before excluding Steam review context", async () => {
+    const selectedColumns: string[] = [];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("source_signals");
+        return {
+          select(columns: string) {
+            selectedColumns.push(columns);
+            return {
+              async eq(column: string, value: string) {
+                expect([column, value]).toEqual(["public_status", "public"]);
+                return {
+                  data: [
+                    {
+                      cluster_id: "public-web-lead",
+                      source: "web_search",
+                      source_url: "https://example.com/crimson-desert-fps",
+                      title: "Crimson Desert patch 1.13.01 FPS drops",
+                      summary: "Players report stutter after the current patch.",
+                      source_published_at: "2026-07-22T10:00:00.000Z",
+                    },
+                    {
+                      cluster_id: "private-steam-context",
+                      source: "steam_review",
+                      source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+                      title: "Crimson Desert player issue on Steam",
+                      summary: "Players report stutter after patch 1.13.01.",
+                      source_published_at: "2026-07-22T10:00:00.000Z",
+                    },
+                  ],
+                  error: null,
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const clusterIds = await getPublicSignalClusterIdsForCurrentPatch(
+      supabase as never,
+      { version: "1.13.01", publishedAt: "2026-07-22T09:00:00.000Z" },
+    );
+
+    expect(selectedColumns).toEqual([
+      "cluster_id, source, title, summary, source_url, source_published_at, extracted_facts",
+    ]);
+    expect([...clusterIds]).toEqual(["public-web-lead"]);
+  });
+});
+
+describe("groupConfirmationRowsByCluster", () => {
+  it("groups raw confirmation rows per cluster without losing any", () => {
+    const grouped = groupConfirmationRowsByCluster([
+      { cluster_id: "cluster-one", platform: "pc_steam", kind: "have_it", voter_ip_hash: "h1", created_at: "2026-07-09T10:00:00Z" },
+      { cluster_id: "cluster-one", platform: "ps5", kind: "still_happening", voter_ip_hash: "h2", created_at: "2026-07-09T11:00:00Z" },
+      { cluster_id: "cluster-two", platform: "ps5", kind: "fixed_for_me", voter_ip_hash: "h3", created_at: "2026-07-09T12:00:00Z" },
+    ]);
+
+    expect(Object.keys(grouped).sort()).toEqual(["cluster-one", "cluster-two"]);
+    expect(grouped["cluster-one"]).toHaveLength(2);
+    expect(grouped["cluster-two"][0].kind).toBe("fixed_for_me");
+  });
+});
+
+describe("readConfirmationRowsByClusterForPatchFamily", () => {
+  it("paginates past the Data API row cap before aggregating confirmations", async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, index) => ({
+      id: `confirm-${index}`,
+      cluster_id: "cluster-one",
+      platform: "pc_steam",
+      kind: "have_it" as const,
+      voter_ip_hash: `hash-${index}`,
+      created_at: "2026-07-09T10:00:00Z",
+    }));
+    const secondPage = [
+      {
+        id: "confirm-1000",
+        cluster_id: "cluster-two",
+        platform: "ps5",
+        kind: "fixed_for_me" as const,
+        voter_ip_hash: "hash-1000",
+        created_at: "2026-07-09T11:00:00Z",
+      },
+    ];
+    const rangeCalls: [number, number][] = [];
+    const pages = [firstPage, secondPage];
+    const supabase = {
+      from(table: string) {
+        expect(table).toBe("issue_confirmations");
+        return {
+          select() {
+            return {
+              eq(column: string, value: string) {
+                expect([column, value]).toEqual(["patch_family", "1.13"]);
+                return {
+                  order(columnName: string) {
+                    expect(columnName).toBe("id");
+                    return {
+                      async range(from: number, to: number) {
+                        rangeCalls.push([from, to]);
+                        return { data: pages.shift() ?? [], error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const grouped = await readConfirmationRowsByClusterForPatchFamily(supabase as never, "1.13.01");
+
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    expect(grouped["cluster-one"]).toHaveLength(1000);
+    expect(grouped["cluster-two"]).toHaveLength(1);
+  });
+});
+
+describe("reportPlatformCountsByCluster", () => {
+  it("counts approved reports per cluster per platform", () => {
+    const counts = reportPlatformCountsByCluster([
+      { cluster_id: "cluster-one", platform: "pc_steam" },
+      { cluster_id: "cluster-one", platform: "pc_steam" },
+      { cluster_id: "cluster-one", platform: "ps5" },
+      { cluster_id: "cluster-two", platform: null },
+      { cluster_id: null, platform: "ps5" },
+    ]);
+
+    expect(counts["cluster-one"]).toEqual({ pc_steam: 2, ps5: 1 });
+    expect(counts["cluster-two"]).toBeUndefined();
+  });
+});

@@ -1,0 +1,34 @@
+.problem-report-trigger,.problem-report-dialog{--pr-paper:#f6f4ee;--pr-ink:#11130f;--pr-muted:#535550;--pr-line:#777971;--pr-blue:#2457a1;--pr-red:#a51e23;color-scheme:light;font-family:var(--font-instrument-sans),sans-serif}
+html[data-theme=dark] :is(.problem-report-trigger,.problem-report-dialog){--pr-paper:#000;--pr-ink:#edeae3;--pr-muted:#b8bbc0;--pr-line:#565a60;--pr-blue:#82aaf0;--pr-red:#e15b62;color-scheme:dark}
+.problem-report-trigger{position:fixed;right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:var(--z-sticky);min-height:44px;padding:8px 12px;border:1px solid var(--pr-line);border-radius:4px;background:var(--pr-paper);color:var(--pr-muted);font-size:14px;cursor:pointer}
+.problem-report-trigger:hover{color:var(--pr-blue);border-color:var(--pr-blue)}
+/* Keep the last footer line clear of the fixed shortcut at the end of a page:
+   the paper's end space covers its 44px height, bottom offset, and a 12px gap. */
+body:has(.problem-report-trigger) .newspaper .paper{padding-bottom:calc(56px + max(12px,env(safe-area-inset-bottom)))}
+.problem-report-dialog{box-sizing:border-box;width:500px;max-width:calc(100% - 24px);max-height:calc(100dvh - 24px);margin:auto;padding:0;border:1px solid var(--pr-line);background:var(--pr-paper);color:var(--pr-ink);overflow:hidden}
+.problem-report-dialog::backdrop{background:#0008}
+.problem-report-dialog *{box-sizing:border-box}
+.problem-report-surface{display:flex;flex-direction:column;max-height:calc(100dvh - 26px);min-height:0;scrollbar-width:thin;scrollbar-color:var(--pr-line) var(--pr-paper)}
+.problem-report-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 24px 0;flex-shrink:0}
+.problem-report-heading button{flex-shrink:0}
+.problem-report-dialog h2{margin:0;color:var(--pr-ink);font:34px/1.15 var(--font-instrument-serif),serif}
+.problem-report-dialog p{margin:12px 0;font-size:14px;line-height:1.6}
+.problem-report-surface>p{margin:12px 0 0;padding:0 24px 16px;border-bottom:1px solid var(--pr-line);flex-shrink:0}
+.problem-report-form{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.problem-report-fields{padding:0 24px 20px;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;scroll-padding-block:16px;scrollbar-width:thin;scrollbar-color:var(--pr-line) var(--pr-paper)}
+.problem-report-dialog label{display:block;margin:16px 0 6px;font-size:14px;font-weight:600;color:var(--pr-ink)}
+.problem-report-dialog :is(input,select,textarea){display:block;width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--pr-line);background-color:var(--pr-paper);color:var(--pr-ink);font:16px/1.5 var(--font-instrument-sans),sans-serif;border-radius:4px;caret-color:var(--pr-ink)}
+.problem-report-dialog textarea{resize:vertical}
+.problem-report-dialog .problem-report-help{font-size:14px;color:var(--pr-muted);margin:8px 0}
+.problem-report-dialog .problem-report-page{font-size:12px;overflow-wrap:anywhere;padding-top:10px;border-top:1px solid var(--pr-line)}
+.problem-report-dialog .problem-report-error{color:var(--pr-red);margin:0 0 12px}
+.problem-report-dialog button{min-height:44px;padding:8px 14px;border:1px solid var(--pr-line);color:var(--pr-ink);background:var(--pr-paper);font:14px/1.5 var(--font-instrument-sans),sans-serif;cursor:pointer}
+.problem-report-actions{padding:16px 24px;border-top:1px solid var(--pr-line);flex-shrink:0}
+.problem-report-dialog button[type=submit]{width:100%;color:var(--pr-paper);background:var(--pr-ink);border-color:var(--pr-ink)}
+.problem-report-dialog button:disabled{opacity:.6;cursor:not-allowed}
+.problem-report-dialog ::selection{color:var(--pr-paper);background:var(--pr-blue)}
+.problem-report-trigger:focus-visible,.problem-report-dialog :focus-visible{outline:2px solid var(--pr-blue);outline-offset:3px}
+@media(max-width:500px){.problem-report-heading{padding:16px 16px 0}.problem-report-dialog h2{font-size:28px}.problem-report-surface>p{padding:0 16px 12px}.problem-report-fields{padding:0 16px 16px}.problem-report-actions{padding:12px 16px max(12px,env(safe-area-inset-bottom))}}
+@media(max-width:640px){body:has(.problem-inbox){background:#f6f4ee}html[data-theme=dark] body:has(.problem-inbox){background:#000}body:has(.problem-inbox) .problem-report-trigger{position:static;display:block;margin:0 16px max(16px,env(safe-area-inset-bottom)) auto}}
+@media(max-height:500px){.problem-report-heading{padding-top:10px}.problem-report-dialog h2{font-size:26px}.problem-report-surface>p{padding-bottom:10px}.problem-report-actions{padding-block:10px}}
+@media print{.problem-report-trigger{display:none}}

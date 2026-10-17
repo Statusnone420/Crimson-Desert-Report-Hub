@@ -1,0 +1,33 @@
+{
+  "issue_clusters": [],
+  "bug_reports": [],
+  "approved_excerpts": [],
+  "source_signals": [],
+  "automation_runs": [],
+  "automation_rejected_candidates": [],
+  "automation_settings": [],
+  "issue_confirmations": [],
+  "issue_checkins": [],
+  "official_patch_notes": [
+    {
+      "id": "n0-current-patch",
+      "board_no": "130",
+      "title": "Patch Notes Version 2.02.00",
+      "patch_version": "2.02.00",
+      "official_url": "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=130",
+      "published_at": "2026-09-11T05:00:00.000Z",
+      "observed_at": "2026-09-11T06:00:00.000Z",
+      "summary": null,
+      "claimed_fix_total": 0,
+      "is_current": true
+    }
+  ],
+  "official_patch_claimed_fixes": [],
+  "patch_observations": [],
+  "steam_pulse_snapshots": [],
+  "platform_context_snapshots": [],
+  "steam_player_snapshots": [],
+  "scanner_feedback_rules": [],
+  "video_review_candidates": [],
+  "video_publication_drafts": []
+}

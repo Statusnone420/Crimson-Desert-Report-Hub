@@ -1,0 +1,7 @@
+{
+  "platform_context_snapshots": [
+    { "captured_at": "2026-07-19T20:00:00.000Z", "igdb_status": "ok", "igdb_slug": "crimson-desert", "igdb_platforms": ["PC", "PlayStation 5", "Xbox Series X|S"], "twitch_status": "ok", "twitch_live_streams": 145, "twitch_live_viewers": 2851, "twitch_complete": true },
+    { "captured_at": "2026-07-19T16:00:00.000Z", "igdb_status": "ok", "igdb_slug": "crimson-desert", "igdb_platforms": ["PC", "PlayStation 5", "Xbox Series X|S"], "twitch_status": "ok", "twitch_live_streams": 62, "twitch_live_viewers": 143, "twitch_complete": true },
+    { "captured_at": "2026-07-19T14:00:00.000Z", "igdb_status": "ok", "igdb_slug": "crimson-desert", "igdb_platforms": ["PC", "PlayStation 5", "Xbox Series X|S"], "twitch_status": "ok", "twitch_live_streams": 60, "twitch_live_viewers": 173, "twitch_complete": true }
+  ]
+}

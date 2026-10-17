@@ -1,0 +1,6 @@
+{
+  "platform_context_snapshots": [
+    { "captured_at": "2026-07-19T23:30:00.000Z", "igdb_status": "absent", "igdb_platforms": [], "twitch_status": "ok", "twitch_live_streams": 24, "twitch_live_viewers": 219, "twitch_complete": true },
+    { "captured_at": "2026-07-18T14:00:00.000Z", "igdb_status": "ok", "igdb_slug": "crimson-desert", "igdb_platforms": ["PC", "PlayStation 5", "Xbox Series X|S", "Mac"], "twitch_status": "ok", "twitch_live_streams": 20, "twitch_live_viewers": 180, "twitch_complete": true }
+  ]
+}

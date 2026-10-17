@@ -1,0 +1,29 @@
+name: Correction or broken link
+description: Flag an incorrect detail, missing source credit, or broken link on the Hub.
+title: "[Correction]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue will be public. Keep passwords, account details, private messages, and personal logs out of your post and screenshots.
+        For Crimson Desert game or account support, use [Pearl Abyss support](https://support.pearlabyss.com/).
+  - type: input
+    id: page
+    attributes:
+      label: Hub page
+      description: Paste the public address of the page that needs attention.
+      placeholder: https://crimsonreporthub.com/...
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: What needs correcting?
+      description: Describe the incorrect detail, missing credit, or link that does not work.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Supporting source (optional)
+      description: A public source that supports the correction. Do not include private or token-bearing URLs.

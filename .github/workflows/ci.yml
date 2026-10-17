@@ -1,0 +1,72 @@
+name: CI
+
+# The full gate, including browser tests, runs locally with `npm run verify`
+# before every push. GitHub runs the quick core checks on each PR. The browser
+# suite on GitHub is a manual run for PRs that never ran locally.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: "Also run the browser suite on GitHub"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+          package-manager-cache: false
+
+      - name: Shared core verification
+        run: npm run verify:core
+
+  visual:
+    if: github.event_name == 'workflow_dispatch' && inputs.browser
+    runs-on: windows-latest
+    needs: verify
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+          package-manager-cache: false
+
+      - name: Shared browser verification
+        run: npm run verify:browser
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-artifacts
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 7

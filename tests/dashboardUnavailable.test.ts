@@ -1,0 +1,333 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { needsFullIssueCard } from "@/lib/evidence";
+
+/**
+ * A failed dashboard read must surface as the unavailable state, never as an
+ * empty success rendered as zeros: database failures must fail or be
+ * explicitly surfaced. The read throws inside readDashboardData and the
+ * loader converts it into `evidenceUnavailable: true` plus a loud log line.
+ */
+
+const mocks = vi.hoisted(() => ({
+  from: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
+  claimedFixes: vi.fn(
+    async (): Promise<{
+      fixes: { fixText: string; category: string | null; section: string | null }[];
+      totalClaimedFixes: number | null;
+    }> => ({ fixes: [], totalClaimedFixes: null }),
+  ),
+  controlState: vi.fn(async (): Promise<{ paused: boolean; updatedAt: string | null }> => ({
+    paused: false,
+    updatedAt: null,
+  })),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("next/cache", () => ({
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+  revalidateTag: vi.fn(),
+}));
+vi.mock("@/lib/supabase", () => ({
+  createServiceClient: () => ({ from: mocks.from }),
+  hasSupabaseServiceConfig: () => true,
+}));
+vi.mock("@/lib/officialPatch.server", () => ({
+  getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
+  getClaimedFixesForCurrentPatch: async () => (await mocks.claimedFixes()).fixes,
+  readClaimedFixesForCurrentPatch: mocks.claimedFixes,
+}));
+vi.mock("@/lib/automation/settings", () => ({
+  getAutomationControlState: mocks.controlState,
+}));
+
+/** Chainable query stub: every builder method returns itself; awaiting it resolves the injected result. */
+function stubQuery(result: { data: unknown[] | null; error: { message: string } | null; count: number | null }) {
+  const query: Record<string, unknown> = {};
+  for (const method of ["select", "eq", "neq", "in", "gte", "lte", "not", "order", "limit", "range"]) {
+    query[method] = () => query;
+  }
+  query.then = (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve);
+  return query;
+}
+
+function failingQuery(message: string) {
+  return stubQuery({ data: null, error: { message }, count: null });
+}
+
+function okQuery() {
+  return stubQuery({ data: [], error: null, count: 0 });
+}
+
+/** bug_reports stub that succeeds for approved reads but fails the pending count. */
+function pendingFailingBugReports() {
+  let pending = false;
+  const query: Record<string, unknown> = {};
+  for (const method of ["select", "eq", "neq", "in", "gte", "lte", "not", "order", "limit", "range"]) {
+    query[method] = (...args: unknown[]) => {
+      if (method === "eq" && args[1] === "pending") pending = true;
+      return query;
+    };
+  }
+  query.then = (resolve: (value: unknown) => unknown) =>
+    Promise.resolve(
+      pending ? { data: null, error: { message: "pending count failed" }, count: null } : { data: [], error: null, count: 0 },
+    ).then(resolve);
+  return query;
+}
+
+describe("dashboard loader under a failed read", () => {
+  beforeEach(() => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "1.13.01", publishedAt: "2026-07-08T05:51:00.000Z", title: "Hotfix 1.13.01", source: "official" });
+    mocks.from.mockReset();
+    mocks.from.mockImplementation(() => failingQuery("permission denied for table bug_reports"));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses stored patch proof in both public reads without returning extracted facts", async () => {
+    const signal = {
+      id: "public-lead", cluster_id: "cluster-a", source: "web_search",
+      source_url: "https://forum.example.com/crimson-desert/fps", title: "Crimson Desert frame drops",
+      summary: "Recent patches, including 1.13.01, still have frame drops.",
+      category: "performance", confidence: "high", observed_at: "2026-07-09T12:00:00Z",
+      source_published_at: "2026-06-01T12:00:00Z", public_status: "public",
+      extracted_facts: { sourcePatchVersions: ["1.13.01"], forumProcessed: { inputHash: "PRIVATE_PROOF" } },
+    };
+    mocks.from.mockImplementation((table: string) => {
+      if (table === "source_signals") {
+        let status = "";
+        let columns = "";
+        const query = stubQuery({ data: [], error: null, count: 0 });
+        query.select = (selected: string) => { columns = selected; return query; };
+        query.eq = (column: string, value: string) => { if (column === "public_status") status = value; return query; };
+        query.then = (resolve: (value: unknown) => unknown) => Promise.resolve({
+          data: status === "public" ? [Object.fromEntries(columns.split(",").map((key) => [key.trim(), signal[key.trim() as keyof typeof signal]]))] : [],
+          error: null, count: 0,
+        }).then(resolve);
+        return query;
+      }
+      if (table === "issue_clusters") return stubQuery({ data: [{
+        id: "cluster-a", slug: "frame-drops", title: "Frame drops", category: "performance", description: "Reviewed sources.",
+        fix_status: "reported", confidence: "medium", is_public: true,
+      }], error: null, count: 1 });
+      return okQuery();
+    });
+    const { getDashboardData, getIssuesData } = await import("@/lib/queries");
+    const dashboard = await getDashboardData();
+    const issues = await getIssuesData();
+    expect(dashboard.publicFindings.map((row) => row.id)).toEqual(["public-lead"]);
+    expect(issues.signalsByCluster["cluster-a"].map((row) => row.id)).toEqual(["public-lead"]);
+    expect(issues.clusters[0].postCurrentPatchSignalCount).toBe(1);
+    expect(JSON.stringify([dashboard, issues])).not.toMatch(/sourcePatchVersions|extracted_facts|PRIVATE_PROOF/);
+  });
+
+  it("keeps patch-scoped records unavailable when the database has no current patch", async () => {
+    mocks.from.mockImplementation(() => okQuery());
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ version: "unknown", source: "fallback", publishedAt: null });
+    const { getDashboardData, getIssuesData } = await import("@/lib/queries");
+    const dashboard = await getDashboardData();
+    expect(dashboard.evidenceUnavailable).toBe(true);
+    expect(dashboard.claimsUnavailable).toBe(true);
+    expect(dashboard.sourceLeadsUnavailable).toBe(true);
+    expect((await getIssuesData()).boardReadFailed).toBe(true);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("returns the unavailable state instead of fabricated zeros, loudly", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(true);
+    expect(data.claimsUnavailable).toBe(false);
+    // The fallback shape is empty, and the flag is what stops it rendering as zeros.
+    expect(data.total).toBe(0);
+    expect(data.topClusters).toEqual([]);
+    expect(data.currentPatch.version).toBe("1.13.01");
+    // The failure is surfaced in server logs, not swallowed.
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("unavailable state"),
+      expect.objectContaining({ message: expect.stringContaining("permission denied") }),
+    );
+  });
+
+  it("keeps official claims through an evidence outage — they are independently stored", async () => {
+    // The claims tables are not the evidence tables. A bug_reports failure
+    // must not erase Pearl Abyss's claimed fixes from the record.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.claimedFixes.mockResolvedValueOnce({
+      fixes: [{ fixText: "Fixed map-open crash", category: "crash_startup", section: "Content" }],
+      totalClaimedFixes: 1,
+    });
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(true);
+    expect(data.claimsUnavailable).toBe(false);
+    expect(data.claimedFixes).toEqual([
+      { fixText: "Fixed map-open crash", category: "crash_startup", section: "Content" },
+    ]);
+    expect(data.claimedFixTotal).toBe(1);
+  });
+
+  it("marks claims unavailable when their own read also fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.claimedFixes.mockRejectedValueOnce(new Error("claims read failed"));
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(true);
+    expect(data.claimsUnavailable).toBe(true);
+    expect(data.claimedFixes).toEqual([]);
+  });
+
+  it("keeps the evidence board when only the claims register fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation(() => okQuery());
+    mocks.claimedFixes.mockRejectedValueOnce(new Error("claims read failed"));
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.claimsUnavailable).toBe(true);
+    expect(data.claimedFixes).toEqual([]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("official-claims read failed"),
+      expect.objectContaining({ message: "claims read failed" }),
+    );
+  });
+
+  it("keeps the evidence board when only the source-signal read fails", async () => {
+    // Source signals are lead context, not player evidence: their outage
+    // disables the lead fields on their own and says so in the logs.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "source_signals" ? failingQuery("permission denied for table source_signals") : okQuery(),
+    );
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.sourceLeadsUnavailable).toBe(true);
+    expect(data.publicFindings).toEqual([]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("source-signal read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("surfaces an unavailable lead register instead of composing a lead-only cluster from zero signals", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) => {
+      if (table === "source_signals") return failingQuery("permission denied for table source_signals");
+      if (table === "issue_clusters") {
+        return stubQuery({
+          data: [
+            {
+              id: "lead-only",
+              slug: "lead-only",
+              title: "Lead-only public issue",
+              category: "performance",
+              description: "Published from reviewed public sources.",
+              fix_status: "reported",
+              fix_claimed_at: null,
+              fix_claimed_patch_version: null,
+              admin_override: false,
+              lifecycle_reason: null,
+              confidence: "medium",
+              is_public: true,
+            },
+          ],
+          error: null,
+          count: 1,
+        });
+      }
+      return okQuery();
+    });
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.sourceLeadsUnavailable).toBe(true);
+    expect(data.publicLeadsUnavailable).toBe(true);
+    expect(data.topClusters[0]?.readout).toMatchObject({
+      state: "public_sources_unavailable",
+      label: "Source leads unavailable",
+      sentence: expect.stringContaining("missing, not zero"),
+    });
+    expect(needsFullIssueCard(data.topClusters[0])).toBe(true);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("source-signal read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the evidence board when scanner settings are unreadable", async () => {
+    // Scanner configuration is provider context, not player evidence.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation(() => okQuery());
+    mocks.controlState.mockRejectedValueOnce(new Error("automation_settings unavailable"));
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.scanner).toEqual({ paused: false, updatedAt: null });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("automation-settings read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the evidence board when only the pending moderation count fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "bug_reports" ? pendingFailingBugReports() : okQuery(),
+    );
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.pendingCount).toBeNull();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("pending-count read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the evidence board when the approved-excerpt read fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "approved_excerpts" ? failingQuery("permission denied for table approved_excerpts") : okQuery(),
+    );
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.verifiedReports).toBe(0);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("approved-excerpt read failed"),
+      expect.anything(),
+    );
+  });
+
+  it("does not fail the evidence lane when only scanner run history is unreadable", async () => {
+    // Scanner history is context: its outage degrades to "no recorded run"
+    // while validly read evidence keeps rendering.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "automation_runs" ? failingQuery("permission denied for table automation_runs") : okQuery(),
+    );
+    const { getDashboardData } = await import("@/lib/queries");
+    const data = await getDashboardData();
+
+    expect(data.evidenceUnavailable).toBe(false);
+    expect(data.latestAutomationRun).toBeNull();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("automation-run read failed"),
+      expect.anything(),
+    );
+  });
+});

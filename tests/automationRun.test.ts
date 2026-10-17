@@ -1,0 +1,9249 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
+import { externalIdHash } from "@/lib/crypto";
+import { matchesOrExpression } from "./fixtures/postgrestOr";
+
+const mocks = vi.hoisted(() => ({
+  realAccounting: false,
+  extractSignalWithOpenRouter: vi.fn(),
+  from: vi.fn(),
+  getClaimedFixesForCurrentPatch: vi.fn(),
+  readClaimedFixesForCurrentPatch: vi.fn(),
+  getCurrentPatchMetadata: vi.fn(),
+  mapClaimToClusterWithOpenRouter: vi.fn(),
+  rpc: vi.fn(),
+  recordClaimReviewProposals: vi.fn(),
+  reuseClaimMapping: vi.fn(),
+  getAutomationControlState: vi.fn(),
+  runAutomationMonitor: vi.fn(),
+  insertSkippedScheduledRun: vi.fn(),
+  syncOfficialPatchNote: vi.fn(),
+  tavilySearch: vi.fn(),
+  tavilyExtract: vi.fn(),
+  fetchSteamReviewBatch: vi.fn(),
+  fetchSteamForumTopics: vi.fn(),
+  fetchSteamCurrentPlayers: vi.fn(),
+  fetchCrimsonDesertPlatformContext: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+
+vi.mock("@/lib/supabase", () => ({
+  createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }),
+}));
+
+// Engine fixtures replace providers and database transactions. Real accounting
+// RPCs, crash boundaries and provider hooks have separate local/API proof.
+vi.mock("@/lib/automation/accounting.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/accounting.server")>();
+  return { ...actual,
+    admitScannerRun: async (_client: Parameters<typeof actual.admitScannerRun>[0], input: Parameters<typeof actual.admitScannerRun>[1]) => {
+      if (mocks.realAccounting) return (await vi.importActual<typeof import("@/lib/automation/accounting.server")>("@/lib/automation/accounting.server")).admitScannerRun(_client, input);
+      if (selectFailure?.table === "automation_runs" && !selectFailure.columns) {
+        throw new (await import("@/lib/automation/diagnostics")).ScannerOperationError("active_run_read", selectFailure);
+      }
+      const now = input.now ?? new Date();
+      if (tables.automation_runs.some((row) => row.status === "running" &&
+        Number(new Date(String(row.started_at))) >= now.getTime() - 15 * 60_000)) return { status: "already_running" };
+      for (const row of tables.automation_runs) if (row.status === "running") Object.assign(row, { status: "failed", errors: ["stale_running_run"] });
+      const { data, error } = await new FakeQuery("automation_runs").insert({ ...(input.attemptId ? { id: input.attemptId } : {}),
+        started_at: now.toISOString(), status: "running", mode: input.mode, budget_monthly_usd: input.budget.monthlyBudgetUsd,
+        budget_remaining_before_usd: input.budget.remainingMonthUsd, skips: input.patchBurst ? ["patch_burst_active"] : [], progress: input.progress }).select("id").single() as { data: Row; error: unknown };
+      if (error) throw new (await import("@/lib/automation/diagnostics")).ScannerOperationError("run_create", error);
+      return { status: "admitted", run: { id: data.id, token: "fixture-token", finalizationKey: "fixture-key", revision: 0,
+        guard: { deadlineAtMs: Date.now() + 220_000, begin: async () => ({ settle: async () => {} }) } } };
+    },
+    guardedProgress: async (_client: Parameters<typeof actual.guardedProgress>[0], run: Parameters<typeof actual.guardedProgress>[1], payload: Row, signal: AbortSignal, onRequest?: () => void) => {
+      if (mocks.realAccounting) return (await vi.importActual<typeof import("@/lib/automation/accounting.server")>("@/lib/automation/accounting.server")).guardedProgress(_client, run, { progress: payload.progress, intent: String(payload.intent) }, signal, onRequest);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        signal.throwIfAborted();
+        const result = await new FakeQuery("automation_runs").update(payload).eq("id", run.id).eq("status", "running").abortSignal() as { error: Record<string, unknown> | null; status?: number };
+        if (!result.error) return { status: "applied", httpStatus: result.status };
+        if (attempt === 0 && result.status === 504) continue;
+        throw { ...result.error, status: result.status };
+      }
+    },
+    guardedFinalization: async (_client: Parameters<typeof actual.guardedFinalization>[0], run: Parameters<typeof actual.guardedFinalization>[1], payload: Row) => {
+      if (mocks.realAccounting) return (await vi.importActual<typeof import("@/lib/automation/accounting.server")>("@/lib/automation/accounting.server")).guardedFinalization(_client, run, payload);
+      const response = await new FakeQuery("automation_runs").update(payload).eq("id", run.id).eq("status", "running") as { error: Record<string, unknown> | null };
+      if (response.error) {
+        if ((response.error as { code?: string }).code === "PGRST204" && String((response.error as { message: string }).message).includes("operator_rules_matched")) {
+          const legacy = { ...payload }; delete legacy.operator_rules_matched;
+          const retry = await new FakeQuery("automation_runs").update(legacy).eq("id", run.id) as { error: unknown };
+          if (retry.error) throw retry.error;
+        } else throw response.error;
+      }
+      return { status: "recorded", accountingState: "recorded", runStatus: payload.status,
+        estimatedCostUsd: payload.estimated_cost_usd, llmCostUsd: (payload.progress as Row).llmCostUsd,
+        tavilyCredits: payload.search_queries_used, llmCalls: payload.llm_calls_used };
+    },
+  };
+});
+vi.mock("@/lib/automation/mappingCache.server", () => ({
+  reuseClaimMapping: mocks.reuseClaimMapping,
+}));
+vi.mock("@/lib/automation/budgetState.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/budgetState.server")>();
+  return { ...actual, loadMonthSpend: (client: Parameters<typeof actual.loadMonthSpend>[0], now: Date) =>
+    actual.loadMonthSpend({ from: client.from.bind(client), rpc: async () => ({ data: null,
+      error: { code: "PGRST202", message: "Could not find public.scanner_budget_summary" } }) } as unknown as typeof client, now) };
+});
+
+
+vi.mock("@/lib/automation/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/search")>();
+  return {
+    ...actual,
+    tavilySearch: mocks.tavilySearch,
+    tavilyExtract: mocks.tavilyExtract,
+  };
+});
+
+vi.mock("@/lib/automation/extract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/extract")>();
+  return {
+    ...actual,
+    extractSignalWithOpenRouter: mocks.extractSignalWithOpenRouter,
+  };
+});
+
+vi.mock("@/lib/automation/claimMapping", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/claimMapping")>();
+  return {
+    ...actual,
+    mapClaimToClusterWithOpenRouter: mocks.mapClaimToClusterWithOpenRouter,
+  };
+});
+
+vi.mock("@/lib/automation/steam", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/steam")>();
+  return {
+    ...actual,
+    fetchSteamReviewBatch: mocks.fetchSteamReviewBatch,
+    fetchSteamCurrentPlayers: mocks.fetchSteamCurrentPlayers,
+  };
+});
+
+vi.mock("@/lib/automation/steamForum", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/automation/steamForum")>();
+  return { ...actual, fetchSteamForumTopics: mocks.fetchSteamForumTopics };
+});
+
+vi.mock("@/lib/platform/igdb", () => ({
+  fetchCrimsonDesertPlatformContext: mocks.fetchCrimsonDesertPlatformContext,
+}));
+
+vi.mock("@/lib/officialPatch.server", () => ({
+  CURRENT_PATCH_TAG: "current-patch",
+  PUBLIC_DASHBOARD_TAG: "public-dashboard",
+  PUBLIC_ISSUES_TAG: "public-issues",
+  getClaimedFixesForCurrentPatch: mocks.getClaimedFixesForCurrentPatch,
+  readClaimedFixesForCurrentPatch: mocks.readClaimedFixesForCurrentPatch,
+  getCurrentPatchMetadata: mocks.getCurrentPatchMetadata,
+  syncOfficialPatchNote: mocks.syncOfficialPatchNote,
+}));
+
+vi.mock("@/lib/claimReview", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/claimReview")>();
+  return {
+    ...actual,
+    recordClaimReviewProposals: mocks.recordClaimReviewProposals,
+  };
+});
+
+type Row = Record<string, unknown>;
+type TableName =
+  | "automation_runs"
+  | "automation_rejected_candidates"
+  | "scanner_feedback_rules"
+  | "official_patch_notes"
+  | "source_signals"
+  | "steam_review_receipts"
+  | "steam_pulse_snapshots"
+  | "steam_player_snapshots"
+  | "platform_context_snapshots"
+  | "patch_observations"
+  | "signal_observation_events"
+  | "issue_clusters"
+  | "issue_checkins"
+  | "bug_reports"
+  | "approved_excerpts"
+  | "automation_settings";
+type Filter =
+  | { type: "eq"; column: string; value: unknown }
+  | { type: "neq"; column: string; value: unknown }
+  | { type: "is"; column: string; value: unknown }
+  | { type: "gte"; column: string; value: unknown }
+  | { type: "gt"; column: string; value: unknown }
+  | { type: "lt"; column: string; value: unknown }
+  | { type: "in"; column: string; value: unknown[] }
+  | { type: "not"; column: string; operator: string; value: unknown }
+  | { type: "or"; expression: string };
+
+const tables: Record<TableName, Row[]> = {
+  automation_runs: [],
+  automation_rejected_candidates: [],
+  scanner_feedback_rules: [],
+  official_patch_notes: [],
+  source_signals: [],
+  steam_review_receipts: [],
+  steam_pulse_snapshots: [],
+  steam_player_snapshots: [],
+  platform_context_snapshots: [],
+  patch_observations: [],
+  signal_observation_events: [],
+  issue_clusters: [],
+  issue_checkins: [],
+  bug_reports: [],
+  approved_excerpts: [],
+  automation_settings: [],
+};
+const mutations: { table: TableName; type: "insert" | "update" | "upsert" | "delete"; row: unknown; filters?: Filter[] }[] = [];
+const updateAttempts: { table: TableName; row: Row; filters: Filter[] }[] = [];
+let idSeq = 1;
+let openRouterAttempts = 0;
+let aiSettingsFixture: Row | null = null;
+const aiHealthEvents: Row[] = [];
+let selectFailure: { table: TableName; message: string; code?: string; columns?: string } | null = null;
+let insertFailure: { table: TableName; message: string; code?: string; column?: string } | null = null;
+let updateFailure: { table: TableName; message: string; code?: string; status?: number; column?: string; once?: boolean; runningOnly?: boolean } | null = null;
+let deleteFailure: { table: TableName; message: string; throws?: boolean } | null = null;
+let beforeUpdate: ((table: TableName, patch: Row, filters: Filter[]) => void) | null = null;
+let beforeSelect: ((table: TableName) => void) | null = null;
+let beforeVisibilityRefreshRpc: ((args: Record<string, unknown>) => void) | null = null;
+let visibilityRefreshFailure: string | null = null;
+let issueClusterInsertRace: { slug: string; row: Row } | null = null;
+let sourceSignalInsertFailure: { title?: string; externalHash?: string; message: string } | null = null;
+let observationEventInsertFailure: string | null = null;
+let honorSourceSignalProjection = false;
+let honorIssueClusterProjection = false;
+/**
+ * Stands in for the hosted PostgREST row cap: the API can return fewer rows
+ * than the requested limit, so a reader that stops on a short page silently
+ * drops everything past the cap.
+ */
+let hostedRowCap: { table: TableName; rows: number } | null = null;
+
+const officialPatchFixture = {
+  version: "1.13.00",
+  title: "Patch Notes Version 1.13.00",
+  officialUrl: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+  publishedAt: "2026-07-03T03:00:00.000Z",
+  summary: "Official test patch metadata.",
+  source: "official" as const,
+};
+
+function resetDb(seed: Partial<Record<TableName, Row[]>> = {}) {
+  for (const table of Object.keys(tables) as TableName[]) {
+    tables[table] = seed[table]?.map((row) => ({ ...row })) ?? [];
+  }
+  mutations.length = 0;
+  updateAttempts.length = 0;
+  idSeq = 1;
+  openRouterAttempts = 0;
+  aiSettingsFixture = null;
+  aiHealthEvents.length = 0;
+  selectFailure = null;
+  insertFailure = null;
+  updateFailure = null;
+  deleteFailure = null;
+  beforeUpdate = null;
+  beforeSelect = null;
+  beforeVisibilityRefreshRpc = null;
+  visibilityRefreshFailure = null;
+  issueClusterInsertRace = null;
+  sourceSignalInsertFailure = null;
+  observationEventInsertFailure = null;
+  honorSourceSignalProjection = false;
+  honorIssueClusterProjection = false;
+  hostedRowCap = null;
+}
+
+function nextId(table: TableName) {
+  return `${table}-${idSeq++}`;
+}
+
+function likeToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*");
+  return new RegExp(`^${escaped}$`);
+}
+
+function passesFilter(row: Row, filter: Filter): boolean {
+  if (filter.type === "or") return matchesOrExpression(row, filter.expression);
+  const value = row[filter.column];
+  if (filter.type === "eq") return value === filter.value;
+  if (filter.type === "neq") return value !== filter.value;
+  if (filter.type === "is" && filter.value === null) return value == null;
+  if (filter.type === "is") return value === filter.value;
+  if (filter.type === "in") return filter.value.includes(value);
+  if (filter.type === "gte") return String(value) >= String(filter.value);
+  if (filter.type === "gt") return String(value) > String(filter.value);
+  if (filter.type === "lt") return String(value) < String(filter.value);
+  if (filter.type === "not" && filter.operator === "is" && filter.value === null) return value !== null;
+  if (filter.type === "not" && filter.operator === "like") return !likeToRegExp(String(filter.value)).test(String(value ?? ""));
+  throw new Error(`unsupported filter ${filter.type}`);
+}
+
+class FakeQuery {
+  private filters: Filter[] = [];
+  private insertRows: Row[] | null = null;
+  private isDelete = false;
+  private limitCount: number | null = null;
+  // A list, not a single key: the feedback-rule walk orders by created_at then
+  // id, and collapsing that to the last .order() call would let a tied
+  // timestamp produce a cursor that reads the same rows twice.
+  private orderBy: { column: string; ascending: boolean }[] = [];
+  private patch: Row | null = null;
+  private rangeBounds: { from: number; to: number } | null = null;
+  private selectedColumns: string | undefined;
+  private selectOptions: { count?: "exact"; head?: boolean } | undefined;
+  private singleResult = false;
+  private upsertRows: Row[] | null = null;
+  private upsertConflict = "id";
+  private ignoreDuplicates = false;
+
+  constructor(private readonly table: TableName) {}
+
+  select(columns?: string, options?: { count?: "exact"; head?: boolean }) {
+    this.selectedColumns = columns;
+    this.selectOptions = options;
+    return this;
+  }
+
+  insert(row: Row | Row[]) {
+    this.insertRows = Array.isArray(row) ? row : [row];
+    return this;
+  }
+
+  update(patch: Row) {
+    this.patch = patch;
+    return this;
+  }
+
+  delete() {
+    this.isDelete = true;
+    return this;
+  }
+
+  upsert(row: Row | Row[], options?: { onConflict?: string; ignoreDuplicates?: boolean }) {
+    this.upsertRows = Array.isArray(row) ? row : [row];
+    this.upsertConflict = options?.onConflict ?? "id";
+    this.ignoreDuplicates = options?.ignoreDuplicates ?? false;
+    return this;
+  }
+
+  eq(column: string, value: unknown) {
+    this.filters.push({ type: "eq", column, value });
+    return this;
+  }
+
+  neq(column: string, value: unknown) {
+    this.filters.push({ type: "neq", column, value });
+    return this;
+  }
+
+  is(column: string, value: unknown) {
+    this.filters.push({ type: "is", column, value });
+    return this;
+  }
+
+  gte(column: string, value: unknown) {
+    this.filters.push({ type: "gte", column, value });
+    return this;
+  }
+
+  gt(column: string, value: unknown) {
+    this.filters.push({ type: "gt", column, value });
+    return this;
+  }
+
+  lt(column: string, value: unknown) {
+    this.filters.push({ type: "lt", column, value });
+    return this;
+  }
+
+  in(column: string, value: unknown[]) {
+    this.filters.push({ type: "in", column, value });
+    return this;
+  }
+
+  not(column: string, operator: string, value: unknown) {
+    this.filters.push({ type: "not", column, operator, value });
+    return this;
+  }
+
+  or(expression: string) {
+    this.filters.push({ type: "or", expression });
+    return this;
+  }
+
+  order(column: string, options?: { ascending?: boolean }) {
+    this.orderBy.push({ column, ascending: options?.ascending ?? true });
+    return this;
+  }
+
+  limit(count: number) {
+    this.limitCount = count;
+    return this;
+  }
+
+  range(from: number, to: number) {
+    this.rangeBounds = { from, to };
+    return this;
+  }
+
+  single() {
+    this.singleResult = true;
+    return this;
+  }
+
+  abortSignal() {
+    return this;
+  }
+
+  then<TResult1 = unknown, TResult2 = never>(
+    onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ) {
+    return this.execute().then(onfulfilled, onrejected);
+  }
+
+  private async execute() {
+    if (this.insertRows) return this.executeInsert();
+    if (this.upsertRows) return this.executeUpsert();
+    if (this.isDelete) return this.executeDelete();
+    if (this.patch) return this.executeUpdate();
+    return this.executeSelect();
+  }
+
+  private executeDelete() {
+    if (deleteFailure?.table === this.table) {
+      if (deleteFailure.throws) throw new Error(deleteFailure.message);
+      return { data: null, error: { message: deleteFailure.message } };
+    }
+    const matching = this.filteredRows();
+    tables[this.table] = tables[this.table].filter((row) => !matching.includes(row));
+    mutations.push({ table: this.table, type: "delete", row: { filters: this.filters } });
+    return { data: matching, error: null };
+  }
+
+  private executeInsert() {
+    if (this.table === "issue_clusters" && issueClusterInsertRace) {
+      const row = this.insertRows![0];
+      if (row?.slug === issueClusterInsertRace.slug) {
+        const race = issueClusterInsertRace;
+        issueClusterInsertRace = null;
+        tables.issue_clusters.push({
+          id: race.row.id ?? nextId(this.table),
+          created_at: race.row.created_at ?? "2026-07-05T12:00:00.000Z",
+          ...race.row,
+        });
+        return {
+          data: null,
+          error: {
+            code: "23505",
+            constraint: "issue_clusters_slug_key",
+            message: `duplicate key value violates unique constraint "issue_clusters_slug_key"`,
+          },
+        };
+      }
+    }
+    if (
+      this.table === "source_signals" &&
+      sourceSignalInsertFailure &&
+      this.insertRows!.some(
+        (row) =>
+          (sourceSignalInsertFailure!.title !== undefined && row.title === sourceSignalInsertFailure!.title) ||
+          (sourceSignalInsertFailure!.externalHash !== undefined &&
+            row.external_id_hash === sourceSignalInsertFailure!.externalHash),
+      )
+    ) {
+      return { data: null, error: { message: sourceSignalInsertFailure.message } };
+    }
+    if (this.table === "signal_observation_events" && observationEventInsertFailure) {
+      return { data: null, error: { message: observationEventInsertFailure } };
+    }
+    if (
+      insertFailure?.table === this.table &&
+      (!insertFailure.column || this.insertRows!.some((row) => insertFailure!.column! in row))
+    ) {
+      return { data: null, error: { code: insertFailure.code, message: insertFailure.message } };
+    }
+    const inserted = this.insertRows!.map((row) => {
+      const next = {
+        id: row.id ?? nextId(this.table),
+        created_at: row.created_at ?? "2026-07-05T12:00:00.000Z",
+        started_at: this.table === "automation_runs" ? (row.started_at ?? "2026-07-05T12:00:00.000Z") : row.started_at,
+        ...row,
+      };
+      tables[this.table].push(next);
+      // Snapshot at insert time: `next` is also the live row in `tables`, and later
+      // updates mutate it in place, so the mutation log would otherwise reflect the
+      // row's final state instead of what was actually inserted.
+      mutations.push({ table: this.table, type: "insert", row: { ...next } });
+      return next;
+    });
+    return { data: this.singleResult ? inserted[0] : inserted, error: null };
+  }
+
+  private executeUpsert() {
+    if (insertFailure?.table === this.table && (!insertFailure.column || this.upsertRows!.some(row => insertFailure!.column! in row))) {
+      return { data: null, error: { code: insertFailure.code, message: insertFailure.message } };
+    }
+    const rows = this.upsertRows!.map((row) => {
+      const existing = tables[this.table].find((item) => item[this.upsertConflict] === row[this.upsertConflict]);
+      if (existing) {
+        if (this.ignoreDuplicates) return existing;
+        Object.assign(existing, row);
+        mutations.push({ table: this.table, type: "upsert", row: { ...existing } });
+        return existing;
+      }
+
+      const inserted = { id: row.id ?? nextId(this.table), created_at: "2026-07-05T12:00:00.000Z", ...row };
+      tables[this.table].push(inserted);
+      mutations.push({ table: this.table, type: "upsert", row: inserted });
+      return inserted;
+    });
+    return { data: this.singleResult ? rows[0] : rows, error: null };
+  }
+
+  private executeUpdate() {
+    updateAttempts.push({ table: this.table, row: this.patch!, filters: [...this.filters] });
+    if (
+      updateFailure?.table === this.table &&
+      (!updateFailure.column || updateFailure.column in this.patch!) &&
+      (!updateFailure.runningOnly || (!this.patch!.finished_at && this.filters.some((filter) => filter.type === "eq" && filter.column === "status" && filter.value === "running")))
+    ) {
+      const failure = updateFailure;
+      if (failure.once) updateFailure = null;
+      return { data: null, status: failure.status, error: { code: failure.code, message: failure.message } };
+    }
+    beforeUpdate?.(this.table, this.patch!, [...this.filters]);
+    const rows = this.filteredRows();
+    for (const row of rows) Object.assign(row, this.patch);
+    mutations.push({ table: this.table, type: "update", row: this.patch, filters: [...this.filters] });
+    return { data: rows, error: null };
+  }
+
+  private executeSelect() {
+    beforeSelect?.(this.table);
+    // A failure with `columns` set targets only queries whose select string
+    // contains it (e.g. loadMonthSpend's "estimated_cost_usd"). Substring match,
+    // not equality, so adding a column to the production select can't silently
+    // turn the injection into a no-op. Without `columns`, every select on the
+    // table fails.
+    if (
+      selectFailure?.table === this.table &&
+      (!selectFailure.columns || (this.selectedColumns ?? "").includes(selectFailure.columns))
+    ) {
+      return {
+        data: null,
+        count: null,
+        error: {
+          ...(selectFailure.code ? { code: selectFailure.code } : {}),
+          message: selectFailure.message,
+        },
+      };
+    }
+    let rows = this.filteredRows().map((row) => ({ ...row }));
+    if (
+      this.selectedColumns &&
+      ((this.table === "source_signals" && honorSourceSignalProjection) ||
+        (this.table === "issue_clusters" && honorIssueClusterProjection))
+    ) {
+      const selected = this.selectedColumns.split(",").map((column) => column.trim());
+      rows = rows.map((row) => Object.fromEntries(selected.map((column) => [column, row[column]])));
+    }
+    if (this.orderBy.length > 0) {
+      rows = rows.sort((a, b) => {
+        for (const { column, ascending } of this.orderBy) {
+          const left = String(a[column] ?? "");
+          const right = String(b[column] ?? "");
+          const comparison = ascending ? left.localeCompare(right) : right.localeCompare(left);
+          if (comparison !== 0) return comparison;
+        }
+        return 0;
+      });
+    }
+    if (this.limitCount !== null) rows = rows.slice(0, this.limitCount);
+    if (this.rangeBounds !== null) rows = rows.slice(this.rangeBounds.from, this.rangeBounds.to + 1);
+    if (hostedRowCap?.table === this.table) rows = rows.slice(0, hostedRowCap.rows);
+    if (this.selectOptions?.head) return { data: null, count: rows.length, error: null };
+    return { data: this.singleResult ? (rows[0] ?? null) : rows, count: this.selectOptions?.count ? rows.length : null, error: null };
+  }
+
+  private filteredRows() {
+    return tables[this.table].filter((row) => this.filters.every((filter) => passesFilter(row, filter)));
+  }
+}
+
+function sourceSignalRows() {
+  return tables.source_signals;
+}
+
+function rejectedCandidateRows() {
+  return tables.automation_rejected_candidates;
+}
+
+async function importRunner() {
+  vi.doUnmock("@/lib/automation/run");
+  vi.resetModules();
+  return import("@/lib/automation/run");
+}
+
+function configureProviders() {
+  mocks.from.mockImplementation((table: TableName | "ai_settings_state" | "ai_connections" | "ai_settings_events") => {
+    if (table === "ai_settings_state") {
+      const query = { select: () => query, eq: () => query, limit: async () => aiSettingsFixture ?
+        { data: [{ revision: 1, configuration: aiSettingsFixture }], error: null } : { data: null,
+          error: { code: "PGRST205", message: "Could not find the table 'public.ai_settings_state' in the schema cache" } } };
+      return query;
+    }
+    if (table === "ai_connections") {
+      const query = { select: () => query, eq: () => query, limit: async () => ({ data: [], error: null }) };
+      return query;
+    }
+    if (table === "ai_settings_events") return { insert: async (row: Row) => { aiHealthEvents.push(row); return { error: null }; } };
+    return new FakeQuery(table);
+  });
+  mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+    if (name !== "apply_cluster_visibility_refresh") throw new Error(`unexpected rpc ${name}`);
+    if (visibilityRefreshFailure) return { data: null, error: { message: visibilityRefreshFailure } };
+    beforeVisibilityRefreshRpc?.(args);
+
+    const cluster = tables.issue_clusters.find((row) => row.id === args.p_cluster_id);
+    if (!cluster) return { data: null, error: { message: "issue cluster not found" } };
+    if (Number(cluster.visibility_revision ?? 0) !== Number(args.p_expected_revision)) {
+      return { data: false, error: null };
+    }
+
+    const signalPatches = (args.p_signal_patches ?? []) as Row[];
+    for (const signalPatch of signalPatches) {
+      const signal = tables.source_signals.find(
+        (row) => row.id === signalPatch.id && row.cluster_id === args.p_cluster_id,
+      );
+      if (!signal) return { data: null, error: { message: "source signal not found in cluster" } };
+      Object.assign(signal, signalPatch);
+    }
+
+    const clusterPatch = args.p_cluster_patch as Row;
+    if (cluster.admin_visibility_override) {
+      // A forced state controls only the effective flag. The atomic refresh still
+      // advances the engine-owned baseline that Auto will restore later.
+      cluster.visibility_restore_auto_public = clusterPatch.auto_public;
+      cluster.visibility_restore_is_public = clusterPatch.is_public;
+    }
+    const effectiveIsPublic =
+      cluster.admin_visibility_override === "force_hidden"
+        ? false
+        : cluster.admin_visibility_override === "force_public"
+          ? true
+          : clusterPatch.is_public;
+    Object.assign(cluster, clusterPatch, {
+      is_public: effectiveIsPublic,
+      visibility_revision: Number(cluster.visibility_revision ?? 0) + 1,
+    });
+    return { data: true, error: null };
+  });
+  mocks.getCurrentPatchMetadata.mockResolvedValue(officialPatchFixture);
+  mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: officialPatchFixture });
+  mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+  mocks.readClaimedFixesForCurrentPatch.mockImplementation(async () => {
+    const fixes = await mocks.getClaimedFixesForCurrentPatch();
+    return { fixes, totalClaimedFixes: fixes.length };
+  });
+  mocks.recordClaimReviewProposals.mockResolvedValue({ status: "unavailable" });
+  mocks.reuseClaimMapping.mockImplementation((_client: unknown, _claim: unknown, _clusters: unknown, _patch: unknown, _options: unknown, map: () => Promise<unknown>) => map());
+  mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+    matchKind: "none",
+    clusterId: null,
+    clusterSlug: null,
+    reason: "No match.",
+    llmCallsUsed: 0,
+    llmCostUsd: 0,
+    extractionModel: null,
+  });
+  mocks.tavilySearch.mockImplementation(async () => {
+    const firstResult = mocks.tavilySearch.mock.calls.length === 1;
+    return [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: firstResult ? "https://reddit.com/r/CrimsonDesert/comments/fps/report" : "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: firstResult ? "reddit.com" : "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ];
+  });
+  // Recon is off by default: no full-page text unless a test opts in. Existing
+  // borderline behavior (extract on the thin snippet) must be unchanged.
+  mocks.tavilyExtract.mockResolvedValue(null);
+  mocks.fetchSteamReviewBatch.mockResolvedValue({ reviews: [], totals: { totalReviews: 0, totalPositive: 0, totalNegative: 0 }, cursor: null });
+  mocks.fetchSteamForumTopics.mockResolvedValue([]);
+  mocks.fetchCrimsonDesertPlatformContext.mockResolvedValue({
+    capturedAt: "2026-07-05T12:00:00.000Z",
+    igdb: { status: "absent", data: null, error: null },
+    twitch: { status: "absent", data: null, error: null },
+  });
+  mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
+    const text = `${candidate.title} ${candidate.snippet}`;
+    const isCrash = /map crash/i.test(text);
+    const canUseOpenRouter = options.llmCallsRemaining > 0 && process.env.OPENROUTER_API_KEY;
+    if (canUseOpenRouter) openRouterAttempts += 1;
+
+    return {
+      issueTitle: isCrash ? "Map crash on PS5" : "FPS regression since 1.13",
+      category: isCrash ? "crash_startup" : "performance",
+      platform: isCrash ? "ps5" : "pc_steam",
+      confidence: canUseOpenRouter ? "high" : "medium",
+      summary: isCrash ? "Map crash on PS5." : "Players report FPS drops on Steam.",
+      clusterAssignment: "unsure",
+      clusterReason: "The default test extractor does not make a semantic assignment.",
+      clusterSlug: null,
+      extractionProvider: canUseOpenRouter ? "openrouter" : "deterministic",
+      extractionModel: canUseOpenRouter ? "deepseek/deepseek-v4-flash" : null,
+      llmCallsUsed: canUseOpenRouter ? 1 : 0,
+      llmCostUsd: 0,
+    };
+  });
+  mocks.getAutomationControlState.mockResolvedValue({
+    paused: false,
+    minIntervalMinutes: 60,
+    scheduledSearchCreditsPerRun: 1,
+    monthlyTavilyCreditCap: 900,
+    monthlyLlmUsdCap: 2,
+    modelPreset: "gpt_5_6_luna",
+    updatedAt: null,
+  });
+}
+
+beforeEach(() => {
+  mocks.realAccounting = false;
+  vi.clearAllMocks();
+  resetDb();
+  configureProviders();
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "https://openrouter.ai/api/v1/key") throw new Error(`unexpected fetch: ${String(input)}`);
+    return Response.json({
+      data: { limit: 1, limit_remaining: 1, limit_reset: "monthly", usage_monthly: 0 },
+    });
+  }));
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "service";
+  process.env.TAVILY_API_KEY = "tavily-key";
+  process.env.AUTOMATION_BUDGET_USD_MONTHLY = "2";
+  process.env.OPENROUTER_API_KEY = "openrouter-key";
+  process.env.OPENROUTER_AUTOMATION_MODEL = "deepseek/deepseek-v4-flash";
+  process.env.OPENROUTER_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+  delete process.env.CRON_SECRET;
+  delete process.env.STEAM_PULSE_ENABLED;
+  delete process.env.STEAM_FORUM_ENABLED;
+  delete process.env.STEAM_PLAYER_COUNTS_ENABLED;
+  delete process.env.TWITCH_CLIENT_ID;
+  delete process.env.TWITCH_CLIENT_SECRET;
+  delete process.env.VERCEL_ENV;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.doUnmock("@/lib/automation/run");
+});
+
+describe("runAutomationMonitor", () => {
+  it.each([
+    { mode: "manual", failed: false }, { mode: "rescue", failed: false }, { mode: "dry_run", failed: false }, { mode: "manual", failed: true },
+    { mode: "manual", failed: false, budgetReadFails: true }, { mode: "rescue", failed: false, budgetReadFails: true },
+    { mode: "manual", failed: false, contextLimited: true },
+  ] as const)("uses the managed profile and closure credential for %j", async (scenario) => {
+    const { mode, failed } = scenario;
+    const budgetReadFails = "budgetReadFails" in scenario;
+    const contextLimited = "contextLimited" in scenario;
+    aiSettingsFixture = {
+      active: { provider: "openrouter", modelId: "fixture/managed", reasoning: "default", retention: "standard", maxOutputTokens: 1024, connectionVersion: 0,
+        metadata: { provider: "openrouter", id: "fixture/managed", name: "Fixture", contextWindow: contextLimited ? 1024 : 32768, maxOutputTokens: 8192,
+          inputModalities: ["text"], outputModalities: ["text"], supportedParameters: ["max_tokens", "response_format", "structured_outputs"],
+          reasoning: false, reasoningEfforts: null, reasoningRequired: null, structuredOutput: true, inputUsdPerMillion: 0.2, outputUsdPerMillion: 1.2,
+          pricingSource: "provider", pricingSupported: true, pricingIssue: null, fetchedAt: "2026-07-05T12:00:00.000Z" } },
+      previous: null, backup: null, policy: { monthlyUsd: 50, requestUsd: 0.01, recovery: "next_scan" },
+    };
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0.000001";
+    if (budgetReadFails) selectFailure = { table: "automation_runs", columns: "estimated_cost_usd", message: "fixture budget read failed" };
+    const source = { title: "Crimson Desert patch 1.13.00 FPS regression", url: "https://reddit.com/r/CrimsonDesert/comments/managed/report",
+      snippet: "Players report severe frame-rate drops on Steam after patch 1.13.00.", sourceDomain: "reddit.com", observedAt: "2026-07-05T12:00:00Z" };
+    mocks.tavilySearch.mockResolvedValue(failed ? [source, { ...source,
+      title: "Crimson Desert patch 1.13.00 map crash", url: "https://reddit.com/r/CrimsonDesert/comments/managed/map",
+      snippet: "Players report crashes when opening the map after patch 1.13.00 on Steam." }] : [source]);
+    const requests: RequestInit[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url, init: RequestInit) => {
+      expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
+      expect(init.method).toBe("POST");
+      requests.push(init);
+      if (failed) return Response.json({ usage: { cost: 0 } }, { status: 503 });
+      return Response.json({ usage: { cost: 0.001 }, choices: [{ message: { content: JSON.stringify({ issueTitle: "FPS regression since 1.13",
+        category: "performance", platform: "pc_steam", confidence: "high", summary: "Crimson Desert has frame-rate drops after patch 1.13.00.",
+        clusterAssignment: "unsure", clusterReason: "Fixture requires review", clusterSlug: null }) } }] });
+    }));
+    const runner = await importRunner();
+    const actual = await vi.importActual<typeof import("@/lib/automation/extract")>("@/lib/automation/extract");
+    mocks.extractSignalWithOpenRouter.mockImplementation(actual.extractSignalWithOpenRouter);
+    if (mode === "rescue") await runner.rescueCandidateSignal({ from: mocks.from, rpc: mocks.rpc } as unknown as Parameters<typeof runner.rescueCandidateSignal>[0], source);
+    else await runner.runAutomationMonitor({ mode, now: new Date("2026-07-05T12:00:00Z") });
+    if (budgetReadFails || contextLimited) {
+      expect(requests).toHaveLength(0);
+      expect(tables.automation_runs[0].budget_monthly_usd).toBe(50);
+      expect(tables.automation_runs[0].llm_calls_used).toBe(0);
+      expect(aiHealthEvents).toHaveLength(0);
+      if (budgetReadFails) expect(tables.automation_runs[0].budget_remaining_before_usd).toBe(0);
+      if (contextLimited) expect(tables.automation_runs[0].skips).toContain("openrouter_context_limit");
+      return;
+    }
+    expect(requests).toHaveLength(1);
+    expect(requests[0].headers).toMatchObject({ authorization: "Bearer openrouter-key" });
+    expect(JSON.parse(requests[0].body as string)).toMatchObject({ model: "fixture/managed", max_tokens: 1024 });
+    expect(tables.automation_runs[0].budget_monthly_usd).toBe(50);
+    expect(tables.automation_runs[0].progress).toMatchObject({ modelPreset: null });
+    expect(JSON.stringify({ tables, mutations, aiHealthEvents })).not.toContain("openrouter-key");
+    expect(aiHealthEvents).toHaveLength(mode === "dry_run" ? 0 : 1);
+    if (failed) {
+      expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(2);
+      expect(aiHealthEvents[0].action).toBe("ai_request_failure");
+      expect(tables.automation_runs[0].llm_calls_used).toBe(1);
+    }
+  });
+  it.each([false, true])("assembles real accounting and provider hooks with the engine (settlement ACK lost: %s)", async (lostAck) => {
+    mocks.realAccounting = true;
+    mocks.tavilySearch.mockResolvedValue([{ title: "Crimson Desert patch 1.13.00 FPS regression", url: "https://reddit.com/r/CrimsonDesert/comments/fps/report",
+      snippet: "Players report severe frame-rate drops on Steam after patch 1.13.00.", sourceDomain: "reddit.com", observedAt: "2026-07-05T12:00:00Z" }]);
+    const originalRpc = mocks.rpc.getMockImplementation()!;
+    const operations = new Map<string, { reserved: number; actual: number | null }>();
+    mocks.rpc.mockImplementation((name: string, args: Record<string, unknown>) => {
+      const response = (async () => {
+      if (name === "scanner_admit_run") {
+        await new FakeQuery("automation_runs").insert({ id: args.p_run_id, status: "running", mode: "manual",
+          started_at: "2026-07-05T12:00:00Z", skips: [], errors: [], progress: args.p_progress });
+        return { data: { status: "admitted" }, error: null };
+      }
+      if (name === "scanner_reserve_operation") {
+        operations.set(String(args.p_operation_id), { reserved: Number(args.p_llm_usd), actual: null });
+        return { data: { status: "reserved", state: "reserved" }, error: null };
+      }
+      if (name === "scanner_settle_operation") {
+        if (lostAck) return { data: null, error: { code: "PGRST000", message: "fixture gateway timeout" }, status: 504 };
+        operations.get(String(args.p_operation_id))!.actual = Number(args.p_llm_usd);
+        return { data: { status: "settled", anomalous: false }, error: null };
+      }
+      if (name === "scanner_write_progress") return { data: { status: "applied" }, error: null };
+      if (name === "scanner_finalize_run") {
+        const payload = args.p_result as Row;
+        const llmCostUsd = [...operations.values()].reduce((sum, operation) => sum + (operation.actual ?? operation.reserved), 0);
+        Object.assign(tables.automation_runs.find((row) => row.id === args.p_run_id)!, payload);
+        return { data: { status: "recorded", runStatus: payload.status, accountingState: lostAck ? "unresolved" : "recorded",
+          estimatedCostUsd: llmCostUsd, llmCostUsd, tavilyCredits: 0, llmCalls: operations.size,
+          llmCostState: lostAck ? "reserved_unknown" : "verified" }, error: null };
+      }
+        return originalRpc(name, args);
+      })();
+      // Match PostgREST's awaitable query builder, including signal attachment.
+      return Object.assign(response, { abortSignal: () => response });
+    });
+    let paidRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_input, init?: RequestInit) => {
+      if (init?.method !== "POST") return Response.json({ data: { limit: 1, limit_remaining: 1, limit_reset: "monthly", usage_monthly: 0 } });
+      expect(operations.size).toBe(1);
+      paidRequests++;
+      return Response.json({ usage: { cost: 0.001 }, choices: [{ message: { content: JSON.stringify({ issueTitle: "FPS regression since 1.13",
+        category: "performance", platform: "pc_steam", confidence: "high", summary: "Crimson Desert has severe frame-rate drops after patch 1.13.00.",
+        clusterAssignment: "unsure", clusterReason: "Fixture requires review", clusterSlug: null }) } }] });
+    }));
+    const { runAutomationMonitor } = await importRunner();
+    const actualExtraction = await vi.importActual<typeof import("@/lib/automation/extract")>("@/lib/automation/extract");
+    mocks.extractSignalWithOpenRouter.mockImplementation(actualExtraction.extractSignalWithOpenRouter);
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00Z") });
+    expect(paidRequests).toBe(1);
+    expect(result.persistence).toBe("recorded");
+    expect(result.llmSucceeded).toBe(1);
+    expect(result.llmCallsUsed).toBe(1);
+    expect(result.progressWriteFailures ?? []).toEqual([]);
+    if (lostAck) {
+      expect(result.status).toBe("failed");
+      expect(result.accountingState).toBe("unresolved");
+      expect(result.diagnostics).toContainEqual({ stage: "paid_accounting", code: "settlement_unacknowledged" });
+      expect(result.openRouterTrace?.attempts.some((attempt) => attempt.operation === "extraction" && attempt.outcome === "success")).toBe(true);
+      expect(tables.automation_runs[0].skips).toContain("settlement_unacknowledged");
+    } else {
+      expect(result.status).toBe("success");
+      expect(result.accountingState).toBe("recorded");
+      expect(result.llmCostUsd).toBe(0.001);
+    }
+  });
+  it.each(["unknown", "1.13.01"])("refuses shared visibility refreshes against fallback patch %s", async (version) => {
+    const signalBase = {
+      cluster_id: "cluster-provenance",
+      source: "web_search",
+      source_type: "web_search",
+      category: "performance",
+      confidence: "high",
+      observed_at: "2026-07-05T11:00:00.000Z",
+      source_published_at: "2026-07-05T11:00:00.000Z",
+      extracted_facts: {},
+    };
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-provenance", category: "performance", is_public: true,
+        auto_public: true, admin_visibility_override: null, visibility_revision: 4,
+        signal_count: 2, public_signal_count: 1,
+      }],
+      bug_reports: [{
+        id: "report-provenance", cluster_id: "cluster-provenance", category: "performance",
+        platform: "pc_steam", issue_title: "Crimson Desert frame-rate drops", moderation_status: "approved", patch_version: "1.13.00",
+      }],
+      source_signals: [
+        {
+          ...signalBase, id: "versioned", public_status: "public",
+          source_url: "https://reddit.com/r/CrimsonDesert/comments/versioned", source_domain: "reddit.com",
+          title: "Crimson Desert patch 1.13.00 stutter", summary: "Frame-rate drops after patch 1.13.00.",
+        },
+        {
+          ...signalBase, id: "dated", public_status: "private",
+          source_url: "https://steamcommunity.com/app/3321460/discussions/0/dated", source_domain: "steamcommunity.com",
+          title: "Crimson Desert stutters in combat", summary: "Frame-rate drops during fights.",
+        },
+      ],
+    });
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ ...officialPatchFixture, version, source: "fallback", publishedAt: null });
+    const before = structuredClone({ clusters: tables.issue_clusters, signals: tables.source_signals });
+    const { refreshClusterVisibility } = await importRunner();
+    await expect(refreshClusterVisibility("cluster-provenance", new Date("2026-07-05T12:00:00.000Z"))).rejects.toThrow(/current patch unavailable/i);
+    expect(mocks.rpc).not.toHaveBeenCalledWith("apply_cluster_visibility_refresh", expect.anything());
+    expect(mutations).toEqual([]);
+    expect({ clusters: tables.issue_clusters, signals: tables.source_signals }).toEqual(before);
+  });
+
+  it.each(["unknown", "1.13.01"])("refuses candidate rescue before providers or writes against fallback patch %s", async (version) => {
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ ...officialPatchFixture, version, source: "fallback", publishedAt: null });
+    const { rescueCandidateSignal } = await importRunner();
+    await expect(rescueCandidateSignal({ from: mocks.from, rpc: mocks.rpc } as never, {
+      title: "Crimson Desert stutters in combat",
+      url: "https://reddit.com/r/CrimsonDesert/comments/needs-review",
+      sourceDomain: "reddit.com",
+      snippet: "Frame-rate drops during fights.",
+    })).rejects.toThrow(/current patch unavailable/i);
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(mocks.getAutomationControlState).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mutations).toEqual([]);
+    expect(tables.automation_runs).toEqual([]);
+    expect(sourceSignalRows()).toEqual([]);
+  });
+
+  it("names official patch synchronization failure without inventing a database cause", async () => {
+    mocks.syncOfficialPatchNote.mockRejectedValue(new Error("official patch fetch failed: 503 private upstream detail"));
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "scheduled", now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.status).toBe("partial");
+    expect(result.diagnostics).toContainEqual({ stage: "patch_sync", code: "operation_failed" });
+    expect(result.errors.join(" ")).not.toMatch(/database|private upstream detail/);
+    expect(tables.automation_runs[0]).toMatchObject({ progress: {
+      diagnostics: expect.arrayContaining([{ stage: "patch_sync", code: "operation_failed" }]),
+    } });
+  });
+
+  it.each(["manual", "scheduled", "dry_run"] as const)("blocks %s scanning when the current patch remains unverified", async (mode) => {
+    const unavailable = { ...officialPatchFixture, version: "unknown", publishedAt: null, source: "fallback" };
+    mocks.getCurrentPatchMetadata.mockResolvedValue(unavailable);
+    mocks.syncOfficialPatchNote.mockResolvedValue({ status: "skipped", reason: "not_found", patch: unavailable });
+    const { runAutomationMonitor } = await import("@/lib/automation/run");
+    const result = await runAutomationMonitor({ mode, now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.status).toBe("failed");
+    expect(result.skips).toContain("current_patch_unavailable");
+    expect(result.diagnostics).toContainEqual({ stage: "patch_read", code: "current_patch_unavailable" });
+    expect(result.searchQueriesUsed).toBe(0);
+    expect(result.signalsInserted).toBe(0);
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(mutations.every((mutation) => mutation.table === "automation_runs")).toBe(true);
+    expect(tables.automation_runs[0].status).toBe("failed");
+  });
+  it.each(["extraction", "claim mapping"] as const)("persists bounded %s diagnostics without marking failed AI healthy", async (lane) => {
+    const diagnostic = { code: "request_timeout", elapsedMs: 20_000, httpStatus: null, attempts: 1 };
+    const privateMarker = "PRIVATE-DO-NOT-PERSIST-IN-DIAGNOSTICS";
+    if (lane === "claim mapping") {
+      mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([{ fixText: "Invented fix", category: "performance" }]);
+      mocks.tavilySearch.mockResolvedValue([]);
+      mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => {
+        options.onDiagnostic({ ...diagnostic, responseBody: privateMarker, generationId: privateMarker, sourceUrl: privateMarker });
+        return { matchKind: "none", clusterId: null, clusterSlug: null, reason: "Unverified", llmCallsUsed: 1,
+          llmCostUsd: 0.001, extractionModel: "openai/gpt-5.6-luna", skipReason: "openrouter_cost_unverified" };
+      });
+    } else {
+      mocks.extractSignalWithOpenRouter.mockImplementation(async (_candidate, options) => {
+        if (options.llmCallsRemaining > 0) options.onDiagnostic({ ...diagnostic, responseBody: privateMarker });
+        return { issueTitle: "FPS regression", category: "performance", platform: "pc_steam", confidence: "medium",
+          summary: "Invented performance report.", clusterAssignment: "unsure", clusterReason: "Uncertain", clusterSlug: null,
+          extractionProvider: "deterministic", extractionModel: null, llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+          llmCostUsd: options.llmCallsRemaining > 0 ? 0.001 : 0, fallbackReason: "openrouter_cost_unverified" };
+      });
+    }
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.openRouterDiagnostics).toEqual([diagnostic]);
+    expect(result.skips).toContain("openrouter_cost_unverified");
+    expect(result.llmSucceeded ?? 0).toBe(0);
+    expect(result.llmCostUsd).toBeGreaterThan(0);
+    const saved = tables.automation_runs.find((run) => run.status !== "running");
+    expect(saved).toBeDefined();
+    const progress = saved?.progress as { openRouterDiagnostics: unknown; llmSucceeded: number };
+    expect(progress.openRouterDiagnostics).toEqual([diagnostic]);
+    expect(progress.llmSucceeded).toBe(0);
+    expect(JSON.stringify(progress)).not.toContain(privateMarker);
+  });
+
+  it("selects a deterministic bounded 24 named plus 24 active auto semantic options with descriptions", async () => {
+    const { selectSemanticClusterOptions } = await importRunner();
+    const named = [
+      {
+        id: "named-recent",
+        slug: "watch-recent",
+        title: "Recent named cluster",
+        category: "performance",
+        description: "Recent named context.",
+        last_signal_at: "2026-07-31T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      {
+        id: "named-zeta",
+        slug: "watch-zeta",
+        title: "Zeta named cluster",
+        category: "performance",
+        description: "Zeta context.",
+        last_signal_at: "2026-07-30T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      {
+        id: "named-alpha",
+        slug: "watch-alpha",
+        title: "Alpha named cluster",
+        category: "performance",
+        description: "Alpha context.",
+        last_signal_at: "2026-07-30T12:00:00.000Z",
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        id: `named-middle-${index}`,
+        slug: `watch-middle-${String(index).padStart(2, "0")}`,
+        title: `Named middle ${index}`,
+        category: "performance",
+        description: `Named middle description ${index}.`,
+        last_signal_at: `2026-07-${String(29 - index).padStart(2, "0")}T12:00:00.000Z`,
+        created_at: "2026-07-01T00:00:00.000Z",
+      })),
+      {
+        id: "named-created-newer",
+        slug: "watch-created-newer",
+        title: "Created newer named cluster",
+        category: "performance",
+        description: "Used when no signal timestamp exists.",
+        last_signal_at: null,
+        created_at: "2026-07-05T00:00:00.000Z",
+      },
+      {
+        id: "named-oldest",
+        slug: "watch-oldest",
+        title: "Oldest named cluster",
+        category: "performance",
+        description: "Must be excluded by the named option cap.",
+        last_signal_at: null,
+        created_at: "2026-07-01T00:00:00.000Z",
+      },
+    ];
+    const auto = Array.from({ length: 25 }, (_, index) => ({
+      id: `auto-${index}`,
+      slug: `auto-semantic-${String(index).padStart(2, "0")}`,
+      title: `Auto semantic ${index}`,
+      category: "performance",
+      description: `Auto description ${index}.`,
+      last_signal_at: `2026-07-${String(25 - index).padStart(2, "0")}T12:00:00.000Z`,
+      created_at: "2026-07-01T00:00:00.000Z",
+      admin_visibility_override: index <= 1 ? "force_hidden" : null,
+      lifecycle_reason: index === 1 ? "Merged into auto-semantic-02 (duplicate)." : null,
+    }));
+
+    const options = selectSemanticClusterOptions([...named, ...auto]);
+    const namedOptions = options.filter((option) => !option.slug.startsWith("auto-"));
+    const autoOptions = options.filter((option) => option.slug.startsWith("auto-"));
+
+    expect(namedOptions).toHaveLength(24);
+    expect(autoOptions).toHaveLength(24);
+    expect(namedOptions.slice(0, 3).map((option) => option.slug)).toEqual([
+      "watch-recent",
+      "watch-alpha",
+      "watch-zeta",
+    ]);
+    expect(namedOptions.at(-1)?.slug).toBe("watch-created-newer");
+    expect(namedOptions.map((option) => option.slug)).not.toContain("watch-oldest");
+    expect(autoOptions.map((option) => option.slug)).toContain("auto-semantic-00");
+    expect(autoOptions.map((option) => option.slug)).not.toContain("auto-semantic-01");
+    expect(options[0]).toMatchObject({ slug: "watch-recent", description: "Recent named context." });
+    expect(autoOptions[0]).toMatchObject({ slug: "auto-semantic-00", description: "Auto description 0." });
+  });
+
+  it("immediately restores automatic cluster and signal visibility after force-hidden is cleared", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          admin_visibility_override: null,
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-fps",
+          cluster_id: "cluster-fps",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Frame-rate drops after patch 1.13.00",
+          moderation_status: "approved", patch_version: "1.13.00",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-fps",
+          cluster_id: "cluster-fps",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://old.reddit.com/r/CrimsonDesert/comments/fps/report",
+          canonical_url: "https://old.reddit.com/r/CrimsonDesert/comments/fps/report",
+          source_domain: "reddit.com",
+          title: "Crimson Desert 1.13.00 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          source_published_at: "2026-07-05T11:00:00.000Z",
+          public_status: "hidden",
+          promotion_reason: "admin_force_hidden",
+          extracted_facts: {},
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-fps", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      id: "cluster-fps",
+      admin_visibility_override: null,
+      auto_public: true,
+      is_public: true,
+    });
+    expect(tables.source_signals[0]).toMatchObject({
+      id: "signal-fps",
+      public_status: "public",
+      promotion_reason: "direct_report_match",
+    });
+  });
+
+  it("keeps report-backed automatic eligibility while a force-hidden override is active", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          admin_visibility_override: "force_hidden",
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-fps",
+          cluster_id: "cluster-fps",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Frame-rate drops after patch 1.13.00",
+          moderation_status: "approved", patch_version: "1.13.00",
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-fps", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: true, is_public: false });
+  });
+
+  it("advances the Auto baseline when evidence expires during a force-hidden period", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-expired",
+          category: "performance",
+          admin_visibility_override: "force_hidden",
+          visibility_revision: 1,
+          visibility_restore_is_public: true,
+          visibility_restore_auto_public: true,
+          auto_public: true,
+          is_public: false,
+        },
+      ],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-expired", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: "force_hidden",
+      visibility_revision: 2,
+      visibility_restore_is_public: false,
+      visibility_restore_auto_public: false,
+      auto_public: false,
+      is_public: false,
+    });
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "apply_cluster_visibility_refresh",
+      expect.objectContaining({ p_cluster_id: "cluster-expired", p_expected_revision: 1 }),
+    );
+  });
+
+  it("retains an automatic issue for a current check-in, then demotes it after that patch expires", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-retained", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: true, is_public: true,
+      }],
+      issue_checkins: [{
+        id: "checkin-current", cluster_id: "cluster-checkin-retained", patch_version: "1.13.00",
+        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+      }],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-checkin-retained", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: true, is_public: true, public_signal_count: 0 });
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "apply_cluster_visibility_refresh",
+      expect.objectContaining({ p_cluster_id: "cluster-checkin-retained", p_expected_revision: 1 }),
+    );
+
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ ...officialPatchFixture, version: "1.13.01" });
+    await refreshClusterVisibility("cluster-checkin-retained", new Date("2026-07-12T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false, public_signal_count: 0 });
+  });
+
+  it("does not publish a private issue or its private source because it has a current check-in", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-private", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: false, is_public: false,
+      }],
+      issue_checkins: [{
+        id: "checkin-private", cluster_id: "cluster-checkin-private", patch_version: "1.13.00",
+        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+      }],
+      source_signals: [{
+        id: "signal-private", cluster_id: "cluster-checkin-private", source: "web_search", source_type: "web_search",
+        source_url: "https://reddit.com/r/CrimsonDesert/comments/private-checkin",
+        canonical_url: "https://reddit.com/r/CrimsonDesert/comments/private-checkin", source_domain: "reddit.com",
+        title: "Crimson Desert 1.13.00 FPS drops", summary: "Frame-rate drops after patch 1.13.00.",
+        category: "performance", confidence: "high", observed_at: "2026-07-05T11:00:00.000Z",
+        source_published_at: "2026-07-05T11:00:00.000Z", public_status: "private", promotion_reason: "below_threshold",
+        extracted_facts: {},
+      }],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-checkin-private", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false, public_signal_count: 0 });
+    expect(tables.source_signals[0]).toMatchObject({ public_status: "private", promotion_reason: "below_threshold" });
+  });
+
+  it("retains the automatic baseline under force-hidden without making the issue public", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-hidden", category: "performance", visibility_revision: 1,
+        admin_visibility_override: "force_hidden", auto_public: true, is_public: false,
+        visibility_restore_auto_public: true, visibility_restore_is_public: true,
+      }],
+      issue_checkins: [{
+        id: "checkin-hidden", cluster_id: "cluster-checkin-hidden", patch_version: "1.13.00",
+        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+      }],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-checkin-hidden", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: "force_hidden",
+      auto_public: true,
+      visibility_restore_auto_public: true,
+      visibility_restore_is_public: true,
+      is_public: false,
+    });
+  });
+
+  it("fails closed on a check-in read error instead of demoting an existing public issue", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-error", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: true, is_public: true,
+      }],
+    });
+    selectFailure = { table: "issue_checkins", code: "42501", message: "permission denied for table issue_checkins" };
+    const { refreshClusterVisibility } = await importRunner();
+
+    await expect(refreshClusterVisibility("cluster-checkin-error", new Date("2026-07-05T12:00:00.000Z"))).rejects.toThrow(
+      /check-in retention read failed: permission denied/i,
+    );
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: true, is_public: true, visibility_revision: 1 });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps pre-migration demotion behavior when only issue_checkins is missing", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-checkin-migration", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: true, is_public: true,
+      }],
+    });
+    selectFailure = { table: "issue_checkins", code: "42P01", message: 'relation "issue_checkins" does not exist' };
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-checkin-migration", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false, visibility_revision: 2 });
+  });
+
+  it("does not mistake force-public for automatic eligibility", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-private",
+          slug: "private_watchlist",
+          title: "Private watchlist",
+          category: "performance",
+          description: "Below-threshold private watchlist.",
+          admin_visibility_override: "force_public",
+          auto_public: false,
+          is_public: true,
+        },
+      ],
+      issue_checkins: [{
+        id: "checkin-force-public", cluster_id: "cluster-private", patch_version: "1.13.00",
+        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+      }],
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-private", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: true });
+  });
+
+  it("retries a stale force-public refresh after Auto changes the visibility revision", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-race",
+          category: "performance",
+          admin_visibility_override: "force_public",
+          visibility_revision: 1,
+          auto_public: false,
+          is_public: true,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-race",
+          cluster_id: "cluster-race",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://facebook.com/groups/crimsondesert/posts/fps-race",
+          canonical_url: "https://facebook.com/groups/crimsondesert/posts/fps-race",
+          source_domain: "facebook.com",
+          title: "Crimson Desert 1.13.00 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          source_published_at: "2026-07-05T11:00:00.000Z",
+          public_status: "private",
+          promotion_reason: "below_threshold",
+          extracted_facts: {},
+        },
+      ],
+    });
+    let transitionedToAuto = false;
+    const transitionToAuto = () => {
+      if (transitionedToAuto) return;
+      transitionedToAuto = true;
+      Object.assign(tables.issue_clusters[0], {
+        admin_visibility_override: null,
+        visibility_revision: 2,
+        is_public: false,
+      });
+    };
+    // Current direct writes reach the update hook; the fixed atomic implementation
+    // reaches the RPC hook. Either way, Auto wins between the stale read and write.
+    beforeUpdate = (table) => {
+      if (table === "source_signals") transitionToAuto();
+    };
+    beforeVisibilityRefreshRpc = transitionToAuto;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-race", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(transitionedToAuto).toBe(true);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: null,
+      visibility_revision: expect.any(Number),
+      auto_public: false,
+      is_public: false,
+    });
+    expect(tables.source_signals[0]).toMatchObject({
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+    expect(mocks.rpc.mock.calls.map(([, args]) => args.p_expected_revision)).toEqual([1, 2]);
+  });
+
+  it("does not overwrite transactional report promotion with a pre-revision report snapshot", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-report-race",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+    });
+    beforeSelect = (table) => {
+      if (table !== "issue_clusters") return;
+      beforeSelect = null;
+      tables.bug_reports.push({
+        id: "report-race",
+        cluster_id: "cluster-report-race",
+        category: "performance",
+        platform: "pc_steam",
+        issue_title: "Approved while a refresh starts",
+        moderation_status: "approved", patch_version: "1.13.00",
+      });
+      Object.assign(tables.issue_clusters[0], {
+        visibility_revision: 1,
+        auto_public: true,
+        is_public: true,
+      });
+    };
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-report-race", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      visibility_revision: 2,
+      direct_report_count: 1,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("scheduled scans no longer report a Reddit lane at all", async () => {
+    // The authenticated Reddit API is retired: a scan must not announce it as a
+    // skipped source every run, and the historical ledger column stays at zero.
+    process.env.REDDIT_CLIENT_ID = "legacy-id";
+    process.env.REDDIT_CLIENT_SECRET = "legacy-secret";
+    process.env.REDDIT_USER_AGENT = "legacy-agent";
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+    try {
+      const result = await runAutomationMonitor({
+        mode: "scheduled",
+        now: new Date("2026-07-05T12:00:00.000Z"),
+      });
+
+      expect(result.skips).not.toContain("reddit_disabled");
+      expect(result.skips.some((skip) => skip.includes("reddit"))).toBe(false);
+      expect(tables.automation_runs[0]).toMatchObject({ reddit_posts_seen: 0 });
+    } finally {
+      delete process.env.REDDIT_CLIENT_ID;
+      delete process.env.REDDIT_CLIENT_SECRET;
+      delete process.env.REDDIT_USER_AGENT;
+    }
+  });
+
+  it("continues high-value LLM work after a normal accounted DeepSeek charge", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          is_public: true,
+          admin_override: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed intermittent frame-rate drops.", category: "performance" },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert patch 1.13 FPS drops in towns",
+        url: "https://reddit.com/r/CrimsonDesert/comments/fps/towns",
+        snippet: "Players report stutter and FPS drops after patch 1.13.00.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 combat stutter",
+        url: "https://steamcommunity.com/app/3321460/discussions/stutter",
+        snippet: "Players report combat stutter and FPS drops after patch 1.13.00.",
+        sourceDomain: "steamcommunity.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    let extractionCall = 0;
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
+      extractionCall += 1;
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        issueTitle: candidate.title,
+        category: "performance",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: candidate.snippet,
+        clusterSlug: "performance_regression",
+        extractionProvider: "openrouter",
+        extractionModel: "deepseek/deepseek-v4-flash",
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: extractionCall === 1 ? 0.0025 : 0,
+      };
+    });
+    mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => {
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        matchKind: "none",
+        clusterId: null,
+        clusterSlug: null,
+        reason: "No match.",
+        llmCallsUsed: 0,
+        llmCostUsd: 0,
+        extractionModel: null,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(2);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][1].llmCallsRemaining).toBeGreaterThan(0);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[1][1].llmCallsRemaining).toBeGreaterThan(0);
+    expect(mocks.mapClaimToClusterWithOpenRouter).toHaveBeenCalledOnce();
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls[0][2].llmCallsRemaining).toBeGreaterThan(0);
+    expect(openRouterAttempts).toBe(3);
+    expect(result.llmCostUsd).toBe(0.0025);
+    expect(result.skips).not.toContain("openrouter_cost_unverified");
+  });
+
+  it("stops asking OpenRouter for the rest of the run once no provider matches", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert patch 1.13 FPS drops in towns",
+        url: "https://reddit.com/r/CrimsonDesert/comments/fps/towns",
+        snippet: "Players report stutter and FPS drops after patch 1.13.00.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 combat stutter",
+        url: "https://steamcommunity.com/app/3321460/discussions/stutter",
+        snippet: "Players report combat stutter and FPS drops after patch 1.13.00.",
+        sourceDomain: "steamcommunity.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        issueTitle: candidate.title,
+        category: "performance",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: candidate.snippet,
+        clusterSlug: null,
+        extractionProvider: "deterministic",
+        extractionModel: null,
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: 0,
+        fallbackReason: "openrouter_no_route",
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("openrouter_no_route");
+    // The second candidate is still processed — deterministically — but the run
+    // stops offering it an LLM call, because the refusal will not change.
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(2);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][1].llmCallsRemaining).toBeGreaterThan(0);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[1][1].llmCallsRemaining).toBe(0);
+    // Nothing reached a provider, so the month's ledger is untouched.
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.skips).not.toContain("openrouter_cost_unverified");
+  });
+
+  it("records an extraction request that cannot fit the remaining LLM budget", async () => {
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => ({
+      issueTitle: candidate.title,
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: candidate.snippet,
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      fallbackReason: "llm_budget_capped",
+    }));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(tables.automation_runs[0].skips).toContain("llm_budget_capped");
+  });
+
+  it("reserves scheduled LLM allowance for scanner extraction after claim mapping", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          is_public: true,
+          admin_override: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue(
+      Array.from({ length: 4 }, (_, index) => ({
+        fixText: `Fixed performance issue ${index + 1}.`,
+        category: "performance",
+      })),
+    );
+    mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => ({
+      matchKind: "none",
+      clusterId: null,
+      clusterSlug: null,
+      reason: "No match.",
+      llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+      llmCostUsd: 0,
+      extractionModel: options.llmCallsRemaining > 0 ? "deepseek/deepseek-v4-flash" : null,
+    }));
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "scheduled", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls.some((call) => call[2].llmCallsRemaining > 0)).toBe(true);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][1].llmCallsRemaining).toBeGreaterThan(0);
+  });
+
+  it("opens the run-level circuit when claim mapping cannot verify cost", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          is_public: true,
+          admin_override: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed frame-rate drops in towns.", category: "performance" },
+      { fixText: "Fixed combat frame-rate drops.", category: "performance" },
+    ]);
+    let mappingCall = 0;
+    mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => {
+      mappingCall += 1;
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        matchKind: "none",
+        clusterId: null,
+        clusterSlug: null,
+        reason: mappingCall === 1 ? "OpenRouter cost could not be verified." : "No match.",
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: 0,
+        extractionModel: options.llmCallsRemaining > 0 ? "deepseek/deepseek-v4-flash" : null,
+        ...(mappingCall === 1 ? { skipReason: "openrouter_cost_unverified" as const } : {}),
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.mapClaimToClusterWithOpenRouter).toHaveBeenCalledTimes(2);
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls[0][2].llmCallsRemaining).toBeGreaterThan(0);
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls[1][2].llmCallsRemaining).toBe(0);
+    expect(openRouterAttempts).toBe(1);
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.skips).toContain("openrouter_cost_unverified");
+  });
+
+  it("stops mapping later claims once one claim hits a routing refusal", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          is_public: true,
+          admin_override: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed frame-rate drops in towns.", category: "performance" },
+      { fixText: "Fixed combat frame-rate drops.", category: "performance" },
+    ]);
+    let mappingCall = 0;
+    mocks.mapClaimToClusterWithOpenRouter.mockImplementation(async (_claim, _clusters, options) => {
+      mappingCall += 1;
+      if (options.llmCallsRemaining > 0) openRouterAttempts += 1;
+      return {
+        matchKind: "none",
+        clusterId: null,
+        clusterSlug: null,
+        reason: mappingCall === 1 ? "No OpenRouter provider matched the limits." : "No match.",
+        llmCallsUsed: options.llmCallsRemaining > 0 ? 1 : 0,
+        llmCostUsd: 0,
+        extractionModel: options.llmCallsRemaining > 0 ? "deepseek/deepseek-v4-flash" : null,
+        ...(mappingCall === 1 ? { skipReason: "openrouter_no_route" as const } : {}),
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The refusal has to reach result.skips, or the loop hands every remaining
+    // claim to the same route that just refused one.
+    expect(result.skips).toContain("openrouter_no_route");
+    expect(mocks.mapClaimToClusterWithOpenRouter.mock.calls[1][2].llmCallsRemaining).toBe(0);
+    expect(openRouterAttempts).toBe(1);
+    // Still not a circuit reason: nothing was spent and nothing is unverified.
+    expect(result.skips).not.toContain("openrouter_cost_unverified");
+    expect(result.llmCostUsd).toBe(0);
+  });
+
+  it("records a claim-mapping budget-floor refusal in the run ledger", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-fps",
+        slug: "performance_regression",
+        title: "Performance regression",
+        category: "performance",
+        description: "Frame-rate drops after the patch.",
+        fix_status: "reported",
+        is_public: true,
+        admin_override: false,
+      }],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed frame-rate drops in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "keyword_proposal",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "Needs review: monthly OpenRouter budget cap reached.",
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      extractionModel: null,
+      skipReason: "llm_budget_capped",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.llmSucceeded).toBeUndefined();
+    expect(tables.automation_runs[0].skips).toContain("llm_budget_capped");
+  });
+
+  it("keeps the current-month LLM circuit open across later runs", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-charged-free-model",
+          started_at: "2026-07-04T12:00:00.000Z",
+          finished_at: "2026-07-04T12:01:00.000Z",
+          estimated_cost_usd: 0.0025,
+          search_queries_used: 0,
+          mode: "scheduled",
+          status: "success",
+          skips: ["openrouter_unexpected_charge"],
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(5);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(2);
+    expect(mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining === 0)).toBe(true);
+    expect(openRouterAttempts).toBe(0);
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.llmCostUsd).toBe(0);
+    expect(result.skips).toContain("openrouter_circuit_open");
+    expect(tables.automation_runs[0]).toMatchObject({
+      estimated_cost_usd: 0.0025,
+      skips: ["openrouter_unexpected_charge"],
+    });
+    expect(tables.automation_runs[1]).toMatchObject({
+      skips: expect.arrayContaining(["openrouter_circuit_open"]),
+    });
+  });
+
+  it("does not latch the monthly circuit on a single cost-unverified run", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-single-blip",
+          started_at: "2026-07-05T09:00:00.000Z",
+          finished_at: "2026-07-05T09:01:00.000Z",
+          estimated_cost_usd: 0.016,
+          search_queries_used: 2,
+          mode: "scheduled",
+          status: "success",
+          skips: ["openrouter_cost_unverified"],
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(
+      mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining > 0),
+    ).toBe(true);
+    expect(result.skips).not.toContain("openrouter_circuit_open");
+  });
+
+  it("keeps AI running after three cost-unverified runs inside 24 hours", async () => {
+    const blipRun = (id: string, startedAt: string) => ({
+      id,
+      started_at: startedAt,
+      finished_at: startedAt,
+      estimated_cost_usd: 0.016,
+      search_queries_used: 2,
+      mode: "scheduled",
+      status: "success",
+      skips: ["openrouter_cost_unverified"],
+    });
+    resetDb({
+      automation_runs: [
+        blipRun("run-blip-1", "2026-07-05T02:00:00.000Z"),
+        blipRun("run-blip-2", "2026-07-04T20:00:00.000Z"),
+        blipRun("run-blip-3", "2026-07-04T14:00:00.000Z"),
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // An unverified cost stops AI for its own run only; later runs proceed.
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(
+      mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining > 0),
+    ).toBe(true);
+    expect(result.skips).not.toContain("openrouter_circuit_open");
+  });
+
+  it("does not pause AI for cost-unverified runs across a UTC month boundary", async () => {
+    const blipRun = (id: string, startedAt: string) => ({
+      id,
+      started_at: startedAt,
+      finished_at: startedAt,
+      estimated_cost_usd: 0.016,
+      search_queries_used: 2,
+      mode: "scheduled",
+      status: "success",
+      skips: ["openrouter_cost_unverified"],
+    });
+    // Two blips late on June 30, one early on July 1 — all inside 24h of "now".
+    resetDb({
+      automation_runs: [
+        blipRun("run-blip-june-1", "2026-06-30T20:00:00.000Z"),
+        blipRun("run-blip-june-2", "2026-06-30T23:00:00.000Z"),
+        blipRun("run-blip-july", "2026-07-01T02:00:00.000Z"),
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-01T10:00:00.000Z") });
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(result.skips).not.toContain("openrouter_circuit_open");
+  });
+
+  it("keeps monthly spend accounting month-scoped even when the circuit read crosses the boundary", async () => {
+    // A pricey June run inside the 24h read window must not count against July's budget.
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-june-spend",
+          started_at: "2026-06-30T20:00:00.000Z",
+          finished_at: "2026-06-30T20:01:00.000Z",
+          estimated_cost_usd: 1.5,
+          search_queries_used: 2,
+          mode: "scheduled",
+          status: "success",
+          skips: [],
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-01T10:00:00.000Z") });
+
+    expect(result.skips).not.toContain("openrouter_circuit_open");
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(
+      mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining > 0),
+    ).toBe(true);
+  });
+
+  it("ignores cost-unverified runs older than 24 hours when deciding the circuit", async () => {
+    const blipRun = (id: string, startedAt: string) => ({
+      id,
+      started_at: startedAt,
+      finished_at: startedAt,
+      estimated_cost_usd: 0.016,
+      search_queries_used: 2,
+      mode: "scheduled",
+      status: "success",
+      skips: ["openrouter_cost_unverified"],
+    });
+    resetDb({
+      automation_runs: [
+        blipRun("run-stale-1", "2026-07-04T06:00:00.000Z"),
+        blipRun("run-stale-2", "2026-07-03T12:00:00.000Z"),
+        blipRun("run-stale-3", "2026-07-02T12:00:00.000Z"),
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(
+      mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining > 0),
+    ).toBe(true);
+    expect(result.skips).not.toContain("openrouter_circuit_open");
+  });
+
+  it("dry run writes only an automation_runs ledger row", async () => {
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "dry_run", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.searchResultsSeen).toBe(5);
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      mode: "dry_run",
+      signals_inserted: 0,
+      funnel: expect.objectContaining({ kept: 2, prepared: 2, persisted: 0 }),
+      search_results_seen: 5,
+      llm_calls_used: 2,
+    });
+    expect(sourceSignalRows()).toHaveLength(0);
+    expect(tables.issue_clusters).toHaveLength(0);
+    expect(mutations.filter((mutation) => mutation.table !== "automation_runs")).toHaveLength(0);
+    expect(mocks.syncOfficialPatchNote).not.toHaveBeenCalled();
+  });
+
+  it("uses the official current patch version when planning source searches", async () => {
+    const patch = { ...officialPatchFixture, version: "1.14.00", title: "Patch Notes Version 1.14.00" };
+    mocks.getCurrentPatchMetadata.mockResolvedValue(patch);
+    mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: true, patch });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilySearch).toHaveBeenCalled();
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("patch 1.14.00");
+  });
+
+  it("rotates one-credit scheduled web search across adjacent hourly scans", async () => {
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    // The point of the rotation is that two adjacent one-credit scans do not spend
+    // their single credit on the same question. Asserting the property rather than a
+    // slot index: which slot an offset lands on is a function of pack length, and the
+    // pack is expected to change as the bake-off measures new queries.
+    const [firstQuery] = mocks.tavilySearch.mock.calls[0] as [string];
+    const [secondQuery] = mocks.tavilySearch.mock.calls[1] as [string];
+
+    expect(firstQuery).not.toBe(secondQuery);
+    expect(firstQuery).toContain("1.13.00");
+    expect(secondQuery).toContain("1.13.00");
+  });
+
+  it("budget 0 still runs Tavily and deterministic extraction without paid LLM calls", async () => {
+    resetDb({ automation_settings: [{ key: "scanner", value: { monthlyLlmUsdCap: 0 } }] });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).not.toContain("budget_zero");
+    expect(result.searchQueriesUsed).toBe(5);
+    expect(result.searchResultsSeen).toBe(5);
+    expect(result.llmCallsUsed).toBe(0);
+    expect(openRouterAttempts).toBe(0);
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(5);
+    expect(sourceSignalRows()).toHaveLength(2);
+    expect(sourceSignalRows()[0]).toMatchObject({ source: "web_search", extraction_provider: "deterministic" });
+  });
+
+  it.each(["manual", "scheduled", "dry_run"] as const)("treats the environment budget ceiling as an emergency stop for %s scans", async (mode) => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode,
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.skips).toContain("llm_budget_capped");
+  });
+
+  it.each([
+    ["environment lower", 1, "0.25", 0.25],
+    ["saved setting lower", 0.2, "0.5", 0.2],
+    ["limits match", 1, "1", 1],
+  ] as const)("uses the lower LLM ceiling when the %s", async (_label, savedCap, envCap, expectedCap) => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = envCap;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "manual",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: savedCap,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(tables.automation_runs[0]).toMatchObject({ budget_monthly_usd: expectedCap });
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmBudgetRemainingUsd: expectedCap }),
+    );
+  });
+
+  it("uses the normalized default environment ceiling when the variable is absent", async () => {
+    delete process.env.AUTOMATION_BUDGET_USD_MONTHLY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "manual",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(tables.automation_runs[0]).toMatchObject({ budget_monthly_usd: 0.5 });
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmBudgetRemainingUsd: 0.5 }),
+    );
+  });
+
+  it("reports a blank OpenRouter key explicitly without querying the provider", async () => {
+    process.env.OPENROUTER_API_KEY = "   ";
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain("openrouter_missing_config");
+    expect(result.skips).not.toContain("openrouter_key_budget_unverified");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+  });
+
+  it.each([
+    ["an unlimited key", { data: { limit: null, limit_remaining: null, limit_reset: null, usage_monthly: 0 } }, "openrouter_key_limit_unsafe"],
+    ["a daily key", { data: { limit: 1, limit_remaining: 1, limit_reset: "daily", usage_monthly: 0 } }, "openrouter_key_limit_unsafe"],
+    ["an unreadable key response", { unexpected: true }, "openrouter_key_budget_unverified"],
+  ])("refuses paid model calls for %s", async (_label, keyResponse, reason) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(keyResponse)));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).toContain(reason);
+    expect(openRouterAttempts).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalled();
+    expect(mocks.extractSignalWithOpenRouter.mock.calls.every((call) => call[1].llmCallsRemaining === 0)).toBe(true);
+  });
+
+  it.each(["manual", "scheduled"] as const)("persists a failed key preflight in %s progress without an AI call", async (mode) => {
+    const privateMarker = "PRIVATE-KEY-RESPONSE-DO-NOT-PERSIST";
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: {
+      limit: 1, limit_remaining: privateMarker, limit_reset: "monthly", usage_monthly: 0,
+      label: privateMarker,
+    } })));
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode, now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.skips).toContain("openrouter_key_budget_unverified");
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.llmSucceeded ?? 0).toBe(0);
+    expect(openRouterAttempts).toBe(0);
+    expect(result.openRouterDiagnostics).toEqual([{
+      code: "key_budget_validation_failure", elapsedMs: expect.any(Number), httpStatus: 200, attempts: 1,
+      keyBudgetValidation: { limit: "valid", limit_remaining: "invalid", limit_reset: "valid", usage_monthly: "valid", remainingWithinLimit: null },
+    }]);
+    const progress = tables.automation_runs.at(-1)?.progress as { openRouterDiagnostics: unknown };
+    expect(progress.openRouterDiagnostics).toEqual(result.openRouterDiagnostics);
+    expect(JSON.stringify(progress)).not.toContain(privateMarker);
+    const created = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "insert");
+    expect(created?.row).toMatchObject({ progress: { stage: "starting", llmCallsUsed: 0 } });
+    const checkpoint = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "update" &&
+      (mutation.row as { progress?: { openRouterDiagnostics?: unknown } }).progress?.openRouterDiagnostics);
+    expect(checkpoint?.row).toMatchObject({ progress: { openRouterDiagnostics: result.openRouterDiagnostics } });
+  });
+
+  it("retains failed key preflight diagnostics in candidate-rescue progress", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
+    const { rescueCandidateSignal } = await importRunner();
+    const { createServiceClient } = await import("@/lib/supabase");
+    await rescueCandidateSignal(createServiceClient() as never, {
+      title: "Crimson Desert – Known Issues",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+      sourceDomain: "crimsondesert.pearlabyss.com",
+      snippet: "Quest cannot progress after the cutscene.",
+    });
+    expect(openRouterAttempts).toBe(0);
+    const saved = tables.automation_runs.at(-1);
+    expect(saved).toMatchObject({
+      llm_calls_used: 0,
+      skips: expect.arrayContaining(["openrouter_key_budget_unverified"]),
+      progress: { llmSucceeded: 0, openRouterDiagnostics: [{
+        code: "key_budget_http_failure", elapsedMs: expect.any(Number), httpStatus: 503, attempts: 1,
+      }] },
+    });
+    const created = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "insert");
+    expect(created?.row).toMatchObject({ progress: { stage: "starting", llmCallsUsed: 0 } });
+    expect((saved?.progress as { openRouterTrace?: { attempts: unknown[] } }).openRouterTrace?.attempts).toEqual([
+      expect.objectContaining({ operation: "key_budget", outcome: "http_failure", httpStatus: 503 }),
+    ]);
+  });
+
+  it("creates the ledger before the free preflight and retains its trace without forced writes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      expect(tables.automation_runs).toHaveLength(1);
+      expect(tables.automation_runs[0]).toMatchObject({ status: "running", progress: { stage: "starting" } });
+      expect(updateAttempts).toHaveLength(0);
+      return Response.json({ data: { limit: 1, limit_remaining: 1, limit_reset: "monthly", usage_monthly: 0 } });
+    }));
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00Z") });
+    expect(result.openRouterTrace?.attempts).toEqual([expect.objectContaining({ operation: "key_budget", outcome: "success" })]);
+    expect(tables.automation_runs[0]).toMatchObject({ progress: { openRouterTrace: result.openRouterTrace }, status: "success" });
+  });
+
+  it("surfaces checkpoint failures while keeping the existing deterministic/provider decision", async () => {
+    updateFailure = { table: "automation_runs", message: "PRIVATE checkpoint error", code: "42501", runningOnly: true, column: "progress", once: true };
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00Z") });
+    expect(result.status).toBe("partial");
+    // A coalesced stage checkpoint failed. The free preflight itself does not
+    // force a write or make a healthy provider look like a failed paid call.
+    expect(result.openRouterTrace?.checkpointFailures).toBe(0);
+    expect(result.persistence).toBe("recorded");
+    expect(result.diagnostics).toContainEqual({ stage: "progress_write", code: "database_permission_denied" });
+    expect(JSON.stringify(result.openRouterTrace)).not.toContain("PRIVATE");
+    const saved = tables.automation_runs.at(-1);
+    expect((saved?.progress as { openRouterTrace?: unknown })?.openRouterTrace).toEqual(result.openRouterTrace);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ llmCallsRemaining: expect.any(Number) }));
+  });
+
+  it("an exhausted Tavily cap still runs free patch maintenance without web discovery", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-used-credit",
+          started_at: "2026-07-01T12:00:00.000Z",
+          estimated_cost_usd: 0.008,
+          search_queries_used: 1,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 1,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("tavily_credit_cap");
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs).toHaveLength(2);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "success",
+      mode: "scheduled",
+      skips: expect.arrayContaining(["tavily_credit_cap"]),
+    });
+  });
+
+  it("historical LLM spend at the cap stops DeepSeek while Tavily and maintenance continue", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-used-llm",
+          started_at: "2026-07-01T12:00:00.000Z",
+          estimated_cost_usd: 1.008,
+          search_queries_used: 1,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
+    });
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 1,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("llm_budget_capped");
+    expect(mocks.tavilySearch).toHaveBeenCalledOnce();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "success",
+      mode: "scheduled",
+    });
+  });
+
+  it("fails closed when the automation_runs ledger cannot be read for the active-run check", async () => {
+    // The active-run pre-flight check reads automation_runs before any ledger row
+    // exists for this attempt, so a broadly unreadable ledger table must abort
+    // before touching Reddit/search/LLM providers, with zero ledger rows written.
+    selectFailure = { table: "automation_runs", message: "ledger unavailable" };
+    const { runAutomationMonitor } = await importRunner();
+
+    await expect(runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") })).rejects.toMatchObject({
+      name: "ScannerOperationError",
+      message: "Scanner operation failed: active_run_read",
+      diagnostic: { stage: "active_run_read", code: "database_unavailable" },
+    });
+
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(tables.automation_runs).toHaveLength(0);
+    expect(mutations.filter((mutation) => mutation.type === "insert")).toHaveLength(0);
+  });
+
+  it("fails the run but still writes and finalizes a ledger row when only the month spend read fails", async () => {
+    // Fail ONLY loadMonthSpend's select (estimated_cost_usd); hasActiveRun's
+    // select (id) succeeds, so the run starts, creates a running ledger row,
+    // and finalizes it as failed without exposing the budget-read detail.
+    selectFailure = { table: "automation_runs", columns: "estimated_cost_usd", message: "spend ledger unavailable" };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.skips).toContain("budget_read_failed");
+    expect(result.diagnostics).toContainEqual({ stage: "budget_read", code: "database_unavailable" });
+    expect(result.errors.join(" ")).not.toContain("spend ledger unavailable");
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+
+    const insertMutation = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "insert");
+    expect(insertMutation).toBeDefined();
+    expect(insertMutation!.row).toMatchObject({ status: "running" });
+
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "failed",
+      skips: expect.arrayContaining(["budget_read_failed"]),
+      progress: expect.objectContaining({ diagnostics: [{ stage: "budget_read", code: "database_unavailable" }] }),
+    });
+    expect(tables.automation_runs[0].finished_at).toBeTruthy();
+    expect(mutations.filter((mutation) => mutation.type === "insert" && mutation.table !== "automation_runs")).toHaveLength(0);
+  });
+
+  it("coalesces progress during a burst of candidates and preserves the final counters", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-07-05T12:00:00.000Z"));
+    let batch = 0;
+    mocks.tavilySearch.mockImplementation(async () => {
+      batch++;
+      return Array.from({ length: 5 }, (_, index) => ({
+        title: "Unrelated cooking recipe",
+        url: `https://example.com/recipes/${batch}/${index}`,
+        snippet: "A recipe for dinner.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      }));
+    });
+    try {
+      const { runAutomationMonitor } = await importRunner();
+      const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+      const progressWrites = mutations.filter((mutation) => mutation.table === "automation_runs" &&
+        mutation.type === "update" && (mutation.row as Row).progress && !(mutation.row as Row).finished_at);
+      expect(result.status).toBe("success");
+      expect(result.candidatesSeen).toBeGreaterThan(5);
+      expect(progressWrites).toHaveLength(3);
+      expect(progressWrites.map((mutation) => ((mutation.row as Row).progress as Row).stage))
+        .toEqual(["searching", "screening", "persisting"]);
+      expect(progressWrites.every((mutation) =>
+        (((mutation.row as Row).progress as Row).openRouterTrace as { attempts: { outcome: string }[] }).attempts[0].outcome === "success")).toBe(true);
+      expect(progressWrites.every((mutation) => (mutation.row as Row).intent === result.intent)).toBe(true);
+      expect(mutations.some((mutation) => mutation.table === "automation_runs" && mutation.type === "update" &&
+        Object.keys(mutation.row as Row).length === 1 && "intent" in (mutation.row as Row))).toBe(false);
+      expect(tables.automation_runs[0]).toMatchObject({
+        status: "success", intent: result.intent,
+        progress: { stage: "done", candidatesSeen: result.candidatesSeen, prefilterRejected: result.prefilterRejected,
+          searchesDone: result.searchQueriesUsed, kept: result.signalsPrepared },
+        search_queries_used: result.searchQueriesUsed,
+      });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("saves the latest same-stage progress at a bounded interval", async () => {
+    let elapsed = Date.parse("2026-07-05T12:00:00.000Z");
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => elapsed);
+    const search = mocks.tavilySearch.getMockImplementation()!;
+    mocks.tavilySearch.mockImplementation(async (...args) => {
+      elapsed += 4_000;
+      return search(...args);
+    });
+    try {
+      const { runAutomationMonitor } = await importRunner();
+      const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+      const searchWrites = updateAttempts.filter((attempt) => attempt.table === "automation_runs" &&
+        (attempt.row.progress as Row | undefined)?.stage === "searching");
+      expect(result.status).toBe("success");
+      expect(searchWrites.map((attempt) => (attempt.row.progress as Row).searchesDone)).toEqual([0, 3]);
+      expect(tables.automation_runs[0]).toMatchObject({ progress: { stage: "done", searchesDone: result.searchQueriesUsed } });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([true, false])("handles progress HTTP 504 with transient recovery=%s and no write storm", async (recovers) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-07-05T12:00:00.000Z"));
+    updateFailure = { table: "automation_runs", column: "progress", status: 504,
+      message: "PRIVATE gateway body", once: recovers, runningOnly: true };
+    try {
+      const { runAutomationMonitor } = await importRunner();
+      const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+      const progressAttempts = updateAttempts.filter((attempt) => attempt.table === "automation_runs" &&
+        attempt.row.progress && !attempt.row.finished_at);
+      expect(progressAttempts.filter((attempt) => (attempt.row.progress as Row).stage === "starting")).toHaveLength(0);
+      // Stage writes replay the identical database request once. Free preflight
+      // traces and candidate counters remain coalesced.
+      expect(progressAttempts).toHaveLength(recovers ? 4 : 6);
+      expect(result.status).toBe(recovers ? "success" : "partial");
+      expect(result.searchQueriesUsed).toBeGreaterThan(0);
+      expect(JSON.stringify(result)).not.toContain("PRIVATE gateway body");
+      if (recovers) {
+        expect(result.diagnostics ?? []).toEqual([]);
+      } else {
+        expect(result.diagnostics).toEqual([{ stage: "progress_write", code: "database_timeout" }]);
+      }
+      expect(tables.automation_runs[0]).toMatchObject({ status: result.status, progress: { stage: "done",
+        searchesDone: result.searchQueriesUsed, candidatesSeen: result.candidatesSeen, kept: result.signalsPrepared } });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("records a progress-write failure as a partial run without exposing its database detail", async () => {
+    updateFailure = {
+      table: "automation_runs",
+      column: "progress",
+      message: "PRIVATE progress write detail",
+      once: true,
+    };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.diagnostics).toContainEqual({ stage: "progress_write", code: "database_unavailable" });
+    expect(result.errors.join(" ")).not.toContain("PRIVATE progress write detail");
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "partial",
+      progress: expect.objectContaining({ diagnostics: [{ stage: "progress_write", code: "database_unavailable" }] }),
+    });
+  });
+
+  it("records an intent-write failure as partial while source collection continues", async () => {
+    updateFailure = {
+      table: "automation_runs",
+      column: "intent",
+      message: "PRIVATE intent write detail",
+      once: true,
+    };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.searchQueriesUsed).toBeGreaterThan(0);
+    expect(result.diagnostics).toContainEqual({ stage: "progress_write", code: "database_unavailable" });
+    expect(result.errors.join(" ")).not.toContain("PRIVATE intent write detail");
+  });
+
+  it("finalizes the ledger when rejected-candidate retention throws after collection", async () => {
+    deleteFailure = { table: "automation_rejected_candidates", message: "PRIVATE cleanup transport detail", throws: true };
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.status).toBe("partial");
+    expect(result.diagnostics).toContainEqual({ stage: "retention", code: "database_unavailable" });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE cleanup transport detail");
+    expect(tables.automation_runs[0]).toMatchObject({ status: "partial", progress: { stage: "done" } });
+    expect(tables.automation_runs[0].finished_at).toBeTruthy();
+  });
+
+  it("returns a safe run-finalize diagnostic when completion cannot be saved", async () => {
+    updateFailure = {
+      table: "automation_runs",
+      column: "operator_rules_matched",
+      message: "PRIVATE completion write detail",
+    };
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.diagnostics).toContainEqual({ stage: "run_finalize", code: "database_unavailable" });
+    expect(result.errors.join(" ")).not.toContain("PRIVATE completion write detail");
+    expect(tables.automation_runs[0].status).toBe("running");
+  });
+
+  it("returns a safe pre-ledger error and keeps the cron attempt identifier on a successful insert", async () => {
+    insertFailure = { table: "automation_runs", message: "PRIVATE run create detail" };
+    const { runAutomationMonitor } = await importRunner();
+
+    await expect(runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") })).rejects.toMatchObject({
+      name: "ScannerOperationError",
+      message: "Scanner operation failed: run_create",
+      diagnostic: { stage: "run_create", code: "database_unavailable" },
+    });
+    expect(tables.automation_runs).toEqual([]);
+
+    insertFailure = null;
+    const attemptId = "6fd20980-2f25-4c0b-84ec-03ecacbfeebb";
+    const result = await runAutomationMonitor({ mode: "manual", attemptId, now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.status).toBe("success");
+    expect(tables.automation_runs[0].id).toBe(attemptId);
+  });
+
+  it("throws a safe diagnostic when an intentional-skip ledger write fails", async () => {
+    insertFailure = { table: "automation_runs", message: "PRIVATE skip write detail" };
+    const { insertSkippedScheduledRun } = await importRunner();
+
+    await expect(insertSkippedScheduledRun(
+      { from: mocks.from } as unknown as Parameters<typeof insertSkippedScheduledRun>[0],
+      "recent_run",
+      new Date("2026-07-05T12:00:00.000Z"),
+    )).rejects.toMatchObject({
+      name: "ScannerOperationError",
+      message: "Scanner operation failed: skip_write",
+      diagnostic: { stage: "skip_write", code: "database_unavailable" },
+    });
+    expect(tables.automation_runs).toEqual([]);
+  });
+
+  it("non-dry runs cluster two independent trusted+unknown domains and promote them public", async () => {
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(2);
+    expect(result.llmCallsUsed).toBe(2);
+    expect(result.clustersPromoted).toBe(1);
+    expect(tables.issue_clusters).toHaveLength(1);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      direct_report_count: 0,
+      verified_report_count: 0,
+      public_signal_count: 2,
+      auto_public: true,
+      is_public: true,
+    });
+    expect(new Set(sourceSignalRows().map((row) => row.cluster_id))).toEqual(new Set([tables.issue_clusters[0].id]));
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+    expect(sourceSignalRows().map((row) => row.promotion_reason)).toEqual([
+      "two_independent_domains_trusted",
+      "two_independent_domains_trusted",
+    ]);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      extraction_provider: "openrouter",
+      extraction_model: "deepseek/deepseek-v4-flash",
+    });
+  });
+
+  it("reuses an orphan deterministic auto-cluster without overwriting its metadata", async () => {
+    const semantic = semanticFingerprint("FPS regression since 1.13", "performance");
+    const slug = `auto-${hashValue(semantic).slice(0, 12)}`;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "orphan-auto",
+          slug,
+          title: "Operator-curated orphan title",
+          category: "performance",
+          description: "Operator-curated orphan description.",
+          fix_status: "fix_claimed",
+          confidence: "high",
+          is_public: true,
+          auto_public: true,
+          admin_visibility_override: "force_hidden",
+          visibility_revision: 4,
+          signal_count: 0,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "FPS drops since 1.13",
+        url: "https://example.com/orphan-fps",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.issue_clusters).toHaveLength(1);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      id: "orphan-auto",
+      slug,
+      title: "Operator-curated orphan title",
+      description: "Operator-curated orphan description.",
+      fix_status: "fix_claimed",
+      admin_visibility_override: "force_hidden",
+      signal_count: 1,
+    });
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "orphan-auto" });
+  });
+
+  it("recovers from a concurrent deterministic auto-cluster slug conflict", async () => {
+    const semantic = semanticFingerprint("FPS regression since 1.13", "performance");
+    const slug = `auto-${hashValue(semantic).slice(0, 12)}`;
+    issueClusterInsertRace = {
+      slug,
+      row: {
+        id: "raced-auto",
+        slug,
+        title: "Concurrent winner",
+        category: "performance",
+        description: "Created by the competing scan.",
+        fix_status: "reported",
+        confidence: "medium",
+        is_public: false,
+        auto_public: false,
+        visibility_revision: 0,
+      },
+    };
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "FPS drops since 1.13",
+        url: "https://example.com/raced-fps",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.issue_clusters).toHaveLength(1);
+    expect(tables.issue_clusters[0]).toMatchObject({ id: "raced-auto", slug, title: "Concurrent winner" });
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "raced-auto" });
+  });
+
+  it("refreshes both clusters when an existing signal is reclassified", async () => {
+    const url = "https://example.com/reclassified-fps";
+    resetDb({
+      issue_clusters: [
+        {
+          id: "old-cluster",
+          slug: "manual-old-cluster",
+          title: "Old cluster",
+          category: "other",
+          description: "The signal used to live here.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: false,
+          auto_public: false,
+          signal_count: 1,
+          visibility_revision: 0,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-to-reclassify",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: url,
+          canonical_url: url,
+          external_id_hash: externalIdHash("web_search", url),
+          title: "Earlier classification",
+          summary: "Players report a current-patch performance problem.",
+          source_domain: "example.com",
+          source_published_at: "2026-07-04T12:00:00.000Z",
+          semantic_fingerprint: "old-semantic",
+          cluster_id: "old-cluster",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          public_status: "private",
+          seen_count: 1,
+          first_seen_at: "2026-07-05T11:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "FPS drops since 1.13",
+        url,
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const newCluster = tables.issue_clusters.find((row) => row.id !== "old-cluster");
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(0);
+    expect(result.signalsReobserved).toBe(1);
+    expect(newCluster).toBeDefined();
+    expect(tables.issue_clusters.find((row) => row.id === "old-cluster")).toMatchObject({ signal_count: 0 });
+    expect(newCluster).toMatchObject({ signal_count: 1 });
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: newCluster!.id });
+  });
+
+  it("reports only successfully persisted signals after a partial batch failure", async () => {
+    sourceSignalInsertFailure = { title: "FPS drops second", message: "source signal write failed" };
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "FPS drops first",
+        url: "https://example.com/partial-first",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+      {
+        title: "FPS drops second",
+        url: "https://example.com/partial-second",
+        snippet: "Players report Crimson Desert FPS drops and stutter on Steam.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const ledger = tables.automation_runs[0];
+
+    expect(result.status).toBe("partial");
+    expect(result.signalsPrepared).toBe(2);
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(tables.issue_clusters[0]).toMatchObject({ signal_count: 1 });
+    expect(ledger).toMatchObject({
+      status: "partial",
+      signals_inserted: 1,
+      funnel: expect.objectContaining({ kept: 2, prepared: 2, persisted: 1 }),
+    });
+  });
+
+  it("direct approved reports promote a matching one-source signal", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved", patch_version: "1.13.00",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Map crash on PS5",
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-map/map",
+        snippet: "Map crash still happens on PS5.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(result.clustersPromoted).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      public_status: "public",
+      promotion_reason: "direct_report_match",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      direct_report_count: 1,
+      signal_count: 1,
+      public_signal_count: 1,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("does not let an approved report from an older patch promote a matching signal", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved", patch_version: "1.12.00",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Map crash on PS5",
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-map/map",
+        snippet: "Map crash still happens on PS5.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      direct_report_count: 1,
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+  });
+
+  it("retires a public issue that only an older-patch report kept on the board", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seed",
+          slug: "performance_regression",
+          title: "FPS drops and stutter",
+          category: "performance",
+          auto_public: true,
+          is_public: true,
+          visibility_revision: 0,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-old",
+          cluster_id: "cluster-seed",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "FPS dropped after patch 1.12.00",
+          moderation_status: "approved", patch_version: "1.12.00",
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-seed", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ is_public: false, auto_public: false, direct_report_count: 1 });
+  });
+
+  it("retires an older-patch report issue during a scan that never touches it", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-untouched",
+          slug: "parting-gift",
+          title: "Parting Gift gear fails to drop bombs",
+          category: "controls_gameplay",
+          auto_public: true,
+          is_public: true,
+          direct_report_count: 1,
+          visibility_revision: 0,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-untouched",
+          cluster_id: "cluster-untouched",
+          category: "controls_gameplay",
+          platform: "pc_steam",
+          issue_title: "Parting gift no longer triggers",
+          moderation_status: "approved", patch_version: "1.12.00",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.errors).not.toContainEqual(expect.stringContaining("report-backed visibility sweep failed"));
+    expect(tables.issue_clusters[0]).toMatchObject({ is_public: false, auto_public: false });
+  });
+
+  it("publishes an untouched issue whose approved report became current-patch evidence", async () => {
+    // The approval trigger leaves an issue private when no current patch was
+    // recorded at approval time. Once that report's patch family is current,
+    // the next scan must publish it without waiting for a signal to touch it.
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-pending", slug: "pending", title: "Map crash on PS5", category: "crash_startup",
+        auto_public: false, is_public: false, visibility_revision: 1,
+      }],
+      bug_reports: [{
+        id: "report-pending", cluster_id: "cluster-pending", category: "crash_startup", platform: "ps5",
+        issue_title: "Map crash on PS5", moderation_status: "approved", patch_version: "1.13.00",
+      }],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: true, is_public: true, direct_report_count: 1 });
+    expect(result.clustersPromoted).toBe(1);
+  });
+
+  it("retires a stale public baseline kept under a force-hidden override", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-forced", slug: "performance_regression", title: "FPS drops and stutter", category: "performance",
+        admin_visibility_override: "force_hidden", auto_public: true, is_public: false,
+        visibility_restore_auto_public: true, visibility_restore_is_public: true, visibility_revision: 0,
+      }],
+      bug_reports: [{
+        id: "report-forced", cluster_id: "cluster-forced", category: "performance", platform: "pc_steam",
+        issue_title: "FPS dropped after patch 1.12.00", moderation_status: "approved", patch_version: "1.12.00",
+      }],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The override still hides the issue; the baseline it would restore on Auto
+    // no longer says public.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      admin_visibility_override: "force_hidden",
+      is_public: false,
+      visibility_restore_is_public: false,
+      visibility_restore_auto_public: false,
+    });
+  });
+
+  it("reaches stale older-patch issues even when held issues fill the first half of a large sweep", async () => {
+    // 50 eligible issues, all public, engine-owned and backed only by 1.12
+    // reports. The first 25 (by id) stay public after a refresh: odd ones hold a
+    // live current-patch lead, even ones a current-patch check-in. The last 25
+    // have nothing current and must leave the board. A sweep that pages 25 at a
+    // time from a clock-derived offset revisits only the first half when scans
+    // run every two hours.
+    const heldIds = Array.from({ length: 25 }, (_, index) => `cluster-a-held-${String(index).padStart(2, "0")}`);
+    const staleIds = Array.from({ length: 25 }, (_, index) => `cluster-b-stale-${String(index).padStart(2, "0")}`);
+    resetDb({
+      issue_clusters: [...heldIds, ...staleIds].map((id) => ({
+        id, slug: id, title: id, category: "performance", auto_public: true, is_public: true, visibility_revision: 0,
+      })),
+      bug_reports: [...heldIds, ...staleIds].map((id) => ({
+        id: `report-${id}`, cluster_id: id, category: "performance", platform: "pc_steam",
+        issue_title: "Old FPS drop", moderation_status: "approved", patch_version: "1.12.00",
+      })),
+      source_signals: heldIds.filter((_, index) => index % 2 === 1).map((id) => ({
+        id: `signal-${id}`, cluster_id: id, source: "web_search", source_type: "web_search",
+        source_url: `https://community.example.com/${id}`, canonical_url: `https://community.example.com/${id}`,
+        source_domain: "community.example.com", title: "Crimson Desert FPS drops after patch 1.13",
+        summary: "A player reports FPS drops after patch 1.13.00.", category: "performance", confidence: "medium",
+        observed_at: "2026-07-05T10:00:00.000Z", source_published_at: "2026-07-05T10:00:00.000Z",
+        public_status: "private", extracted_facts: {},
+      })),
+      issue_checkins: heldIds.filter((_, index) => index % 2 === 0).map((id) => ({
+        id: `checkin-${id}`, cluster_id: id, patch_version: "1.13.00", platform: "pc_steam", kind: "have_it",
+        voter_ip_hash: `network-${id}`, created_at: "2026-07-05T11:00:00.000Z",
+      })),
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+    const publicIds = () => tables.issue_clusters.filter((row) => row.is_public).map((row) => row.id).sort();
+
+    for (const at of ["2026-07-05T12:00:00.000Z", "2026-07-05T14:00:00.000Z", "2026-07-05T16:00:00.000Z"]) {
+      await runAutomationMonitor({ mode: "manual", now: new Date(at) });
+    }
+
+    expect(publicIds()).toEqual(heldIds);
+    expect(tables.issue_clusters.filter((row) => heldIds.includes(String(row.id))).every((row) => row.auto_public)).toBe(true);
+  });
+
+  it("stops an older-patch report from publishing a current lead while the live lead holds the issue as a watchlist row", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seed",
+          slug: "performance_regression",
+          title: "FPS drops and stutter",
+          category: "performance",
+          auto_public: true,
+          is_public: true,
+          visibility_revision: 0,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-old",
+          cluster_id: "cluster-seed",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "FPS dropped after patch 1.12.00",
+          moderation_status: "approved", patch_version: "1.12.00",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-current",
+          cluster_id: "cluster-seed",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://reddit.com/r/CrimsonDesert/comments/fps20/stuck_at_20",
+          canonical_url: "https://reddit.com/r/CrimsonDesert/comments/fps20/stuck_at_20",
+          source_domain: "reddit.com",
+          title: "FPS stuck at 20 after patch 1.13",
+          summary: "A player reports FPS stuck around 20 after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          promotion_reason: "direct_report_match",
+          extracted_facts: {},
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-seed", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "below_threshold" });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      direct_report_count: 1,
+      auto_public: true,
+      is_public: true,
+    });
+
+    // Once the lead is no longer current-patch evidence the hold ends and the
+    // engine, which still owns the issue, takes it off the board.
+    Object.assign(sourceSignalRows()[0], {
+      title: "FPS stuck at 20 after patch 1.12",
+      summary: "A player reports FPS stuck around 20 after patch 1.12.00.",
+    });
+    await refreshClusterVisibility("cluster-seed", new Date("2026-07-06T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false });
+  });
+
+  it("never demotes a curated public issue when the engine did not publish it", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-curated",
+          slug: "crash_startup",
+          title: "Crashes and startup hangs",
+          category: "crash_startup",
+          auto_public: false,
+          is_public: true,
+          visibility_revision: 0,
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-curated", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: true });
+  });
+
+  it("keeps an untrusted single-domain signal private under a direct-report cluster while the cluster stays public", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved", patch_version: "1.13.00",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    // No reddit posts: the only signal is a lone, untrusted (facebook.com),
+    // single-domain web result. It is fresh (published after the current patch)
+    // so it is publishable, and it clusters onto the approved-report cluster.
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Map crash on PS5",
+        url: "https://facebook.com/groups/crimsondesert/posts/map-crash",
+        snippet: "The map crash still happens on PS5 after loading.",
+        sourceDomain: "facebook.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-04T10:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    // The untrusted, uncorroborated signal must NOT ride the cluster's direct
+    // report onto the public board — it stays private / below_threshold.
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      source_domain: "facebook.com",
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    // The cluster itself is still public thanks to the approved report, but no
+    // scanner signal counts as standalone public evidence.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      direct_report_count: 1,
+      signal_count: 1,
+      public_signal_count: 0,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("promotes a trusted (reddit.com) direct-report signal to public even without domain corroboration", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved", patch_version: "1.13.00",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Map crash on PS5",
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-map/map",
+        snippet: "Map crash still happens on PS5.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      source_domain: "reddit.com",
+      public_status: "public",
+      promotion_reason: "direct_report_match",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({ public_signal_count: 1, is_public: true });
+  });
+
+  it("keeps a fresh publishable signal hidden under a force-hidden cluster", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Admin has force-hidden this cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: true,
+          admin_visibility_override: "force_hidden",
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved", patch_version: "1.13.00",
+          cluster_id: "cluster-map",
+        },
+      ],
+    });
+    configureProviders();
+    // A fresh (post-patch) current-patch signal that is publishable on its own,
+    // routed onto a cluster an admin has force-hidden. force_hidden must win at the
+    // per-signal level too: the signal stays hidden rather than being downgraded to
+    // private (which would leak it back into the private-signal targeting pool).
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Map crash on PS5",
+        url: "https://facebook.com/groups/crimsondesert/posts/map-crash",
+        snippet: "The map crash still happens on PS5 after loading.",
+        sourceDomain: "facebook.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-04T10:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-map",
+      public_status: "hidden",
+      promotion_reason: "admin_force_hidden",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: true,
+      is_public: false,
+    });
+  });
+
+  it("counts duplicate approved excerpts as one verified report per report", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Existing approved player report.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved", patch_version: "1.13.00",
+          cluster_id: "cluster-map",
+        },
+      ],
+      approved_excerpts: [
+        { id: "excerpt-one", report_id: "report-map" },
+        { id: "excerpt-two", report_id: "report-map" },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Map crash on PS5",
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-map/map",
+        snippet: "Map crash still happens on PS5.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      verified_report_count: 1,
+    });
+  });
+
+  it("does not promote two fresh distinct canonical URLs on the same domain (not independent)", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://same.example/fps-one",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: "same.example",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://same.example/fps-two",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: "same.example",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(2);
+    expect(result.clustersPromoted).toBe(0);
+    expect(sourceSignalRows()).toHaveLength(2);
+    expect(new Set(sourceSignalRows().map((row) => row.canonical_url))).toEqual(
+      new Set(["https://same.example/fps-one", "https://same.example/fps-two"]),
+    );
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["private", "private"]);
+    expect(sourceSignalRows().map((row) => row.promotion_reason)).toEqual(["below_threshold", "below_threshold"]);
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      public_signal_count: 0,
+      auto_public: false,
+    });
+  });
+
+  it("filters broad reviews and patch notes before writing source signals", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert PS5 Review",
+        url: "https://www.youtube.com/watch?v=review",
+        snippet: "A general review of the game on PlayStation 5.",
+        sourceDomain: "youtube.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 FPS drops",
+        url: "https://example.com/fps-drops",
+        snippet: "Players report FPS drops and stutter on Steam after the patch.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
+      if (/patch notes/i.test(candidate.title)) {
+        return {
+          issueTitle: "Patch notes",
+          category: "other",
+          platform: null,
+          confidence: "low",
+          summary: "No reported issues.",
+          extractionProvider: "openrouter",
+          extractionModel: "openrouter/free",
+          llmCallsUsed: 1,
+          llmCostUsd: 0,
+        };
+      }
+      if (/review/i.test(candidate.title)) {
+        return {
+          issueTitle: "Crimson Desert PS5 Review",
+          category: "performance",
+          platform: "ps5",
+          confidence: "medium",
+          summary: "Review coverage with no reported issue.",
+          extractionProvider: "deterministic",
+          extractionModel: null,
+          llmCallsUsed: 1,
+          llmCostUsd: 0,
+          fallbackReason: "openrouter_invalid_json",
+        };
+      }
+      return {
+        issueTitle: "FPS regression since 1.13",
+        category: "performance",
+        platform: "pc_steam",
+        confidence: "medium",
+        summary: "Players report FPS drops on Steam after patch 1.13.",
+        extractionProvider: "openrouter",
+        extractionModel: "openrouter/free",
+        llmCallsUsed: 1,
+        llmCostUsd: 0,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(result.skips.filter((skip) => skip === "source_not_issue_report")).toHaveLength(2);
+    expect(result.prefilterRejected).toBe(2);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      title: "Crimson Desert patch 1.13 FPS drops",
+      category: "performance",
+      public_status: "private",
+    });
+    expect(rejectedCandidateRows()).toHaveLength(2);
+    const runId = tables.automation_runs[0].id;
+    expect(rejectedCandidateRows().every((row) => row.run_id === runId)).toBe(true);
+    expect(rejectedCandidateRows().map((row) => row.reason)).toEqual([
+      "source_not_issue_report",
+      "source_not_issue_report",
+    ]);
+    expect(rejectedCandidateRows()[0]).toMatchObject({
+      title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+      url: "https://example.com/patch-notes",
+      source_domain: "example.com",
+      source_published_at: "2026-07-05T10:00:00.000Z",
+    });
+  });
+
+  it("keeps an operator-blocked URL hidden and excludes it from corroboration", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-feedback",
+          slug: "operator-feedback",
+          title: "Operator feedback cluster",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: false,
+          is_public: false,
+        },
+      ],
+      scanner_feedback_rules: [
+        {
+          id: "rule-pubg",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare",
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-pubg",
+          cluster_id: "cluster-feedback",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/PUBATTLEGROUNDS/comments/abc/guerilla_warfare?utm_source=search",
+          canonical_url: null,
+          source_domain: "reddit.com",
+          title: "Crimson Desert trading wagon request",
+          summary: "A search snippet mentions Crimson Desert, but the source is PUBG.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+        {
+          id: "signal-real",
+          cluster_id: "cluster-feedback",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://community.example.com/crimson-desert-fps",
+          canonical_url: "https://community.example.com/crimson-desert-fps",
+          source_domain: "community.example.com",
+          title: "Crimson Desert 1.13 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+      ],
+    });
+    honorSourceSignalProjection = true;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-feedback", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.source_signals.find((row) => row.id === "signal-pubg")).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "operator_feedback_blocked",
+    });
+    expect(tables.source_signals.find((row) => row.id === "signal-real")).toMatchObject({
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+  });
+
+  it("uses broad feedback rules for future intake without changing retained evidence", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-broad-feedback",
+          slug: "broad-feedback",
+          title: "Broad feedback cluster",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: true,
+          is_public: true,
+        },
+      ],
+      scanner_feedback_rules: [
+        {
+          id: "rule-reddit-domain",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "source_domain",
+          scope_value: "reddit.com",
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-reddit-retained",
+          cluster_id: "cluster-broad-feedback",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/CrimsonDesert/comments/abc/fps_drops",
+          canonical_url: "https://www.reddit.com/r/CrimsonDesert/comments/abc/fps_drops",
+          source_domain: "reddit.com",
+          title: "Crimson Desert 1.13 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+        {
+          id: "signal-community-retained",
+          cluster_id: "cluster-broad-feedback",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://community.example.com/crimson-desert-fps",
+          canonical_url: "https://community.example.com/crimson-desert-fps",
+          source_domain: "community.example.com",
+          title: "Crimson Desert performance regression",
+          summary: "A second community reports frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+      ],
+    });
+    honorSourceSignalProjection = true;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-broad-feedback", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.source_signals.find((row) => row.id === "signal-reddit-retained")).toMatchObject({
+      public_status: "public",
+      promotion_reason: "two_independent_domains_trusted",
+    });
+    expect(tables.source_signals.find((row) => row.id === "signal-community-retained")).toMatchObject({
+      public_status: "public",
+      promotion_reason: "two_independent_domains_trusted",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      public_signal_count: 2,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("keeps an exact reviewed record out of evidence after canonicalization widens", async () => {
+    // The operator reviewed this exact Steam record and blocked it. Both the
+    // stored signal and the rule carry the `?l=english` form that was canonical
+    // when they were written. Canonicalizing only the signal would stop the
+    // block matching, put it back in the evidence count, and republish the
+    // cluster — a learning rule rewriting evidence, which it may never do.
+    const reviewed = "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english";
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-exact-reviewed",
+          slug: "exact-reviewed",
+          title: "Exact reviewed cluster",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: true,
+          is_public: true,
+        },
+      ],
+      scanner_feedback_rules: [
+        {
+          id: "rule-steam-exact",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: reviewed,
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-steam-reviewed",
+          cluster_id: "cluster-exact-reviewed",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: reviewed,
+          canonical_url: reviewed,
+          source_domain: "steamcommunity.com",
+          title: "Crimson Desert 1.13 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+        {
+          id: "signal-community-retained",
+          cluster_id: "cluster-exact-reviewed",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://community.example.com/crimson-desert-fps",
+          canonical_url: "https://community.example.com/crimson-desert-fps",
+          source_domain: "community.example.com",
+          title: "Crimson Desert performance regression",
+          summary: "A second community reports frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+      ],
+    });
+    honorSourceSignalProjection = true;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-exact-reviewed", new Date("2026-07-05T12:00:00.000Z"));
+
+    // One publishable domain left, so corroboration is not met: the reviewed
+    // record stays blocked and the remaining source is not published.
+    expect(sourceSignalRows().find((row) => row.id === "signal-steam-reviewed")).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "operator_feedback_blocked",
+    });
+    expect(sourceSignalRows().find((row) => row.id === "signal-community-retained")).toMatchObject({
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({ public_signal_count: 0 });
+  });
+
+  it("keeps a broad rule read past the hosted row cap out of retained evidence", async () => {
+    // Paging the rule ledger to completion makes MORE rules visible to every
+    // consumer, including the evidence refresh. The refresh narrows itself to
+    // exact-URL rules on purpose, so a broad domain lesson that only becomes
+    // reachable on page two still must not rewrite stored evidence counts or
+    // demote a cluster.
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-broad-feedback",
+          slug: "broad-feedback",
+          title: "Broad feedback cluster",
+          category: "performance",
+          admin_visibility_override: null,
+          visibility_revision: 0,
+          auto_public: true,
+          is_public: true,
+        },
+      ],
+      scanner_feedback_rules: [
+        // Two newer rules share a timestamp and fill the first page.
+        { id: "rule-filler-b", action: "block", decision: "off_topic", scope_type: "source_domain", scope_value: "unrelated-b.example", created_at: "2026-07-05T11:30:00.000Z", expires_at: null, revoked_at: null },
+        { id: "rule-filler-a", action: "block", decision: "off_topic", scope_type: "source_domain", scope_value: "unrelated-a.example", created_at: "2026-07-05T11:30:00.000Z", expires_at: null, revoked_at: null },
+        {
+          id: "rule-reddit-domain",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "source_domain",
+          scope_value: "reddit.com",
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-reddit-retained",
+          cluster_id: "cluster-broad-feedback",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/CrimsonDesert/comments/abc/fps_drops",
+          canonical_url: "https://www.reddit.com/r/CrimsonDesert/comments/abc/fps_drops",
+          source_domain: "reddit.com",
+          title: "Crimson Desert 1.13 FPS drops",
+          summary: "Players report frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+        {
+          id: "signal-community-retained",
+          cluster_id: "cluster-broad-feedback",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://community.example.com/crimson-desert-fps",
+          canonical_url: "https://community.example.com/crimson-desert-fps",
+          source_domain: "community.example.com",
+          title: "Crimson Desert performance regression",
+          summary: "A second community reports frame-rate drops after patch 1.13.00.",
+          category: "performance",
+          confidence: "high",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+          extracted_facts: {},
+        },
+      ],
+    });
+    hostedRowCap = { table: "scanner_feedback_rules", rows: 2 };
+    honorSourceSignalProjection = true;
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-broad-feedback", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.source_signals.find((row) => row.id === "signal-reddit-retained")).toMatchObject({
+      public_status: "public",
+      promotion_reason: "two_independent_domains_trusted",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      public_signal_count: 2,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("stores rejected candidates through the legacy schema when feedback columns are missing", async () => {
+    insertFailure = {
+      table: "automation_rejected_candidates",
+      column: "feedback_rule_id",
+      code: "PGRST204",
+      message: "Could not find the feedback_rule_id column of automation_rejected_candidates in the schema cache",
+    };
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/legacy-reject",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.status).not.toBe("failed");
+    expect(result.errors).not.toContain(expect.stringContaining("rejected candidates insert failed"));
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({ url: "https://example.com/legacy-reject", reason: "source_not_issue_report" }),
+    ]);
+    expect(rejectedCandidateRows()[0]).not.toHaveProperty("feedback_rule_id");
+  });
+
+  it("refreshes a legacy rejected candidate without the feedback column", async () => {
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "legacy-rejected",
+          run_id: "old-run",
+          title: "Old title",
+          url: "https://example.com/legacy-refresh",
+          source_domain: "example.com",
+          snippet: "Old snippet",
+          reason: "source_not_issue_report",
+          created_at: "2026-07-20T12:00:00.000Z",
+          expires_at: "2026-07-29T12:00:00.000Z",
+          rescued_at: null,
+        },
+      ],
+    });
+    updateFailure = {
+      table: "automation_rejected_candidates",
+      column: "feedback_rule_id",
+      code: "PGRST204",
+      message: "Could not find the feedback_rule_id column of automation_rejected_candidates in the schema cache",
+    };
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/legacy-refresh",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.status).not.toBe("failed");
+    expect(rejectedCandidateRows()).toHaveLength(1);
+    expect(rejectedCandidateRows()[0]).toMatchObject({
+      id: "legacy-rejected",
+      title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+      run_id: tables.automation_runs[0].id,
+    });
+    expect(rejectedCandidateRows()[0]).not.toHaveProperty("feedback_rule_id");
+  });
+
+  it("blocks a normally relevant candidate when an operator feedback rule matches", async () => {
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-protonmail",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes after the update",
+        url: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp?utm_source=search",
+        snippet: "Crimson Desert crashes every time I open the map.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(0);
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({
+        reason: "off_topic",
+        feedback_rule_id: "rule-protonmail",
+      }),
+    ]);
+    expect(tables.automation_runs[0]).toMatchObject({ operator_rules_matched: 1 });
+  });
+
+  it("still enforces a Steam rule recorded under a different interface language", async () => {
+    // The rule was canonical when it was written; `l` only became droppable
+    // later. Intake re-canonicalizes stored scopes so the lesson keeps naming
+    // the page it was about — otherwise a rejected thread returns to the desk
+    // under any other language.
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-steam-thread",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=english",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes after the update",
+        url: "https://steamcommunity.com/app/3321460/discussions/0/8057?l=koreana",
+        snippet: "Crimson Desert crashes every time I open the map.",
+        sourceDomain: "steamcommunity.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(0);
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({ reason: "off_topic", feedback_rule_id: "rule-steam-thread" }),
+    ]);
+  });
+
+  it("keeps enforcing an older rule that sits past the hosted row cap", async () => {
+    // Three newer rules share one timestamp, so the tie lands on the page
+    // boundary; the rule that actually matches this candidate is older and can
+    // only be reached by walking past a short page.
+    const tied = "2026-07-22T11:30:00.000Z";
+    resetDb({
+      scanner_feedback_rules: [
+        { id: "rule-tied-c", action: "block", decision: "off_topic", scope_type: "source_domain", scope_value: "example.com", created_at: tied, expires_at: null, revoked_at: null },
+        { id: "rule-tied-b", action: "block", decision: "off_topic", scope_type: "source_domain", scope_value: "example.net", created_at: tied, expires_at: null, revoked_at: null },
+        { id: "rule-tied-a", action: "block", decision: "off_topic", scope_type: "source_domain", scope_value: "example.org", created_at: tied, expires_at: null, revoked_at: null },
+        {
+          id: "rule-protonmail",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    hostedRowCap = { table: "scanner_feedback_rules", rows: 2 };
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes after the update",
+        url: "https://www.reddit.com/r/ProtonMail/comments/abc/any_plans_for_mcp?utm_source=search",
+        snippet: "Crimson Desert crashes every time I open the map.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(0);
+    expect(rejectedCandidateRows()).toEqual([
+      expect.objectContaining({ reason: "off_topic", feedback_rule_id: "rule-protonmail" }),
+    ]);
+  });
+
+  it("evaluates feedback-rule expiry against the scan clock instead of the source timestamp", async () => {
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-expired",
+          action: "block",
+          decision: "off_topic",
+          scope_type: "exact_url",
+          scope_value: "https://example.com/crimson-desert-map-crash",
+          created_at: "2026-07-01T11:00:00.000Z",
+          expires_at: "2026-07-10T12:00:00.000Z",
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert crashes when opening the map",
+        url: "https://example.com/crimson-desert-map-crash",
+        snippet: "Crimson Desert crashes every time I open the map after patch 1.13.00.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockResolvedValue({
+      issueTitle: "Map crash after patch",
+      category: "crash_startup",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: "Players report a map crash after patch 1.13.00.",
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(0);
+    expect(result.skips).not.toContain("operator_rule_blocked");
+    expect(result.signalsInserted).toBe(1);
+  });
+
+  it("keeps legacy scanning active when the feedback-rules table is not migrated yet", async () => {
+    selectFailure = {
+      table: "scanner_feedback_rules",
+      message: "relation scanner_feedback_rules does not exist",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.status).not.toBe("failed");
+    expect(result.errors).not.toContain(expect.stringContaining("feedback rules"));
+  });
+
+  it("lets a Relevant exact-URL rule bypass the automated relevance rejection", async () => {
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-manual-relevant",
+          action: "allow",
+          decision: "relevant",
+          scope_type: "exact_url",
+          scope_value: "https://example.com/operator-reviewed-page",
+          created_at: "2026-07-22T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch notes",
+        url: "https://example.com/operator-reviewed-page",
+        snippet: "Operator verified this page contains a real crash report.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-22T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.extractSignalWithOpenRouter.mockResolvedValue({
+      issueTitle: "Map crash after patch",
+      category: "crash_startup",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: "A reviewed source reports a map crash after the patch.",
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(1);
+    expect(result.skips).toContain("operator_rule_allowed");
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ title: "Crimson Desert patch notes" });
+  });
+
+  it("dry runs record zero rejected candidates even when candidates fail pre-screen", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "dry_run", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.prefilterRejected).toBeGreaterThan(0);
+    expect(rejectedCandidateRows()).toHaveLength(0);
+    expect(mutations.filter((mutation) => mutation.table === "automation_rejected_candidates")).toHaveLength(0);
+  });
+
+  it("deletes expired rejected-candidate rows on a non-dry run", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "rejected-old",
+          run_id: "run-old",
+          title: "Old rejected candidate",
+          url: "https://example.com/old",
+          source_domain: "example.com",
+          snippet: "stale",
+          reason: "source_not_issue_report",
+          created_at: "2026-06-01T00:00:00.000Z",
+          expires_at: "2026-06-08T00:00:00.000Z",
+          rescued_at: null,
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(rejectedCandidateRows().find((row) => row.id === "rejected-old")).toBeUndefined();
+    expect(mutations.some((mutation) => mutation.table === "automation_rejected_candidates" && mutation.type === "delete")).toBe(
+      true,
+    );
+  });
+
+  it("makes zero LLM calls and records the run funnel when every candidate fails pre-screen", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert PS5 Review",
+        url: "https://www.youtube.com/watch?v=review",
+        snippet: "A general review of the game on PlayStation 5.",
+        sourceDomain: "youtube.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.llmCallsUsed).toBe(0);
+    expect(result.skips).toContain("all_candidates_prefiltered");
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(result.candidatesSeen).toBe(2);
+    expect(result.prefilterRejected).toBe(2);
+    expect(result.signalsInserted).toBe(0);
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      funnel: {
+        searchResultsSeen: 2,
+        candidatesSeen: 2,
+        deduped: 0,
+        prefilterRejected: 2,
+        llmEligible: 0,
+        llmCalls: 0,
+        kept: 0,
+        promoted: 0,
+      },
+    });
+  });
+
+  it("rescues a borderline current-patch trusted source as a private candidate", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://reddit.com/r/CrimsonDesert/comments/thin/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.candidatesRescued).toBe(1);
+    expect(result.signalsInserted).toBe(1);
+    expect(result.prefilterRejected).toBe(0);
+    expect(result.skips).toContain("candidate_rescued");
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledTimes(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      source_domain: "reddit.com",
+      public_status: "private",
+    });
+    expect(tables.automation_runs[0]).toMatchObject({
+      candidates_rescued: 1,
+    });
+  });
+
+  it("reads full trusted-source content before rejecting and rescues on the recon text", async () => {
+    // Thin snippet lacks symptom language (would be source_not_issue_report) but is a
+    // borderline trusted current-patch candidate. The real thread text has the symptom.
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://pcgamer.com/crimson-desert/recon/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(1);
+    expect(mocks.tavilyExtract.mock.calls[0][0]).toBe(
+      "https://pcgamer.com/crimson-desert/recon/current_patch",
+    );
+    expect(result.candidatesRescued).toBe(1);
+    expect(result.signalsInserted).toBe(1);
+    expect(result.prefilterRejected).toBe(0);
+    expect(result.skips).toContain("candidate_recon");
+    expect(result.skips).toContain("candidate_rescued");
+    // Ledger: each search query and each recon fetch books exactly one Tavily
+    // credit, so searchQueriesUsed = search queries issued + recon fetches, and
+    // estimatedCostUsd rises by SEARCH_QUERY_COST_USD (0.008) per recon fetch.
+    const reconFetches = mocks.tavilyExtract.mock.calls.length;
+    expect(reconFetches).toBe(1);
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + reconFetches);
+    expect(result.estimatedCostUsd).toBeCloseTo(result.searchQueriesUsed * 0.008 + result.llmCostUsd, 10);
+    // The LLM classified the FULL recon text, not the thin snippet.
+    expect(mocks.extractSignalWithOpenRouter.mock.calls[0][0].snippet).toContain("constant stutter and fps drops");
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      source_domain: "pcgamer.com",
+      public_status: "private",
+    });
+    // Stored raw_text is the real thread, not the thin snippet.
+    expect(sourceSignalRows()[0].raw_text).toContain("constant stutter and fps drops on patch 1.13.00");
+  });
+
+  it("never spends a recon fetch on an official page whose verdict is already fixed", async () => {
+    // A publisher known-issues notice qualifies for the recon lane on every axis
+    // the borderline check reads — trusted domain, current patch, "players" and
+    // "issue" context cues — but rescue is impossible by construction: the
+    // re-screen routes official domains straight back to the observation lane
+    // whatever the fetched text says, so the credit must never be booked.
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 known issues notice",
+        snippet:
+          "Players report the quest cannot progress and the game crashes when riding a bear. We are aware of the issue.",
+        url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+        sourceDomain: "crimsondesert.pearlabyss.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue("must never be requested");
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+    expect(result.candidatesRescued).toBe(0);
+    // Never a signal — official pages are provider context, not player evidence.
+    expect(sourceSignalRows()).toHaveLength(0);
+  });
+
+  it("stores an operator-rescued official page without minting a cluster", async () => {
+    // Rescue deliberately skips the pre-screen — the admin has judged the page
+    // relevant, and the signal is stored. The clustering boundary must still
+    // hold: provider content may support an existing cluster, but it never
+    // creates a durable cluster title of its own.
+    resetDb();
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+    const { createServiceClient } = await import("@/lib/supabase");
+
+    await rescueCandidateSignal(createServiceClient() as never, {
+      title: "Crimson Desert – Known Issues",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+      sourceDomain: "crimsondesert.pearlabyss.com",
+      sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      snippet: "Quest cannot progress after the cutscene. The game crashes when riding a bear.",
+    });
+
+    expect(tables.issue_clusters).toHaveLength(0);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: null,
+      source_domain: "crimsondesert.pearlabyss.com",
+      public_status: "private",
+    });
+    // The ledger names the caveat instead of reporting an unqualified success.
+    expect(tables.automation_runs.at(-1)?.skips).toContain("provider_context_no_cluster");
+  });
+
+  it("stores a rescued page whose title names only the site without minting a cluster", async () => {
+    resetDb();
+    configureProviders();
+    // The page-title fallback carries a subreddit landing page's title as is.
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "r/CrimsonDesert - Reddit",
+      category: "other",
+      platform: "unknown",
+      confidence: "low",
+      summary: "r/CrimsonDesert - Reddit",
+      clusterAssignment: "unsure",
+      clusterReason: "No issue on a landing page.",
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+    const { createServiceClient } = await import("@/lib/supabase");
+
+    await rescueCandidateSignal(createServiceClient() as never, {
+      title: "r/CrimsonDesert - Reddit",
+      url: "https://reddit.com/r/CrimsonDesert/",
+      sourceDomain: "reddit.com",
+      sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      snippet: "Welcome to the Crimson Desert community.",
+    });
+
+    expect(tables.issue_clusters).toHaveLength(0);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: null, public_status: "private" });
+    expect(tables.automation_runs.at(-1)?.skips).toContain("junk_title_no_cluster");
+    expect(tables.automation_runs.at(-1)?.skips).not.toContain("provider_context_no_cluster");
+  });
+
+  it("caps recon fetches per run and falls back to snippet-only for the overflow", async () => {
+    // Four borderline trusted current-patch candidates, each thin. MAX_RECON_FETCHES_PER_RUN is 2.
+    mocks.tavilySearch.mockImplementationOnce(async () =>
+      Array.from({ length: 4 }, (_, index) => ({
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: `https://pcgamer.com/crimson-desert/recon-${index}/current_patch/`,
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      })),
+    );
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // At most two recon fetches; the remaining two candidates fall back to snippet-only borderline.
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(2);
+    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(2);
+    expect(result.status).not.toBe("failed");
+    // Ledger: exactly two recon credits booked (the overflow candidates book none).
+    const reconFetches = mocks.tavilyExtract.mock.calls.length;
+    expect(reconFetches).toBe(2);
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + reconFetches);
+    expect(result.estimatedCostUsd).toBeCloseTo(result.searchQueriesUsed * 0.008 + result.llmCostUsd, 10);
+    // The two recon-rescued candidates are kept; the overflow ones still run the
+    // old snippet-only borderline extract (which also keeps under the default mock).
+    expect(result.candidatesRescued).toBe(4);
+    expect(sourceSignalRows()).toHaveLength(4);
+  });
+
+  it("does not recon-fetch a non-trusted borderline candidate", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://example.com/discussion/current_patch",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // example.com is not trusted, so it never enters the borderline lane and recon never fires.
+    expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+  });
+
+  it("never spends a recon fetch on Reddit, GameSpot or Steam discussions, and still judges their snippets", async () => {
+    const thin = (url: string, sourceDomain: string) => ({
+      title: "Crimson Desert patch 1.13 player discussion", url, snippet: "Body retained for moderator review.",
+      sourceDomain, observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      thin("https://reddit.com/r/CrimsonDesert/comments/thin-one/current_patch/", "reddit.com"),
+      thin("https://old.reddit.com/r/CrimsonDesert/comments/thin-two/current_patch/", "old.reddit.com"),
+      thin("https://gamespot.com/articles/crimson-desert-patch-player-discussion/", "gamespot.com"),
+      thin("https://steamcommunity.com/app/3321460/discussions/0/582810005140000099/", "steamcommunity.com"),
+      thin("https://pcgamer.com/crimson-desert/readable/current_patch/", "pcgamer.com"),
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue("Players report constant stutter and fps drops on patch 1.13.00.");
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // Only the readable site is fetched, and the skipped sites did not use up its recon slot.
+    expect(mocks.tavilyExtract.mock.calls.map(([url]) => url)).toEqual(["https://pcgamer.com/crimson-desert/readable/current_patch"]);
+    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(1);
+    // Reddit stays a trusted search source: its thin snippet is still judged and kept.
+    expect(result.candidatesRescued).toBe(5);
+    expect(sourceSignalRows().map((row) => row.source_domain)).toEqual(expect.arrayContaining(["reddit.com", "old.reddit.com", "steamcommunity.com"]));
+  });
+
+  it("reads the Crimson Desert wiki on Fextralife, and no other Fextralife wiki", async () => {
+    const thin = (url: string, sourceDomain: string) => ({
+      title: "Crimson Desert patch 1.13 player discussion", url, snippet: "Body retained for moderator review.",
+      sourceDomain, observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      thin("https://eldenring.wiki.fextralife.com/Crimson+Desert+patch+discussion", "eldenring.wiki.fextralife.com"),
+      thin("https://crimsondesertgame.wiki.fextralife.com/Patch+1.13+player+discussion", "crimsondesertgame.wiki.fextralife.com"),
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue("Players report constant stutter and fps drops on patch 1.13.00.");
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract.mock.calls.map(([url]) => url)).toEqual(["https://crimsondesertgame.wiki.fextralife.com/Patch+1.13+player+discussion"]);
+    expect(result.candidatesRescued).toBe(1);
+    expect(sourceSignalRows().map((row) => row.source_domain)).toEqual(["crimsondesertgame.wiki.fextralife.com"]);
+  });
+
+  it("allows free-tier recon when the dollar budget is zero", async () => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://pcgamer.com/crimson-desert/press-borderline/current_patch",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips).not.toContain("budget_zero");
+    expect(mocks.tavilyExtract).toHaveBeenCalledOnce();
+    expect(result.skips).toContain("candidate_recon");
+  });
+
+  it("does not book a phantom recon credit when Tavily is unconfigured but paid search is allowed", async () => {
+    // The phantom-charge bug: allowPaidSearch stays true (budget-driven), but with
+    // TAVILY_API_KEY unset tavilyExtract makes ZERO network calls and returns null.
+    // Recon must be gated on features().webSearch so it never books a credit here.
+    const savedKey = process.env.TAVILY_API_KEY;
+    delete process.env.TAVILY_API_KEY;
+    // A trusted reddit.com borderline current-patch candidate arrives via Reddit
+    // (web search can't run without the key, but Reddit still can).
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00.",
+    );
+    try {
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+      expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+      expect(result.skips).not.toContain("candidate_recon");
+      // No phantom Tavily credit booked and no phantom cost.
+      expect(result.searchQueriesUsed).toBe(0);
+      expect(result.estimatedCostUsd).toBeCloseTo(result.llmCostUsd, 10);
+    } finally {
+      if (savedKey === undefined) delete process.env.TAVILY_API_KEY;
+      else process.env.TAVILY_API_KEY = savedKey;
+    }
+  });
+
+  it("books no recon credit when the source refuses the fetch", async () => {
+    // A site can refuse Tavily's fetcher, as Reddit always did before recon stopped
+    // reading it: the extract endpoint answers 200 with the URL in failed_results, so
+    // tavilyExtract returns null and NOTHING throws. Booking the credit before the call
+    // therefore charged the ledger and spent a search query on page text that never
+    // arrived.
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://pcgamer.com/crimson-desert/recon-refused/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(null);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The lane ran and is reported as having run...
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(1);
+    expect(result.skips).toContain("candidate_recon");
+    // ...and says plainly that the source gave nothing back.
+    expect(result.skips).toContain("candidate_recon_unavailable");
+    // Ledger counts search queries ONLY. The recon fetch delivered no text, so it
+    // books no credit and, critically, takes no query away from the run.
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued);
+    expect(result.estimatedCostUsd).toBeCloseTo(searchQueriesIssued * 0.008 + result.llmCostUsd, 10);
+    expect(result.status).not.toBe("failed");
+  });
+
+  it("books no recon credit when the extract call itself fails", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://pcgamer.com/crimson-desert/recon-throws/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockRejectedValue(new Error("tavily extract failed: 429"));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // A throw is NOT an unbilled outcome. A timeout, 5xx, or unparseable body can
+    // follow work Tavily already charged for, so the credit is booked worst-case —
+    // understating it would let a later run overrun the monthly cap.
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued + 1);
+    expect(result.estimatedCostUsd).toBeCloseTo((searchQueriesIssued + 1) * 0.008 + result.llmCostUsd, 10);
+    // Distinct from the refused fetch: charged, and labelled as charged.
+    expect(result.skips).toContain("candidate_recon_failed");
+    expect(result.skips).not.toContain("candidate_recon_unavailable");
+    // toErrorMessage surfaces a thrown Error's own message; the label is only the
+    // fallback for a non-Error throw.
+    expect(result.errors.some((message) => message.includes("tavily extract failed: 429"))).toBe(true);
+    expect(result.status).toBe("partial");
+  });
+
+  it("still caps unfetchable recon attempts so an unreachable domain cannot retry unbounded", async () => {
+    // Not booking a credit must not turn the per-run cap into a free-for-all: a
+    // domain that always refuses is attempted MAX_RECON_FETCHES_PER_RUN times and
+    // no more, however many borderline candidates it produces.
+    mocks.tavilySearch.mockImplementationOnce(async () =>
+      Array.from({ length: 4 }, (_, index) => ({
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: `https://pcgamer.com/crimson-desert/recon-refused-${index}/current_patch/`,
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      })),
+    );
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(null);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(2);
+    expect(result.skips.filter((skip) => skip === "candidate_recon")).toHaveLength(2);
+    expect(result.skips.filter((skip) => skip === "candidate_recon_unavailable")).toHaveLength(2);
+    const searchQueriesIssued = mocks.tavilySearch.mock.calls.length;
+    expect(result.searchQueriesUsed).toBe(searchQueriesIssued);
+  });
+
+  it("hides existing public stale source links during a later scan even when no new mentions are kept", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-old-fps",
+          slug: "old-fps",
+          title: "Old FPS regression",
+          category: "performance",
+          description: "Old public scanner source.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-old-fps",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://steamcommunity.com/app/old",
+          canonical_url: "https://steamcommunity.com/app/old",
+          title: "Crimson Desert massive frame drops and stuttering after 1.04",
+          summary: "Players discuss Crimson Desert frame drops after patch 1.04.",
+          source_domain: "steamcommunity.com",
+          source_published_at: "2026-05-01T12:00:00.000Z",
+          semantic_fingerprint: "old-fps",
+          cluster_id: "cluster-old-fps",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-05-01T12:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert Patch 1.13.00 Full Patch Notes",
+        url: "https://example.com/patch-notes",
+        snippet: "Official update notes and balance changes.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(result.signalsInserted).toBe(0);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "wrong_patch",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+    expect(tables.automation_runs[0]).toMatchObject({
+      stale_signals_hidden: 1,
+    });
+  });
+
+  it("hides existing public bypass discussions during a later scan", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-crash",
+          slug: "crash-startup",
+          title: "Crash/startup issue",
+          category: "crash_startup",
+          description: "Public source was not actually a player bug report.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-crackwatch",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/CrackWatch/comments/example",
+          canonical_url: "https://www.reddit.com/r/CrackWatch/comments/example",
+          title: "Crimson Desert Patch 1.13.01 HYPERVISOR by DenuvOwO",
+          summary: "Discussion about repacks and bypass files.",
+          source_domain: "reddit.com",
+          source_published_at: null,
+          semantic_fingerprint: "crackwatch-source",
+          cluster_id: "cluster-crash",
+          category: "crash_startup",
+          confidence: "high",
+          observed_at: "2026-07-09T08:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-09T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "source_not_issue_report",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+  });
+
+  it("hides legacy public rows that never mention Crimson Desert", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-off-topic",
+          slug: "off-topic",
+          title: "Off-topic legacy row",
+          category: "other",
+          description: "A trusted-domain row that is unrelated to the game.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-protonmail",
+          cluster_id: "cluster-off-topic",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://www.reddit.com/r/ProtonMail/comments/example/mcp",
+          canonical_url: "https://www.reddit.com/r/ProtonMail/comments/example/mcp",
+          source_domain: "reddit.com",
+          title: "Any plans for MCP?",
+          summary: "Proton rolled out an AI product called Lumo.",
+          source_published_at: null,
+          category: "other",
+          confidence: "low",
+          observed_at: "2026-07-22T08:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-22T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ public_status: "hidden", promotion_reason: "off_topic" });
+    expect(tables.issue_clusters[0]).toMatchObject({ public_signal_count: 0, auto_public: false, is_public: false });
+  });
+
+  it("quarantines stale public source links beyond the first audit page", async () => {
+    const freshSignals = Array.from({ length: 501 }, (_, index) => ({
+      id: `signal-current-${index}`,
+      source: "web_search",
+      source_type: "web_search",
+      source_url: `https://example.com/current-${index}`,
+      canonical_url: `https://example.com/current-${index}`,
+      title: `Crimson Desert patch 1.13 FPS report ${index}`,
+      summary: "Players discuss current patch FPS drops.",
+      source_domain: "example.com",
+      source_published_at: "2026-07-04T12:00:00.000Z",
+      observed_at: "2026-07-04T12:00:00.000Z",
+      last_seen_at: "2026-07-04T12:00:00.000Z",
+      public_status: "public",
+    }));
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-old-fps",
+          slug: "old-fps",
+          title: "Old FPS regression",
+          category: "performance",
+          description: "Old public scanner source.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        ...freshSignals,
+        {
+          id: "signal-old-fps",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://steamcommunity.com/app/old",
+          canonical_url: "https://steamcommunity.com/app/old",
+          title: "Crimson Desert massive frame drops and stuttering after 1.04",
+          summary: "Players discuss Crimson Desert frame drops after patch 1.04.",
+          source_domain: "steamcommunity.com",
+          source_published_at: "2026-05-01T12:00:00.000Z",
+          semantic_fingerprint: "old-fps",
+          cluster_id: "cluster-old-fps",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-05-01T12:00:00.000Z",
+          last_seen_at: "2026-07-05T12:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows().find((row) => row.id === "signal-old-fps")).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "wrong_patch",
+    });
+  });
+
+  it("keeps stale source links hidden when a direct report makes the cluster visible", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-map",
+          slug: "map-crash",
+          title: "Map crash on PS5",
+          category: "crash_startup",
+          description: "Direct report cluster with stale public source.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          public_signal_count: 1,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-map",
+          category: "crash_startup",
+          platform: "ps5",
+          issue_title: "Map crash on PS5",
+          moderation_status: "approved", patch_version: "1.13.00",
+          cluster_id: "cluster-map",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-old-map",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://reddit.com/r/CrimsonDesert/old-map",
+          canonical_url: "https://reddit.com/r/CrimsonDesert/old-map",
+          title: "New freezes / crashes on 1.03",
+          summary: "Players discuss crashes on patch 1.03.",
+          source_domain: "reddit.com",
+          source_published_at: "2026-04-01T12:00:00.000Z",
+          semantic_fingerprint: "old-map-crash",
+          cluster_id: "cluster-map",
+          category: "crash_startup",
+          confidence: "medium",
+          observed_at: "2026-04-01T12:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.staleSignalsHidden).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "hidden",
+      promotion_reason: "wrong_patch",
+    });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      direct_report_count: 1,
+      public_signal_count: 0,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("increments seen_count for the same canonical URL instead of duplicating evidence", async () => {
+    mocks.tavilySearch.mockImplementation(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam after patch 1.13.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const secondResult = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      seen_count: 2,
+      first_seen_at: "2026-07-05T12:00:00.000Z",
+      last_seen_at: "2026-07-05T13:00:00.000Z",
+      last_seen_run_id: tables.automation_runs[1].id,
+    });
+    expect(secondResult.signalsReobserved).toBe(1);
+    expect(tables.automation_runs[1]).toMatchObject({
+      signals_reobserved: 1,
+    });
+  });
+
+  it("retains an exact source signal date when a later search sighting is undated", async () => {
+    const candidate = {
+      title: "Crimson Desert crashes when opening the map",
+      url: "https://steamcommunity.com/app/3321460/discussions/0/123456789/",
+      snippet: "The game crashes every time I open the map on my PC.",
+      sourceDomain: "steamcommunity.com",
+      observedAt: "2026-07-05T12:00:00.000Z",
+      sourcePublishedAt: "2026-07-05T10:00:00.000Z" as string | null,
+    };
+    mocks.tavilySearch.mockImplementation(async () => [{ ...candidate }]);
+    mocks.extractSignalWithOpenRouter.mockResolvedValue({
+      issueTitle: "Crashes when opening the map", category: "crash_startup", platform: "pc_steam",
+      confidence: "high", summary: "Crimson Desert crashes when opening the map.",
+      clusterAssignment: "unsure", clusterSlug: null, extractionProvider: "deterministic",
+      extractionModel: null, llmCallsUsed: 0, llmCostUsd: 0,
+    });
+    const { runAutomationMonitor } = await importRunner();
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(tables.patch_observations).toHaveLength(0);
+    candidate.sourcePublishedAt = null;
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+    expect(result.signalsReobserved).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      source_published_at: "2026-07-05T10:00:00.000Z", seen_count: 2,
+    });
+    expect(sourceSignalRows()[0].promotion_reason).not.toBe("unknown_source_freshness");
+
+    // A known date does not sanitize newly supplied malformed metadata.
+    candidate.sourcePublishedAt = "not-a-date";
+    mocks.extractSignalWithOpenRouter.mockClear();
+    const malformed = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T14:00:00.000Z") });
+    expect(malformed.signalsPrepared).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(sourceSignalRows()[0].source_published_at).toBe("2026-07-05T10:00:00.000Z");
+
+    candidate.sourcePublishedAt = null;
+    selectFailure = { table: "source_signals", columns: "canonical_url, source_published_at", message: "permission denied" };
+    const failed = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T15:00:00.000Z") });
+    expect(failed.status).toBe("failed");
+    expect(failed.errors).toContain("stored signal dates read failed: permission denied");
+    expect(sourceSignalRows()[0]).toMatchObject({ source_published_at: "2026-07-05T10:00:00.000Z", seen_count: 3 });
+  });
+
+  it.each(["other-page", "steam-review", "invalid-date"])("does not borrow a %s publication date for an undated source", async (kind) => {
+    const url = "https://steamcommunity.com/app/3321460/discussions/0/987654321";
+    tables.source_signals.push({
+      id: "unusable-date", source: kind === "steam-review" ? "steam_review" : "web_search",
+      canonical_url: kind === "other-page" ? `${url}0` : url,
+      source_published_at: kind === "invalid-date" ? "not-a-date" : "2026-07-05T10:00:00.000Z",
+    });
+    mocks.tavilySearch.mockResolvedValue([{
+      title: "Crimson Desert crashes when opening the map", url, sourceDomain: "steamcommunity.com",
+      snippet: "The game crashes every time I open the map on my PC.", observedAt: "2026-07-05T12:00:00.000Z",
+    }]);
+    mocks.extractSignalWithOpenRouter.mockResolvedValue({
+      issueTitle: "Crashes when opening the map", category: "crash_startup", platform: "pc_steam",
+      confidence: "high", summary: "Crimson Desert crashes when opening the map.",
+      clusterAssignment: "unsure", clusterSlug: null, extractionProvider: "deterministic",
+      extractionModel: null, llmCallsUsed: 0, llmCostUsd: 0,
+    });
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows().find((row) => row.id !== "unusable-date")).toMatchObject({
+      source_published_at: null, public_status: "private",
+    });
+  });
+
+  it("refreshes both clusters after a committed source move even when its observation event fails", async () => {
+    const candidates = [
+      { title: "Crimson Desert FPS regression", url: "https://www.reddit.com/r/CrimsonDesert/comments/abc/fps_drops", sourceDomain: "reddit.com" },
+      { title: "Crimson Desert FPS regression", url: "https://community.example.com/crimson-desert-fps", sourceDomain: "community.example.com" },
+    ].map((row) => ({ ...row, snippet: "Crimson Desert has severe FPS drops on PC after patch 1.13.",
+      observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T10:00:00.000Z" }));
+    mocks.tavilySearch.mockImplementation(async () => candidates);
+    const { runAutomationMonitor } = await importRunner();
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const oldCluster = tables.issue_clusters.find((row) => row.id === sourceSignalRows()[0].cluster_id)!;
+    expect(oldCluster).toMatchObject({ is_public: true, public_signal_count: 2 });
+
+    mocks.tavilySearch.mockImplementation(async () => [{ ...candidates[0],
+      title: "Crimson Desert map crash on PC", snippet: "Crimson Desert map crash after patch 1.13 on PC." }]);
+    observationEventInsertFailure = "permission denied for table signal_observation_events";
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+    expect(sourceSignalRows()[0].cluster_id).not.toBe(oldCluster.id);
+    // The remaining current lead can hold the card visible, but cannot retain
+    // the two-domain public evidence count after its corroborating source moves.
+    expect(oldCluster).toMatchObject({ is_public: true, public_signal_count: 0 });
+    expect(sourceSignalRows()[1].public_status).toBe("private");
+    expect(result).toMatchObject({ status: "partial", signalsReobserved: 1 });
+    expect(result.errors).toContain("re-observation ledger write failed: permission denied for table signal_observation_events");
+  });
+
+  it("refreshes observed_at when a rescued signal is re-observed as a reject", async () => {
+    resetDb({
+      source_signals: [
+        {
+          id: "signal-rescued",
+          canonical_url: "https://example.com/rescued-rejection",
+          seen_count: 1,
+          observed_at: "2026-06-01T12:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch notes",
+        url: "https://example.com/rescued-rejection",
+        snippet: "Official update details.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsReobserved).toBe(1);
+    expect(rejectedCandidateRows()).toEqual([]);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      observed_at: "2026-07-05T12:00:00.000Z",
+      last_seen_at: "2026-07-05T12:00:00.000Z",
+    });
+  });
+
+  it("refreshes a rescued signal's cluster when re-observation makes its sources current", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-rescued",
+          category: "performance",
+          auto_public: false,
+          is_public: false,
+          visibility_revision: 0,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-rescued",
+          cluster_id: "cluster-rescued",
+          canonical_url: "https://example.com/rescued-rejection",
+          source_domain: "dsogaming.com",
+          title: "Crimson Desert patch 1.13 FPS regression",
+          summary: "Frame rate drops after patch 1.13.00.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          observed_at: "2026-06-01T12:00:00.000Z",
+          seen_count: 1,
+          public_status: "private",
+        },
+        {
+          id: "signal-corroborating",
+          cluster_id: "cluster-rescued",
+          canonical_url: "https://example.net/current-stutter",
+          source_domain: "example.net",
+          title: "Crimson Desert patch 1.13 stutter",
+          summary: "Stutter persists after patch 1.13.00.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          observed_at: "2026-07-05T11:00:00.000Z",
+          seen_count: 1,
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch notes",
+        url: "https://example.com/rescued-rejection",
+        snippet: "Official update details.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result).toMatchObject({ signalsReobserved: 1, clustersPromoted: 1 });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      auto_public: true,
+      is_public: true,
+      public_signal_count: 2,
+    });
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["public", "public"]);
+  });
+
+  it("records a re-observation event in the ledger when the table exists", async () => {
+    mocks.tavilySearch.mockImplementation(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam after patch 1.13.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    // First observation writes no event (first_seen_at already records it);
+    // the re-observation writes exactly one.
+    expect(tables.signal_observation_events).toHaveLength(1);
+    expect(tables.signal_observation_events[0]).toMatchObject({
+      signal_id: sourceSignalRows()[0].id,
+      run_id: tables.automation_runs[1].id,
+      observed_at: "2026-07-05T13:00:00.000Z",
+    });
+  });
+
+  it("degrades the observation ledger to a no-op without failing the scan", async () => {
+    observationEventInsertFailure = 'relation "signal_observation_events" does not exist';
+    mocks.tavilySearch.mockImplementation(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam after patch 1.13.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const secondResult = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    // The migration may not be applied in production: the ledger silently
+    // stands down and the scan is untouched — still a success, still counted
+    // as a re-observation, no error note.
+    expect(secondResult.status).toBe("success");
+    expect(secondResult.signalsReobserved).toBe(1);
+    expect(secondResult.errors).toEqual([]);
+    expect(tables.signal_observation_events).toHaveLength(0);
+  });
+
+  it("surfaces non-schema observation ledger failures instead of hiding them", async () => {
+    observationEventInsertFailure = "permission denied for table signal_observation_events";
+    mocks.tavilySearch.mockImplementation(async () => [
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://example.com/fps",
+        snippet: "Players report FPS drops on Steam after patch 1.13.",
+        sourceDomain: "example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    const secondResult = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    expect(secondResult).toMatchObject({ status: "partial", signalsReobserved: 1 });
+    expect(secondResult.errors).toContain(
+      "re-observation ledger write failed: permission denied for table signal_observation_events",
+    );
+  });
+
+  it("spends one discovery slot on the wire's news-topic press query on eligible turns", async () => {
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z with a single lane -> discovery turn % 3 === 0: the wire slot fires.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const calls = mocks.tavilySearch.mock.calls as [string, { topic?: string }?][];
+    const newsCalls = calls.filter(([, options]) => options?.topic === "news");
+    expect(newsCalls).toHaveLength(1);
+    // The wire query names the game and never the patch version. Measured: the
+    // versioned form returned dated articles about other games entirely, because the
+    // news index matched the generic words around a version string no headline
+    // carries. The patch gates downstream still decide what gets stored.
+    expect(newsCalls[0][0]).toContain("Crimson Desert");
+    expect(newsCalls[0][0]).not.toContain("1.13.00");
+    // The wire REPLACES a general slot: total credit spend is unchanged.
+    expect(result.searchQueriesUsed).toBe(calls.length);
+  });
+
+  it("keeps the wire's dated observations when the general queries fill the shelf first", async () => {
+    // The defect this pins: collectInputs appends the wire results AFTER the
+    // general queries, so a productive general turn filled every observation
+    // slot with undated rows the Brief can never render — and the only dated
+    // results in the run, the ones the wire credit exists to buy, were
+    // discarded at the cap.
+    mocks.tavilySearch.mockImplementation(async (_query: string, options?: { topic?: string }) => {
+      if (options?.topic === "news") {
+        // RFC 1123 is what Tavily's news index really emits (probed live
+        // 2026-07-27) — the mapper passes published_date through untouched,
+        // so an ISO fixture here would test a wire that does not exist.
+        return [
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.polygon.com/crimson-desert-1-13-notes",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "polygon.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 09:00:00 GMT",
+          },
+          {
+            title: "Crimson Desert Patch 1.13.00 Released For All Platforms",
+            url: "https://www.pushsquare.com/news/crimson-desert-1-13-detailed",
+            snippet: "The Crimson Desert update is out now.",
+            sourceDomain: "pushsquare.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 10:00:00 GMT",
+          },
+          // The wire also re-returns a URL a general query already surfaced.
+          // First-wins dedup drops this signal — but its date must coalesce
+          // onto the undated shelf twin instead of vanishing with it.
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.dsogaming.com/articles/cd-1-13-mirror-0",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "dsogaming.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 08:00:00 GMT",
+          },
+          // And a dated duplicate of a mirror the dated wire results have
+          // ALREADY DISPLACED by the time it arrives: no shelf row remains
+          // to upgrade, so the page re-enters as its dated incarnation and
+          // takes another undated row's slot.
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.dsogaming.com/articles/cd-1-13-mirror-4",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "dsogaming.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 07:00:00 GMT",
+          },
+        ];
+      }
+      // Every general query returns the same five undated patch-notes mirrors;
+      // prepareSignals' first-wins URL dedup collapses the repeats, so exactly
+      // five undated candidates reach the observation shelf — a full cap.
+      return Array.from({ length: 5 }, (_, index) => ({
+        title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+        url: `https://www.dsogaming.com/articles/cd-1-13-mirror-${index}`,
+        snippet: "Pearl Abyss detailed the update for all platforms.",
+        sourceDomain: "dsogaming.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+      }));
+    });
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z -> the wire slot fires, so the run holds both lanes.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const urls = persistedObservations.map((row) => row.url);
+    expect(urls).toContain("https://www.polygon.com/crimson-desert-1-13-notes");
+    expect(urls).toContain("https://www.pushsquare.com/news/crimson-desert-1-13-detailed");
+    // The cap holds at five: the two dated rows displaced the two newest
+    // undated mirrors, and the earliest mirrors keep first-wins seniority.
+    expect(persistedObservations).toHaveLength(5);
+    // Four dated rows: the two wire URLs, mirror-0 upgraded in place by its
+    // deduped wire twin's date, and displaced mirror-4 re-entering as its
+    // dated incarnation in another undated row's slot.
+    expect(persistedObservations.filter((row) => row.source_published_at).length).toBe(4);
+    const upgradedMirror = persistedObservations.find(
+      (row) => row.url === "https://www.dsogaming.com/articles/cd-1-13-mirror-0",
+    );
+    expect(upgradedMirror?.source_published_at).toBe("Sun, 05 Jul 2026 08:00:00 GMT");
+    const reenteredMirror = persistedObservations.find(
+      (row) => row.url === "https://www.dsogaming.com/articles/cd-1-13-mirror-4",
+    );
+    expect(reenteredMirror?.source_published_at).toBe("Sun, 05 Jul 2026 07:00:00 GMT");
+    expect(result.observationsKept).toBe(5);
+    // Not a silent success: any unexpected rpc in this scenario would land in
+    // an error-collecting catch and degrade the run to partial.
+    expect(result.status).toBe("success");
+  });
+
+  it("never attaches an observation to a URL already kept as a signal", async () => {
+    // The side door this pins shut: a general query keeps a page as a source
+    // signal, then the wire re-returns the same URL with a different excerpt —
+    // one that pre-screens as observation material — plus the publication date
+    // the general copy lacked. The displaced-page re-entry path must not turn
+    // that duplicate into an observation: one candidate yields a signal or an
+    // observation, never the same page arguing both sides.
+    const complaintUrl = "https://reddit.com/r/CrimsonDesert/comments/fps/towns";
+    mocks.tavilySearch.mockImplementation(async (_query: string, options?: { topic?: string }) => {
+      if (options?.topic === "news") {
+        return [
+          {
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: complaintUrl,
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "reddit.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 09:00:00 GMT",
+          },
+        ];
+      }
+      return [
+        {
+          title: "Crimson Desert patch 1.13 FPS drops in towns",
+          url: complaintUrl,
+          snippet: "Players report stutter and FPS drops after patch 1.13.00.",
+          sourceDomain: "reddit.com",
+          observedAt: "2026-07-05T12:00:00.000Z",
+          sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        },
+      ];
+    });
+    const defaultRpc = mocks.rpc.getMockImplementation()!;
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      return defaultRpc(name, args);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z -> the wire slot fires, so both copies of the page arrive.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The complaint copy was kept as a signal...
+    expect(sourceSignalRows().map((row) => row.canonical_url)).toContain(complaintUrl);
+    // ...so the wire's dated marketing copy must not also mint an observation.
+    expect(persistedObservations.map((row) => row.url)).not.toContain(complaintUrl);
+    expect(result.status).toBe("success");
+  });
+
+  it("persists a direct provider date and never substitutes scanner time for it", async () => {
+    mocks.tavilySearch.mockImplementation(async (_query: string, options?: { topic?: string }) => {
+      if (options?.topic === "news") {
+        return [
+          {
+            // Dated by the provider: this one must persist verbatim.
+            title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+            url: "https://www.polygon.com/crimson-desert-1-13-notes",
+            snippet: "Pearl Abyss detailed the update for all platforms.",
+            sourceDomain: "polygon.com",
+            observedAt: "2026-07-05T12:00:00.000Z",
+            sourcePublishedAt: "Sun, 05 Jul 2026 09:00:00 GMT",
+          },
+        ];
+      }
+      return [
+        {
+          // Undated, and its snippet is full of dates that are NOT publication
+          // dates. Neither those nor the scan's own clock may fill the column.
+          title: "Crimson Desert Patch 1.13.00 Released & Detailed",
+          url: "https://www.dsogaming.com/articles/cd-1-13-undated",
+          snippet: "Pearl Abyss detailed the update for all platforms. Apr 4 @ 1:45am. See the July 14, 2026 recap.",
+          sourceDomain: "dsogaming.com",
+          observedAt: "2026-07-05T12:00:00.000Z",
+        },
+      ];
+    });
+    const defaultRpc = mocks.rpc.getMockImplementation()!;
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      return defaultRpc(name, args);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    // 12:00Z -> the wire slot fires, so both the dated and undated copies arrive.
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const dated = persistedObservations.find(
+      (row) => row.url === "https://www.polygon.com/crimson-desert-1-13-notes",
+    );
+    expect(dated?.source_published_at).toBe("Sun, 05 Jul 2026 09:00:00 GMT");
+    const undated = persistedObservations.find(
+      (row) => row.url === "https://www.dsogaming.com/articles/cd-1-13-undated",
+    );
+    expect(undated).toBeDefined();
+    expect(undated?.source_published_at).toBeNull();
+    // Belt and braces: no persisted date may equal a scanner timestamp.
+    const scannerTimes = new Set(["2026-07-05T12:00:00.000Z", ...persistedObservations.map((row) => String(row.observed_at))]);
+    expect(persistedObservations.some((row) => scannerTimes.has(String(row.source_published_at)))).toBe(false);
+    expect(result.status).toBe("success");
+  });
+
+  it("rejects invalid provider dates before Community Asks can use the undated fallback", async () => {
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Day 40 of asking for armor dye in Crimson Desert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/bad_date/armor_dye/",
+        snippet: "The community keeps asking Pearl Abyss to add armor dye options.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T13:00:00.000Z",
+        sourcePublishedAt: "yesterday afternoon",
+      },
+      {
+        title: "Please add mount transmog to Crimson Desert",
+        url: "https://www.reddit.com/r/CrimsonDesert/comments/future_date/mount_transmog/",
+        snippet: "A feature request asking Pearl Abyss for mount transmog.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T13:00:00.000Z",
+        sourcePublishedAt: "2026-07-08T14:00:00.000Z",
+      },
+    ]);
+    const defaultRpc = mocks.rpc.getMockImplementation()!;
+    const persistedObservations: Record<string, unknown>[] = [];
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "persist_patch_observations") {
+        const rows = (args.p_observations ?? []) as Record<string, unknown>[];
+        persistedObservations.push(...rows);
+        return { data: rows.length, error: null };
+      }
+      return defaultRpc(name, args);
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    expect(persistedObservations).toEqual([]);
+    expect(rejectedCandidateRows()).toHaveLength(2);
+    expect(rejectedCandidateRows().map((row) => row.reason)).toEqual([
+      "invalid_source_date",
+      "invalid_source_date",
+    ]);
+    expect(result.skips.filter((skip) => skip === "invalid_source_date")).toHaveLength(2);
+    expect(result.prefilterRejected).toBe(2);
+    expect(mocks.extractSignalWithOpenRouter).not.toHaveBeenCalled();
+    expect(result.status).toBe("success");
+  });
+
+  it("stops before observation persistence when stored-date ownership cannot be read", async () => {
+    selectFailure = {
+      table: "patch_observations",
+      code: "42501",
+      message: "permission denied for table patch_observations",
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.errors).toContain(
+      "stored observation dates read failed: permission denied for table patch_observations",
+    );
+    expect(mocks.rpc).not.toHaveBeenCalledWith("persist_patch_observations", expect.anything());
+  });
+
+  it("keeps the rolling-deploy fallback narrow to a missing observations relation", async () => {
+    selectFailure = {
+      table: "patch_observations",
+      code: "PGRST205",
+      message: "Could not find the table patch_observations in the schema cache",
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.errors).toEqual([]);
+  });
+
+  it("surfaces a thrown stored-date timeout instead of treating it as no rows", async () => {
+    beforeSelect = (table) => {
+      if (table === "patch_observations") throw new Error("database request timed out");
+    };
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("failed");
+    expect(result.errors).toContain("stored observation dates read failed: database request timed out");
+    expect(mocks.rpc).not.toHaveBeenCalledWith("persist_patch_observations", expect.anything());
+  });
+
+  it("keeps every search slot on general (dated-less) search on non-wire turns", async () => {
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 13:00Z -> discovery turn % 3 === 1: no wire slot, complaint hunt untouched.
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+    const calls = mocks.tavilySearch.mock.calls as [string, { topic?: string }?][];
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every(([, options]) => options?.topic === undefined)).toBe(true);
+  });
+
+  it("changes the next scheduled intent after a zero-kept scan", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-zero-kept",
+          started_at: "2026-07-05T10:00:00.000Z",
+          status: "success",
+          mode: "scheduled",
+          search_results_seen: 5,
+          signals_inserted: 0,
+          funnel: { candidatesSeen: 5, prefilterRejected: 5, kept: 0 },
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, corroborate]
+    // rotation on corroborate, so the zero-kept memory drives corroboration.
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    // Site-scoped, but not pinned to one forum: the corroborate lane now rotates
+    // through community AND press sources so a reddit-heavy cluster can reach the
+    // second independent domain promotion requires. Which source a given turn draws
+    // is covered directly in the query-planning tests.
+    // Pinned exactly. The lane rotation depends on run.ts passing BOTH laneCount and
+    // searchRotationOffset through to the query builder; a loose `/^site:/` still
+    // passed when either was dropped, which is how the rotation could silently
+    // collapse back onto one forum.
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
+      "site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch 1.13.00 crash stutter freeze FPS",
+    );
+    expect(tables.automation_runs[1]).toMatchObject({
+      intent: "corroborate_cluster",
+    });
+  });
+
+  it("uses the patch burst budget and records the active window in the run ledger", async () => {
+    const burstPatch = {
+      ...officialPatchFixture,
+      observedAt: "2026-07-05T11:00:00.000Z",
+    };
+    mocks.getCurrentPatchMetadata.mockResolvedValue(burstPatch);
+    mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: burstPatch });
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(2);
+    expect(result.skips).toContain("patch_burst_active");
+    expect(tables.automation_runs[0].skips).toContain("patch_burst_active");
+  });
+
+  it("reserves a Tavily credit for candidate recon in a normal scheduled run", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://pcgamer.com/crimson-desert/recon-scheduled/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(1);
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(1);
+    expect(result.candidatesRescued).toBe(1);
+    expect(result.searchQueriesUsed).toBe(2);
+    expect(tables.automation_runs[0].search_queries_used).toBe(2);
+    expect(result.estimatedCostUsd).toBeCloseTo(2 * 0.008 + result.llmCostUsd, 10);
+  });
+
+  it("keeps burst search and recon candidates inside the three-credit Tavily cap", async () => {
+    const burstPatch = {
+      ...officialPatchFixture,
+      observedAt: "2026-07-05T13:00:00.000Z",
+    };
+    mocks.getCurrentPatchMetadata.mockResolvedValue(burstPatch);
+    mocks.syncOfficialPatchNote.mockResolvedValue({ status: "synced", changed: false, patch: burstPatch });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://pcgamer.com/crimson-desert/recon-burst-1/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T14:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T13:00:00.000Z",
+      },
+      {
+        title: "Crimson Desert patch 1.13 player discussion",
+        url: "https://pcgamer.com/crimson-desert/recon-burst-2/current_patch/",
+        snippet: "Body retained for moderator review.",
+        sourceDomain: "pcgamer.com",
+        observedAt: "2026-07-05T14:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T13:00:00.000Z",
+      },
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.tavilyExtract.mockResolvedValue(
+      "Players report constant stutter and fps drops on patch 1.13.00 across the whole map.",
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T14:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    // The community-pulse pack has two search queries, leaving one of the
+    // burst's three Tavily credits for exactly one recon fetch.
+    expect(mocks.tavilySearch).toHaveBeenCalledTimes(2);
+    expect(mocks.tavilyExtract).toHaveBeenCalledTimes(1);
+    expect(result.searchQueriesUsed).toBe(3);
+    expect(result.estimatedCostUsd).toBeCloseTo(3 * 0.008 + result.llmCostUsd, 10);
+    expect(tables.automation_runs[0].search_queries_used).toBe(3);
+  });
+
+  it("targets corroboration when private weak source signals exist", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "shader-stutter",
+          title: "Shader compilation stutter",
+          category: "performance",
+          description: "Seeded weak cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: true,
+          auto_public: false,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-private-fps",
+          cluster_id: "cluster-fps",
+          public_status: "private",
+          title: "Crimson Desert patch 1.13 FPS drops",
+          summary: "Private current-patch candidate.",
+          observed_at: "2026-07-05T10:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, corroborate]
+    // rotation on corroborate (discovery still gets its turn on other offsets).
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    // Site-scoped, but not pinned to one forum: the corroborate lane now rotates
+    // through community AND press sources so a reddit-heavy cluster can reach the
+    // second independent domain promotion requires. Which source a given turn draws
+    // is covered directly in the query-planning tests.
+    // Pinned exactly, including the cluster title the lane is corroborating. See the
+    // note on the sibling assertion: a loose site: match hid a dropped laneCount.
+    expect(mocks.tavilySearch.mock.calls[0][0]).toBe(
+      "site:pushsquare.com OR site:purexbox.com OR site:wccftech.com Crimson Desert patch 1.13.00 " +
+        "Shader compilation stutter crash stutter freeze FPS",
+    );
+    expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
+  });
+
+  it("hunts zero-evidence public seed clusters by name", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-boss-crash",
+          slug: "boss-rematch-crash-persistent",
+          title: "Boss rematch crash persistent",
+          category: "crash_startup",
+          description: "Public seed cluster with no evidence yet.",
+          fix_status: "reported",
+          confidence: "seed_unverified",
+          is_public: true,
+          auto_public: false,
+          signal_count: 0,
+          direct_report_count: 0,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 13:00Z -> rotation offset is odd, so the two-lane [discovery, corroborate]
+    // rotation lands on corroborate and the seed cluster title is hunted by name.
+    const result = await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(result.targetClusterTitles).toContain("Boss rematch crash persistent");
+    expect(result.intent).toBe("corroborate_cluster");
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("Boss rematch crash persistent");
+    expect(tables.automation_runs[0]).toMatchObject({ intent: "corroborate_cluster" });
+  });
+
+  it("targets rescue when live rejected candidates exist", async () => {
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "rejected-promising",
+          title: "Promising thin current patch source",
+          url: "https://steamcommunity.com/app/promising",
+          source_domain: "steamcommunity.com",
+          snippet: "thin",
+          reason: "source_not_issue_report",
+          expires_at: "2026-07-12T12:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    // 13:00Z -> odd rotation offset lands the two-lane [discovery, rescue]
+    // rotation on rescue (discovery still gets its turn on other offsets).
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T13:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(mocks.tavilySearch.mock.calls[0][0]).toContain("site:reddit.com OR site:steamcommunity.com");
+    expect(tables.automation_runs[0]).toMatchObject({ intent: "rescue_candidate" });
+  });
+
+  it("ignores stale, rescued, and non-rescuable rejected candidates when planning rescue", async () => {
+    resetDb({
+      automation_rejected_candidates: [
+        {
+          id: "rejected-wrong-patch",
+          title: "Patch 1.04 crash report",
+          url: "https://steamcommunity.com/app/wrong-patch",
+          source_domain: "steamcommunity.com",
+          snippet: "Crash after 1.04.",
+          reason: "wrong_patch",
+          expires_at: "2026-07-12T12:00:00.000Z",
+          rescued_at: null,
+        },
+        {
+          id: "rejected-stale-source",
+          title: "Old performance report",
+          url: "https://steamcommunity.com/app/stale",
+          source_domain: "steamcommunity.com",
+          snippet: "FPS drops.",
+          reason: "stale_source",
+          expires_at: "2026-07-12T12:00:00.000Z",
+          rescued_at: null,
+        },
+        {
+          id: "rejected-already-rescued",
+          title: "Promising current patch source",
+          url: "https://steamcommunity.com/app/rescued",
+          source_domain: "steamcommunity.com",
+          snippet: "thin",
+          reason: "source_not_issue_report",
+          expires_at: "2026-07-12T12:00:00.000Z",
+          rescued_at: "2026-07-05T10:00:00.000Z",
+        },
+        {
+          id: "rejected-expired",
+          title: "Expired current patch source",
+          url: "https://steamcommunity.com/app/expired",
+          source_domain: "steamcommunity.com",
+          snippet: "thin",
+          reason: "source_not_issue_report",
+          expires_at: "2026-07-01T12:00:00.000Z",
+          rescued_at: null,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({
+      mode: "scheduled",
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      scannerPolicy: {
+        paused: false,
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+        modelPreset: "gpt_5_6_luna",
+      },
+    });
+
+    expect(mocks.tavilySearch.mock.calls[0][0]).not.toContain("site:reddit.com OR site:steamcommunity.com");
+    expect(tables.automation_runs[0]).not.toMatchObject({ intent: "rescue_candidate" });
+  });
+
+  it("preserves candidate freshness when rescuing a rejected source", async () => {
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Thin player report",
+        url: "https://reddit.com/r/CrimsonDesert/comments/thin/report/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Players report FPS drops after the current patch.",
+      },
+    );
+
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      canonical_url: "https://reddit.com/r/CrimsonDesert/comments/thin/report",
+      source_published_at: "2026-07-05T11:00:00.000Z",
+    });
+  });
+
+  it("preserves a rescued source's date and records its committed write if the event ledger fails", async () => {
+    const { rescueCandidateSignal } = await importRunner();
+    const candidate = {
+      title: "Crimson Desert FPS drops", url: "https://reddit.com/r/CrimsonDesert/comments/rescued/report/",
+      sourceDomain: "reddit.com", snippet: "Players report FPS drops after patch 1.13.",
+      sourcePublishedAt: "2026-07-05T11:00:00.000Z" as string | null,
+    };
+    const client = { from: mocks.from, rpc: mocks.rpc } as never;
+    await rescueCandidateSignal(client, candidate);
+    candidate.sourcePublishedAt = null;
+    observationEventInsertFailure = "permission denied for table signal_observation_events";
+    await expect(rescueCandidateSignal(client, candidate)).rejects.toThrow("re-observation ledger write failed");
+    expect(sourceSignalRows()[0]).toMatchObject({
+      source_published_at: "2026-07-05T11:00:00.000Z", seen_count: 2,
+    });
+    expect(tables.automation_runs[1]).toMatchObject({ status: "partial", signals_reobserved: 1 });
+  });
+
+  it("uses the saved model and effective provider cap when rescuing a rejected source", async () => {
+    resetDb({
+      automation_settings: [{
+        key: "scanner",
+        value: {
+          paused: false,
+          minIntervalMinutes: 60,
+          scheduledSearchCreditsPerRun: 1,
+          monthlyTavilyCreditCap: 900,
+          monthlyLlmUsdCap: 0.5,
+          modelPreset: "gpt_5_6_luna_flex",
+        },
+        updated_at: "2026-07-05T10:00:00.000Z",
+      }],
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+      ],
+    });
+    configureProviders();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      data: { limit: 1, limit_remaining: 0.8, limit_reset: "monthly", usage_monthly: 0.2 },
+    })));
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Heavy traversal stutter",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: "Traversal causes repeated frame-time spikes on Steam.",
+      clusterAssignment: "sure",
+      clusterReason: "The report clearly matches the seeded performance cluster.",
+      clusterSlug: "performance_regression",
+      extractionProvider: "openrouter",
+      extractionModel: "openai/gpt-5.6-luna",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/hitching/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        llmCallsRemaining: 1,
+        llmBudgetRemainingUsd: 0.3,
+        modelPreset: "gpt_5_6_luna_flex",
+        clusterOptions: [
+          {
+            slug: "performance_regression",
+            title: "Performance regression",
+            category: "performance",
+            description: "Seeded watchlist cluster.",
+          },
+        ],
+      }),
+    );
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-seeded-perf",
+      extraction_provider: "openrouter",
+      extraction_model: "openai/gpt-5.6-luna",
+    });
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "success",
+      mode: "manual",
+      intent: "rescue_candidate",
+      llm_calls_used: 1,
+      funnel: expect.objectContaining({ llmCalls: 1 }),
+      progress: expect.objectContaining({ llmSucceeded: 1, llmCostUsd: 0.0002 }),
+      candidates_rescued: 1,
+      estimated_cost_usd: 0.0002,
+    });
+  });
+
+  it("applies the environment budget ceiling to rescue before provider inspection", async () => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    resetDb({ automation_settings: [{ key: "scanner", value: { monthlyLlmUsdCap: 1 } }] });
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/env-stop/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmCallsRemaining: 0, llmBudgetRemainingUsd: 0 }),
+    );
+    expect(tables.automation_runs[0]).toMatchObject({
+      budget_monthly_usd: 0,
+      skips: expect.arrayContaining(["llm_budget_capped"]),
+    });
+  });
+
+  it("records an attempted fallback separately from a validated LLM success", async () => {
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Traversal hitching",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "medium",
+      summary: "Steam players report traversal hitching.",
+      clusterAssignment: "unsure",
+      clusterReason: "Deterministic fallback cannot assign a cluster.",
+      clusterSlug: null,
+      extractionProvider: "deterministic",
+      extractionModel: null,
+      llmCallsUsed: 1,
+      llmCostUsd: 0,
+      fallbackReason: "openrouter_invalid_json",
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/fallback/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Steam players report traversal hitching after the current patch.",
+      },
+    );
+
+    expect(tables.automation_runs).toHaveLength(1);
+    expect(tables.automation_runs[0]).toMatchObject({
+      llm_calls_used: 1,
+      funnel: expect.objectContaining({ llmCalls: 1 }),
+      progress: expect.objectContaining({ llmSucceeded: 0, llmCostUsd: 0 }),
+    });
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("llmSucceeded");
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("llmCostUsd");
+    expect(tables.automation_runs[0].funnel).not.toHaveProperty("modelPreset");
+    expect(sourceSignalRows()[0]).toMatchObject({ extraction_provider: "deterministic" });
+  });
+
+  it("pages past the hosted row cap before semantic rescue routing", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-a-controls",
+          slug: "uncomfortable_controls",
+          title: "Uncomfortable controls",
+          category: "controls_gameplay",
+          description: "Controller layout discomfort.",
+          last_signal_at: "2026-07-04T12:00:00.000Z",
+          created_at: "2026-07-01T12:00:00.000Z",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+        {
+          id: "cluster-z-performance",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Post-patch frame-time spikes and stuttering.",
+          last_signal_at: "2026-07-05T12:00:00.000Z",
+          created_at: "2026-07-02T12:00:00.000Z",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+      ],
+    });
+    hostedRowCap = { table: "issue_clusters", rows: 1 };
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Heavy traversal stutter",
+      category: "performance",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: "Traversal causes repeated frame-time spikes on Steam.",
+      clusterAssignment: "sure",
+      clusterReason: "The report matches the established performance cluster.",
+      clusterSlug: "performance_regression",
+      extractionProvider: "openrouter",
+      extractionModel: "openai/gpt-5.6-luna",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Latest patch introduced stuttering",
+        url: "https://steamcommunity.com/app/example/discussions/stuttering/",
+        sourceDomain: "steamcommunity.com",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+        snippet: "Nvidia players report frame-time spikes after the current patch.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        clusterOptions: expect.arrayContaining([
+          expect.objectContaining({ slug: "uncomfortable_controls" }),
+          expect.objectContaining({ slug: "performance_regression" }),
+        ]),
+      }),
+    );
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-z-performance" });
+    expect(tables.issue_clusters).toHaveLength(2);
+  });
+
+  it("keeps temporary force-hidden auto-clusters routable while excluding merged duplicates", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-active-xbox",
+          slug: "auto-3504f3a93c0b",
+          title: "Xbox graphics glitches",
+          category: "graphics_visual",
+          description: "Active aggregate for Xbox graphics reports.",
+          last_signal_at: "2026-07-30T12:00:00.000Z",
+          created_at: "2026-07-20T12:00:00.000Z",
+          admin_visibility_override: null,
+          lifecycle_reason: null,
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 0,
+        },
+        {
+          id: "cluster-retired-xbox",
+          slug: "auto-b7e557a13e9d",
+          title: "Xbox graphics glitch duplicate",
+          category: "graphics_visual",
+          description: "Merged duplicate that must never receive new signals.",
+          last_signal_at: "2026-07-31T12:00:00.000Z",
+          created_at: "2026-07-21T12:00:00.000Z",
+          admin_visibility_override: "force_hidden",
+          lifecycle_reason: "Merged into auto-3504f3a93c0b (duplicate Xbox graphics-glitch lead)",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 1,
+        },
+        {
+          id: "cluster-temporary-hidden-xbox",
+          slug: "auto-temporary-hidden-xbox",
+          title: "Xbox texture corruption",
+          category: "graphics_visual",
+          description: "Temporarily hidden while the maintainer checks presentation.",
+          last_signal_at: "2026-07-29T12:00:00.000Z",
+          created_at: "2026-07-22T12:00:00.000Z",
+          admin_visibility_override: "force_hidden",
+          lifecycle_reason: null,
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+          visibility_revision: 1,
+        },
+      ],
+    });
+    honorIssueClusterProjection = true;
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockResolvedValueOnce({
+      issueTitle: "Xbox texture corruption",
+      category: "graphics_visual",
+      platform: "xbox_series",
+      confidence: "high",
+      summary: "Xbox players report corrupted textures after the current patch.",
+      clusterAssignment: "sure",
+      clusterReason: "The report matches the temporarily hidden active cluster.",
+      clusterSlug: "auto-temporary-hidden-xbox",
+      extractionProvider: "openrouter",
+      extractionModel: "openai/gpt-5.6-luna",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+    });
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Xbox texture corruption after patch",
+        url: "https://reddit.com/r/CrimsonDesert/comments/xbox/texture-corruption/",
+        sourceDomain: "reddit.com",
+        sourcePublishedAt: "2026-07-31T11:00:00.000Z",
+        snippet: "Xbox players report corrupted textures after the current patch.",
+      },
+    );
+
+    const [, extractionOptions] = mocks.extractSignalWithOpenRouter.mock.calls[0] as unknown as [
+      unknown,
+      { clusterOptions: { slug: string }[] },
+    ];
+    expect(extractionOptions.clusterOptions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ slug: "auto-temporary-hidden-xbox" })]),
+    );
+    expect(extractionOptions.clusterOptions).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ slug: "auto-b7e557a13e9d" })]),
+    );
+    expect(sourceSignalRows()[0]?.cluster_id).toBe("cluster-temporary-hidden-xbox");
+    expect(tables.issue_clusters).toHaveLength(3);
+  });
+
+  it("rescues deterministically without spending when the monthly LLM budget is exhausted", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-monthly-cap",
+          started_at: new Date().toISOString(),
+          estimated_cost_usd: 2,
+          search_queries_used: 0,
+          skips: [],
+        },
+      ],
+    });
+    configureProviders();
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/capped/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(mocks.extractSignalWithOpenRouter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ llmCallsRemaining: 0, llmBudgetRemainingUsd: 0 }),
+    );
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ extraction_provider: "deterministic" });
+    expect(tables.automation_runs).toHaveLength(2);
+    expect(tables.automation_runs[1]).toMatchObject({
+      status: "success",
+      mode: "manual",
+      intent: "rescue_candidate",
+      llm_calls_used: 0,
+      candidates_rescued: 1,
+      estimated_cost_usd: 0,
+    });
+    expect(tables.automation_runs[1].skips).toContain("llm_budget_capped");
+  });
+
+  it("records a missing OpenRouter key on the rescue ledger without querying the provider", async () => {
+    process.env.OPENROUTER_API_KEY = "";
+    const { rescueCandidateSignal } = await importRunner();
+
+    await rescueCandidateSignal(
+      { from: mocks.from, rpc: mocks.rpc } as never,
+      {
+        title: "Traversal hitching",
+        url: "https://reddit.com/r/CrimsonDesert/comments/traversal/missing-key/",
+        sourceDomain: "reddit.com",
+        snippet: "Steam players report frame-time spikes while crossing the open world.",
+      },
+    );
+
+    expect(tables.automation_runs.at(-1)?.skips).toContain("openrouter_missing_config");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(openRouterAttempts).toBe(0);
+  });
+
+  it("routes a kept signal into a seeded watchlist cluster instead of creating a new one", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "FPS drops since 1.13",
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-fps-route/fps",
+        snippet: "Steam users are seeing stutter.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.issue_clusters).toHaveLength(1);
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      cluster_id: "cluster-seeded-perf",
+    });
+  });
+
+  it("keeps a public seeded watchlist cluster visible when a below-threshold signal routes into it", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-seeded-perf",
+          slug: "performance_regression",
+          title: "Performance regression",
+          category: "performance",
+          description: "Seeded watchlist cluster.",
+          fix_status: "reported",
+          confidence: "seed_unverified",
+          is_public: true,
+          auto_public: false,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "FPS drops since 1.13",
+        url: "https://reddit.com/r/CrimsonDesert/comments/reddit-fps-seed-visible/fps",
+        snippet: "Steam users are seeing stutter.",
+        sourceDomain: "reddit.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    // The lone routed signal is below the promotion threshold and stays private...
+    expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-seeded-perf", public_status: "private" });
+    // ...but the seeded watchlist item must remain publicly visible, not vanish.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: true,
+    });
+  });
+
+  it("keeps an auto-public cluster visible when its public signal goes stale but a live current-patch candidate remains", async () => {
+    delete process.env.TAVILY_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-crash-hang",
+          slug: "crash_startup_hang",
+          title: "Crash / hang on startup",
+          category: "crash_startup",
+          description: "Auto-promoted crash cluster whose public evidence went stale.",
+          fix_status: "reported",
+          confidence: "medium",
+          is_public: true,
+          auto_public: true,
+          public_signal_count: 1,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-crash-stale",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://steamcommunity.com/app/crash-old",
+          canonical_url: "https://steamcommunity.com/app/crash-old",
+          title: "Crimson Desert crashes on startup after 1.04",
+          summary: "Players report Crimson Desert startup crashes on patch 1.04.",
+          source_domain: "steamcommunity.com",
+          source_published_at: "2026-05-01T12:00:00.000Z",
+          semantic_fingerprint: "crash-hang-stale",
+          cluster_id: "cluster-crash-hang",
+          category: "crash_startup",
+          confidence: "medium",
+          observed_at: "2026-05-01T12:00:00.000Z",
+          public_status: "public",
+        },
+        {
+          id: "signal-crash-live",
+          source: "reddit",
+          source_type: "reddit",
+          source_url: "https://reddit.com/r/CrimsonDesert/crash-live",
+          canonical_url: "https://reddit.com/r/CrimsonDesert/crash-live",
+          title: "PS5 crash on startup since latest patch",
+          summary: "PS5 and Steam players hit a startup crash on the current build.",
+          source_domain: "reddit.com",
+          source_published_at: "2026-07-04T12:00:00.000Z",
+          semantic_fingerprint: "crash-hang-live",
+          cluster_id: "cluster-crash-hang",
+          category: "crash_startup",
+          confidence: "medium",
+          observed_at: "2026-07-04T12:00:00.000Z",
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    delete process.env.TAVILY_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    // The stale public source is quarantined, dropping the cluster below threshold.
+    expect(result.staleSignalsHidden).toBe(1);
+    const staleRow = sourceSignalRows().find((row) => row.id === "signal-crash-stale");
+    expect(staleRow).toMatchObject({ public_status: "hidden", promotion_reason: "wrong_patch" });
+    // Promotion stays strict: the live current-patch candidate is NOT published.
+    const liveRow = sourceSignalRows().find((row) => row.id === "signal-crash-live");
+    expect(liveRow).toMatchObject({ public_status: "private" });
+    // But the cluster stays VISIBLE as a watchlist row because it still holds a live
+    // current-patch candidate — it must not be hidden. The engine keeps ownership
+    // so it can demote the row once the candidate expires.
+    expect(tables.issue_clusters[0]).toMatchObject({
+      public_signal_count: 0,
+      auto_public: true,
+      is_public: true,
+    });
+  });
+
+  it("does not promote from a stale existing signal plus one fresh source", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "fps-regression",
+          title: "FPS regression since 1.13",
+          category: "performance",
+          description: "Existing stale source signal.",
+          fix_status: "reported",
+          confidence: "low",
+          is_public: false,
+          auto_public: false,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-stale",
+          source: "web_search",
+          source_type: "web_search",
+          source_domain: "example.com",
+          canonical_url: "https://example.com/stale-fps",
+          semantic_fingerprint: semanticFingerprint("FPS regression since 1.13", "performance"),
+          cluster_id: "cluster-fps",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-06-19T12:00:00.000Z",
+          extracted_facts: { platform: "pc_steam" },
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([
+      {
+        title: "Crimson Desert patch 1.13 FPS regression",
+        url: "https://fresh.example.com/fps",
+        snippet: "Players report FPS drops on Steam.",
+        sourceDomain: "fresh.example.com",
+        observedAt: "2026-07-05T12:00:00.000Z",
+        sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+      },
+    ]);
+    delete process.env.OPENROUTER_API_KEY;
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.signalsInserted).toBe(1);
+    expect(result.clustersPromoted).toBe(0);
+    expect(sourceSignalRows()).toHaveLength(2);
+    expect(sourceSignalRows().map((row) => row.public_status)).toEqual(["hidden", "private"]);
+    expect(sourceSignalRows()[0]).toMatchObject({ promotion_reason: "off_topic" });
+    expect(tables.issue_clusters[0]).toMatchObject({
+      signal_count: 2,
+      public_signal_count: 0,
+      auto_public: false,
+      is_public: false,
+    });
+  });
+
+  it("records promotion update failures without incrementing promoted clusters", async () => {
+    visibilityRefreshFailure = "source signal status update failed";
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.errors[0]).toContain("source signal status update failed");
+    expect(result.clustersPromoted).toBe(0);
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: "partial",
+      clusters_promoted: 0,
+      errors: [expect.stringContaining("source signal status update failed")],
+    });
+  });
+
+  it("creates a running ledger row first, then finalizes the same row with a terminal status", async () => {
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.automation_runs).toHaveLength(1);
+    const insertMutation = mutations.find((mutation) => mutation.table === "automation_runs" && mutation.type === "insert");
+    expect(insertMutation).toBeDefined();
+    expect(insertMutation!.row).toMatchObject({ status: "running" });
+    expect((insertMutation!.row as { finished_at?: unknown }).finished_at).toBeUndefined();
+
+    const finalRow = tables.automation_runs[0];
+    expect(finalRow.id).toBe((insertMutation!.row as { id: string }).id);
+    expect(finalRow.status).toBe(result.status);
+    expect(finalRow.finished_at).toBeTruthy();
+
+    const updateMutations = mutations.filter(
+      (mutation) => mutation.table === "automation_runs" && mutation.type === "update",
+    );
+    const finalizeMutation = updateMutations.find(
+      (mutation) => (mutation.row as { finished_at?: unknown }).finished_at,
+    );
+    expect(finalizeMutation).toBeDefined();
+  });
+
+  it("sweeps stale running runs to failed with a 15-minute started_at cutoff", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-stale",
+          status: "running",
+          started_at: "2026-07-05T11:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    const { sweepStaleRuns } = await importRunner();
+
+    const now = new Date("2026-07-05T12:00:00.000Z");
+    await sweepStaleRuns({ from: mocks.from } as unknown as Parameters<typeof sweepStaleRuns>[0], now);
+
+    const sweepUpdate = mutations.find(
+      (mutation) => mutation.table === "automation_runs" && mutation.type === "update" && (mutation.row as { status?: unknown }).status === "failed",
+    );
+    expect(sweepUpdate).toBeDefined();
+    expect(tables.automation_runs[0]).toMatchObject({ status: "failed", finished_at: now.toISOString() });
+  });
+
+  it("startAutomationScan reports already_running when a running row exists within the stale window", async () => {
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-active",
+          status: "running",
+          started_at: "2026-07-05T11:55:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    const { startAutomationScan } = await importRunner();
+
+    const started = await startAutomationScan({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(started).toEqual({ status: "already_running", runId: null });
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+  });
+
+  it("writes a screening-stage progress update while candidates are being processed", async () => {
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const progressUpdates = mutations
+      .filter((mutation) => mutation.table === "automation_runs" && mutation.type === "update")
+      .map((mutation) => (mutation.row as { progress?: { stage?: string } }).progress)
+      .filter((progress): progress is { stage?: string } => Boolean(progress));
+
+    expect(progressUpdates.some((progress) => progress.stage === "screening")).toBe(true);
+  });
+
+  it("auto-starts lifecycle watching when an LLM-sure claimed fix maps to a cluster", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-05T12:00:00.000Z",
+      // normal states carry no automation prose — the readout composes it at read time
+      lifecycle_reason: null,
+    });
+    const lifecycleUpdate = mutations.find(
+      (mutation) => mutation.table === "issue_clusters" && (mutation.row as { fix_status?: unknown }).fix_status === "fix_claimed",
+    );
+    expect(lifecycleUpdate?.filters).toEqual(
+      expect.arrayContaining([
+        { type: "eq", column: "id", value: "cluster-fps" },
+        { type: "eq", column: "admin_override", value: false },
+        { type: "eq", column: "fix_status", value: "reported" },
+        { type: "is", column: "fix_claimed_at", value: null },
+      ]),
+    );
+  });
+
+  it("does not regress a newer lifecycle status when a stale run snapshot writes late", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    beforeUpdate = (table, patch) => {
+      if (table !== "issue_clusters" || patch.fix_status !== "fix_claimed") return;
+      Object.assign(tables.issue_clusters[0], {
+        fix_status: "persists",
+        lifecycle_reason: "Fresh public evidence appeared after the claimed fix.",
+      });
+    };
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "persists",
+      fix_claimed_at: null,
+      lifecycle_reason: "Fresh public evidence appeared after the claimed fix.",
+    });
+  });
+
+  it("keeps keyword-only claimed-fix matches as admin proposals", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "keyword_proposal",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "keyword match is only a proposal.",
+      llmCallsUsed: 0,
+      llmCostUsd: 0,
+      extractionModel: null,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "reported",
+      fix_claimed_at: null,
+      lifecycle_reason: "Needs review: keyword match is only a proposal.",
+    });
+  });
+
+  it("does not clear Needs review prose when the claimed-fixes read fails", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          admin_override: false,
+          lifecycle_reason: "Needs review: keyword match is only a proposal.",
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.readClaimedFixesForCurrentPatch.mockRejectedValue(new Error("official claimed fixes read failed: permission denied"));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.errors.join(" ")).toMatch(/claimed fixes read failed|lifecycle pass failed/);
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Needs review: keyword match is only a proposal.");
+    expect(mutations.filter((entry) => entry.table === "issue_clusters" && entry.type === "update")).toEqual([]);
+  });
+
+  it("preserves legacy decisions when durable sync has no current patch", async () => {
+    resetDb({ issue_clusters: [{
+      id: "cluster-fps", slug: "performance_regression", title: "FPS regression",
+      category: "performance", description: "Frame-rate drops after the patch.",
+      fix_status: "reported", admin_override: false, is_public: true,
+      lifecycle_reason: "Needs review: legacy decision.",
+    }] });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.recordClaimReviewProposals.mockRejectedValue(new Error("claim review proposal sync failed: claim_review_current_patch_unavailable"));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.errors.join(" ")).toContain("claim_review_current_patch_unavailable");
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Needs review: legacy decision.");
+    expect(mutations.filter((entry) => entry.table === "issue_clusters" && entry.type === "update")).toEqual([]);
+  });
+
+  it("skips the legacy lifecycle write for a cluster the durable store already decided", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          admin_override: false,
+          lifecycle_reason: "Needs review: keyword match is only a proposal.",
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.recordClaimReviewProposals.mockResolvedValue({
+      status: "available",
+      decisions: [{
+        clusterId: "cluster-fps",
+        state: "pending",
+        proposalKind: "keyword_proposal",
+        reason: "Needs review: keyword match is only a proposal.",
+      }],
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.recordClaimReviewProposals).toHaveBeenCalledOnce();
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Needs review: keyword match is only a proposal.");
+    expect(mutations.filter((entry) => entry.table === "issue_clusters" && entry.type === "update")).toEqual([]);
+  });
+
+  it("passes a cached mapping through the durable rejected admin decision", async () => {
+    resetDb({ issue_clusters: [{ id: "cluster-fps", slug: "performance_regression", title: "FPS regression",
+      category: "performance", description: "Frame-rate drops after the patch.", fix_status: "reported",
+      admin_override: false, lifecycle_reason: "Owner rejected this pairing.", is_public: true }] });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const fixText = "Fixed an issue where FPS dropped in towns.";
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([{ fixText, category: "performance" }]);
+    mocks.reuseClaimMapping.mockResolvedValue({ matchKind: "llm_sure", clusterId: "cluster-fps",
+      clusterSlug: "performance_regression", reason: "Cached validated proposal.", extractionModel: null,
+      llmCallsUsed: 0, llmCostUsd: 0 });
+    mocks.recordClaimReviewProposals.mockResolvedValue({ status: "available", decisions: [{ clusterId: "cluster-fps",
+      state: "rejected", proposalKind: "llm_sure", reason: "Owner rejected this pairing." }] });
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+    expect(mocks.mapClaimToClusterWithOpenRouter).not.toHaveBeenCalled();
+    expect(mocks.recordClaimReviewProposals).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      proposals: [{ fixText, clusterId: "cluster-fps", proposalKind: "llm_sure", proposalReason: "Needs review: Cached validated proposal." }],
+    }));
+    expect(result.llmCallsUsed).toBe(0);
+    expect(tables.issue_clusters[0]).toMatchObject({ fix_status: "reported", lifecycle_reason: "Owner rejected this pairing." });
+    expect(mutations.filter((entry) => entry.table === "issue_clusters" && entry.type === "update")).toEqual([]);
+  });
+
+  it("never ages a claimed fix by silence — quiet days stay fix_claimed", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "fix_claimed",
+          fix_claimed_at: "2026-07-01T12:00:00.000Z",
+          fix_claimed_patch_version: "1.13.00",
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-30T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-01T12:00:00.000Z",
+      lifecycle_reason: null,
+    });
+  });
+
+  it("leaves persistence to the read-time composer — no persists writes from evidence", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "fix_claimed",
+          fix_claimed_at: "2026-07-04T12:00:00.000Z",
+          fix_claimed_patch_version: "1.13.00",
+          admin_override: false,
+          lifecycle_reason: null,
+          is_public: true,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-public",
+          cluster_id: "cluster-fps",
+          title: "FPS still drops after patch 1.13.00",
+          summary: "Players report FPS drops after the patch.",
+          source_published_at: "2026-07-04T13:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "fix_claimed",
+      fix_claimed_at: "2026-07-04T12:00:00.000Z",
+    });
+  });
+
+  it("does not clobber admin-overridden lifecycle status", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-fps",
+          slug: "performance_regression",
+          title: "FPS regression",
+          category: "performance",
+          description: "Frame-rate drops after the patch.",
+          fix_status: "reported",
+          fix_claimed_at: null,
+          admin_override: true,
+          lifecycle_reason: "Locked by you. Manual status set to Open.",
+          is_public: true,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.tavilySearch.mockResolvedValue([]);
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([
+      { fixText: "Fixed an issue where FPS dropped in towns.", category: "performance" },
+    ]);
+    mocks.mapClaimToClusterWithOpenRouter.mockResolvedValue({
+      matchKind: "llm_sure",
+      clusterId: "cluster-fps",
+      clusterSlug: "performance_regression",
+      reason: "PA claim matches FPS regression.",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0002,
+      extractionModel: "openrouter/free",
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      fix_status: "reported",
+      fix_claimed_at: null,
+      admin_override: true,
+    });
+    expect(tables.issue_clusters[0].lifecycle_reason).toBe("Locked by you. System would show: Fix claimed — unverified.");
+  });
+});
+
+describe("cron keepalive route", () => {
+  beforeEach(() => {
+    // These tests model cadence and persistence. Health-read failure behavior is
+    // covered separately by scannerKeepalive.test.ts.
+    vi.doMock("@/lib/automation/health.server", () => ({ getScannerAiHealth: vi.fn().mockResolvedValue({
+      state: "healthy", code: null, message: "Validated", lastSuccessAt: "2026-07-05T11:00:00.000Z",
+    }) }));
+  });
+  afterEach(() => { vi.doUnmock("@/lib/automation/health.server"); });
+  it("blocks authenticated cron writes in Vercel preview", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    process.env.VERCEL_ENV = "preview";
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "preview_writes_disabled" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.getAutomationControlState).not.toHaveBeenCalled();
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+  });
+
+  it("returns unauthorized when CRON_SECRET is set and the bearer token is missing", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(new Request("https://example.com/api/cron/keepalive"));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when CRON_SECRET is missing", async () => {
+    delete process.env.CRON_SECRET;
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(new Request("https://example.com/api/cron/keepalive"));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "cron secret missing" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+  });
+
+  it("skips scheduled automation when the scanner is paused", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+      automation_runs: [],
+    });
+    configureProviders();
+    mocks.getAutomationControlState.mockResolvedValue({ paused: true, updatedAt: "2026-07-05T12:00:00.000Z" });
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      automation: { status: "skipped", reason: "paused" },
+    });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "paused", expect.any(Date));
+  });
+
+  it("preserves keepalive and purge work but skips automation when a recent run exists", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-recent",
+          started_at: "2026-07-05T11:30:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "scheduled",
+          status: "success",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+      source_signals: [
+        {
+          id: "signal-old",
+          raw_text: "expired raw text",
+          raw_expires_at: "2026-07-05T01:00:00.000Z",
+        },
+      ],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      touch: "ok",
+      purge: "ok",
+      automation: { status: "skipped", reason: "recent_run" },
+    });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "recent_run", expect.any(Date), { skips: [], errors: [] });
+    expect(tables.source_signals[0]).toMatchObject({ raw_text: null, raw_expires_at: null });
+  });
+
+  it("uses the scanner policy interval when deciding whether a run is recent", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-recent-policy",
+          started_at: "2026-07-05T10:30:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "manual",
+          status: "success",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.getAutomationControlState.mockResolvedValue({
+      paused: false,
+      minIntervalMinutes: 120,
+      scheduledSearchCreditsPerRun: 1,
+      monthlyTavilyCreditCap: 900,
+      monthlyLlmUsdCap: 1,
+      modelPreset: "gpt_5_6_luna",
+      updatedAt: "2026-07-05T12:00:00.000Z",
+    });
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      automation: { status: "skipped", reason: "recent_run" },
+    });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "recent_run", expect.any(Date), { skips: [], errors: [] });
+  });
+
+  it.each([
+    {
+      latestRun: "missed them",
+      steam: [{ sample_hour: "2026-07-05T09:00:00.000Z", captured_at: "2026-07-05T09:00:20.000Z", player_count: 9000 }],
+      // The failed 11:00 run stored a Twitch error; only an answered capture counts.
+      platform: [
+        { captured_at: "2026-07-05T09:00:20.000Z", igdb_status: "ok", twitch_status: "ok", twitch_live_viewers: 800 },
+        { captured_at: "2026-07-05T11:00:40.000Z", igdb_status: "error", twitch_status: "error", twitch_live_viewers: null },
+      ],
+    },
+    {
+      latestRun: "made them",
+      steam: [{ sample_hour: "2026-07-05T11:00:00.000Z", captured_at: "2026-07-05T11:00:20.000Z", player_count: 9000 }],
+      platform: [{ captured_at: "2026-07-05T11:00:20.000Z", igdb_status: "ok", twitch_status: "ok", twitch_live_viewers: 800 }],
+    },
+  ])("on a recent-run wake, captures Steam and Twitch only when the latest run $latestRun", async ({ latestRun, steam, platform }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    process.env.STEAM_PLAYER_COUNTS_ENABLED = "true";
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    resetDb({
+      automation_runs: [{ id: "run-even-hour", started_at: "2026-07-05T11:00:00.000Z", estimated_cost_usd: 0, mode: "scheduled", status: "failed" }],
+      steam_player_snapshots: steam,
+      platform_context_snapshots: platform,
+    });
+    configureProviders();
+    mocks.getAutomationControlState.mockResolvedValue({ paused: false, minIntervalMinutes: 120, updatedAt: "2026-07-05T12:00:00.000Z" });
+    mocks.fetchSteamCurrentPlayers.mockResolvedValue({ capturedAt: "2026-07-05T12:00:02.000Z", playerCount: 12345 });
+    mocks.fetchCrimsonDesertPlatformContext.mockResolvedValue({
+      capturedAt: "2026-07-05T12:00:01.000Z",
+      igdb: { status: "ok", error: null, data: { id: 125633, name: "Crimson Desert", slug: "crimson-desert", summary: null,
+        firstReleaseDate: "2026-03-19T00:00:00.000Z", platforms: ["PC"] } },
+      twitch: { status: "ok", error: null, data: { liveStreamCount: 14, liveViewerCount: 932, isComplete: true } },
+    });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(new Request("https://example.com/api/cron/keepalive", { headers: { authorization: "Bearer cron-secret" } }));
+
+    await expect(response.json()).resolves.toMatchObject({ ok: true, automation: { status: "skipped", reason: "recent_run" } });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "recent_run", expect.any(Date), { skips: [], errors: [] });
+    const missed = latestRun === "missed them";
+    expect(mocks.fetchSteamCurrentPlayers).toHaveBeenCalledTimes(missed ? 1 : 0);
+    expect(mocks.fetchCrimsonDesertPlatformContext).toHaveBeenCalledTimes(missed ? 1 : 0);
+    expect(tables.steam_player_snapshots.map((row) => row.player_count)).toEqual(missed ? [9000, 12345] : [9000]);
+    expect(tables.platform_context_snapshots.map((row) => row.twitch_live_viewers)).toEqual(missed ? [800, null, 932] : [800]);
+  });
+
+  it("logs a failed fallback capture on a recent-run wake without raising an alert", async () => {
+    // The failure is logged and stored on the skip row; the next scan tries again.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    process.env.STEAM_PLAYER_COUNTS_ENABLED = "true";
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    resetDb({
+      automation_runs: [{ id: "run-even-hour", started_at: "2026-07-05T11:00:00.000Z", estimated_cost_usd: 0, mode: "scheduled", status: "failed" }],
+      platform_context_snapshots: [{ captured_at: "2026-07-05T09:00:20.000Z", igdb_status: "ok", twitch_status: "ok", twitch_live_viewers: 800 }],
+    });
+    selectFailure = { table: "steam_player_snapshots", code: "42501", message: "permission denied" };
+    configureProviders();
+    mocks.getAutomationControlState.mockResolvedValue({ paused: false, minIntervalMinutes: 120, updatedAt: "2026-07-05T12:00:00.000Z" });
+    mocks.fetchCrimsonDesertPlatformContext.mockResolvedValue({
+      capturedAt: "2026-07-05T12:00:01.000Z",
+      igdb: { status: "ok", error: null, data: { id: 125633, name: "Crimson Desert", slug: "crimson-desert", summary: null,
+        firstReleaseDate: "2026-03-19T00:00:00.000Z", platforms: ["PC"] } },
+      twitch: { status: "ok", error: null, data: { liveStreamCount: 14, liveViewerCount: 932, isComplete: true } },
+    });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(new Request("https://example.com/api/cron/keepalive", { headers: { authorization: "Bearer cron-secret" } }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true, automation: { status: "skipped", reason: "recent_run" },
+      attempt: { outcome: "skipped", skipReason: "recent_run", errorCount: 0, diagnostics: [] } });
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(expect.anything(), "recent_run", expect.any(Date),
+      { skips: ["steam_players_failed"], errors: ["Steam player recency read failed: permission denied"] });
+    const logged = warn.mock.calls.map(([line]) => String(line)).find((line) => line.includes("scanner_fallback_capture_failed"));
+    expect(JSON.parse(logged ?? "{}")).toMatchObject({ event: "scanner_fallback_capture_failed",
+      skips: ["steam_players_failed"], errors: ["Steam player recency read failed: permission denied"] });
+    // The other source is independent and still captures.
+    expect(tables.platform_context_snapshots.map((row) => row.twitch_live_viewers)).toEqual([800, 932]);
+    warn.mockRestore();
+  });
+
+  it("skips with a running reason when a scheduled attempt finds an active scan", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-active",
+          started_at: "2026-07-05T11:55:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "manual",
+          status: "running",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      automation: { status: "skipped", reason: "scan_already_running" },
+    });
+    expect(mocks.runAutomationMonitor).not.toHaveBeenCalled();
+    expect(mocks.insertSkippedScheduledRun).toHaveBeenCalledWith(
+      expect.anything(),
+      "scan_already_running",
+      expect.any(Date),
+    );
+  });
+
+  it("runs the scheduled scan when only a dry run is recent and writes no skip marker", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [
+        {
+          id: "run-dry",
+          started_at: "2026-07-05T08:00:00.000Z",
+          estimated_cost_usd: 0,
+          mode: "dry_run",
+          status: "success",
+        },
+      ],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "success" });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      automation: { status: "success" },
+    });
+    expect(mocks.runAutomationMonitor).toHaveBeenCalledWith({
+      mode: "scheduled",
+      attemptId: expect.any(String),
+      scannerPolicy: expect.objectContaining({
+        minIntervalMinutes: 60,
+        scheduledSearchCreditsPerRun: 1,
+        monthlyTavilyCreditCap: 900,
+        monthlyLlmUsdCap: 2,
+      }),
+    });
+    expect(mocks.insertSkippedScheduledRun).not.toHaveBeenCalled();
+  });
+
+  it("revalidates public surfaces after a successful scheduled scan", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "partial" });
+    const revalidatePublicSurfaces = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    vi.doMock("@/lib/revalidate", () => ({ revalidatePublicSurfaces }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(revalidatePublicSurfaces).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not revalidate public surfaces when the scheduled scan fails or is skipped", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    process.env.CRON_SECRET = "cron-secret";
+    resetDb({
+      automation_runs: [],
+      issue_clusters: [{ id: "cluster-fps", title: "FPS", slug: "fps" }],
+    });
+    configureProviders();
+    mocks.runAutomationMonitor.mockResolvedValue({ status: "failed" });
+    const revalidatePublicSurfaces = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/lib/automation/run", () => ({
+      runAutomationMonitor: mocks.runAutomationMonitor,
+      insertSkippedScheduledRun: mocks.insertSkippedScheduledRun,
+    }));
+    vi.doMock("@/lib/automation/settings", () => ({ getAutomationControlState: mocks.getAutomationControlState }));
+    vi.doMock("@/lib/revalidate", () => ({ revalidatePublicSurfaces }));
+    const { GET } = await import("@/app/api/cron/keepalive/route");
+
+    const failedResponse = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    expect(failedResponse.status).toBe(503);
+    expect(revalidatePublicSurfaces).not.toHaveBeenCalled();
+
+    // A paused scanner skips before running and must not invalidate either.
+    mocks.getAutomationControlState.mockResolvedValue({ paused: true, updatedAt: "2026-07-05T12:00:00.000Z" });
+    const skippedResponse = await GET(
+      new Request("https://example.com/api/cron/keepalive", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    expect(skippedResponse.status).toBe(200);
+    expect(revalidatePublicSurfaces).not.toHaveBeenCalled();
+  });
+});
+
+describe("cron source preview route", () => {
+  it("requires the cron bearer token before running a source preview", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    const previewAutomationSearch = vi.fn();
+    vi.resetModules();
+    vi.doMock("@/lib/automation/preview", () => ({ previewAutomationSearch }));
+    const { GET } = await import("@/app/api/cron/source-preview/route");
+
+    const response = await GET(new Request("https://example.com/api/cron/source-preview?queries=1"));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(previewAutomationSearch).not.toHaveBeenCalled();
+  });
+
+  it("runs a bounded source preview behind cron auth", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    const previewAutomationSearch = vi.fn().mockResolvedValue({
+      mode: "preview",
+      maxQueries: 2,
+      queriesUsed: 1,
+      resultsSeen: 1,
+      estimatedCostUsd: 0.008,
+      previews: [
+        {
+          query: "Crimson Desert patch 1.13.00 FPS",
+          title: "Crimson Desert FPS drops",
+          url: "https://example.com/fps",
+          sourceDomain: "example.com",
+          extraction: {
+            issueTitle: "FPS regression since 1.13",
+            category: "performance",
+            platform: "pc_steam",
+            confidence: "medium",
+            summary: "Players report FPS drops after patch 1.13.",
+            extractionProvider: "openrouter",
+            extractionModel: "openrouter/free",
+            llmCallsUsed: 1,
+            llmCostUsd: 0,
+          },
+        },
+      ],
+    });
+    vi.resetModules();
+    vi.doMock("@/lib/automation/preview", () => ({ previewAutomationSearch }));
+    const { GET } = await import("@/app/api/cron/source-preview/route");
+
+    const response = await GET(
+      new Request("https://example.com/api/cron/source-preview?queries=3", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      preview: {
+        mode: "preview",
+        maxQueries: 2,
+        queriesUsed: 1,
+        estimatedCostUsd: 0.008,
+      },
+    });
+    expect(previewAutomationSearch).toHaveBeenCalledWith({ maxQueries: 2 });
+  });
+});
+
+describe("Steam Pulse intake", () => {
+  it("keeps legacy scanning active when the Steam Pulse snapshot table is not migrated yet", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    selectFailure = {
+      table: "steam_pulse_snapshots",
+      message: "relation steam_pulse_snapshots does not exist",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("steam_pulse_schema_unavailable");
+    expect(result.errors).not.toContain(expect.stringContaining("Steam Pulse"));
+    expect(mocks.fetchSteamReviewBatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy scanning active when the Steam review receipt table is not migrated yet", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    selectFailure = {
+      table: "steam_review_receipts",
+      message: "Could not find relation steam_review_receipts in the schema cache",
+    };
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash: externalIdHash("steam_review", "pre-migration-review"),
+          reviewText: "Crimson Desert stutters after patch 1.13 on Steam.",
+          sourceCreatedAt: "2026-07-05T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 120,
+        },
+      ],
+      totals: { totalReviews: 1, totalPositive: 0, totalNegative: 1 },
+      cursor: null,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("steam_pulse_schema_unavailable");
+    expect(result.errors).not.toContain(expect.stringContaining("Steam review receipt"));
+  });
+
+  it("marks unexpected Steam Pulse read failures partial and records the error", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    selectFailure = {
+      table: "steam_pulse_snapshots",
+      message: "permission denied for table steam_pulse_snapshots",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.skips).not.toContain("steam_pulse_schema_unavailable");
+    expect(result.errors).toContain(
+      "Steam Pulse recency read failed: permission denied for table steam_pulse_snapshots",
+    );
+  });
+
+  it("uses an edited Steam review's update time for freshness while retaining its creation time", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    const recommendationHash = externalIdHash("steam_review", "edited-after-current-patch");
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash,
+          reviewText: "Crimson Desert crashes every few minutes when opening the map.",
+          sourceCreatedAt: "2026-06-30T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 240,
+        },
+      ],
+      totals: { totalReviews: 1, totalPositive: 0, totalNegative: 1 },
+      cursor: null,
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()[0]).toMatchObject({
+      external_id_hash: recommendationHash,
+      source_published_at: "2026-07-05T10:30:00.000Z",
+    });
+    expect(tables.steam_review_receipts[0]).toMatchObject({
+      recommendation_hash: recommendationHash,
+      source_created_at: "2026-06-30T10:00:00.000Z",
+      source_updated_at: "2026-07-05T10:30:00.000Z",
+    });
+  });
+
+  it("follows Steam's review cursor so changes beyond the first page are not skipped", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    const knownHash = externalIdHash("steam_review", "known-first-page-review");
+    const laterHash = externalIdHash("steam_review", "new-second-page-review");
+    resetDb({
+      steam_review_receipts: [
+        {
+          recommendation_hash: knownHash,
+          first_seen_at: "2026-07-05T08:00:00.000Z",
+          last_seen_at: "2026-07-05T08:00:00.000Z",
+          source_created_at: "2026-07-05T07:00:00.000Z",
+          source_updated_at: "2026-07-05T08:00:00.000Z",
+          voted_up: false,
+          playtime_at_review_minutes: 120,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockImplementation(async (options?: { cursor?: string }) =>
+      options?.cursor === "second-page"
+        ? {
+          reviews: [
+            {
+              recommendationHash: laterHash,
+              reviewText: "Crimson Desert crashes every time I open the map after patch 1.13.",
+              sourceCreatedAt: "2026-07-05T09:00:00.000Z",
+              sourceUpdatedAt: "2026-07-05T09:30:00.000Z",
+              votedUp: false,
+              playtimeAtReviewMinutes: 240,
+            },
+          ],
+          totals: { totalReviews: 150, totalPositive: 100, totalNegative: 50 },
+          cursor: null,
+        }
+        : {
+          reviews: [
+            {
+              recommendationHash: knownHash,
+              reviewText: "Crimson Desert had an older stutter report already processed.",
+              sourceCreatedAt: "2026-07-05T07:00:00.000Z",
+              sourceUpdatedAt: "2026-07-05T08:00:00.000Z",
+              votedUp: false,
+              playtimeAtReviewMinutes: 120,
+            },
+          ],
+          totals: { totalReviews: 150, totalPositive: 100, totalNegative: 50 },
+          cursor: "second-page",
+        },
+    );
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.fetchSteamReviewBatch).toHaveBeenCalledTimes(2);
+    expect(mocks.fetchSteamReviewBatch).toHaveBeenNthCalledWith(2, {
+      cursor: "second-page",
+      fetchImpl: expect.any(Function),
+      fallbackTotals: { totalReviews: 150, totalPositive: 100, totalNegative: 50 },
+    });
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ external_id_hash: laterHash, public_status: "private" })]),
+    );
+  });
+
+  it("caps a long Steam cursor walk and records that the page window was incomplete", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockImplementation(async (options?: { cursor?: string }) => {
+      const page = options?.cursor ? Number(options.cursor.replace("page-", "")) : 1;
+      return {
+        reviews: [],
+        totals: { totalReviews: 2_000, totalPositive: 1_500, totalNegative: 500 },
+        cursor: `page-${page + 1}`,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(mocks.fetchSteamReviewBatch).toHaveBeenCalledTimes(10);
+    expect(result.skips).toContain("steam_pulse_page_cap");
+    expect(result.status).toBe("success");
+  });
+
+  it("keeps Steam review text private even when its cluster is public from a direct report", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-steam",
+          slug: "steam-stutter",
+          title: "Steam stutter",
+          category: "performance",
+          auto_public: false,
+          is_public: false,
+          visibility_revision: 0,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-steam",
+          cluster_id: "cluster-steam",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Steam stutter after patch 1.13.00",
+          moderation_status: "approved", patch_version: "1.13.00",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-steam",
+          cluster_id: "cluster-steam",
+          source: "steam_review",
+          source_type: "steam_review",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          canonical_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          source_domain: "store.steampowered.com",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Crimson Desert stutters after patch 1.13.00.",
+          raw_text: "Private Steam review text.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-steam", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ is_public: true, direct_report_count: 1, public_signal_count: 0 });
+    expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "source_context_only" });
+  });
+
+  it("keeps a stored official-domain signal private as provider context", async () => {
+    // Rows stored BEFORE the pre-screen learned to route official domains to the
+    // observation lane. The publisher's page must resolve to context-only — never
+    // presented as a cluster's player evidence — even where it was already public.
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-official",
+          slug: "official-stutter",
+          title: "Official stutter",
+          category: "performance",
+          auto_public: false,
+          is_public: false,
+          visibility_revision: 0,
+        },
+      ],
+      bug_reports: [
+        {
+          id: "report-official",
+          cluster_id: "cluster-official",
+          category: "performance",
+          platform: "pc_steam",
+          issue_title: "Stutter after patch 1.13.00",
+          moderation_status: "approved", patch_version: "1.13.00",
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-official",
+          cluster_id: "cluster-official",
+          source: "web_search",
+          source_type: "web_search",
+          source_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          canonical_url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=105",
+          source_domain: "crimsondesert.pearlabyss.com",
+          title: "Crimson Desert known issues after patch 1.13.00",
+          summary: "Crimson Desert stutters after patch 1.13.00.",
+          raw_text: "Official known issues notice.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          public_status: "public",
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-official", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ is_public: true, direct_report_count: 1, public_signal_count: 0 });
+    expect(sourceSignalRows()[0]).toMatchObject({ public_status: "private", promotion_reason: "source_context_only" });
+  });
+
+  it("does not let Steam-only context keep a formerly automatic-public cluster visible", async () => {
+    resetDb({
+      issue_clusters: [
+        {
+          id: "cluster-steam-only",
+          slug: "steam-only-context",
+          title: "Steam-only context",
+          category: "performance",
+          auto_public: true,
+          is_public: true,
+          public_signal_count: 1,
+          visibility_revision: 0,
+        },
+      ],
+      source_signals: [
+        {
+          id: "signal-steam-only",
+          cluster_id: "cluster-steam-only",
+          source: "steam_review",
+          source_type: "steam_review",
+          source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          canonical_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+          source_domain: "store.steampowered.com",
+          title: "Crimson Desert player issue on Steam",
+          summary: "Crimson Desert stutters after patch 1.13.00.",
+          raw_text: "Private Steam review text.",
+          source_published_at: "2026-07-05T10:00:00.000Z",
+          category: "performance",
+          confidence: "medium",
+          observed_at: "2026-07-05T10:00:00.000Z",
+          public_status: "private",
+        },
+      ],
+    });
+    configureProviders();
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-steam-only", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({
+      is_public: false,
+      auto_public: false,
+      public_signal_count: 0,
+    });
+    expect(sourceSignalRows()[0]).toMatchObject({
+      public_status: "private",
+      promotion_reason: "source_context_only",
+    });
+  });
+
+  it("keeps identities out of storage, retains only issue leads, and writes aggregate context", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+
+    const issueHash = externalIdHash("steam_review", "recommendation-issue");
+    const praiseHash = externalIdHash("steam_review", "recommendation-praise");
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash: issueHash,
+          reviewText: "Since patch 1.13 the game stutters and crashes every ten minutes on Steam.",
+          sourceCreatedAt: "2026-07-05T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 420,
+        },
+        {
+          recommendationHash: praiseHash,
+          reviewText: "Crimson Desert works great for me and I have no issues.",
+          sourceCreatedAt: "2026-07-05T10:05:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:35:00.000Z",
+          votedUp: true,
+          playtimeAtReviewMinutes: 180,
+        },
+      ],
+      totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
+      cursor: null,
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.signalsInserted).toBe(1);
+    const steamSignals = tables.source_signals.filter((row) => row.source === "steam_review");
+    expect(steamSignals).toHaveLength(1);
+    expect(tables.issue_clusters).toHaveLength(0);
+    expect(steamSignals[0]).toMatchObject({
+      cluster_id: null,
+      source_url: "https://store.steampowered.com/app/3321460/Crimson_Desert",
+      raw_text: "Since patch 1.13 the game stutters and crashes every ten minutes on Steam.",
+      public_status: "private",
+      extracted_facts: {
+        steamVotedUp: false,
+        playtimeAtReviewMinutes: 420,
+        sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+      },
+    });
+
+    expect(tables.steam_review_receipts).toHaveLength(2);
+    expect(tables.steam_review_receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ recommendation_hash: issueHash, voted_up: false }),
+        expect.objectContaining({ recommendation_hash: praiseHash, voted_up: true }),
+      ]),
+    );
+    for (const receipt of tables.steam_review_receipts) {
+      expect(receipt).not.toHaveProperty("review_text");
+      expect(receipt).not.toHaveProperty("author");
+      expect(receipt).not.toHaveProperty("steam_id");
+    }
+
+    expect(tables.steam_pulse_snapshots).toHaveLength(1);
+    expect(tables.steam_pulse_snapshots[0]).toMatchObject({
+      total_reviews: 1_250,
+      total_positive: 1_000,
+      total_negative: 250,
+      positive_percentage: 80,
+      reviews_scanned: 2,
+      issue_language_count: 1,
+      leads_retained: 1,
+    });
+    expect(rejectedCandidateRows()).toHaveLength(0);
+  });
+
+  it("does not apply shared URL feedback rules to individual Steam reviews", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    resetDb({
+      scanner_feedback_rules: [
+        {
+          id: "rule-steam-domain",
+          action: "block",
+          decision: "not_issue_report",
+          scope_type: "source_domain",
+          scope_value: "steampowered.com",
+          created_at: "2026-07-05T11:00:00.000Z",
+          expires_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    const recommendationHash = externalIdHash("steam_review", "shared-url-feedback");
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash,
+          reviewText: "Crimson Desert stutters and crashes every ten minutes after patch 1.13.",
+          sourceCreatedAt: "2026-07-05T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 420,
+        },
+      ],
+      totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
+      cursor: null,
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.operatorRulesMatched).toBe(0);
+    expect(result.signalsInserted).toBe(1);
+    expect(sourceSignalRows()).toEqual([
+      expect.objectContaining({ source: "steam_review", external_id_hash: recommendationHash }),
+    ]);
+    expect(rejectedCandidateRows()).toHaveLength(0);
+    expect(tables.steam_review_receipts).toEqual([
+      expect.objectContaining({ recommendation_hash: recommendationHash }),
+    ]);
+  });
+
+  it("acknowledges only classified or successfully persisted reviews after a partial write", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+
+    const firstHash = externalIdHash("steam_review", "recommendation-first");
+    const retryHash = externalIdHash("steam_review", "recommendation-retry");
+    sourceSignalInsertFailure = { externalHash: retryHash, message: "second Steam signal write failed" };
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [
+        {
+          recommendationHash: firstHash,
+          reviewText: "Crimson Desert stutters constantly after patch 1.13 on Steam.",
+          sourceCreatedAt: "2026-07-05T10:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:30:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 420,
+        },
+        {
+          recommendationHash: retryHash,
+          reviewText: "Crimson Desert crashes every ten minutes after patch 1.13 on Steam.",
+          sourceCreatedAt: "2026-07-05T10:05:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:35:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 180,
+        },
+      ],
+      totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
+      cursor: null,
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.signalsPrepared).toBe(2);
+    expect(result.signalsInserted).toBe(1);
+    expect(tables.steam_review_receipts).toEqual([
+      expect.objectContaining({ recommendation_hash: firstHash }),
+    ]);
+    expect(tables.steam_review_receipts).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ recommendation_hash: retryHash })]),
+    );
+    expect(tables.steam_pulse_snapshots[0]).toMatchObject({
+      reviews_scanned: 2,
+      issue_language_count: 2,
+      leads_retained: 1,
+    });
+  });
+
+  it("keeps the daily review delta anchored to the prior day across same-day refreshes", async () => {
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.STEAM_PULSE_ENABLED = "true";
+    resetDb({
+      steam_pulse_snapshots: [
+        {
+          snapshot_day: "2026-07-04",
+          collected_at: "2026-07-04T23:00:00.000Z",
+          total_reviews: 1_235,
+          total_positive: 986,
+          total_negative: 249,
+          positive_percentage: 79.8,
+          review_count_delta: 5,
+          reviews_scanned: 0,
+          issue_language_count: 0,
+          leads_retained: 0,
+        },
+        {
+          snapshot_day: "2026-07-05",
+          collected_at: "2026-07-05T05:00:00.000Z",
+          total_reviews: 1_240,
+          total_positive: 990,
+          total_negative: 250,
+          positive_percentage: 79.8,
+          review_count_delta: 4,
+          reviews_scanned: 0,
+          issue_language_count: 0,
+          leads_retained: 0,
+        },
+      ],
+    });
+    configureProviders();
+    mocks.fetchSteamReviewBatch.mockResolvedValue({
+      reviews: [],
+      totals: { totalReviews: 1_250, totalPositive: 1_000, totalNegative: 250 },
+      cursor: null,
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(tables.steam_pulse_snapshots).toHaveLength(2);
+    expect(tables.steam_pulse_snapshots[1]).toMatchObject({
+      collected_at: "2026-07-05T12:00:00.000Z",
+      total_reviews: 1_250,
+      review_count_delta: 15,
+    });
+  });
+
+  it("finalizes against the legacy run ledger before the feedback migration is applied", async () => {
+    updateFailure = {
+      table: "automation_runs",
+      column: "operator_rules_matched",
+      code: "PGRST204",
+      message: "Could not find the operator_rules_matched column of automation_runs in the schema cache",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.errors).not.toContain(expect.stringContaining("finalize"));
+    expect(tables.automation_runs[0]).toMatchObject({
+      status: expect.not.stringMatching(/^running$/),
+      finished_at: expect.any(String),
+    });
+    expect(tables.automation_runs[0]).not.toHaveProperty("operator_rules_matched");
+  });
+});
+
+describe("Platform Pulse intake", () => {
+  it("persists public metadata and live aggregates without provider credentials or channel identity", async () => {
+    delete process.env.TAVILY_API_KEY;
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    mocks.fetchCrimsonDesertPlatformContext.mockResolvedValue({
+      capturedAt: "2026-07-05T12:00:00.000Z",
+      igdb: {
+        status: "ok",
+        error: null,
+        data: {
+          id: 77,
+          name: "Crimson Desert",
+          slug: "crimson-desert",
+          summary: "Public IGDB metadata.",
+          firstReleaseDate: "2026-03-19T00:00:00.000Z",
+          platforms: ["PC", "PlayStation 5"],
+        },
+      },
+      twitch: {
+        status: "ok",
+        error: null,
+        data: { liveStreamCount: 14, liveViewerCount: 932, isComplete: true },
+      },
+    });
+
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(tables.platform_context_snapshots).toHaveLength(1);
+    expect(tables.platform_context_snapshots[0]).toMatchObject({
+      igdb_status: "ok",
+      igdb_game_id: 77,
+      igdb_name: "Crimson Desert",
+      igdb_platforms: ["PC", "PlayStation 5"],
+      twitch_status: "ok",
+      twitch_live_streams: 14,
+      twitch_live_viewers: 932,
+      twitch_complete: true,
+    });
+    const serialized = JSON.stringify(tables.platform_context_snapshots);
+    expect(serialized).not.toContain("fixture-client-secret");
+    expect(serialized).not.toContain("channel");
+    expect(serialized).not.toContain("stream_title");
+  });
+
+  it("keeps a missing pre-migration platform table as a safe compatibility skip", async () => {
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    selectFailure = {
+      table: "platform_context_snapshots",
+      message: "relation platform_context_snapshots does not exist",
+    };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("platform_context_schema_unavailable");
+    expect(result.errors).not.toContain(expect.stringContaining("Platform context"));
+  });
+
+  it("marks unexpected platform persistence failures partial and records the error", async () => {
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    selectFailure = { table: "platform_context_snapshots", message: "permission denied" };
+    configureProviders();
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.status).toBe("partial");
+    expect(result.skips).toContain("platform_context_failed");
+    expect(result.errors).toContain("platform context recency read failed: permission denied");
+  });
+});
+
+
+describe("Steam player snapshot collection", () => {
+  const now = new Date("2026-07-05T12:00:00.000Z");
+  beforeEach(() => {
+    delete process.env.TAVILY_API_KEY;
+    process.env.STEAM_PLAYER_COUNTS_ENABLED = "true";
+    mocks.fetchSteamCurrentPlayers.mockReset();
+    mocks.fetchSteamCurrentPlayers.mockResolvedValue({ capturedAt: "2026-07-05T12:02:03.000Z", playerCount: 12345 });
+  });
+
+  it("records only timestamped counts without creating player evidence or using paid providers", async () => {
+    process.env.AUTOMATION_BUDGET_USD_MONTHLY = "0";
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(result.status).toBe("success");
+    expect(tables.steam_player_snapshots).toHaveLength(1);
+    expect(tables.steam_player_snapshots[0]).toMatchObject({ sample_hour: "2026-07-05T12:00:00.000Z", captured_at: "2026-07-05T12:02:03.000Z", player_count: 12345 });
+    expect(result.signalsInserted).toBe(0);
+    expect(result.clustersPromoted).toBe(0);
+    expect(tables.steam_review_receipts).toHaveLength(0);
+    expect(tables.source_signals).toHaveLength(0);
+    expect(mocks.fetchSteamReviewBatch).not.toHaveBeenCalled();
+    expect(mocks.tavilySearch).not.toHaveBeenCalled();
+    expect(result.llmCallsUsed).toBe(0);
+  });
+
+  it.each(["disabled", "dry_run"])("does not read, fetch or write when %s", async condition => {
+    if (condition === "disabled") delete process.env.STEAM_PLAYER_COUNTS_ENABLED;
+    const { runAutomationMonitor } = await importRunner();
+    await runAutomationMonitor({ mode: condition === "dry_run" ? "dry_run" : "manual", now });
+    expect(mocks.from).not.toHaveBeenCalledWith("steam_player_snapshots");
+    expect(mocks.fetchSteamCurrentPlayers).not.toHaveBeenCalled();
+    expect(tables.steam_player_snapshots).toHaveLength(0);
+  });
+
+  it("safely skips the new lane before migration, without a provider call", async () => {
+    selectFailure = { table: "steam_player_snapshots", code: "42P01", message: "relation steam_player_snapshots does not exist" };
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(result.status).toBe("success");
+    expect(result.skips).toContain("steam_players_schema_unavailable");
+    expect(mocks.fetchSteamCurrentPlayers).not.toHaveBeenCalled();
+  });
+
+  it.each(["read", "write", "provider"])("keeps a %s failure visible without a false zero reading", async kind => {
+    if (kind === "read") selectFailure = { table: "steam_player_snapshots", code: "42501", message: "permission denied" };
+    if (kind === "write") insertFailure = { table: "steam_player_snapshots", code: "42501", message: "permission denied" };
+    if (kind === "provider") {
+      vi.useFakeTimers();
+      mocks.fetchSteamCurrentPlayers.mockRejectedValue(new Error("Steam player count response was malformed"));
+    }
+    const { runAutomationMonitor } = await importRunner();
+    const pending = runAutomationMonitor({ mode: "manual", now });
+    if (kind === "provider") await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.status).toBe("partial");
+    expect(result.skips).toContain("steam_players_failed");
+    expect(result.errors.join(" ")).toContain(kind === "provider" ? "malformed" : "permission denied");
+    expect(tables.steam_player_snapshots).toHaveLength(0);
+    // A provider failure is retried within the run before it is recorded; only fetches are retried.
+    expect(mocks.fetchSteamCurrentPlayers).toHaveBeenCalledTimes(kind === "provider" ? 4 : kind === "write" ? 1 : 0);
+    expect(result.skips.filter((skip) => skip === "steam_players_retry")).toHaveLength(kind === "provider" ? 3 : 0);
+  });
+
+  it("captures on a retry after a transient Steam failure", async () => {
+    vi.useFakeTimers();
+    mocks.fetchSteamCurrentPlayers
+      .mockRejectedValueOnce(new Error("Steam player count request failed (503)"))
+      .mockResolvedValueOnce({ capturedAt: "2026-07-05T12:00:12.000Z", playerCount: 12345 });
+    const { runAutomationMonitor } = await importRunner();
+    const pending = runAutomationMonitor({ mode: "manual", now });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.status).toBe("success");
+    expect(result.errors).toEqual([]);
+    expect(result.skips.filter((skip) => skip === "steam_players_retry")).toHaveLength(1);
+    expect(tables.steam_player_snapshots).toEqual([expect.objectContaining({ captured_at: "2026-07-05T12:00:12.000Z", player_count: 12345 })]);
+  });
+
+  it.each([["2026-07-05T11:00:00.001Z", false], ["2026-07-05T11:00:00.000Z", true]] as const)("applies the one-hour recency boundary to %s", async (captured_at, shouldFetch) => {
+    tables.steam_player_snapshots.push({ sample_hour: "2026-07-05T11:00:00.000Z", captured_at, player_count: 9000 });
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(mocks.fetchSteamCurrentPlayers).toHaveBeenCalledTimes(shouldFetch ? 1 : 0);
+    expect(tables.steam_player_snapshots).toHaveLength(shouldFetch ? 2 : 1);
+    if (!shouldFetch) expect(result.skips).toContain("steam_players_recent");
+  });
+
+  it("preserves the first reading if another run wins the hourly insert race", async () => {
+    mocks.fetchSteamCurrentPlayers.mockImplementation(async () => {
+      tables.steam_player_snapshots.push({ sample_hour: "2026-07-05T12:00:00.000Z", captured_at: "2026-07-05T12:01:00.000Z", player_count: 10000 });
+      return { capturedAt: "2026-07-05T12:02:03.000Z", playerCount: 12345 };
+    });
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+    expect(result.status).toBe("success");
+    expect(tables.steam_player_snapshots).toHaveLength(1);
+    expect(tables.steam_player_snapshots[0].player_count).toBe(10000);
+  });
+});
+
+describe("Free context captures beside paid work", () => {
+  const now = new Date("2026-07-05T12:00:00.000Z");
+  // A trusted site whose pages recon can read.
+  const borderline = {
+    title: "Crimson Desert patch 1.13 player discussion",
+    url: "https://pcgamer.com/crimson-desert/recon-capture/current_patch/",
+    snippet: "Body retained for moderator review.",
+    sourceDomain: "pcgamer.com",
+    observedAt: "2026-07-05T12:00:00.000Z",
+    sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+  };
+  const twitchOk = {
+    capturedAt: "2026-07-05T12:00:04.000Z",
+    igdb: { status: "absent", data: null, error: null },
+    twitch: { status: "ok", error: null, data: { liveStreamCount: 14, liveViewerCount: 932, isComplete: true } },
+  };
+  let settlements: Row[] = [];
+
+  beforeEach(() => {
+    process.env.STEAM_PLAYER_COUNTS_ENABLED = "true";
+    process.env.TWITCH_CLIENT_ID = "fixture-client-id";
+    process.env.TWITCH_CLIENT_SECRET = "fixture-client-secret";
+    mocks.fetchSteamCurrentPlayers.mockResolvedValue({ capturedAt: "2026-07-05T12:00:05.000Z", playerCount: 12345 });
+    mocks.fetchCrimsonDesertPlatformContext.mockResolvedValue(twitchOk);
+    settlements = [];
+  });
+
+  // The production paid-operation guard and extraction lane: an unknown cost stops
+  // the guard, and the next model call is refused exactly as it is live.
+  async function runWithRealAccounting(fetchImpl: (url: string) => Response) {
+    mocks.realAccounting = true;
+    const originalRpc = mocks.rpc.getMockImplementation()!;
+    mocks.rpc.mockImplementation((name: string, args: Record<string, unknown>) => {
+      const response = (async () => {
+        if (name === "scanner_admit_run") {
+          await new FakeQuery("automation_runs").insert({ id: args.p_run_id, status: "running", mode: "manual",
+            started_at: now.toISOString(), skips: [], errors: [], progress: args.p_progress });
+          return { data: { status: "admitted" }, error: null };
+        }
+        if (name === "scanner_reserve_operation") return { data: { status: "reserved", state: "reserved" }, error: null };
+        if (name === "scanner_settle_operation") {
+          settlements.push({ state: args.p_state, tavilyCredits: args.p_tavily_credits });
+          return { data: { status: "settled", anomalous: false }, error: null };
+        }
+        if (name === "scanner_write_progress") return { data: { status: "applied" }, error: null };
+        if (name === "scanner_finalize_run") {
+          const payload = args.p_result as Row;
+          Object.assign(tables.automation_runs.find((row) => row.id === args.p_run_id)!, payload);
+          return { data: { status: "recorded", accountingState: "recorded", runStatus: payload.status,
+            estimatedCostUsd: payload.estimated_cost_usd, llmCostUsd: (payload.progress as Row).llmCostUsd,
+            tavilyCredits: payload.search_queries_used, llmCalls: payload.llm_calls_used, llmCostState: "verified" }, error: null };
+        }
+        return originalRpc(name, args);
+      })();
+      return Object.assign(response, { abortSignal: () => response });
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => fetchImpl(String(input))));
+    const runner = await importRunner();
+    const actualExtraction = await vi.importActual<typeof import("@/lib/automation/extract")>("@/lib/automation/extract");
+    mocks.extractSignalWithOpenRouter.mockImplementation(actualExtraction.extractSignalWithOpenRouter);
+    return runner.runAutomationMonitor({ mode: "manual", now });
+  }
+  const openRouter = (url: string) => {
+    if (url === "https://openrouter.ai/api/v1/key") return Response.json({ data: { limit: 1, limit_remaining: 1, limit_reset: "monthly", usage_monthly: 0 } });
+    if (url === "https://openrouter.ai/api/v1/chat/completions") {
+      return Response.json({ usage: { cost: 0.001 }, choices: [{ message: { content: JSON.stringify({ issueTitle: "FPS regression since 1.13",
+        category: "performance", platform: "pc_steam", confidence: "high", summary: "Crimson Desert has frame-rate drops after patch 1.13.00.",
+        clusterAssignment: "unsure", clusterReason: "Fixture requires review", clusterSlug: null }) } }] });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  // A recon extract that fails after dispatch: its cost is unknown, which stops the guard.
+  const failedReconExtract = async (_url: string, options: { paidGuard: import("@/lib/automation/paidOperation").PaidOperationGuard }) => {
+    const operation = await options.paidGuard.begin("tavily_extract", "{}", 0, 1);
+    await operation.settle({ state: "unknown", llmCostUsd: null, tavilyCredits: null });
+    throw new Error("tavily extract failed: 502");
+  };
+
+  it("keeps the run's paid work when a failed recon extract stops later paid calls", async () => {
+    const kept = { title: "FPS drops since 1.13", url: "https://example.com/recon-stop-fps",
+      snippet: "Players report Crimson Desert FPS drops and stutter on Steam.", sourceDomain: "example.com",
+      observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    mocks.tavilySearch.mockImplementationOnce(async () => [kept, borderline]).mockResolvedValue([]);
+    mocks.tavilyExtract.mockImplementation(failedReconExtract);
+    let modelCalls = 0;
+
+    const result = await runWithRealAccounting((url) => {
+      if (url === "https://openrouter.ai/api/v1/chat/completions") modelCalls += 1;
+      return openRouter(url);
+    });
+
+    // The paid extraction before the failure is saved, and the run is not failed.
+    expect(result.status).toBe("partial");
+    expect(result.persistence).toBe("recorded");
+    expect(tables.source_signals).toEqual(expect.arrayContaining([expect.objectContaining({ source_url: kept.url })]));
+    // The extraction after it takes the free path instead of asking the stopped guard.
+    expect(modelCalls).toBe(1);
+    expect(result.llmCallsUsed).toBe(1);
+    expect(result.skips).toEqual(expect.arrayContaining(["candidate_recon_failed", "spending_blocked", "llm_allowance_exhausted"]));
+    expect(result.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ stage: "paid_accounting" })]));
+    expect(settlements.filter((settlement) => settlement.state === "unknown")).toHaveLength(1);
+  });
+
+  it("finishes on the free path when a failed last search stops later paid calls", async () => {
+    const kept = { title: "FPS drops since 1.13", url: "https://example.com/search-stop-fps",
+      snippet: "Players report Crimson Desert FPS drops and stutter on Steam.", sourceDomain: "example.com",
+      observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    type SearchOptions = { paidGuard: import("@/lib/automation/paidOperation").PaidOperationGuard };
+    // The search after the one that found the candidate times out: its cost is unknown.
+    mocks.tavilySearch.mockImplementationOnce(async () => [kept])
+      .mockImplementationOnce(async (_query: string, options: SearchOptions) => {
+        const operation = await options.paidGuard.begin("tavily_search", "{}", 0, 1);
+        await operation.settle({ state: "unknown", llmCostUsd: null, tavilyCredits: null });
+        throw new Error("tavily search failed: 504");
+      })
+      .mockResolvedValue([]);
+    let modelCalls = 0;
+
+    const result = await runWithRealAccounting((url) => {
+      if (url === "https://openrouter.ai/api/v1/chat/completions") modelCalls += 1;
+      return openRouter(url);
+    });
+
+    expect(result.status).toBe("partial");
+    expect(result.persistence).toBe("recorded");
+    expect(modelCalls).toBe(0);
+    expect(result.skips).toEqual(expect.arrayContaining(["spending_blocked", "llm_allowance_exhausted"]));
+    expect(result.errors).toContain("tavily search failed: 504");
+  });
+
+  it("saves both snapshots when a failed recon extract stops the paid lane", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [borderline]).mockResolvedValue([]);
+    // A 502 after dispatch is an unknown cost: the guard stops, which ends the paid
+    // lane, and the rescue extraction that follows takes the free path.
+    mocks.tavilyExtract.mockImplementation(failedReconExtract);
+
+    const result = await runWithRealAccounting(openRouter);
+
+    expect(result.status).toBe("partial");
+    expect(result.skips).toContain("spending_blocked");
+    expect(result.persistence).toBe("recorded");
+    expect(tables.steam_player_snapshots).toEqual([expect.objectContaining({ player_count: 12345 })]);
+    expect(tables.platform_context_snapshots).toEqual([expect.objectContaining({ twitch_status: "ok", twitch_live_viewers: 932 })]);
+  });
+
+  it("books an empty recon extract worst case and finishes the run without failing it", async () => {
+    mocks.tavilySearch.mockImplementationOnce(async () => [borderline]).mockResolvedValue([]);
+    // The real extract. importActual can return a second copy of the module, so its
+    // no-content error is rethrown as the class the runner imported.
+    mocks.tavilyExtract.mockImplementation(async (...args: Parameters<typeof import("@/lib/automation/search").tavilyExtract>) => {
+      const actual = await vi.importActual<typeof import("@/lib/automation/search")>("@/lib/automation/search");
+      try {
+        return await actual.tavilyExtract(...args);
+      } catch (error) {
+        if (!(error instanceof Error) || error.name !== "TavilyExtractNoContentError") throw error;
+        const { TavilyExtractNoContentError } = await import("@/lib/automation/search");
+        throw new TavilyExtractNoContentError();
+      }
+    });
+    let modelCalls = 0;
+
+    // The production shape: 200, the URL's result present, no text and no refusal.
+    const result = await runWithRealAccounting((url) => {
+      if (url === "https://api.tavily.com/extract") {
+        return Response.json({ results: [{ url: "https://pcgamer.com/crimson-desert/recon-capture/current_patch", raw_content: "" }] });
+      }
+      if (url === "https://openrouter.ai/api/v1/chat/completions") modelCalls += 1;
+      return openRouter(url);
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.errors).toEqual([]);
+    expect(result.skips).toEqual(expect.arrayContaining(["candidate_recon", "candidate_recon_empty"]));
+    expect(result.skips).not.toContain("spending_blocked");
+    // Charged at the one reserved credit, not left as an unknown cost that stops paid work.
+    expect(settlements[0]).toEqual({ state: "estimated", tavilyCredits: 1 });
+    expect(settlements.some((settlement) => settlement.state === "unknown")).toBe(false);
+    expect(result.searchQueriesUsed).toBe(mocks.tavilySearch.mock.calls.length + 1);
+    // The page was skipped, and paid work continued on the snippet.
+    expect(modelCalls).toBe(1);
+    expect(result.llmCallsUsed).toBe(1);
+    expect(tables.steam_player_snapshots).toHaveLength(1);
+    expect(tables.platform_context_snapshots).toHaveLength(1);
+  });
+
+  it("captures each source on its own when the other one fails", async () => {
+    vi.useFakeTimers();
+    mocks.fetchSteamCurrentPlayers.mockRejectedValue(new Error("Steam player count request failed (503)"));
+    mocks.fetchCrimsonDesertPlatformContext
+      .mockResolvedValueOnce({ ...twitchOk, twitch: { status: "error", data: null, error: "Twitch streams request failed (503)" } })
+      .mockResolvedValueOnce(twitchOk);
+    const { runAutomationMonitor } = await importRunner();
+    const pending = runAutomationMonitor({ mode: "manual", now });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(result.status).toBe("partial");
+    expect(result.skips).toContain("steam_players_failed");
+    expect(result.skips.filter((skip) => skip === "steam_players_retry")).toHaveLength(3);
+    expect(result.skips.filter((skip) => skip === "platform_context_retry")).toHaveLength(1);
+    expect(tables.steam_player_snapshots).toHaveLength(0);
+    // Twitch recovered on its retry: one stored capture, and it is the good one.
+    expect(tables.platform_context_snapshots).toEqual([expect.objectContaining({ twitch_status: "ok", twitch_live_viewers: 932 })]);
+  });
+
+  it("does not let a stored Twitch failure count as a recent capture", async () => {
+    tables.platform_context_snapshots.push({ captured_at: "2026-07-05T11:40:00.000Z", igdb_status: "error", twitch_status: "error" });
+    tables.steam_player_snapshots.push({ sample_hour: "2026-07-05T11:00:00.000Z", captured_at: "2026-07-05T11:40:00.000Z", player_count: 9000 });
+    const { runAutomationMonitor } = await importRunner();
+    const result = await runAutomationMonitor({ mode: "manual", now });
+
+    expect(mocks.fetchCrimsonDesertPlatformContext).toHaveBeenCalledTimes(1);
+    expect(tables.platform_context_snapshots).toHaveLength(2);
+    expect(result.skips).not.toContain("platform_context_recent");
+    // A stored Steam reading is a real capture, so the hourly limit still holds.
+    expect(mocks.fetchSteamCurrentPlayers).not.toHaveBeenCalled();
+    expect(result.skips).toContain("steam_players_recent");
+  });
+});
+
+describe("Steam forum intake", () => {
+  const NOW = new Date("2026-07-05T12:00:00.000Z");
+  const FORUM = "https://steamcommunity.com/app/3321460/discussions/0/";
+
+  function forumTopic(overrides: Partial<{
+    topicId: string; title: string; preview: string; postedAt: string | null;
+    postedAtStatus: "ok" | "missing" | "malformed"; postedText: string;
+  }> = {}) {
+    const topicId = overrides.topicId ?? "582810005140000001";
+    return {
+      topicId,
+      url: `${FORUM}${topicId}/`,
+      title: overrides.title ?? "Map crash on PS5 after patch 1.13",
+      preview: overrides.preview ?? "Opening the map crashes the game to the home screen since patch 1.13.",
+      postedAt: overrides.postedAt === undefined ? "2026-07-05T10:00:00.000Z" : overrides.postedAt,
+      postedAtStatus: overrides.postedAtStatus ?? "ok",
+      postedText: overrides.postedText ?? "10:00am",
+      lastPostAt: "2026-07-05T11:30:00.000Z",
+      replyCount: 4,
+      sticky: false,
+    };
+  }
+  const canonical = (topic: { url: string }) => topic.url.replace(/\/$/, "");
+  const extractedTitles = () => mocks.extractSignalWithOpenRouter.mock.calls.map((call) => call[0].title as string);
+  const extractionsFor = (url: string) =>
+    mocks.extractSignalWithOpenRouter.mock.calls.filter((call) => String(call[0].url) === url);
+
+  it("keeps original patch evidence when extraction omits it from an old thread's summary", async () => {
+    const topic = forumTopic({
+      title: "Crimson Desert map crash on PS5",
+      preview: "Opening the map crashes the game to the home screen since patch 1.13.00.",
+      postedAt: "2026-06-30T10:00:00.000Z",
+    });
+    honorSourceSignalProjection = true;
+    mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor, refreshClusterVisibility } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: NOW });
+
+    const stored = sourceSignalRows().find((row) => row.source_url === canonical(topic));
+    // One uncorroborated source remains private. Paraphrasing must not turn it
+    // into a stale hidden source, or invent a more recent opening-post date.
+    expect(stored).toMatchObject({
+      summary: "Map crash on PS5.",
+      source_published_at: topic.postedAt,
+      public_status: "private",
+      promotion_reason: "below_threshold",
+    });
+    expect(stored?.extracted_facts).toMatchObject({ sourcePatchVersions: ["1.13.00"] });
+    expect(tables.issue_clusters.find((row) => row.id === stored?.cluster_id)?.is_public).toBe(false);
+
+    // The proof survives the normal raw-text expiry and is re-evaluated for
+    // the next patch; it is not a cached permission to publish forever.
+    stored!.raw_text = null;
+    await refreshClusterVisibility(String(stored!.cluster_id), NOW);
+    expect(stored?.public_status).toBe("private");
+
+    // Independent corroboration can publish it. The next public-source audit
+    // must select the same proof, rather than hiding it through a thinner read.
+    const otherUrl = "https://reddit.com/r/CrimsonDesert/comments/map_crash";
+    tables.source_signals.push({ ...stored!, id: "corroborating-source", source_url: otherUrl,
+      canonical_url: otherUrl, source_domain: "reddit.com", external_id_hash: "other-source" });
+    await refreshClusterVisibility(String(stored!.cluster_id), NOW);
+    expect(stored?.public_status).toBe("public");
+    const nextRun = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00Z") });
+    expect(nextRun.staleSignalsHidden).toBe(0);
+    expect(stored?.public_status).toBe("public");
+
+    mocks.getCurrentPatchMetadata.mockResolvedValue({ ...officialPatchFixture, version: "1.14.00" });
+    await refreshClusterVisibility(String(stored!.cluster_id), NOW);
+    expect(stored).toMatchObject({ public_status: "hidden", promotion_reason: "wrong_patch" });
+  });
+
+  it("replaces source patch proof when a forum thread changes its text", async () => {
+    const topic = forumTopic({ title: "Crimson Desert map crash on PS5" });
+    mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+    await runAutomationMonitor({ mode: "manual", now: NOW });
+    const stored = sourceSignalRows().find((row) => row.source_url === canonical(topic));
+    expect(stored?.extracted_facts).toMatchObject({ sourcePatchVersions: ["1.13"] });
+
+    mocks.fetchSteamForumTopics.mockResolvedValue([{ ...topic, preview: "Opening the map crashes to the home screen every time on PS5." }]);
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00Z") });
+    expect(extractionsFor(canonical(topic))).toHaveLength(2);
+    expect(stored?.extracted_facts).toMatchObject({ sourcePatchVersions: [] });
+  });
+
+  it("reads recently active threads and alternates them with search results, search first", async () => {
+    const topic = forumTopic();
+    mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+    const { runAutomationMonitor, forumSourceTextHash } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+    expect(mocks.fetchSteamForumTopics).toHaveBeenCalledWith(
+      expect.objectContaining({ since: new Date("2026-07-05T09:00:00.000Z"), now: NOW, maxPages: 3 }),
+    );
+    expect(extractedTitles().slice(0, 2)).toEqual(["Crimson Desert patch 1.13 FPS regression", topic.title]);
+    expect(sourceSignalRows()).toContainEqual(expect.objectContaining({
+      source: "web_search",
+      source_url: canonical(topic),
+      source_domain: "steamcommunity.com",
+      source_published_at: topic.postedAt,
+      extracted_facts: expect.objectContaining({
+        forumProcessed: {
+          forumTextHash: forumSourceTextHash(topic.title, topic.preview),
+          inputHash: forumSourceTextHash(topic.title, topic.preview),
+          patchVersion: "1.13.00",
+        },
+      }),
+    }));
+    expect(result.skips).not.toContain("steam_forum_failed");
+  });
+
+  it("does not read the forum when STEAM_FORUM_ENABLED is false", async () => {
+    process.env.STEAM_FORUM_ENABLED = "false";
+    mocks.fetchSteamForumTopics.mockResolvedValue([forumTopic()]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: NOW });
+
+    expect(mocks.fetchSteamForumTopics).not.toHaveBeenCalled();
+    expect(sourceSignalRows().some((row) => String(row.source_url).includes("steamcommunity.com"))).toBe(false);
+  });
+
+  it("records a forum failure and keeps the search lane running", async () => {
+    mocks.fetchSteamForumTopics.mockRejectedValue(new Error("Steam forum request failed (503)"));
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+    expect(result.status).toBe("partial");
+    expect(result.skips).toContain("steam_forum_failed");
+    expect(result.errors).toContainEqual(expect.stringContaining("Steam forum request failed (503)"));
+    expect(mocks.tavilySearch).toHaveBeenCalled();
+    expect(result.signalsInserted).toBeGreaterThan(0);
+  });
+
+  describe("repeat work", () => {
+    type Seed = {
+      provider?: string;
+      proof?: { forumTextHash?: string; inputHash?: string; patchVersion?: string } | null;
+      lastSeenAt?: string;
+      topic?: ReturnType<typeof forumTopic>;
+    };
+    async function seedProcessed(seed: Seed) {
+      const topic = seed.topic ?? forumTopic();
+      const { forumSourceTextHash } = await importRunner();
+      const proof = seed.proof === null ? undefined : {
+        forumTextHash: seed.proof?.forumTextHash ?? forumSourceTextHash(topic.title, topic.preview),
+        inputHash: seed.proof?.inputHash ?? forumSourceTextHash(topic.title, topic.preview),
+        patchVersion: seed.proof?.patchVersion ?? "1.13.00",
+      };
+      resetDb({
+        source_signals: [{
+          id: "signal-forum-processed", cluster_id: null, source: "web_search", source_type: "web_search",
+          source_url: canonical(topic), canonical_url: canonical(topic), source_domain: "steamcommunity.com",
+          external_id_hash: externalIdHash("web_search", canonical(topic)),
+          title: topic.title, summary: "Map crash on PS5.", category: "crash_startup", confidence: "high",
+          observed_at: "2026-07-05T08:00:00.000Z", source_published_at: topic.postedAt, public_status: "private",
+          extraction_provider: seed.provider ?? "openrouter", seen_count: 1,
+          first_seen_at: "2026-07-01T08:00:00.000Z", last_seen_at: seed.lastSeenAt ?? "2026-07-05T08:00:00.000Z",
+          extracted_facts: { issueTitle: "Map crash on PS5", ...(proof ? { forumProcessed: proof } : {}) },
+        }],
+      });
+      configureProviders();
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      return topic;
+    }
+
+    it("skips an unchanged thread with processing proof for the current patch", async () => {
+      const topic = await seedProcessed({});
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(extractedTitles()).not.toContain(topic.title);
+      expect(result.skips).toContain("steam_forum_unchanged");
+      expect(sourceSignalRows().find((row) => row.id === "signal-forum-processed")).toMatchObject({ seen_count: 1 });
+    });
+
+    it.each<[string, Seed]>([
+      ["an edit changed its title or preview", { proof: { forumTextHash: "hash-of-the-earlier-text" } }],
+      ["its proof is from an earlier patch", { proof: { patchVersion: "1.12.00" } }],
+      // A re-observation after the patch (for example a rejected retry) refreshed
+      // last_seen_at and left the old success fields alone; that is not proof.
+      ["an earlier-patch proof sits on a row re-observed this patch", {
+        proof: { patchVersion: "1.12.00" }, lastSeenAt: "2026-07-05T11:00:00.000Z",
+      }],
+      ["it has no proof because its extraction never succeeded", { provider: "deterministic", proof: null }],
+    ])("reconsiders a thread when %s", async (_label, seed) => {
+      const topic = await seedProcessed(seed);
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(extractedTitles()).toContain(topic.title);
+      expect(result.skips).not.toContain("steam_forum_unchanged");
+    });
+
+    it("keeps a thread retryable after a failed extraction, then skips it after a successful one", async () => {
+      const topic = forumTopic();
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      mocks.tavilySearch.mockResolvedValue([]);
+      delete process.env.OPENROUTER_API_KEY;
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+      expect(extractionsFor(canonical(topic))).toHaveLength(1);
+      expect(sourceSignalRows().find((row) => row.source_url === canonical(topic))?.extracted_facts).not.toHaveProperty("forumProcessed");
+
+      process.env.OPENROUTER_API_KEY = "openrouter-key";
+      await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+      expect(extractionsFor(canonical(topic))).toHaveLength(2);
+
+      await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T14:00:00.000Z") });
+      expect(extractionsFor(canonical(topic))).toHaveLength(2);
+    });
+
+    describe("overlap with search", () => {
+      const topic = forumTopic();
+      const hit = (snippet: string, publishedAt?: string) => [{
+        title: `${topic.title} :: Crimson Desert General Discussions`, url: topic.url, snippet,
+        sourceDomain: "steamcommunity.com", observedAt: NOW.toISOString(),
+        ...(publishedAt ? { sourcePublishedAt: publishedAt } : {}),
+      }];
+      const richSnippet = "Opening the map crashes the game since patch 1.13. Verified files, still crashing every time on PS5.";
+      const proofOf = () =>
+        (sourceSignalRows().find((row) => row.source_url === canonical(topic))?.extracted_facts as Record<string, unknown>)?.forumProcessed;
+
+      it("extracts an identical forum and search overlap once across two scans and keeps its proof", async () => {
+        mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+        mocks.tavilySearch.mockResolvedValue(hit(richSnippet));
+        const { runAutomationMonitor, forumSourceTextHash } = await importRunner();
+
+        await runAutomationMonitor({ mode: "manual", now: NOW });
+        expect(extractionsFor(canonical(topic))).toHaveLength(1);
+        const proof = proofOf();
+        expect(proof).toEqual({
+          forumTextHash: forumSourceTextHash(topic.title, topic.preview),
+          inputHash: forumSourceTextHash(`${topic.title} :: Crimson Desert General Discussions`, richSnippet),
+          patchVersion: "1.13.00",
+        });
+
+        const second = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+        expect(extractionsFor(canonical(topic))).toHaveLength(1);
+        expect(second.skips).toContain("steam_forum_unchanged");
+        expect(proofOf()).toEqual(proof);
+
+        // Forum alone, unchanged: it was already processed with at least this text.
+        mocks.tavilySearch.mockResolvedValue([]);
+        await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T14:00:00.000Z") });
+        expect(extractionsFor(canonical(topic))).toHaveLength(1);
+      });
+
+      it("extracts again when search brings richer text for the same thread", async () => {
+        mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+        mocks.tavilySearch.mockResolvedValue(hit(richSnippet));
+        const { runAutomationMonitor } = await importRunner();
+
+        await runAutomationMonitor({ mode: "manual", now: NOW });
+        mocks.tavilySearch.mockResolvedValue(hit(`${richSnippet} A reply says it also happens on Xbox Series X after the hotfix.`));
+        await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+        expect(extractionsFor(canonical(topic))).toHaveLength(2);
+      });
+
+      it("keeps a cached thread's malformed opening date authoritative over a dated search hit", async () => {
+        const malformed = forumTopic({ postedAt: null, postedAtStatus: "malformed", postedText: "Foo 3 @ 1:00pm" });
+        await seedProcessed({ topic: malformed });
+        mocks.tavilySearch.mockResolvedValue(hit(richSnippet, "2026-07-05T11:00:00.000Z"));
+        const { runAutomationMonitor } = await importRunner();
+
+        const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+        // The page already has a stored lead, so the date rejection is recorded as a
+        // re-observation of that lead rather than a new rejected-candidate row.
+        expect(extractionsFor(canonical(malformed))).toHaveLength(0);
+        expect(result.skips).toContain("invalid_source_date");
+        expect(result.skips).not.toContain("steam_forum_unchanged");
+        expect(sourceSignalRows().find((row) => row.source_url === canonical(malformed))).toMatchObject({ source_published_at: null });
+      });
+
+      describe("thin thread", () => {
+        // A neutral thread title and preview, with the matching search hit, fail the
+        // pre-screen. Steam discussion pages give Tavily's reader only an empty page
+        // shell, so recon never fetches them: the thread is judged on its own text.
+        const neutral = forumTopic({
+          topicId: "582810005140000021",
+          title: "Crimson Desert player feedback",
+          preview: "Discussion of the current patch.",
+        });
+        const neutralHit = [{
+          title: neutral.title, url: neutral.url, snippet: "Discussion of the current patch.",
+          sourceDomain: "steamcommunity.com", observedAt: NOW.toISOString(), sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+        }];
+
+        it("judges the thread on its own text without spending a recon fetch", async () => {
+          mocks.fetchSteamForumTopics.mockResolvedValue([neutral]);
+          mocks.tavilySearch.mockResolvedValue(neutralHit);
+          mocks.tavilyExtract.mockResolvedValue("must never be requested");
+          const { runAutomationMonitor } = await importRunner();
+
+          const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+          expect(mocks.tavilyExtract).not.toHaveBeenCalled();
+          expect(result.skips).not.toContain("candidate_recon");
+          const calls = extractionsFor(canonical(neutral));
+          expect(calls).toHaveLength(1);
+          expect(calls[0][0].snippet).toContain("Discussion of the current patch.");
+        });
+      });
+
+      it("does not affect a search result with no forum thread behind it", async () => {
+        mocks.fetchSteamForumTopics.mockResolvedValue([]);
+        mocks.tavilySearch.mockResolvedValue(hit(richSnippet));
+        const { runAutomationMonitor } = await importRunner();
+
+        await runAutomationMonitor({ mode: "manual", now: NOW });
+        await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+        expect(extractionsFor(canonical(topic))).toHaveLength(2);
+      });
+    });
+
+    it("sends no forum thread when the processed-thread memory cannot be read", async () => {
+      selectFailure = {
+        table: "source_signals",
+        message: "permission denied for table source_signals",
+        columns: "canonical_url, extracted_facts",
+      };
+      mocks.fetchSteamForumTopics.mockResolvedValue([forumTopic()]);
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(result.status).toBe("partial");
+      expect(result.skips).toContain("steam_forum_failed");
+      expect(result.errors).toContainEqual(expect.stringContaining("Steam forum memory read failed"));
+      expect(extractedTitles()).not.toContain(forumTopic().title);
+    });
+  });
+
+  describe("same thread from search", () => {
+    function searchHit(snippet: string, publishedAt?: string) {
+      return [{
+        title: "Map crash on PS5 after patch 1.13 :: Crimson Desert General Discussions",
+        url: forumTopic().url,
+        snippet,
+        sourceDomain: "steamcommunity.com",
+        observedAt: NOW.toISOString(),
+        ...(publishedAt ? { sourcePublishedAt: publishedAt } : {}),
+      }];
+    }
+    const longSnippet = "Opening the map crashes the game to the home screen since patch 1.13. Verified files, reinstalled, "
+      + "lowered settings and the crash still happens every time the map opens on PS5 and Steam.";
+
+    it("keeps the richer search snippet and takes the forum opening date", async () => {
+      mocks.tavilySearch.mockResolvedValue(searchHit(longSnippet));
+      mocks.fetchSteamForumTopics.mockResolvedValue([forumTopic({ preview: "Map crashes." })]);
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      const calls = extractionsFor(canonical(forumTopic()));
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0]).toMatchObject({ snippet: longSnippet });
+      expect(sourceSignalRows().filter((row) => String(row.source_url).includes("steamcommunity.com"))).toEqual([
+        expect.objectContaining({ source_published_at: "2026-07-05T10:00:00.000Z" }),
+      ]);
+    });
+
+    it("uses the forum preview when it is the longer text", async () => {
+      mocks.tavilySearch.mockResolvedValue(searchHit("Map crash."));
+      const topic = forumTopic();
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      const calls = extractionsFor(canonical(topic));
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0]).toMatchObject({ snippet: topic.preview });
+    });
+
+    it.each([
+      ["an undated search hit", undefined],
+      ["a recently dated search hit", "2026-07-05T11:00:00.000Z"],
+    ])("keeps a malformed forum opening date invalid when merged with %s", async (_label, publishedAt) => {
+      mocks.tavilySearch.mockResolvedValue(searchHit(longSnippet, publishedAt));
+      const topic = forumTopic({ postedAt: null, postedAtStatus: "malformed", postedText: "Foo 3 @ 1:00pm" });
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(extractionsFor(canonical(topic))).toHaveLength(0);
+      expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({ url: canonical(topic), reason: "invalid_source_date" }));
+    });
+  });
+
+  describe("opening dates", () => {
+    it("rejects a malformed opening date as invalid_source_date without an extraction call", async () => {
+      const topic = forumTopic({ postedAt: null, postedAtStatus: "malformed", postedText: "Foo 3 @ 1:00pm" });
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(extractedTitles()).not.toContain(topic.title);
+      expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({ url: canonical(topic), reason: "invalid_source_date" }));
+    });
+
+    it("rejects a thread opened before the current patch as stale without an extraction call", async () => {
+      const topic = forumTopic({
+        title: "Game crashes when opening the map",
+        preview: "The game crashes every time I open the map.",
+        postedAt: "2026-06-01T10:00:00.000Z",
+        postedText: "Jun 1 @ 10:00am",
+      });
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(extractedTitles()).not.toContain(topic.title);
+      expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({ url: canonical(topic), reason: "stale_source" }));
+    });
+
+    it("treats a missing opening date as undated, never fresh", async () => {
+      const topic = forumTopic({
+        title: "Game crashes when opening the map",
+        preview: "The game crashes every time I open the map.",
+        postedAt: null,
+        postedAtStatus: "missing",
+        postedText: "",
+      });
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(rejectedCandidateRows().some((row) => row.url === canonical(topic) && row.reason === "invalid_source_date")).toBe(false);
+      const stored = sourceSignalRows().filter((row) => row.source_url === canonical(topic));
+      for (const row of stored) {
+        expect(row.source_published_at).toBeNull();
+        expect(row.public_status).not.toBe("public");
+      }
+    });
+  });
+
+  describe("extraction call allocation", () => {
+    const search = (index: number) => ({
+      source: "web_search" as const,
+      id: `search-${index}`,
+      title: `Crimson Desert crashes after patch 1.13 (${index})`,
+      body: "The game crashes to desktop after patch 1.13 on Steam.",
+      url: `https://reddit.com/r/CrimsonDesert/comments/s${index}/crash`,
+      observedAt: NOW.toISOString(),
+      sourceDomain: "reddit.com",
+      sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+    });
+    const forum = (index: number) => ({
+      ...search(index),
+      id: `forum-${index}`,
+      url: `${FORUM}58281000514000${index}/`,
+      sourceDomain: "steamcommunity.com",
+      forum: {
+        forumTextHash: `hash-${index}`, inputHash: `hash-${index}`, postedAtStatus: "ok" as const,
+        patchVersion: "1.13.00", proof: null,
+      },
+    });
+    const notAnIssue = (index: number) => ({
+      ...search(index),
+      title: `Crimson Desert is worth the price (${index})`,
+      body: "Loving the open world so far.",
+    });
+    const reaches = (candidate: { title: string }) => !candidate.title.includes("worth the price");
+
+    async function grants(order: ReturnType<typeof search>[], allowance: number) {
+      const { createLaneAllocation } = await importRunner();
+      let shared = allowance;
+      const allocation = createLaneAllocation(order, (index) => reaches(order[index]), () => shared);
+      const granted = { search: 0, forum: 0 };
+      order.forEach((candidate, index) => {
+        allocation.reached(index);
+        // The scanner asks for calls only for a candidate that reaches extraction.
+        if (!reaches(candidate)) return;
+        const lane = "forum" in candidate ? "forum" as const : "search" as const;
+        const calls = allocation.callsFor(lane);
+        expect(calls).toBeLessThanOrEqual(shared);
+        if (calls > 0) {
+          allocation.used(lane, 1);
+          shared -= 1;
+          granted[lane] += 1;
+        }
+      });
+      return granted;
+    }
+    const alternating = [search(1), forum(1), search(2), forum(2), search(3), forum(3)];
+
+    it.each([
+      [1, { search: 1, forum: 0 }],
+      [2, { search: 1, forum: 1 }],
+      [3, { search: 2, forum: 1 }],
+      [4, { search: 2, forum: 2 }],
+    ])("splits %i remaining calls between search and forum", async (allowance, expected) => {
+      expect(await grants(alternating, allowance)).toEqual(expected);
+    });
+
+    it("gives search its share even when forum threads come first", async () => {
+      expect(await grants([forum(1), forum(2), search(1), search(2)], 2)).toEqual({ search: 1, forum: 1 });
+    });
+
+    it("lets a source use the whole allowance once the other has nothing left that reaches extraction", async () => {
+      expect(await grants([notAnIssue(1), forum(1), notAnIssue(2), forum(2)], 2)).toEqual({ search: 0, forum: 2 });
+      expect(await grants([search(1), search(2), search(3)], 3)).toEqual({ search: 3, forum: 0 });
+    });
+
+    it("never grants more than the shared remainder", async () => {
+      const { createLaneAllocation } = await importRunner();
+      let shared = 3;
+      const allocation = createLaneAllocation(alternating, () => true, () => shared);
+      allocation.reached(0);
+      expect(allocation.callsFor("search")).toBe(2);
+      shared = 1;
+      expect(allocation.callsFor("search")).toBe(1);
+      shared = 0;
+      expect(allocation.callsFor("forum")).toBe(0);
+    });
+
+    it("reserves nothing for operator-blocked forum threads in the real preparation loop", async () => {
+      // 18 Steam reviews come first and use 18 of the run's 20 calls, leaving two
+      // for S1, F1, S2, F2. Both forum threads are blocked by exact-URL operator
+      // rules, so search must receive both remaining calls.
+      process.env.STEAM_PULSE_ENABLED = "true";
+      mocks.fetchSteamReviewBatch.mockResolvedValue({
+        reviews: Array.from({ length: 18 }, (_, index) => ({
+          recommendationHash: externalIdHash("steam_review", `allocation-review-${index}`),
+          reviewText: `Crimson Desert crashes to desktop after patch 1.13 on my PC (${index}).`,
+          sourceCreatedAt: "2026-07-05T09:00:00.000Z",
+          sourceUpdatedAt: "2026-07-05T10:00:00.000Z",
+          votedUp: false,
+          playtimeAtReviewMinutes: 120,
+        })),
+        totals: { totalReviews: 18, totalPositive: 0, totalNegative: 18 },
+        cursor: null,
+      });
+      const s1 = { title: "Crimson Desert crashes after patch 1.13 (search one)", url: "https://reddit.com/r/CrimsonDesert/comments/s1/crash" };
+      const s2 = { title: "Crimson Desert crashes after patch 1.13 (search two)", url: "https://reddit.com/r/CrimsonDesert/comments/s2/crash" };
+      mocks.tavilySearch.mockResolvedValue([s1, s2].map((hit) => ({
+        ...hit, snippet: "The game crashes to desktop after patch 1.13 on Steam.", sourceDomain: "reddit.com",
+        observedAt: NOW.toISOString(), sourcePublishedAt: "2026-07-05T10:00:00.000Z",
+      })));
+      const f1 = forumTopic({ topicId: "582810005140000011", title: "Crimson Desert crashes after patch 1.13 (forum one)" });
+      const f2 = forumTopic({ topicId: "582810005140000012", title: "Crimson Desert crashes after patch 1.13 (forum two)" });
+      mocks.fetchSteamForumTopics.mockResolvedValue([f1, f2]);
+      tables.scanner_feedback_rules = [f1, f2].map((topic, index) => ({
+        id: `rule-block-forum-${index}`, action: "block", decision: "off_topic", scope_type: "exact_url",
+        scope_value: canonical(topic), created_at: "2026-07-05T11:00:00.000Z", expires_at: null, revoked_at: null,
+      }));
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      const granted = (url: string) => extractionsFor(url).map((call) => call[1].llmCallsRemaining as number);
+      expect(granted(s1.url)).toEqual([2]);
+      expect(granted(s2.url)).toEqual([1]);
+      expect(extractionsFor(canonical(f1))).toHaveLength(0);
+      expect(extractionsFor(canonical(f2))).toHaveLength(0);
+      expect(result.llmCallsUsed).toBe(20);
+    });
+  });
+});

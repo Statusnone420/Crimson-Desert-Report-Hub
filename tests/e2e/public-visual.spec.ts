@@ -1,0 +1,304 @@
+import { expect, test, type Page } from "@playwright/test";
+import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+
+const E2E_NOW = new Date("2026-07-20T00:10:00.000Z");
+const PRIVATE_MARKERS = [
+  "Possible mount input lockup",
+  "Private mapped candidate used to prove public question rendering",
+  "forum.example.com",
+  "mount-input-rumor",
+];
+
+async function expectAccessibleLandmarks(page: Page) {
+  const result = await page.evaluate(() => ({
+    mainCount: document.querySelectorAll("main, [role=main]").length,
+    hiddenFocusable: document.querySelectorAll('[aria-hidden="true"] a, [aria-hidden="true"] button, [aria-hidden="true"] input').length,
+  }));
+  expect(result).toEqual({ mainCount: 1, hiddenFocusable: 0 });
+}
+
+async function expectNewspaperContrast(page: Page) {
+  const failures = await page.evaluate(() => {
+    function rgb(value: string) {
+      const match = value.match(/rgba?\(([^)]+)\)/);
+      if (!match) return null;
+      return match[1].split(",").slice(0, 3).map((part) => Number.parseFloat(part.trim()));
+    }
+    function luminance(values: number[]) {
+      const channels = values.map((channel) => {
+        const value = channel / 255;
+        return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    }
+    const root = document.querySelector(".newspaper");
+    if (!root) return ["newspaper root missing"];
+    const background = rgb(getComputedStyle(root).backgroundColor);
+    if (!background) return ["newspaper background unreadable"];
+    return [".kicker", ".np-footer a"].flatMap((selector) => [...root.querySelectorAll(selector)].flatMap((element) => {
+      const foreground = rgb(getComputedStyle(element).color);
+      if (!foreground) return [selector + " foreground unreadable"];
+      const ratio = (Math.max(luminance(foreground), luminance(background)) + 0.05) /
+        (Math.min(luminance(foreground), luminance(background)) + 0.05);
+      return ratio >= 4.5 ? [] : [selector + " contrast " + ratio.toFixed(2) + " is below 4.5"];
+    }));
+  });
+  expect(failures).toEqual([]);
+}
+
+async function expectLoginControlContrast(page: Page, theme: "light" | "dark") {
+  const failures = await page.locator(".np-login").evaluate((form) => {
+    function rgb(value: string) {
+      const match = value.match(/rgba?\(([^)]+)\)/);
+      if (!match) return null;
+      const parts = match[1].split(",").map((part) => Number.parseFloat(part.trim()));
+      return { channels: parts.slice(0, 3), alpha: parts[3] ?? 1 };
+    }
+    function luminance(values: number[]) {
+      const channels = values.map((channel) => {
+        const value = channel / 255;
+        return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    }
+    return ["input", "button"].flatMap((selector) => {
+      const element = form.querySelector(selector);
+      if (!element) return [`${selector} missing`];
+      const style = getComputedStyle(element);
+      const foreground = rgb(style.color);
+      const background = rgb(style.backgroundColor);
+      if (!foreground || !background) return [`${selector} colors unreadable`];
+      if (background.alpha < 1) return [`${selector} background is transparent`];
+      const ratio = (Math.max(luminance(foreground.channels), luminance(background.channels)) + 0.05) /
+        (Math.min(luminance(foreground.channels), luminance(background.channels)) + 0.05);
+      return ratio >= 4.5 ? [] : [`${selector} contrast ${ratio.toFixed(2)} is below 4.5`];
+    });
+  });
+  expect(failures, `${theme} admin sign-in controls must remain readable`).toEqual([]);
+}
+
+async function expectNoPrivateMarkers(page: Page) {
+  const markup = await page.content();
+  for (const marker of PRIVATE_MARKERS) expect(markup).not.toContain(marker);
+}
+
+test.describe("integrated newspaper public UI", () => {
+  test.beforeEach(async ({ page }) => {
+    // Freeze fixture dates while leaving navigation and animation timers native.
+    await page.clock.setFixedTime(E2E_NOW);
+  });
+
+  test("home keeps patch records, player counts, and private scanner material separate", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/");
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav.getByRole("link", { name: "News" })).toHaveAttribute("href", "/");
+    await expect(nav.getByRole("link", { name: "Patches" })).toHaveAttribute("href", "/patches");
+    await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("href", "/issues");
+    await expect(nav.getByRole("link", { name: "Expansion" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Watch", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "More from the news desk" })).toHaveAttribute("href", "/news");
+    await expect(nav.getByRole("link", { name: "Observatory" })).toHaveAttribute("href", "/observatory");
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
+    await expect(page.getByRole("contentinfo").getByText("No ads · No trackers")).toBeVisible();
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Open source" })).toHaveCount(0);
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Add a check-in", exact: true })).toHaveAttribute("href", "/issues");
+    await expect(page.locator("#lead").getByRole("link", { name: "Charting the Unknown delayed two weeks to October 29" })).toHaveAttribute("href", "/articles/charting-the-unknown-delay");
+    await expect(page.getByText(/Add a quick check-in to an existing issue/)).toBeVisible();
+    await expect(page.getByRole("link", { name: /All \d+ published issues/ })).toHaveAttribute("href", "/issues");
+    await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toHaveCount(0);
+    await expect(page.getByText("The game in numbers")).toBeVisible();
+    const storyImages = page.locator(".stories .story-image img");
+    await expect(storyImages).toHaveCount(2);
+    for (const image of await storyImages.all()) {
+      await image.scrollIntoViewIfNeeded();
+      await expect.poll(() => image.evaluate((element) => {
+        const image = element as HTMLImageElement;
+        if (!image.complete || !image.naturalWidth) return false;
+        const width = Number(new URL(image.currentSrc).searchParams.get("w"));
+        const frame = image.getBoundingClientRect();
+        const sourceRatio = Number(image.getAttribute("width")) / Number(image.getAttribute("height"));
+        return width >= Math.max(frame.width, frame.height * sourceRatio) * window.devicePixelRatio;
+      })).toBe(true);
+    }
+    await expectNoPrivateMarkers(page);
+    await expectAccessibleLandmarks(page);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("patch desk preserves official sources and safe empty-register language", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/patches");
+    await expect(page.getByRole("heading", { level: 1, name: /Patch 1\.13\.01/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Read Pearl Abyss’s complete notes" })).toHaveAttribute("href", /^https:\/\//);
+    const claims = page.locator("#claims");
+    await expect(claims.getByRole("heading", { name: "What changed in your corner of Pywel?" })).toBeVisible();
+    await expect(claims.getByText(/Showing \d+ of \d+ stored official fix claims/)).toBeVisible();
+    await expect(page.getByText("These are different records. An official fix claim does not establish that a player’s issue is resolved.")).toBeVisible();
+    await expect(claims.getByText("This is not a report of zero claimed fixes.")).toHaveCount(0);
+    const unsafeSourceUrls = await claims.locator("a[target=_blank]").evaluateAll((anchors) =>
+      anchors.map((anchor) => anchor.getAttribute("href") ?? "").filter((href) => !href.startsWith("https://")),
+    );
+    expect(unsafeSourceUrls).toEqual([]);
+    await expectNoPrivateMarkers(page);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("observatory stays canonical and never turns context into player evidence", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/observatory");
+    await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
+    const sections = page.getByRole("navigation", { name: "Observatory sections" });
+    await expect(sections.getByRole("link", { name: "The review record" })).toHaveAttribute("href", "#review-record");
+    await expect(sections.getByRole("link", { name: "Platform activity" })).toHaveAttribute("href", "#platform-activity");
+    await expect(sections.getByRole("link", { name: "The source radar" })).toHaveAttribute("href", "#scanner-radar");
+    await expect(page.getByText(/Steam reviews and Twitch captures are recorded aggregates/)).toBeVisible();
+    await expect(page.getByText(/Scanner leads are context with a source, never player reports/)).toBeVisible();
+    await expect(page.locator("#review-record .obs-chart-readout").getByText(/recorded readings/)).toBeVisible();
+    await expectNoPrivateMarkers(page);
+    await expectAccessibleLandmarks(page);
+    await expectHealthyPage(page, problems);
+
+    await page.goto("/scanner");
+    await expect(page).toHaveURL(/\/observatory$/);
+    await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Observatory" })).toHaveAttribute("aria-current", "page");
+    await expectNoPrivateMarkers(page);
+  });
+
+  test("issue board filters public records and scopes saved answers to the exact patch", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.addInitScript(() => {
+      window.localStorage.setItem("cd-checkin-00000000-0000-4000-8000-000000000001-1.13.01", "have_it");
+    });
+    await page.goto("/issues");
+    await expect(page.getByRole("heading", { name: "What are you seeing?" })).toBeVisible();
+    const board = page.locator("#board");
+    await expect(board.getByRole("group", { name: "Choose board view" })).toBeVisible();
+    await expect(board.getByLabel("Find an issue")).toBeVisible();
+    await expect(board.getByLabel("Category")).toBeVisible();
+    const card = page.getByRole("article").filter({ hasText: "FPS regression since 1.13" });
+    await expect(card).toHaveCount(1);
+    await expect(card.getByRole("button", { name: /Happening to me/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(card.getByText("Patch 1.13.01", { exact: true })).toBeVisible();
+    await expectNoPrivateMarkers(page);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("retired report routes redirect to the issue board without rendering a form", async ({ page, request }) => {
+    const response = await request.get("/report", { maxRedirects: 0 });
+    expect(response.status()).toBe(308);
+    expect(response.headers().location).toBe("/issues");
+    await page.goto("/report");
+    await expect(page).toHaveURL(/\/issues$/);
+    await expect(page.locator("#report-form")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Review report|Send report/ })).toHaveCount(0);
+  });
+
+  test("privacy page resolves from the footer and keeps the unofficial disclaimer", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/");
+    await page.getByRole("contentinfo").getByRole("link", { name: "Privacy" }).click();
+    // CI compiles this client navigation on demand while other specs share the
+    // mock server; wait past the default expect timeout before asserting.
+    await page.waitForURL(/\/privacy$/, { timeout: 30_000 });
+    await expect(page.getByRole("heading", { name: "Privacy" })).toBeVisible();
+    await expect(page.getByText("There is no player sign-in or registration. Check-ins do not ask for email.")).toBeVisible();
+    await expect(page.getByText("The database does not store raw IP addresses.")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Method · privacy" })).toHaveAttribute("href", "/about#privacy");
+    await expect(page.locator('a[href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub"], a[href^="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/"]')).toHaveCount(0);
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Community", exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Unofficial fan site/)).toBeVisible();
+    await expectNoPrivateMarkers(page);
+    await expectAccessibleLandmarks(page);
+    await expectHealthyPage(page, problems);
+  });
+
+  test("newspaper stays accessible and within the narrowest public viewport", async ({ page }, testInfo) => {
+    const problems = collectConsoleProblems(page);
+    if (testInfo.project.name === "mobile-chromium") await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: /Crimson Desert Report Hub/ })).toBeVisible();
+    await expectNewspaperContrast(page);
+    await expectAccessibleLandmarks(page);
+    await expectHealthyPage(page, problems);
+  });
+
+
+  test("admin sign-in explains throttling and preview restrictions without losing the password", async ({ page }) => {
+    await page.goto("/admin/login");
+    const password = page.getByLabel("Password");
+    await password.fill("not-a-real-password");
+    await page.route("**/api/admin/login", (route) => route.fulfill({
+      status: 429, headers: { "Retry-After": "87", "Content-Type": "application/json" }, body: '{"error":"rate_limited"}',
+    }));
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.locator(".np-login").getByRole("alert")).toHaveText("Too many sign-in attempts. Try again in 2 minutes.");
+    await expect(password).toHaveValue("not-a-real-password");
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
+    await page.unroute("**/api/admin/login");
+    await page.route("**/api/admin/login", (route) => route.fulfill({
+      status: 403, contentType: "application/json", body: '{"error":"preview_sign_in_disabled"}',
+    }));
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.locator(".np-login").getByRole("alert")).toHaveText("Sign-in is disabled on this preview. Use the local preview for admin review.");
+    await expect(password).toHaveValue("not-a-real-password");
+  });
+
+  test("admin sign-in recovers from a network failure without losing the password", async ({ page }) => {
+    await page.route("**/api/admin/login", (route) => route.abort("failed"));
+    await page.goto("/admin/login");
+    const password = page.getByLabel("Password");
+    await password.fill("not-a-real-password");
+    await page.getByRole("button", { name: "Sign in" }).click();
+
+    await expect(page.locator(".np-login").getByRole("alert")).toHaveText("Could not connect. Try again.");
+    await expect(password).toHaveValue("not-a-real-password");
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  });
+
+  test("operator routes keep sign-in, export recovery, and compile controls reachable", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    await page.goto("/");
+    const footer = page.getByRole("contentinfo");
+    await expect(footer.getByRole("button", { name: "Admin", exact: true })).toHaveCount(0);
+    await expect(footer.getByRole("link", { name: "Admin", exact: true })).toHaveCount(0);
+
+    await page.goto("/admin/login?from=%2Foperator%3Fview%3Dreports");
+    await expect(page.getByRole("heading", { level: 1, name: "Admin sign-in" })).toBeVisible();
+    await page.getByLabel("Password").fill("admin-password");
+    for (const theme of ["light", "dark"] as const) {
+      if (await page.locator("html").getAttribute("data-theme") !== theme) {
+        await page.getByRole("button", { name: `Switch to ${theme} mode` }).click();
+      }
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await expectLoginControlContrast(page, theme);
+    }
+    await page.getByRole("button", { name: "Sign in" }).click();
+    // CI compiles this client navigation on demand; wait for its document
+    // transition before asserting the authenticated page and its controls.
+    await page.waitForURL(/\/operator\?view=reports$/, { timeout: 30_000 });
+    await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+    const operator = page.getByRole("navigation", { name: "Operator" });
+    await expect(operator.getByRole("link", { name: "Overview" })).toHaveAttribute("href", "/operator");
+    await expect(operator.getByRole("link", { name: "Reports", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(operator.getByRole("link", { name: "Videos" })).toHaveAttribute("href", "/operator?view=videos");
+    await expect(operator.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/operator?view=scanner");
+    await page.getByRole("button", { name: /Export CSV/ }).click();
+    await expect(page.getByText("Export all report-review rows?")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
+    await page.goto("/operator?view=dossiers");
+    await expect(page.getByRole("heading", { name: "Compile dossier" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Compile now" })).toBeVisible();
+    await expectHealthyPage(page, problems);
+  });
+
+  test("manifest keeps newspaper navigation inside the standalone app scope", async ({ page }) => {
+    await page.goto("/issues");
+    await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
+    const response = await page.request.get("/manifest.webmanifest");
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toMatchObject({ display: "standalone", id: "/", scope: "/", start_url: "/" });
+  });
+});

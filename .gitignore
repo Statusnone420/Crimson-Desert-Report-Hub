@@ -1,0 +1,73 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+/playwright-report
+/test-results
+
+# local agent worktrees
+/.worktrees
+
+# local planning artifacts
+/.planning/
+/docs/superpowers/
+
+# local preview seed (invented database for dev:preview; regenerate with npm run preview:seed)
+/preview-data/
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.local.example
+.launch-*.local.txt
+
+# vercel
+.vercel
+.next-review/
+.next-snapshot/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Local agent tooling
+.claude/
+
+# Local tooling artifacts
+.playwright-cli/
+output/
+
+# Supabase CLI local project metadata
+/supabase/.temp/
+
+# Local operational records, never committed
+docs/BACKUP-STATE.md
+
+# Local design-tool state and critique snapshots
+.impeccable/

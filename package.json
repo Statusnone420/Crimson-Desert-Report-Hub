@@ -1,0 +1,58 @@
+{
+  "name": "cd-report-hub",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest run",
+    "verify": "npm exec --yes --package=node@22.23.2 --package=npm@11.12.1 -- npm run verify:run --",
+    "verify:run": "node scripts/verify.mjs",
+    "verify:core": "npm run verify -- --core",
+    "verify:browser": "npm run verify -- --browser",
+    "verify:visible": "npm run verify -- --headed",
+    "test:e2e:ui": "npm run verify -- --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:patches": "playwright test --config=playwright.patches.config.ts",
+    "test:e2e:update": "playwright test --update-snapshots",
+    "test:e2e:n0": "playwright test --config=playwright.n0.config.ts",
+    "test:e2e:turnstile": "playwright test --config=playwright.turnstile.config.ts",
+    "scan:bakeoff": "vitest run --config scripts/bakeoff/vitest.config.ts",
+    "preview:seed": "node scripts/generate-preview-seed.mjs",
+    "dev:preview": "node scripts/preview-dev.mjs",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:status": "supabase status",
+    "backup": "pwsh -NoProfile -File scripts/backup.ps1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.0",
+    "motion": "^13.2.0",
+    "next": "16.3.8",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.8",
+    "supabase": "2.109.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "postcss": "8.5.28",
+    "sharp": "0.35.5"
+  }
+}

@@ -1,0 +1,276 @@
+import { captureGaps, type CaptureGap } from "@/lib/captureGaps";
+import { CATEGORY_LABELS } from "@/lib/constants";
+import type { PlatformContextSnapshot, PublicScannerData, SteamPulsePoint } from "@/lib/queries";
+import type { PatchRadarData } from "@/lib/radar.server";
+
+export type ObservatoryAvailability = "ready" | "empty" | "unavailable";
+
+export type SteamReviewPoint = {
+  snapshotDay: string;
+  collectedAt: string;
+  totalReviews: number;
+  positivePercentage: number;
+  totalPositive: number | null;
+  totalNegative: number | null;
+  reviewMovement: number | null;
+  positiveMovement: number | null;
+  negativeMovement: number | null;
+};
+
+export type SteamReviewSeries = {
+  availability: ObservatoryAvailability;
+  points: SteamReviewPoint[];
+};
+
+export type TwitchPoint = {
+  capturedAt: string;
+  viewers: number;
+  streams: number;
+};
+
+export type TwitchSeries = {
+  availability: ObservatoryAvailability;
+  checkedAt: string | null;
+  latestCapturedAt: string | null;
+  points: TwitchPoint[];
+  latestState: "fresh" | "delayed" | "incomplete" | "invalid_timestamp" | "unavailable" | "no_history" | "no_complete_history" | "unread";
+};
+
+export type TwitchWindow = {
+  start: number;
+  end: number;
+  points: TwitchPoint[];
+  segments: TwitchPoint[][];
+  gaps: CaptureGap<TwitchPoint>[];
+};
+
+export type RadarCategory = {
+  category: string;
+  label: string;
+  short: string;
+  tracked: number;
+  newThisWeek: number;
+};
+
+function validDate(value: string): boolean {
+  return Number.isFinite(new Date(value).getTime());
+}
+
+function nonnegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
+}
+
+function signedInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : null;
+}
+
+function exactSentiment(point: SteamPulsePoint): { positive: number | null; negative: number | null } {
+  const positive = nonnegativeInteger(point.totalPositive);
+  const negative = nonnegativeInteger(point.totalNegative);
+  const total = nonnegativeInteger(point.totalReviews);
+  if (positive === null || negative === null || total === null || positive + negative !== total) {
+    return { positive: null, negative: null };
+  }
+  return { positive, negative };
+}
+
+/**
+ * Converts only persisted Steam aggregates to the public chart DTO. Rounded
+ * percentages never become invented positive/negative counts.
+ */
+export function buildSteamReviewSeries(
+  points: SteamPulsePoint[],
+  steamReadFailed: boolean,
+): SteamReviewSeries {
+  if (steamReadFailed) return { availability: "unavailable", points: [] };
+
+  const normalized = points
+    .filter(
+      (point) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(point.snapshotDay) &&
+        validDate(point.collectedAt) &&
+        nonnegativeInteger(point.totalReviews) !== null &&
+        typeof point.positivePercentage === "number" &&
+        Number.isFinite(point.positivePercentage),
+    )
+    .sort((a, b) => a.snapshotDay.localeCompare(b.snapshotDay) || a.collectedAt.localeCompare(b.collectedAt))
+    .slice(-14);
+
+  const reviewPoints = normalized.map((point, index) => {
+    const sentiment = exactSentiment(point);
+    const previous = index > 0 ? exactSentiment(normalized[index - 1]) : null;
+    return {
+      snapshotDay: point.snapshotDay,
+      collectedAt: point.collectedAt,
+      totalReviews: Math.trunc(point.totalReviews),
+      positivePercentage: Math.min(100, Math.max(0, point.positivePercentage)),
+      totalPositive: sentiment.positive,
+      totalNegative: sentiment.negative,
+      reviewMovement: signedInteger(point.reviewCountDelta),
+      positiveMovement:
+        sentiment.positive !== null && previous?.positive != null ? sentiment.positive - previous.positive : null,
+      negativeMovement:
+        sentiment.negative !== null && previous?.negative != null ? sentiment.negative - previous.negative : null,
+    };
+  });
+
+  return { availability: reviewPoints.length > 0 ? "ready" : "empty", points: reviewPoints };
+}
+
+export function selectSteamReadings(points: SteamReviewPoint[], readingCount: number): SteamReviewPoint[] {
+  return points.slice(-Math.max(1, readingCount));
+}
+
+/**
+ * Uses the latest platform snapshot as the fixed audit time and separately
+ * records the latest complete Twitch capture. The server query already limits
+ * history to 96 complete captures, one per UTC hour; this function does not fill missing
+ * captures or extend a requested range with older observations.
+ */
+export function buildTwitchSeries(
+  platformContext: PlatformContextSnapshot | null,
+  platformReadFailed: boolean,
+): TwitchSeries {
+  if (platformReadFailed) return { availability: "unavailable", checkedAt: null, latestCapturedAt: null, points: [], latestState: "unread" };
+  if (!platformContext) return { availability: "empty", checkedAt: null, latestCapturedAt: null, points: [], latestState: "no_history" };
+
+  const checkedAt = validDate(platformContext.capturedAt) ? platformContext.capturedAt : null;
+  const end = checkedAt ? new Date(checkedAt).getTime() : null;
+  const points = platformContext.twitchHistory
+    .filter(
+      (point) =>
+        validDate(point.capturedAt) &&
+        (end === null || new Date(point.capturedAt).getTime() <= end) &&
+        nonnegativeInteger(point.liveViewers) !== null &&
+        nonnegativeInteger(point.liveStreams) !== null,
+    )
+    .map((point) => ({
+      capturedAt: point.capturedAt,
+      viewers: Math.trunc(point.liveViewers),
+      streams: Math.trunc(point.liveStreams),
+    }))
+    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
+    .slice(-96);
+
+  if (points.length === 0) {
+    return { availability: "empty", checkedAt: null, latestCapturedAt: null, points: [], latestState: "no_complete_history" };
+  }
+
+  const latestState = checkedAt === null
+    ? "invalid_timestamp"
+    : platformContext.twitchStatus === "stale"
+      ? "delayed"
+      : platformContext.twitchStatus !== "ok"
+        ? "unavailable"
+        : platformContext.twitchComplete !== true
+          ? "incomplete"
+          : "fresh";
+
+  return {
+    availability: "ready",
+    checkedAt: checkedAt ?? points.at(-1)?.capturedAt ?? null,
+    latestCapturedAt: points.at(-1)?.capturedAt ?? null,
+    points,
+    latestState,
+  };
+}
+
+export function twitchHistorySummary(series: TwitchSeries): string | null {
+  if (series.latestState === "unread") return "Twitch aggregate history could not be read.";
+  if (series.latestState === "no_history") return "No Twitch aggregate captures have been recorded yet.";
+  if (series.latestState === "no_complete_history") return "No complete Twitch aggregate captures have been recorded yet.";
+  if (series.latestState === "delayed") return "Latest Twitch capture is delayed. Historical captures are not live.";
+  if (series.latestState === "incomplete") return "The latest Twitch capture is incomplete. Historical captures are not live.";
+  if (series.latestState === "invalid_timestamp") return "The latest Twitch capture has an invalid timestamp. Historical captures are not live.";
+  if (series.latestState === "unavailable") return "The latest Twitch response was unavailable. Historical captures are not live.";
+  return null;
+}
+
+const TWITCH_GAP_MS = 3.25 * 60 * 60 * 1000;
+
+export function selectTwitchWindow(series: TwitchSeries, hours: number): TwitchWindow | null {
+  if (series.checkedAt === null || !validDate(series.checkedAt)) return null;
+  const end = new Date(series.checkedAt).getTime();
+  const start = end - Math.max(1, hours) * 60 * 60 * 1000;
+  const points = series.points.filter((point) => {
+    const time = new Date(point.capturedAt).getTime();
+    return time >= start && time <= end;
+  });
+  const segments: TwitchPoint[][] = [];
+  for (const point of points) {
+    const current = segments.at(-1);
+    const previous = current?.at(-1);
+    if (!current || !previous || new Date(point.capturedAt).getTime() - new Date(previous.capturedAt).getTime() > TWITCH_GAP_MS) {
+      segments.push([point]);
+    } else {
+      current.push(point);
+    }
+  }
+  return { start, end, points, segments, gaps: captureGaps(segments) };
+}
+
+function shortCategoryLabel(label: string): string {
+  return label
+    .replace("Crashes and ", "")
+    .replace("Controls and ", "")
+    .replace("Graphics and ", "")
+    .replace("Quests and ", "")
+    .replace(" progression", "");
+}
+
+export function buildRadarCategories(radar: PatchRadarData): {
+  availability: ObservatoryAvailability;
+  categories: RadarCategory[];
+} {
+  if (!radar.connected) return { availability: "unavailable", categories: [] };
+  const categories = radar.categories
+    .filter(
+      (bucket) =>
+        typeof bucket.category === "string" &&
+        nonnegativeInteger(bucket.tracked) !== null &&
+        nonnegativeInteger(bucket.new7d) !== null,
+    )
+    .map((bucket) => {
+      const label = CATEGORY_LABELS[bucket.category as keyof typeof CATEGORY_LABELS] ?? bucket.category;
+      return {
+        category: bucket.category,
+        label,
+        short: shortCategoryLabel(label),
+        tracked: Math.trunc(bucket.tracked),
+        newThisWeek: Math.trunc(bucket.new7d),
+      };
+    });
+  return { availability: categories.length > 0 ? "ready" : "empty", categories };
+}
+
+export function platformLabels(data: PublicScannerData): string[] | null {
+  if (data.pulseReadFailures.includes("platform") || !data.platformContext) {
+    return null;
+  }
+  const { igdbCapturedAt, igdbStatus } = data.platformContext;
+  if (igdbStatus !== "ok" && (!igdbCapturedAt || !validDate(igdbCapturedAt))) return null;
+  return data.platformContext.platforms.length > 0 ? data.platformContext.platforms : [];
+}
+
+/** A zero-based axis, with negative space only when a recorded value needs it. */
+export function reviewMovementAxis(values: (number | null)[]) {
+  const readings = values.filter((value): value is number => value !== null && Number.isFinite(value));
+  const low = Math.min(0, ...readings);
+  const high = Math.max(0, ...readings);
+  const range = high - low || 1;
+  const roughStep = Math.max(1, range / 4);
+  const power = 10 ** Math.floor(Math.log10(roughStep));
+  const step = [1, 2, 2.5, 5, 10].map((multiple) => multiple * power).find((value) => value >= roughStep)!;
+  const min = Math.floor(low / step) * step;
+  const max = high === low ? 1 : Math.ceil(high / step) * step;
+  const ticks = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, index) => min + index * step).reverse();
+  return { min, max, ticks, zero: max / (max - min) * 100 };
+}
+
+/** Compare cumulative records; never sum a first delta with an unseen baseline. */
+export function reviewWindowChange(points: SteamReviewPoint[]) {
+  if (points.length < 2) return null;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return { reviews: last.totalReviews - first.totalReviews, positiveShare: last.positivePercentage - first.positivePercentage };
+}

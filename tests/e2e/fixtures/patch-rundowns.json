@@ -1,0 +1,19 @@
+{
+  "official_patch_notes": [
+    {"board_no":"132","title":"Patch Notes Version 2.03.01","patch_version":"2.03.01","official_url":"https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=132","published_at":"2026-09-21T14:00:00Z","observed_at":"2026-09-21T16:00:24.203Z","summary":"Fellow Greymanes, platform rollout boilerplate.","is_current":true,"claimed_fix_total":3},
+    {"board_no":"131","title":"Patch Notes Version 2.03.00","patch_version":"2.03.00","official_url":"https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=131","published_at":"2026-09-18T01:00:00Z","observed_at":"2026-09-18T02:00:00Z","summary":"Older patch.","is_current":false,"claimed_fix_total":1},
+    {"board_no":"130","title":"Patch Notes Version 2.02.00","patch_version":"2.02.00","official_url":"https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=130","published_at":"2026-09-11T01:00:00Z","observed_at":"2026-09-11T01:00:00Z","summary":"Archive test fixture.","is_current":false,"claimed_fix_total":1},
+    {"board_no":"129","title":"Patch Notes Version 2.01.00","patch_version":"2.01.00","official_url":"https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=129","published_at":"2026-09-04T01:00:00Z","observed_at":"2026-09-04T01:00:00Z","summary":"Archive test fixture.","is_current":false,"claimed_fix_total":1},
+    {"board_no":"128","title":"Patch Notes Version 2.00.02","patch_version":"2.00.02","official_url":"https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=128","published_at":"2026-08-28T01:00:00Z","observed_at":"2026-08-28T01:00:00Z","summary":"Archive test fixture.","is_current":false,"claimed_fix_total":1},
+    {"board_no":"127","title":"Patch Notes Version 2.00.01","patch_version":"2.00.01","official_url":"https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=127","published_at":null,"observed_at":"2026-08-28T02:00:00Z","summary":"Archive test fixture.","is_current":false,"claimed_fix_total":null}
+  ],
+  "official_patch_claimed_fixes": [
+    {"board_no":"132","position":0,"fix_text":"Fixed an issue where lantern aiming would not function with the newly assigned input after customizing the lantern-aim input for controllers.","category":null,"section":"Patch Details"},
+    {"board_no":"132","position":1,"fix_text":"Fixed an issue where NPCs for Duo would not appear in Tommaso, making it impossible to play the Duo minigame.","category":null,"section":"Patch Details"},
+    {"board_no":"132","position":2,"fix_text":"Fixed an issue where the game would crash when interacting with NPCs in certain situations.","category":"crash_startup","section":"Patch Details"},
+    {"board_no":"131","position":0,"fix_text":"Fixed an older patch issue for the archive fixture.","category":null,"section":"Fixes"},
+    {"board_no":"130","position":0,"fix_text":"Fixed a controller input issue for the archive fixture.","category":null,"section":"Controls"},
+    {"board_no":"129","position":0,"fix_text":"Fixed missing dialogue audio for the archive fixture.","category":null,"section":"Audio"},
+    {"board_no":"128","position":0,"fix_text":"Fixed a quest marker issue for the archive fixture.","category":null,"section":"Quests"}
+  ]
+}

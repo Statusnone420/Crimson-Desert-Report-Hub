@@ -1,0 +1,872 @@
+import { recordScannerDecision, rejectObservationAndTeach, undoScannerDecision } from "@/app/admin/actions";
+import { ScanControls } from "@/components/ScanControls";
+import { CollectionHealth } from "@/components/scanner/CollectionHealth";
+import { ScannerExecutionHealth } from "@/components/scanner/ScannerExecutionHealth";
+import { ScannerAiDiagnostics } from "@/components/scanner/ScannerAiDiagnostics";
+import { FeedbackRulesPanel, ScannerFeedbackDesk } from "@/components/scanner/ScannerFeedbackDesk";
+import { ScannerHealthSummary } from "@/components/operator/ScannerSections";
+import { SubmitButton } from "@/components/SubmitButton";
+import { categoryChartColor } from "@/lib/categoryColors";
+import { CATEGORY_LABELS } from "@/lib/constants";
+import { platformContextConfigured, steamPulseEnabled, type IntegrationStatus } from "@/lib/env";
+import { collectionHealth } from "@/lib/collectionHealth";
+import { formatEasternDateTime, formatRelativeOperatorTime, summarizeRunMessages } from "@/lib/automation/runDisplay";
+import { nextEligibleScheduledScanAt } from "@/lib/automation/schedule";
+import type { AutomationControlState } from "@/lib/automation/settings";
+import { displayCandidateCount, radarYieldPct } from "@/lib/observatoryMetrics";
+import type {
+  AdminObservationRow,
+  AdminSignalRow,
+  AutomationRunRow,
+  PublicScannerData,
+  RejectedCandidateRow,
+  ScannerFeedbackRuleRow,
+} from "@/lib/queries";
+import type { PatchRadarData } from "@/lib/radar.server";
+import { isBriefRenderableObservation } from "@/lib/observationDisplay";
+import { isVercelPreview } from "@/lib/previewGuard";
+import { getScannerAttention } from "@/lib/scannerAttention";
+import { isCurrentPatchVerified } from "@/lib/patchWatch";
+import { scannerAiHealthWithResult as scannerAiHealth, type ScannerAiHealth } from "@/lib/automation/health";
+import { getScannerExecutionHealth } from "@/lib/automation/executionHealth";
+import type { ScannerExecutionRead } from "@/lib/automation/diagnostics";
+import { policyAiStatus } from "@/lib/operatorHealth";
+
+function aiCostLabel(run: AutomationRunRow): string {
+  const recorded = run.progress?.llmCostUsd;
+  const value = typeof recorded === "number" && Number.isFinite(recorded)
+    ? recorded
+    : Math.max(0, run.estimated_cost_usd - run.search_queries_used * 0.008);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(value);
+}
+
+function relativeTime(iso: string | null, nowMs: number): string {
+  if (!iso) return "not scheduled";
+  const mins = Math.floor((nowMs - new Date(iso).getTime()) / 60000);
+  const abs = Math.abs(mins);
+  const prefix = mins < 0 ? "in " : "";
+  const suffix = mins < 0 ? "" : " ago";
+  if (abs < 1) return mins < 0 ? "in less than a minute" : "just now";
+  if (abs < 60) return `${prefix}${abs}m${suffix}`;
+  const hours = Math.floor(abs / 60);
+  if (hours < 24) return `${prefix}${hours}h${suffix}`;
+  return `${prefix}${Math.floor(hours / 24)}d${suffix}`;
+}
+
+function funnelSummary(funnel: Record<string, number> | null): string | null {
+  if (!funnel) return null;
+  const { searchResultsSeen, candidatesSeen, deduped, prefilterRejected, llmEligible, llmCalls, kept, promoted } = funnel;
+  if ([candidatesSeen, deduped, prefilterRejected, llmEligible, llmCalls, kept, promoted].some((v) => v === undefined)) {
+    return null;
+  }
+  const results = searchResultsSeen === undefined ? "" : `${searchResultsSeen} results -> `;
+  return `${results}${candidatesSeen} screened -> ${deduped} deduped -> ${prefilterRejected} pre-filtered -> ${llmEligible} LLM-eligible -> ${llmCalls} LLM -> ${kept} kept -> ${promoted} promoted`;
+}
+
+function plainRunLine(run: AutomationRunRow): string {
+  const ai = scannerAiHealth([run]);
+  const aiDetail = ai.state === "unavailable" ? " · AI unavailable" : ai.state === "limited" ? " · AI limited" : "";
+  if (run.status === "skipped") {
+    return summarizeRunMessages(run.skips, run.errors).operatorSummary;
+  }
+  if (run.status === "failed") {
+    return `Scan failed - ${summarizeRunMessages(run.skips, run.errors).errorSummary}`;
+  }
+  const found = displayCandidateCount(run);
+  if (found === 0) {
+    return run.errors.length > 0
+      ? `No sources reviewed - ${summarizeRunMessages(run.skips, run.errors).errorSummary}`
+      : `Ran, nothing new${aiDetail}`;
+  }
+  const kept = run.signals_inserted;
+  const parts = [`Found ${found}, kept ${kept}`];
+  if (run.signals_reobserved > 0) parts.push(`re-observed ${run.signals_reobserved}`);
+  if (run.candidates_rescued > 0) parts.push(`kept for review ${run.candidates_rescued}`);
+  if (run.clusters_promoted > 0) parts.push(`published ${run.clusters_promoted}`);
+  const line = parts.join(", ");
+  return `${run.errors.length > 0 ? `${line} (with errors)` : line}${aiDetail}`;
+}
+
+function sourceHost(signal: AdminSignalRow): string {
+  if (signal.source_domain) return signal.source_domain;
+  try {
+    return new URL(signal.source_url).hostname.replace(/^www\./, "");
+  } catch {
+    return signal.source;
+  }
+}
+
+function publicStatusLabel(status: AdminSignalRow["public_status"]): string {
+  if (status === "public") return "PUBLIC";
+  if (status === "hidden") return "HIDDEN";
+  return "PRIVATE";
+}
+
+function confidenceTone(confidence: AdminSignalRow["confidence"]): string {
+  if (confidence === "high") return "is-green";
+  if (confidence === "medium") return "is-amber";
+  return "";
+}
+
+function signalRow(signal: AdminSignalRow, nowMs: number, feedbackLearningAvailable: boolean) {
+  const isSteamReview = signal.source === "steam_review" || signal.source_type === "steam_review";
+  return (
+    <article key={signal.id} className="lead-item">
+      <div className="lead-item__status">
+        <span className={signal.public_status === "public" ? "is-green" : undefined}>
+          {publicStatusLabel(signal.public_status)}
+        </span>{" "}
+        ·{" "}
+        <i
+          className="cat-swatch cat-swatch--meta"
+          style={{ background: categoryChartColor(signal.category) }}
+          aria-hidden="true"
+        />
+        {(CATEGORY_LABELS[signal.category as keyof typeof CATEGORY_LABELS] ?? signal.category).toUpperCase()} ·{" "}
+        {(signal.source_type ?? signal.source).toUpperCase()} ·{" "}
+        <span className={confidenceTone(signal.confidence)}>{signal.confidence.toUpperCase()} CONFIDENCE</span> · SEEN{" "}
+        {signal.seen_count ?? 1}×
+      </div>
+      <h3 className="lead-item__title">{signal.title ?? "Untitled source lead"}</h3>
+      <p className="lead-item__summary">{signal.summary}</p>
+      <dl className="provenance provenance--compact" aria-label="Lead provenance">
+        <div className="provenance__row">
+          <dt className="provenance__key">Source</dt>
+          <dd className="provenance__value">
+            {sourceHost(signal)} · {(signal.source_type ?? signal.source).toUpperCase()}
+          </dd>
+        </div>
+        <div className="provenance__row">
+          <dt className="provenance__key">Classification</dt>
+          <dd className="provenance__value">
+            {(CATEGORY_LABELS[signal.category as keyof typeof CATEGORY_LABELS] ?? signal.category)} ·{" "}
+            {signal.confidence} confidence · seen {signal.seen_count ?? 1}×
+          </dd>
+        </div>
+        <div className="provenance__row">
+          <dt className="provenance__key">State</dt>
+          <dd className="provenance__value">
+            {publicStatusLabel(signal.public_status).toLowerCase()} · last seen {relativeTime(signal.observed_at, nowMs)}{" "}
+            ·{" "}
+            <a href={signal.source_url} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+              Open source
+            </a>
+          </dd>
+        </div>
+      </dl>
+      {!feedbackLearningAvailable ? (
+        <p className="decision-form__scope">Scanner learning unlocks after the database schema update.</p>
+      ) : isSteamReview ? (
+        <p className="decision-form__scope">
+          Steam review leads share one provider URL. A review-specific lesson needs its recommendation hash, so this
+          page cannot teach a safe scanner rule.
+        </p>
+      ) : (
+        <details className="lead-feedback">
+          <summary>Remove bad lead</summary>
+          <form action={recordScannerDecision} className="decision-form dispatch-field lead-feedback__form">
+            <input type="hidden" name="id" value={signal.id} />
+            <input type="hidden" name="target_kind" value="signal" />
+            <input type="hidden" name="scope" value="exact_url" />
+            <label>
+              <span>Why this lead is wrong</span>
+              <select name="decision" defaultValue="off_topic" required>
+                <option value="off_topic">Off topic</option>
+                <option value="wrong_patch">Wrong patch</option>
+                <option value="not_issue_report">Not an issue report</option>
+                <option value="duplicate">Duplicate source</option>
+              </select>
+            </label>
+            <label>
+              <span>Operator reason</span>
+              <textarea
+                name="reason"
+                required
+                minLength={3}
+                maxLength={500}
+                placeholder="What made this source irrelevant?"
+              />
+            </label>
+            <p className="decision-form__scope">
+              Removes only this source URL. The scanner will block the same page in future runs; the issue itself is
+              unchanged.
+            </p>
+            <SubmitButton className="dispatch-btn tap-btn--danger" pendingText="Removing lead…">
+              Remove lead and teach scanner
+            </SubmitButton>
+          </form>
+        </details>
+      )}
+    </article>
+  );
+}
+
+const OBSERVATION_KIND_LABELS: Record<AdminObservationRow["kind"], string> = {
+  patch_release: "PATCH RELEASE",
+  press_reception: "PRESS",
+  fix_announcement: "FIX ANNOUNCEMENT",
+  community_ask: "COMMUNITY ASK",
+};
+
+function observationDateLabel(
+  observation: AdminObservationRow,
+  patch: { version: string; publishedAt: string | null },
+  nowMs: number,
+): string {
+  if (observation.source_published_at) {
+    const published = new Date(observation.source_published_at);
+    if (Number.isFinite(published.getTime())) {
+      return `published ${published.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`;
+    }
+  }
+  if (isBriefRenderableObservation(observation, patch, nowMs)) {
+    const firstSeen = new Date(observation.created_at);
+    return `first seen by radar ${firstSeen.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`;
+  }
+  return "no usable public lane date";
+}
+
+function observationRow(
+  observation: AdminObservationRow,
+  moderationAvailable: boolean,
+  patch: { version: string; publishedAt: string | null },
+  nowMs: number,
+) {
+  const laneLabel = observation.kind === "community_ask" ? "COMMUNITY ASK" : "SOURCE CONTEXT";
+  return (
+    <article key={observation.id} className="lead-item">
+      <div className="lead-item__status">
+        <span className={observation.is_public ? "is-green" : "is-amber"}>
+          {observation.is_public ? "RETAINED" : "HIDDEN"}
+        </span>{" "}
+        · {laneLabel} · {OBSERVATION_KIND_LABELS[observation.kind]} ·{" "}
+        {observationDateLabel(observation, patch, nowMs)}
+        {observation.seen_count > 1 ? ` · SEEN ${observation.seen_count}×` : ""}
+      </div>
+      <h3 className="lead-item__title">{observation.title}</h3>
+      {observation.snippet ? <p className="lead-item__summary">{observation.snippet}</p> : null}
+      <p className="decision-form__scope">
+        {observation.source_domain ?? "unknown domain"} ·{" "}
+        <a href={observation.url} target="_blank" rel="noreferrer noopener" className="dispatch-link">
+          Open source
+        </a>
+      </p>
+      {!moderationAvailable ? (
+        <p className="decision-form__scope">Observation moderation unlocks after the database schema update.</p>
+      ) : observation.decision_id ? (
+        <form action={undoScannerDecision} className="lead-feedback__form">
+          <input type="hidden" name="decision_id" value={observation.decision_id} />
+          <p className="decision-form__scope">
+            Hidden by a recorded decision. Undo restores the item and revokes its rule.
+          </p>
+          <SubmitButton className="dispatch-btn" pendingText="Undoing…">
+            Undo — restore item and revoke rule
+          </SubmitButton>
+        </form>
+      ) : (
+        <details className="lead-feedback">
+          <summary>Reject and teach…</summary>
+          <form action={rejectObservationAndTeach} className="decision-form dispatch-field lead-feedback__form">
+            <input type="hidden" name="id" value={observation.id} />
+            <label>
+              <span>Why this item is wrong</span>
+              <select name="decision" defaultValue="off_topic" required>
+                <option value="off_topic">Off topic</option>
+                <option value="wrong_patch">Wrong patch</option>
+                <option value="not_issue_report">Not patch context</option>
+                <option value="duplicate">Duplicate source</option>
+              </select>
+            </label>
+            <label>
+              <span>Operator reason</span>
+              <textarea
+                name="reason"
+                required
+                minLength={3}
+                maxLength={500}
+                placeholder="What made this item unsuitable for scanner context?"
+              />
+            </label>
+            <label>
+              <span>Rule scope</span>
+              <select name="scope" defaultValue="exact_url" required>
+                <option value="exact_url">This exact page only</option>
+                <option value="source_domain">Whole domain (needs confirmation)</option>
+              </select>
+            </label>
+            <label className="lead-feedback__confirm">
+              <input type="checkbox" name="confirm_broad" value="true" />{" "}
+              <span>Confirm whole-domain rule (required only for domain scope)</span>
+            </label>
+            <p className="decision-form__scope">
+              Hides this archived item and records an undoable lesson so future runs skip
+              the same source. Two records, one Undo.
+            </p>
+            <SubmitButton className="dispatch-btn tap-btn--danger" pendingText="Rejecting…">
+              Reject and teach
+            </SubmitButton>
+          </form>
+        </details>
+      )}
+    </article>
+  );
+}
+
+export function AdminScannerView({
+  runs,
+  signals,
+  rejectedCandidates,
+  observations,
+  observationPatch,
+  observationModerationAvailable,
+  feedbackRules,
+  feedbackLearningAvailable,
+  control,
+  budgetCapped,
+  activeRun,
+  latestRealRun,
+  latestCompletedRun,
+  latestFind,
+  scoreboard,
+  radar,
+  integrations,
+  nowIso,
+  aiHealth: suppliedAiHealth,
+  execution,
+  collectionExpanded = false,
+}: {
+  runs: AutomationRunRow[];
+  signals: AdminSignalRow[];
+  rejectedCandidates: RejectedCandidateRow[];
+  observations: AdminObservationRow[];
+  /** The patch the observation rows were read against, not the radar's cached copy. */
+  observationPatch: { version: string; publishedAt: string | null };
+  observationModerationAvailable: boolean;
+  feedbackRules: ScannerFeedbackRuleRow[];
+  feedbackLearningAvailable: boolean;
+  control: AutomationControlState;
+  budgetCapped: boolean;
+  activeRun: { id: string } | null;
+  latestRealRun: AutomationRunRow | null;
+  latestCompletedRun: AutomationRunRow | null;
+  latestFind: AutomationRunRow | null;
+  scoreboard: PublicScannerData;
+  radar: PatchRadarData;
+  integrations: IntegrationStatus[];
+  nowIso: string;
+  aiHealth?: ScannerAiHealth;
+  execution?: ScannerExecutionRead;
+  collectionExpanded?: boolean;
+}) {
+  const now = new Date(nowIso);
+  const nowMs = now.getTime();
+  const nextEligible = nextEligibleScheduledScanAt(latestRealRun ? [...runs, latestRealRun] : runs, now, control.minIntervalMinutes);
+  const aiHealth = suppliedAiHealth ?? scannerAiHealth(runs, {
+    ...control,
+    llmBudgetCapped: budgetCapped ? undefined : false,
+  });
+  const executionHealth = execution ? getScannerExecutionHealth(execution, now) : undefined;
+  const policyStatus = policyAiStatus({
+    adminAvailable: true,
+    control,
+    activeRun,
+    budgetCapped,
+    aiHealth,
+  });
+  const status = executionHealth && executionHealth.tone !== "ok"
+    ? {
+        label: executionHealth.statusLabel.toUpperCase(),
+        toneClass: executionHealth.tone === "danger" || executionHealth.tone === "unavailable" ? "is-crimson" : "is-amber",
+      }
+    : { label: policyStatus.label, toneClass: policyStatus.tone === "green" ? "is-green" : policyStatus.tone === "red" ? "is-crimson" : "is-amber" };
+  const latestRun = latestCompletedRun;
+  const completedAt = latestRun ? latestRun.finished_at ?? latestRun.started_at : null;
+  const optionalCandidates = rejectedCandidates.filter(
+    (candidate) => !candidate.rescued_at && !candidate.decision_id && !candidate.feedback_rule_id,
+  );
+  const recentSignals = signals.slice(0, 6);
+  const olderSignals = signals.slice(6);
+  const aiIntegration = integrations.find((integration) => integration.key === "ai_extraction");
+  const collectionInput = {
+    steamPulse: scoreboard.steamPulse,
+    platformContext: scoreboard.platformContext,
+    pulseReadFailures: scoreboard.pulseReadFailures,
+    steamPulseEnabled: steamPulseEnabled(),
+    platformContextConfigured: platformContextConfigured(),
+    scheduledCadenceMinutes: control.minIntervalMinutes,
+  };
+  const collections = collectionHealth({ ...collectionInput, now });
+  const attention = getScannerAttention({
+    aiHealth,
+    llmPaused: scoreboard.llmPaused,
+    failedRuns: radar.connected ? radar.health.runs7d.failed : null,
+    radarAvailable: radar.connected,
+    scannerReadFailures: scoreboard.readFailures,
+    collection: collections,
+    execution: executionHealth,
+  });
+  const yieldPct = radarYieldPct(scoreboard.keptThisWeek, scoreboard.reviewedThisWeek);
+  // What can reach the Brief decides how this section reads, so it says it once
+  // instead of every card repeating it. This is the same complete function the
+  // public lane calls, including the URL-bound first-seen fallback for eligible
+  // undated Asks. Anything less would advertise items the Brief itself drops —
+  // or hide ones it actually renders.
+  // Judged against the patch these rows were read with, never the radar's
+  // five-minute-cached copy: right after a rollover they disagree, and the
+  // stale one would call the new patch's own coverage off-topic.
+  const publishableObservations = observations.filter((observation) =>
+    isBriefRenderableObservation(observation, observationPatch, nowMs),
+  ).length;
+  // A collapsed section must never hide the fact that something inside it can
+  // still be undone, or the operator has to go looking for their own recovery.
+  const reversibleObservations = observations.filter((observation) => observation.decision_id !== null).length;
+
+  return (
+    <div className="workspace-page scanner-workspace">
+      <header className="workspace-heading">
+        <div>
+          <h1>Scanner workspace</h1>
+          <p>Check discovery, AI processing, the next eligible attempt, and the records behind each result.</p>
+        </div>
+        <div className="workspace-actions">
+          <ScanControls activeRunId={activeRun?.id ?? null} isPreview={isVercelPreview()} />
+        </div>
+      </header>
+
+      <nav className="workspace-tabs" aria-label="Scanner workspace sections">
+        <a className="workspace-tab" href="#health">Health and history</a>
+        <a className="workspace-tab" href="#teach">Teach{rejectedCandidates.length > 0 ? ` (${rejectedCandidates.length})` : ""}</a>
+        <a className="workspace-tab" href="#records">Records{signals.length > 0 ? ` (${signals.length})` : ""}</a>
+        <a className="workspace-tab" href="#lanes">Context</a>
+        <a className="workspace-tab" href="#lessons">Lessons{feedbackLearningAvailable && feedbackRules.length > 0 ? ` (${feedbackRules.length})` : ""}</a>
+        <a className="workspace-tab" href="#settings">Settings</a>
+      </nav>
+
+      <ScannerHealthSummary
+        attention={attention}
+        scannerStatus={status.label}
+        scannerStatusTone={status.toneClass === "is-green" ? "workspace-badge--green" : status.toneClass === "is-crimson" ? "workspace-badge--red" : "workspace-badge--amber"}
+        nextAttempt={
+          control.paused
+            ? "Paused"
+            : `${formatRelativeOperatorTime(nextEligible.toISOString(), nowMs)} · ${formatEasternDateTime(nextEligible.toISOString())}`
+        }
+        latestRun={
+          completedAt
+            ? `${formatRelativeOperatorTime(completedAt, nowMs)} · ${formatEasternDateTime(completedAt)}`
+            : null
+        }
+        radarAvailable={radar.connected}
+        screened7d={radar.funnel7d.reviewed}
+        retained7d={radar.funnel7d.kept}
+        awaiting={scoreboard.readFailures.includes("awaiting") ? null : scoreboard.awaiting}
+        dateCoverage={radar.connected ? radar.dateCoverage : null}
+        policyAiStatus={policyStatus.label}
+        aiHealth={aiHealth}
+      />
+      {execution ? <ScannerExecutionHealth
+        execution={execution}
+        nowIso={nowIso}
+        policyEligibleAt={control.paused ? undefined : nextEligible.toISOString()}
+        policyPaused={control.paused}
+      /> : null}
+
+      <details className="workspace-panel scanner-workspace__telemetry" open={collectionExpanded}>
+        <summary>Detailed scanner telemetry</summary>
+        <div className="workspace-panel-body">
+      <div className="op-status-line">
+        <span className={status.toneClass}>● {status.label}</span>
+        {" · "}
+        {completedAt ? `LAST SCAN ${relativeTime(completedAt, nowMs)}` : "NO COMPLETED SCAN YET"}
+        {" · "}
+        {control.paused ? "NEXT CHECK PAUSED" : `NEXT CHECK ${relativeTime(nextEligible.toISOString(), nowMs)}`}
+        {latestFind ? ` · MOST RECENT KEPT LEAD ${relativeTime(latestFind.started_at, nowMs)}` : ""}
+        {aiIntegration?.paused ? <span className="is-amber"> · AI COST SAFETY PAUSED</span> : null}
+        {aiIntegration?.circuitUnknown ? <span className="is-amber"> · AI COST SAFETY STATE UNAVAILABLE</span> : null}
+      </div>
+
+      {radar.connected ? (
+        <div className="stat-band stat-band--radar" aria-label="Since the last day" style={{ marginBottom: 26 }}>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">New leads · 24h</div>
+            <div
+              className={
+                radar.window.newLeads24h > 0 ? "stat-band__value stat-band__value--blue" : "stat-band__value"
+              }
+            >
+              {radar.window.newLeads24h}
+            </div>
+            <div className="stat-band__caption">{radar.window.newLeads7d} in the last 7 days</div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Re-observed · 24h</div>
+            <div
+              className={
+                radar.window.reobservations24h > 0 ? "stat-band__value stat-band__value--blue" : "stat-band__value"
+              }
+            >
+              {radar.window.reobservations24h}
+            </div>
+            <div className="stat-band__caption">
+              {radar.recurring.recurringLeads} of {radar.recurring.trackedLeads} tracked leads recur
+            </div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Checks to review</div>
+            <div
+              className={
+                attention.count === null || attention.count > 0 ? "stat-band__value stat-band__value--amber" : "stat-band__value"
+              }
+            >
+              {attention.count ?? "Unavailable"}
+            </div>
+            <div className="stat-band__caption">
+              {attention.count === null
+                ? "A health read failed, so this count is unavailable"
+                : attention.items.length > 0
+                  ? attention.items.map((item) => item.label).join(" · ")
+                  : "No named health checks require action"}
+            </div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Recorded failed runs · 7d</div>
+            <div
+              className={
+                radar.health.runs7d.failed > 0 ? "stat-band__value stat-band__value--crimson" : "stat-band__value"
+              }
+            >
+              {radar.health.runs7d.failed}
+            </div>
+            <div className="stat-band__caption">
+              {radar.health.runs7d.succeeded} completed · {radar.health.runs7d.skipped} skipped · excludes pre-ledger trigger failures
+            </div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Source dates</div>
+            <div className="stat-band__value">
+              {radar.dateCoverage.withSourceDate}/{radar.dateCoverage.tracked}
+            </div>
+            <div className="stat-band__caption">
+              Leads with a real publication date — Tavily general search rarely provides one
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* The radar's own run reads failed. Hiding the band would read as "no
+           radar activity"; this says the numbers are missing, not zero. */
+        <div className="stat-band stat-band--radar" aria-label="Source radar unavailable" style={{ marginBottom: 26 }}>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Source radar</div>
+            <div className="stat-band__value stat-band__value--amber">Unavailable</div>
+            <div className="stat-band__caption">
+              The automation run read failed, so lead counts, run health, and source-date coverage are unknown for
+              this page load. This page cannot determine scanner activity from that failed read; reload to try it again.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {radar.connected && radar.funnel7d.reviewed > 0 ? (
+        /* Funnel as a proportional bar instead of a second stat band — the two
+           bands read as clones; this row answers "where did the week's
+           candidates go" in one shape and keeps the KPIs beside it. */
+        <div className="desk-funnel" aria-label="Source radar funnel">
+          <div className="desk-funnel__main">
+            <div className="mono-label" style={{ marginBottom: 10 }}>
+              This week · {radar.funnel7d.reviewed} candidates recorded
+            </div>
+            <p className="workspace-note">{radar.funnel7d.kept} retained · {radar.funnel7d.reobserved} re-observed · {radar.funnel7d.filtered} not retained, including incomplete processing</p>
+          </div>
+          {/* Each KPI names its own register: a failed published read costs the
+              published number, not the two beside it. */}
+          <div className="desk-funnel__kpis">
+            <div className="desk-funnel__kpi">
+              <span className="mono-label">Awaiting issue groups</span>
+              {scoreboard.readFailures.includes("awaiting") ? (
+                <>
+                  <span className="desk-funnel__num">—</span>
+                  <span className="mono-label">unavailable</span>
+                </>
+              ) : (
+                <span className="desk-funnel__num desk-funnel__num--blue">{scoreboard.awaiting}</span>
+              )}
+            </div>
+            <div className="desk-funnel__kpi">
+              <span className="mono-label">Published issue groups</span>
+              {scoreboard.readFailures.includes("published") ? (
+                <>
+                  <span className="desk-funnel__num">—</span>
+                  <span className="mono-label">unavailable</span>
+                </>
+              ) : (
+                <span className="desk-funnel__num desk-funnel__num--crimson">{scoreboard.published}</span>
+              )}
+            </div>
+            <div className="desk-funnel__kpi">
+              <span className="mono-label">Retained-lead share · 7d</span>
+              {scoreboard.readFailures.includes("week") ? (
+                <>
+                  <span className="desk-funnel__num">—</span>
+                  <span className="mono-label">unavailable</span>
+                </>
+              ) : (
+                <span className="desk-funnel__num">
+                  {scoreboard.reviewedThisWeek > 0 ? `${scoreboard.keptThisWeek} / ${scoreboard.reviewedThisWeek} (${yieldPct.toFixed(1)}%)` : "0 / 0"}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="stat-band" aria-label="Source radar funnel">
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Candidates recorded · 7d</div>
+            <div className={scoreboard.readFailures.includes("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {scoreboard.readFailures.includes("week") ? "Unavailable" : scoreboard.reviewedThisWeek}
+            </div>
+            {scoreboard.readFailures.includes("week") ? <div className="stat-band__caption">The weekly read failed</div> : <div className="stat-band__caption">Includes repeats; processing may be incomplete.</div>}
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Not retained</div>
+            <div className={scoreboard.readFailures.includes("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {scoreboard.readFailures.includes("week") ? "Unavailable" : scoreboard.filteredThisWeek}
+            </div>
+            <div className="stat-band__caption">Includes incomplete processing.</div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Awaiting issue groups</div>
+            <div
+              className={
+                scoreboard.readFailures.includes("awaiting")
+                  ? "stat-band__value stat-band__value--amber"
+                  : "stat-band__value stat-band__value--blue"
+              }
+            >
+              {scoreboard.readFailures.includes("awaiting") ? "Unavailable" : scoreboard.awaiting}
+            </div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">Published issues</div>
+            <div
+              className={
+                scoreboard.readFailures.includes("published")
+                  ? "stat-band__value stat-band__value--amber"
+                  : "stat-band__value stat-band__value--crimson"
+              }
+            >
+              {scoreboard.readFailures.includes("published") ? "Unavailable" : scoreboard.published}
+            </div>
+          </div>
+          <div className="stat-band__cell">
+            <div className="stat-band__label">
+              {/* Each figure names its own register rather than the row sharing one fate. */}
+              Published {scoreboard.readFailures.includes("published") ? "—" : scoreboard.published} ·{" "}
+              Awaiting {scoreboard.readFailures.includes("awaiting") ? "—" : scoreboard.awaiting} ·{" "}
+              Retained {scoreboard.readFailures.includes("week") ? "—" : scoreboard.keptThisWeek}
+            </div>
+            <div className={scoreboard.readFailures.includes("week") ? "stat-band__value stat-band__value--amber" : "stat-band__value"}>
+              {scoreboard.readFailures.includes("week")
+                ? "Unavailable"
+                : scoreboard.reviewedThisWeek > 0
+                  ? `${yieldPct.toFixed(1)}%`
+                  : "0%"}
+            </div>
+            <div className="stat-band__caption">retained-lead share · 7d, not accuracy</div>
+          </div>
+        </div>
+      )}
+
+      <section className="operator-inbox" aria-label="Operator action inbox">
+        <div>
+          <p className="operator-inbox__eyebrow">Action inbox</p>
+          <h2>
+            {attention.count === null
+              ? "A health read is unavailable, so this page cannot verify the current attention count."
+              : attention.count === 0
+                ? "No named health checks require action."
+                : `${attention.count} named health check${attention.count === 1 ? " needs" : "s need"} a look.`}
+          </h2>
+          <p>
+            {feedbackLearningAvailable
+              ? "Auto-rejected pages are not assignments. They stay private, expire automatically, and appear below only so you can teach the scanner when a bad pattern is worth remembering."
+              : "Scanner learning unlocks after the database schema update. You can still inspect candidates and keep a missed relevant lead."}
+          </p>
+        </div>
+        <div className="operator-inbox__facts">
+          <span>
+            {radar.connected ? <><b>{radar.health.runs7d.failed}</b> recorded failed runs · 7d</> : "Recorded failed runs unavailable"}
+          </span>
+          <span><b>{optionalCandidates.length}</b> optional teaching candidates</span>
+          <span>
+            {feedbackLearningAvailable ? <><b>{feedbackRules.length}</b> active scanner lessons</> : "Learning schema pending"}
+          </span>
+        </div>
+      </section>
+
+      <CollectionHealth {...collectionInput} nowIso={nowIso} />
+        </div>
+      </details>
+
+      <div className="workspace-split scanner-workspace__workbench">
+        <section className="workspace-panel operator-workbench__main" id="teach" aria-label="Teach the scanner">
+          <div className="section-heading">
+            <div>
+              <p className="dispatch-kicker dispatch-kicker--amber">Teach the scanner · Optional</p>
+              <h2 className="section-heading__title">Review optional candidates</h2>
+            </div>
+            <p className="section-heading__note">
+              Keep a missed lead, or record why a page is wrong. Exact-page rules are safest; broader rules require
+              an explicit confirmation and can always be undone. Showing the newest {rejectedCandidates.length}{" "}
+              unexpired {rejectedCandidates.length === 1 ? "candidate" : "candidates"} still eligible to teach from.
+            </p>
+          </div>
+          <ScannerFeedbackDesk
+            candidates={rejectedCandidates}
+            nowIso={nowIso}
+            feedbackLearningAvailable={feedbackLearningAvailable}
+          />
+        </section>
+
+        <aside className="workspace-panel operator-workbench__rail" aria-label="Latest run and scanner settings">
+          <div className="op-rail-block">
+            <p className="mono-label">Latest run</p>
+            {latestRun ? (
+              <>
+                <p className={latestRun.status === "failed" ? "op-rail__sentence is-crimson" : "op-rail__sentence"}>
+                  {plainRunLine(latestRun)}.
+                </p>
+                <p className="op-rail__readout">{summarizeRunMessages(latestRun.skips, latestRun.errors).operatorSummary}</p>
+                <dl className="run-facts">
+                  <div><dt>Search</dt><dd>{latestRun.search_queries_used} credits</dd></div>
+                  <div><dt>Candidates</dt><dd>{displayCandidateCount(latestRun)}</dd></div>
+                  <div><dt>LLM</dt><dd>{latestRun.llm_calls_used} calls</dd></div>
+                  <div><dt>AI cost estimate</dt><dd>{aiCostLabel(latestRun)}</dd></div>
+                </dl>
+                <ScannerAiDiagnostics progress={latestRun.progress} calls={latestRun.llm_calls_used} skips={latestRun.skips} />
+              </>
+            ) : <p className="op-rail__sentence">No completed scan yet.</p>}
+          </div>
+
+          <details className="operator-disclosure workspace-panel" id="history">
+            <summary>Scan history and diagnostics · newest {runs.length}</summary>
+            <div className="operator-disclosure__body">
+              {/* The read is the newest 10 runs and there is no total behind it,
+                  so this names its window rather than claiming a denominator.
+                  It renders every run it was given — slicing to 8 dropped two
+                  reads on the floor without saying so. */}
+              {runs.map((run) => (
+                <div key={run.id}>
+                  <div className="op-history-row">
+                    <span className="num-quiet">{formatEasternDateTime(run.started_at).replace(/^[A-Za-z]+ \d+, \d+, /, "")}</span>
+                    <span>{plainRunLine(run)}</span>
+                    <span className="num-quiet">{aiCostLabel(run)} AI</span>
+                  </div>
+                  <ScannerAiDiagnostics progress={run.progress} calls={run.llm_calls_used} skips={run.skips} />
+                </div>
+              ))}
+              <details className="raw-diagnostics">
+                <summary>Raw funnel, skip, and error codes</summary>
+                {runs.map((run) => (
+                  <p key={run.id}>
+                    {formatEasternDateTime(run.started_at)}
+                    {funnelSummary(run.funnel) ? ` · ${funnelSummary(run.funnel)}` : ""}
+                    {run.skips.length > 0 ? ` · skips: ${run.skips.join(", ")}` : ""}
+                    {run.errors.length > 0 ? ` · errors: ${run.errors.join(", ")}` : ""}
+                  </p>
+                ))}
+              </details>
+            </div>
+          </details>
+
+          <section className="workspace-panel" id="settings">
+            <h2>Scanner settings</h2>
+            <p className="op-note">Manage the model, AI budget, schedule, and search limits in AI Settings.</p>
+            <a className="workspace-button" href="/operator?view=ai">Open AI Settings</a>
+          </section>
+        </aside>
+      </div>
+
+      {/* A record of what the scanner did on its own — nothing here is waiting
+          on the operator, so it opens on request rather than by default. */}
+      <section className="workspace-panel operator-records" id="records" aria-label="Automatic scanner records">
+        <details className="operator-section">
+          <summary className="operator-section__summary">
+            <span className="dispatch-kicker">Automatic records</span>
+            <h2 className="operator-section__title">What the scanner kept</h2>
+            <span className="operator-section__count">
+              newest {signals.length} {signals.length === 1 ? "lead" : "leads"}
+            </span>
+          </summary>
+          <div className="operator-section__body">
+            <p className="section-heading__note">
+              Inspect provenance, open the source, or remove one bad lead without hiding the whole issue.
+            </p>
+            <div className="lead-record-grid">
+              {recentSignals.length > 0
+                ? recentSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))
+                : <p className="decision-empty">No kept source leads yet.</p>}
+            </div>
+            {olderSignals.length > 0 ? (
+              <details className="operator-disclosure operator-disclosure--records">
+                <summary>Browse {olderSignals.length} older {olderSignals.length === 1 ? "lead" : "leads"}</summary>
+                <div className="lead-record-grid operator-disclosure__body">
+                  {olderSignals.map((signal) => signalRow(signal, nowMs, feedbackLearningAvailable))}
+                </div>
+              </details>
+            ) : null}
+          </div>
+        </details>
+      </section>
+
+      <section className="workspace-panel operator-records" id="lanes" aria-label="Scanner context archive">
+        <details className="operator-section">
+          <summary className="operator-section__summary">
+            <span className="dispatch-kicker">Context lanes</span>
+            <h2 className="operator-section__title">Scanner context archive</h2>
+            <span
+              className={
+                publishableObservations === 0 ? "operator-section__count is-amber" : "operator-section__count"
+              }
+            >
+              {/* "newest": the read caps at 40, so on a busy patch this is a
+                  window, not the total — and all three figures count only what
+                  is inside it. Matches how the neighbouring record sections
+                  label their own capped reads. */}
+              {isCurrentPatchVerified(observationPatch) ? <><span>newest {observations.length} this patch</span>{" "}<span>· {publishableObservations} eligible under legacy rules</span></> : <span>Current patch unavailable</span>}
+              {reversibleObservations > 0 ? <> <span>· {reversibleObservations} undoable</span></> : null}
+            </span>
+          </summary>
+          <div className="operator-section__body">
+            {/* One statement of the rule for the whole section. Every card still
+                carries its own state chip; what it no longer carries is a repeat
+                of the same sentence ten times over. */}
+            <p className="section-heading__note">
+              These search records no longer supply homepage articles. Keep them for optional scanner diagnostics. Reject and teach changes future discovery; Undo restores the record and revokes the rule.
+            </p>
+            <div className="lead-record-grid">
+              {!isCurrentPatchVerified(observationPatch)
+                ? <p className="decision-empty">The current patch could not be verified. Observation records are unavailable.</p>
+                : observations.length > 0
+                ? observations.map((observation) =>
+                    observationRow(observation, observationModerationAvailable, observationPatch, nowMs),
+                  )
+                : <p className="decision-empty">No observations recorded for this patch yet.</p>}
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section className="workspace-panel feedback-ledger" id="lessons" aria-label="Active scanner feedback rules">
+        <div className="section-heading section-heading--compact">
+          <div><p className="dispatch-kicker">Active lessons</p><h2 className="section-heading__title">What the scanner will remember</h2></div>
+          <p className="section-heading__note">Visibility and learning stay separate. Hiding an issue never poisons discovery; only an explicit scanner decision creates a rule.</p>
+        </div>
+        {feedbackLearningAvailable ? (
+          <FeedbackRulesPanel rules={feedbackRules} nowIso={nowIso} />
+        ) : (
+          <p className="decision-empty">Scanner learning unlocks after the database schema update.</p>
+        )}
+      </section>
+    </div>
+  );
+}
