@@ -104,6 +104,11 @@ jobs:
       - name: Database tests
         run: npx supabase test db
 
+      # supabase test db runs only SQL files; this multi-session test proves
+      # that a paid reservation waits on the shared AI-accounting lock.
+      - name: Accounting lock test
+        run: node supabase/tests/ai_settings_concurrency.mjs
+
       - name: Stop the database
         if: always()
         run: npx supabase stop --no-backup
