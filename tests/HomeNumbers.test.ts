@@ -44,6 +44,7 @@ function radar(categories: PatchRadarData["categories"]): PatchRadarData {
       fresh_source: 0,
       fresh_language: 0,
       unknown_source_freshness: 0,
+      active_after_patch: 0,
       wrong_patch: 0,
       stale_source: 0,
     },

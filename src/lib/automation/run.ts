@@ -27,6 +27,7 @@ import { countIndependentDomains, domainTier, isOfficialDomain, isProviderContex
 import {
   evaluateCurrentPatchEligibility,
   extractSourcePatchVersions,
+  storedSourceActiveAt,
   storedSourceFreshnessInput,
   type CurrentPatchContext,
   type CurrentPatchEligibilityReason,
@@ -360,6 +361,8 @@ type SourceInput = {
   observedAt: string;
   sourceDomain: string | null;
   sourcePublishedAt?: string | null;
+  /** Latest activity the source shows (a forum thread's last reply), never a publication date. */
+  sourceActiveAt?: string | null;
   steam?: Omit<SteamReviewCandidate, "reviewText">;
   /**
    * Present on threads read directly from the Steam Community forum, including
@@ -531,7 +534,7 @@ function isBorderlineRescueCandidate(
   if (RESCUE_EXCLUDED_CONTENT.test(text)) return false;
   if (!RESCUE_CONTEXT.test(text)) return false;
   return evaluateCurrentPatchEligibility(
-    { title: signal.title, snippet: signal.body, sourcePublishedAt: assertedSourceDate },
+    { title: signal.title, snippet: signal.body, sourcePublishedAt: assertedSourceDate, sourceActiveAt: signal.sourceActiveAt ?? null },
     currentPatch,
   ).canStore;
 }
@@ -963,7 +966,8 @@ export function forumSourceTextHash(title: string, text: string): string {
  * steamcommunity.com, the same shape a search result for the thread would have,
  * so the pre-screen, extraction and promotion rules apply unchanged. Recent
  * activity decides intake; the opening post's time is the publication date that
- * patch freshness judges, so a new reply does not make an old thread current.
+ * patch freshness judges. A reply after the patch keeps an older thread as a
+ * stored lead (`active_after_patch`), but never makes it current evidence.
  * An opening time Steam shows but that cannot be read is passed through as is,
  * which the date gate rejects as invalid_source_date before any extraction call.
  * Author names are never read into the candidate.
@@ -1004,6 +1008,7 @@ async function collectSteamForumInputs(
         observedAt: now.toISOString(),
         sourceDomain: "steamcommunity.com",
         sourcePublishedAt: topic.postedAtStatus === "malformed" ? topic.postedText : topic.postedAt,
+        sourceActiveAt: topic.lastPostAt,
         forum: {
           forumTextHash,
           inputHash: forumTextHash,
@@ -1113,6 +1118,7 @@ export function mergeForumWithSearch(
       ...search,
       body,
       sourcePublishedAt: thread.forum?.postedAtStatus === "missing" ? search.sourcePublishedAt : thread.sourcePublishedAt,
+      sourceActiveAt: thread.sourceActiveAt ?? search.sourceActiveAt ?? null,
       ...(thread.forum
         ? { forum: { ...thread.forum, viaSearch: true, inputHash: forumSourceTextHash(search.title, body) } }
         : {}),
@@ -1441,6 +1447,7 @@ async function prepareSignals(
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
         sourcePublishedAt: dates.asserted,
+        sourceActiveAt: signal.sourceActiveAt ?? null,
       },
       { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
     ).keep;
@@ -1514,6 +1521,7 @@ async function prepareSignals(
                 url: canonicalUrl,
                 sourceDomain: signal.sourceDomain,
                 sourcePublishedAt: snippetDates.asserted,
+                sourceActiveAt: signal.sourceActiveAt ?? null,
               },
               { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
             );
@@ -1593,6 +1601,7 @@ async function prepareSignals(
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
         sourcePublishedAt: snippetDates.asserted,
+        sourceActiveAt: signal.sourceActiveAt ?? null,
       },
       { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
     );
@@ -1690,6 +1699,7 @@ async function prepareSignals(
               url: canonicalUrl,
               sourceDomain: signal.sourceDomain,
               sourcePublishedAt: effectiveDates.asserted,
+              sourceActiveAt: signal.sourceActiveAt ?? null,
             },
             { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
           );
@@ -2390,6 +2400,9 @@ async function upsertSignal(
             sourceUpdatedAt: signal.steam.sourceUpdatedAt,
           }
         : {}),
+      ...(storedSourceActiveAt({ sourceActiveAt: signal.sourceActiveAt })
+        ? { sourceActiveAt: signal.sourceActiveAt as string }
+        : {}),
     },
     category: signal.extraction.category,
     confidence: signal.extraction.confidence,
@@ -2415,9 +2428,16 @@ async function upsertSignal(
     // proof an earlier successful forum extraction left, so overlap with search
     // cannot erase it.
     const priorProof = forumProcessingProof((existing.extracted_facts as Record<string, unknown> | null | undefined)?.forumProcessed);
-    const facts = !("forumProcessed" in baseRow.extracted_facts) && priorProof
+    const withProof = !("forumProcessed" in baseRow.extracted_facts) && priorProof
       ? { ...baseRow.extracted_facts, forumProcessed: priorProof }
       : baseRow.extracted_facts;
+    // The same rule for activity: a sighting without the forum's last-reply time
+    // (or with an older one) keeps the latest activity already stored.
+    const priorActiveAt = storedSourceActiveAt(existing.extracted_facts);
+    const nextActiveAt = storedSourceActiveAt(withProof);
+    const facts = priorActiveAt && (!nextActiveAt || Date.parse(priorActiveAt) > Date.parse(nextActiveAt))
+      ? { ...withProof, sourceActiveAt: priorActiveAt }
+      : withProof;
     const { error } = await supabase
       .from("source_signals")
       .update({

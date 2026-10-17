@@ -10,6 +10,13 @@ export type SourceFreshnessInput = {
   summary?: string | null;
   snippet?: string | null;
   sourcePublishedAt?: string | null;
+  /**
+   * The latest activity the source itself shows, such as a forum thread's last
+   * reply. It never replaces the publication date: an older thread that is
+   * still active after the patch may be stored as a lead, never published on
+   * this alone.
+   */
+  sourceActiveAt?: string | null;
 };
 
 export type CurrentPatchEligibilityReason =
@@ -17,6 +24,7 @@ export type CurrentPatchEligibilityReason =
   | "fresh_source"
   | "fresh_language"
   | "unknown_source_freshness"
+  | "active_after_patch"
   | "wrong_patch"
   | "stale_source";
 
@@ -75,7 +83,19 @@ export function storedSourceFreshnessInput(row: {
   }
   // Legacy rows retain their existing read path until a normal re-observation
   // stores source proof. The original asserted date is never refreshed here.
-  return { title: row.title ?? null, summary, sourcePublishedAt: row.source_published_at ?? null };
+  return {
+    title: row.title ?? null,
+    summary,
+    sourcePublishedAt: row.source_published_at ?? null,
+    sourceActiveAt: storedSourceActiveAt(facts),
+  };
+}
+
+/** A stored last-activity time counts only when it is a readable timestamp. */
+export function storedSourceActiveAt(facts: unknown): string | null {
+  if (!facts || typeof facts !== "object" || !("sourceActiveAt" in facts)) return null;
+  const value = facts.sourceActiveAt;
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
 }
 
 export function mentionsOnlyOtherPatch(text: string, currentPatchVersion: string): boolean {
@@ -140,6 +160,13 @@ export function evaluateCurrentPatchEligibility(
       ? dateOnlyIsBefore(sourcePublishedDateOnly, patchPublishedAt)
       : sourcePublishedAt < patchPublishedAt)
   ) {
+    // A thread opened before the patch but still answered after it is a live
+    // discussion, not an archive page. It is kept as a lead; whether the
+    // problem persists on this patch is not known from activity alone.
+    const sourceActiveAt = parseTime(input.sourceActiveAt);
+    if (sourceActiveAt !== null && sourceActiveAt >= patchPublishedAt && sourceActiveAt >= sourcePublishedAt) {
+      return { canStore: true, canPublish: false, reason: "active_after_patch" };
+    }
     return { canStore: false, canPublish: false, reason: "stale_source" };
   }
 

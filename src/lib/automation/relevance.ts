@@ -27,6 +27,8 @@ export type CandidatePreScreenInput = {
   url?: string | null;
   sourceDomain: string | null;
   sourcePublishedAt?: string | null;
+  /** Latest activity the source shows; see `SourceFreshnessInput.sourceActiveAt`. */
+  sourceActiveAt?: string | null;
 };
 
 const SYMPTOM_PATTERNS = [
@@ -390,7 +392,12 @@ export function preScreenCandidate(
     return { keep: false, reason: "wrong_patch" };
   }
   const patchEligibility = evaluateCurrentPatchEligibility(
-    { title: input.title, snippet: input.snippet, sourcePublishedAt: input.sourcePublishedAt },
+    {
+      title: input.title,
+      snippet: input.snippet,
+      sourcePublishedAt: input.sourcePublishedAt,
+      sourceActiveAt: input.sourceActiveAt,
+    },
     { version: options.currentPatchVersion, publishedAt: options.currentPatchPublishedAt ?? null },
   );
   if (!patchEligibility.canStore) {

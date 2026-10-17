@@ -8677,7 +8677,7 @@ describe("Steam forum intake", () => {
 
   function forumTopic(overrides: Partial<{
     topicId: string; title: string; preview: string; postedAt: string | null;
-    postedAtStatus: "ok" | "missing" | "malformed"; postedText: string;
+    postedAtStatus: "ok" | "missing" | "malformed"; postedText: string; lastPostAt: string;
   }> = {}) {
     const topicId = overrides.topicId ?? "582810005140000001";
     return {
@@ -8688,7 +8688,7 @@ describe("Steam forum intake", () => {
       postedAt: overrides.postedAt === undefined ? "2026-07-05T10:00:00.000Z" : overrides.postedAt,
       postedAtStatus: overrides.postedAtStatus ?? "ok",
       postedText: overrides.postedText ?? "10:00am",
-      lastPostAt: "2026-07-05T11:30:00.000Z",
+      lastPostAt: overrides.lastPostAt ?? "2026-07-05T11:30:00.000Z",
       replyCount: 4,
       sticky: false,
     };
@@ -8758,6 +8758,67 @@ describe("Steam forum intake", () => {
     await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00Z") });
     expect(extractionsFor(canonical(topic))).toHaveLength(2);
     expect(stored?.extracted_facts).toMatchObject({ sourcePatchVersions: [] });
+  });
+
+  describe("threads opened before the patch", () => {
+    const olderThread = (lastPostAt: string) => forumTopic({
+      title: "Crimson Desert map crash on PS5",
+      preview: "Opening the map crashes the game to the home screen every time on PS5.",
+      postedAt: "2026-07-01T10:00:00.000Z",
+      postedText: "Jul 1 @ 10:00am",
+      lastPostAt,
+    });
+
+    it("keeps one with a reply after the patch as a private lead that cannot publish on activity alone", async () => {
+      const topic = olderThread("2026-07-05T11:30:00.000Z");
+      honorSourceSignalProjection = true;
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      mocks.tavilySearch.mockResolvedValue([]);
+      const { runAutomationMonitor, refreshClusterVisibility } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(result.skips).not.toContain("stale_source");
+      expect(extractionsFor(canonical(topic))).toHaveLength(1);
+      const stored = sourceSignalRows().find((row) => row.source_url === canonical(topic));
+      expect(stored).toMatchObject({
+        source_published_at: topic.postedAt,
+        public_status: "private",
+        promotion_reason: "below_threshold",
+      });
+      expect(stored?.extracted_facts).toMatchObject({ sourceActiveAt: topic.lastPostAt });
+
+      // A second domain with the same activity-only freshness still cannot
+      // publish it: the reply time says the thread is alive, not that the
+      // problem persists on this patch.
+      const otherUrl = "https://reddit.com/r/CrimsonDesert/comments/map_crash";
+      tables.source_signals.push({ ...stored!, id: "corroborating-source", source_url: otherUrl,
+        canonical_url: otherUrl, source_domain: "reddit.com", external_id_hash: "other-source" });
+      await refreshClusterVisibility(String(stored!.cluster_id), NOW);
+      expect(stored).toMatchObject({ public_status: "private", promotion_reason: "below_threshold" });
+    });
+
+    it("keeps the stored reply time when a search result re-observes the thread without it", async () => {
+      const topic = olderThread("2026-07-05T11:30:00.000Z");
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      mocks.tavilySearch.mockResolvedValue([]);
+      const { runAutomationMonitor } = await importRunner();
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+      const stored = sourceSignalRows().find((row) => row.source_url === canonical(topic));
+      expect(stored?.extracted_facts).toMatchObject({ sourceActiveAt: topic.lastPostAt });
+
+      mocks.fetchSteamForumTopics.mockResolvedValue([]);
+      mocks.tavilySearch.mockResolvedValue([{
+        title: `${topic.title} :: Crimson Desert General Discussions`, url: topic.url,
+        snippet: "Opening the map crashes the game every time on PS5. Verified files, still crashing.",
+        sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T13:00:00.000Z",
+      }]);
+      await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+      const reobserved = sourceSignalRows().find((row) => row.source_url === canonical(topic));
+      expect(reobserved?.seen_count).toBe(2);
+      expect(reobserved?.extracted_facts).toMatchObject({ sourceActiveAt: topic.lastPostAt });
+    });
   });
 
   it("reads recently active threads and alternates them with search results, search first", async () => {
@@ -9086,12 +9147,13 @@ describe("Steam forum intake", () => {
       expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({ url: canonical(topic), reason: "invalid_source_date" }));
     });
 
-    it("rejects a thread opened before the current patch as stale without an extraction call", async () => {
+    it("rejects a thread opened and last answered before the current patch as stale without an extraction call", async () => {
       const topic = forumTopic({
         title: "Game crashes when opening the map",
         preview: "The game crashes every time I open the map.",
         postedAt: "2026-06-01T10:00:00.000Z",
         postedText: "Jun 1 @ 10:00am",
+        lastPostAt: "2026-06-02T10:00:00.000Z",
       });
       mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
       const { runAutomationMonitor } = await importRunner();
