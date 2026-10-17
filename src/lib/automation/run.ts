@@ -50,7 +50,7 @@ import {
   type ObservationKind,
   type RelevanceSkipReason,
 } from "@/lib/automation/relevance";
-import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
+import { categoriesCompatible, routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { compareClusterRecency, createClusterRetriever } from "@/lib/automation/clusterRetrieval";
 import {
   buildWireNewsQuery,
@@ -2241,26 +2241,32 @@ function sureSemanticRoute(signal: PreparedSignal, routed: RoutableCluster | nul
 }
 
 /**
- * A signal extracted as "other" that a sure assignment places in a specific
- * cluster takes that cluster's category, so the record and its cluster agree.
+ * A sure assignment may cross categories when either side is "other" (see
+ * `categoriesCompatible`), in both directions. The signal then takes its
+ * cluster's category, so the record and its cluster agree.
  */
 function adoptedClusterCategory(
   signal: PreparedSignal,
   clusterId: string | null,
   routableClusters: RoutableCluster[],
 ): Category | null {
-  if (!clusterId || signal.extraction.category !== "other" || signal.extraction.clusterAssignment !== "sure") return null;
+  if (!clusterId || signal.extraction.clusterAssignment !== "sure") return null;
   const cluster = routableClusters.find((candidate) => candidate.id === clusterId && candidate.slug === signal.extraction.clusterSlug);
   const category = cluster ? String(cluster.category) : null;
-  return category && category !== "other" && (CATEGORIES as readonly string[]).includes(category) ? (category as Category) : null;
+  return category
+    && category !== signal.extraction.category
+    && categoriesCompatible(category, signal.extraction.category)
+    && (CATEGORIES as readonly string[]).includes(category)
+    ? (category as Category)
+    : null;
 }
 
 type AdoptedCategory = { clusterId: string; category: Category };
 
 /**
- * Within one scan, a later "other" signal with the same fingerprint reaches the
- * same cluster from the route cache without its own sure assignment, so it takes
- * the category the first one adopted. `adoptedBySemantic` records each adoption.
+ * Within one scan, a later signal with the same fingerprint reaches the same
+ * cluster from the route cache without its own sure assignment, so it takes the
+ * category the first one adopted. `adoptedBySemantic` records each adoption.
  */
 function withAdoptedCategory(
   signal: PreparedSignal,
@@ -2270,11 +2276,11 @@ function withAdoptedCategory(
 ): PreparedSignal {
   const earlier = adoptedBySemantic.get(signal.semantic);
   const category = adoptedClusterCategory(signal, clusterId, routableClusters)
-    ?? (signal.extraction.category === "other" && earlier && earlier.clusterId === clusterId ? earlier.category : null);
+    ?? (earlier && earlier.clusterId === clusterId ? earlier.category : null);
   if (!category || !clusterId) return signal;
   adoptedBySemantic.set(signal.semantic, { clusterId, category });
   // The stored fingerprint must match the stored category, so a later source
-  // with the same title and the specific category finds this record.
+  // with the same title and the cluster's category finds this record.
   return {
     ...signal,
     extraction: { ...signal.extraction, category },
