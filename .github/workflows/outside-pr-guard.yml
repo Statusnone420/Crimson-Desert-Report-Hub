@@ -1,0 +1,26 @@
+name: Outside PR guard
+
+# Pull requests from forks are reviewed but never merged directly. This
+# required check fails for them; an accepted change is applied on a branch in
+# this repository instead. The workflow runs from the base branch and reads
+# only the event payload, so a fork cannot change the check or run its code.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  outside-pr-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Allow only branches in this repository
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "::error::Pull requests from forks are not merged directly. The maintainer reviews the change and applies it on a branch in this repository, with credit."
+            exit 1
+          fi
+          echo "The pull request comes from a branch in this repository."
