@@ -11,6 +11,8 @@ export const SITE_DESCRIPTION =
 /** Share-card text for surfaces that show text without the image. */
 export const SITE_OG_DESCRIPTION =
   "Crimson Desert news, Charting the Unknown coverage, creator videos, and official updates from an unofficial fan newspaper.";
+/** The AGPL source offer: every public page links here from its footer. */
+export const SOURCE_URL = "https://github.com/Statusnone420/Crimson-Desert-Report-Hub";
 export const PEARL_ABYSS_SUPPORT_URL = "https://support.pearlabyss.com/";
 
 /**
