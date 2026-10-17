@@ -2257,7 +2257,14 @@ function adoptedClusterCategory(
 
 function withAdoptedCategory(signal: PreparedSignal, clusterId: string | null, routableClusters: RoutableCluster[]): PreparedSignal {
   const category = adoptedClusterCategory(signal, clusterId, routableClusters);
-  return category ? { ...signal, extraction: { ...signal.extraction, category } } : signal;
+  if (!category) return signal;
+  // The stored fingerprint must match the stored category, so a later source
+  // with the same title and the specific category finds this record.
+  return {
+    ...signal,
+    extraction: { ...signal.extraction, category },
+    semantic: semanticFingerprint(signal.extraction.issueTitle, category),
+  };
 }
 
 async function findAutoClusterBySlug(

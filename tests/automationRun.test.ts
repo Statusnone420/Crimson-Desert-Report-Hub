@@ -2853,7 +2853,12 @@ describe("runAutomationMonitor", () => {
 
       const [, options] = mocks.extractSignalWithOpenRouter.mock.calls[0] as unknown as [unknown, { clusterOptions: { slug: string }[] }];
       expect(options.clusterOptions.map((option) => option.slug)).toContain("auto-map-crash");
-      expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: "cluster-map-crash", category: "crash_startup" });
+      expect(sourceSignalRows()[0]).toMatchObject({
+        cluster_id: "cluster-map-crash",
+        category: "crash_startup",
+        // A later source with this title and the specific category must find the record.
+        semantic_fingerprint: semanticFingerprint("Map closes the game", "crash_startup"),
+      });
       expect(tables.issue_clusters).toHaveLength(1);
     });
   });
