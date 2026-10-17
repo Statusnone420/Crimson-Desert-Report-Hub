@@ -36,13 +36,19 @@ To use your own development database, copy `.env.local.example` to `.env.local`,
 
 ## Verification before a pull request
 
-Stage the changes you intend to send, then run the complete gate:
+GitHub runs the full gate on every pull request to `main`, on hosted Linux runners:
+
+- `verify`: lint, unit tests, type checks and the production build (`npm run verify:core`).
+- `browser`: the desktop, mobile and operator browser tests, the patch publication tests, the Twitch-history fixtures, the empty and unavailable states, and the Turnstile tests (`npm run verify:browser`).
+- `migrations`: every migration in `supabase/migrations/`, applied in order on a throwaway local database, then the database tests in `supabase/tests/`.
+
+Before you push, run the checks that cover your change, such as `npm test` or one Playwright spec. To run the whole gate on your own machine, stage your changes and run:
 
 ```bash
 npm run verify
 ```
 
-The gate first rejects unstaged tracked changes and non-ignored untracked files, so it cannot pass with a fix the commit would leave out. It copies the staged files to a clean temporary folder, installs dependencies with `npm ci`, and runs lint, unit tests, type checks, the production build, the desktop, mobile and operator browser tests, the patch publication tests, the Twitch-history fixtures, the empty and unavailable states, and the Turnstile tests. It stops on the first failure and rejects a pass if source files changed while it ran. A full pass writes the ignored file `output/verification/latest.json`.
+The local gate first rejects unstaged tracked changes and non-ignored untracked files, so it cannot pass with a fix the commit would leave out. It copies the staged files to a clean temporary folder, installs dependencies with `npm ci`, and runs lint, unit tests, type checks, the production build, the desktop, mobile and operator browser tests, the patch publication tests, the Twitch-history fixtures, the empty and unavailable states, and the Turnstile tests. It stops on the first failure and rejects a pass if source files changed while it ran. A full pass writes the ignored file `output/verification/latest.json`.
 
 Other useful commands:
 
@@ -50,7 +56,7 @@ Other useful commands:
 - `npm run test:e2e:ui` opens Playwright's test explorer on an isolated copy with invented data.
 - `npm test` runs the unit tests only.
 
-GitHub Actions calls the same script. Pull requests to `main` run the quick core checks (`npm run verify:core`) on Linux. The browser suite runs on GitHub only on request, through **Actions → CI → Run workflow** with **Also run the browser suite on GitHub** ticked.
+GitHub Actions calls the same script, so a local pass and a GitHub pass check the same things. The database tests run only on GitHub unless you start a local stack yourself.
 
 ## Pull requests from forks
 
@@ -58,7 +64,7 @@ Pull requests from forks are welcome for review and discussion, but they are not
 
 ## Database changes
 
-Write migrations as new files in `supabase/migrations/`. Test the ordered SQL on a local stack with `npm run db:start` and `npm run db:reset` (Docker Engine must be running). Never link the local stack to a hosted project, and never run `supabase db push`. Applying a migration to the hosted database is a maintainer release step.
+Write migrations as new files in `supabase/migrations/`. The `migrations` check applies the ordered SQL to a throwaway database on GitHub and runs the database tests. To test locally, use `npm run db:start` and `npm run db:reset` (Docker Engine must be running). Never link the local stack to a hosted project, and never run `supabase db push`. Applying a migration to the hosted database is a maintainer release step.
 
 ## Documentation changes
 

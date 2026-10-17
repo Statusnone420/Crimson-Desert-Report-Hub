@@ -29,10 +29,11 @@ Guidance for AI coding agents and the people who run them. Human contributors sh
 
 ## Database
 
-- Add migrations as new files in `supabase/migrations/`. Test them on a local stack with `npm run db:start` and `npm run db:reset`.
+- Add migrations as new files in `supabase/migrations/`. The GitHub `migrations` check applies every migration in order on a throwaway database and runs `supabase/tests/`. A local stack (`npm run db:start`, `npm run db:reset`) is optional.
 - Never link the local stack to a hosted project, and never run `supabase db push`.
 
 ## Verify
 
 - Add focused tests for behavior changes.
-- Stage the intended changes, then run `npm run verify`. It is the full local and CI gate; a partial run does not replace it. A source change after verification needs a fresh full pass.
+- GitHub runs the full gate on every pull request: `verify` (lint, unit tests, type check, build), `browser` (all browser suites) and `migrations` (migrations and database tests). Merge only when every required check passes on the final commit.
+- Before pushing, run the checks that cover your change. `npm run verify` runs the full gate locally when you need it; only one local run at a time, because its browser tests use fixed ports.

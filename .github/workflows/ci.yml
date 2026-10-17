@@ -1,17 +1,13 @@
 name: CI
 
-# The full gate, including browser tests, runs locally with `npm run verify`
-# before every push. GitHub runs the quick core checks on each PR. The browser
-# suite on GitHub is a manual run for PRs that never ran locally.
+# GitHub runs the full gate on every pull request to main: the core checks,
+# the browser suites, and every migration plus the database tests on a
+# throwaway local database. Branches from forks are not tested here; an
+# accepted outside change is applied on a branch in this repository first.
 on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      browser:
-        description: "Also run the browser suite on GitHub"
-        type: boolean
-        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,6 +20,7 @@ jobs:
   verify:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -40,10 +37,10 @@ jobs:
       - name: Shared core verification
         run: npm run verify:core
 
-  visual:
-    if: github.event_name == 'workflow_dispatch' && inputs.browser
-    runs-on: windows-latest
-    needs: verify
+  browser:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -56,6 +53,11 @@ jobs:
           node-version-file: .node-version
           cache: npm
           package-manager-cache: false
+
+      - name: Install Chromium system libraries
+        run: |
+          npm ci
+          npx playwright install-deps chromium
 
       - name: Shared browser verification
         run: npm run verify:browser
@@ -70,3 +72,38 @@ jobs:
             playwright-report
           if-no-files-found: ignore
           retention-days: 7
+
+  migrations:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The runner is disposable, so this local stack never touches a hosted
+      # project or anyone's saved data.
+      - name: Start a throwaway local database
+        run: npx supabase db start
+
+      - name: Apply every migration in order
+        run: npx supabase db reset
+
+      - name: Database tests
+        run: npx supabase test db
+
+      - name: Stop the database
+        if: always()
+        run: npx supabase stop --no-backup
