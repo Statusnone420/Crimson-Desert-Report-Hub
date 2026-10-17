@@ -119,10 +119,12 @@ describe("activity components", () => {
   it("shows the latest readings with honest fallbacks and only counts from the scanner", () => {
     const watch = summarizeBoardWatch([
       { category: "crash_startup", cluster_id: "a" }, { category: "crash_startup", cluster_id: "a" },
-      { category: "quest_progression", cluster_id: "b" }, { category: "made_up", cluster_id: null },
+      { category: "quest_progression", cluster_id: "b" }, { category: "made_up", cluster_id: "c" },
+      // Kept without a topic, such as a junk title: not a watched thread.
+      { category: "audio", cluster_id: null }, { category: "audio" },
     ], "2.03.02");
     expect(watch).toEqual({
-      patchVersion: "2.03.02", threads: 4, topics: 2,
+      patchVersion: "2.03.02", threads: 4, topics: 3,
       systems: [{ category: "crash_startup", threads: 2 }, { category: "other", threads: 1 }, { category: "quest_progression", threads: 1 }],
     });
     const html = renderToStaticMarkup(createElement(BeforeYouPlay, {
@@ -133,7 +135,7 @@ describe("activity components", () => {
     expect(html).toContain("Playing on Steam");
     expect(html).toContain("Steam mood, last 7 days");
     expect(html).toContain("24 days ago · 3 listed fixes");
-    expect(html).toContain("2 topics");
+    expect(html).toContain("3 topics");
     expect(html).toContain("These are leads, not confirmed reports.");
     const unavailable = renderToStaticMarkup(createElement(BeforeYouPlay, {
       history: history({ players: "unavailable", twitch: "ready", reviews: "unavailable" }),

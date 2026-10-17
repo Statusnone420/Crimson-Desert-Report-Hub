@@ -22,6 +22,8 @@ export async function readBoardWatchSummary(
       .select("id, category, cluster_id")
       .eq("source_domain", "steamcommunity.com")
       .neq("public_status", "hidden")
+      // A row kept without a cluster (a junk title, say) is not a watched topic.
+      .not("cluster_id", "is", null)
       .gte("first_seen_at", currentPatch.publishedAt)
       .order("id")
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
