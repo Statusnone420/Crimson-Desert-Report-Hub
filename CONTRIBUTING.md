@@ -54,7 +54,7 @@ GitHub Actions calls the same script. Pull requests to `main` run the quick core
 
 ## Pull requests from forks
 
-Pull requests from forks are welcome for review and discussion, but they are not merged directly. A required check blocks the merge, and tests and preview builds run only if the maintainer approves them. When a change is accepted, the maintainer checks it locally, applies it on a branch in this repository, credits you in that pull request, and closes yours.
+Pull requests from forks are welcome for review and discussion, but they are not merged directly. A required check blocks the merge, the repository's tests do not run on fork branches, and preview builds need the maintainer's approval. When a change is accepted, the maintainer checks it locally and applies it on a branch in this repository, where the tests run, then credits you in that pull request and closes yours.
 
 ## Database changes
 
