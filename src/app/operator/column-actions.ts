@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/adminGuard";
-import { ColumnNotSetUpError, mergeColumnSettings } from "@/lib/editorials/settings.server";
+import { ColumnNotSetUpError, mergeColumnSettings, readColumnSettings } from "@/lib/editorials/settings.server";
+import { burstFromForm, cadenceFromForm } from "@/lib/editorials/settingsForm";
+import { MAX_BURSTS } from "@/lib/editorials/settings";
 import { assertProductionWriteAllowed } from "@/lib/previewGuard";
 import { revalidateEditorials } from "@/lib/revalidate";
 import { createServiceClient } from "@/lib/supabase";
@@ -61,4 +63,42 @@ export async function approveEdition(formData: FormData) {
   if (data !== "approved") backToColumn("not_pending");
   revalidateEditorials();
   backToColumn("approved");
+}
+
+/** The cadence dials and the provider switch. Only these keys are written. */
+export async function saveColumnCadence(formData: FormData) {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const parsed = cadenceFromForm(formData);
+  if (!parsed.ok) backToColumn(parsed.error);
+  await mergeColumnSettings(createServiceClient(), parsed.value);
+  backToColumn("settings_saved");
+}
+
+/** Adds a burst, or replaces the one with the same id. */
+export async function saveColumnBurst(formData: FormData) {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const parsed = burstFromForm(formData);
+  if (!parsed.ok) backToColumn(parsed.error);
+  const client = createServiceClient();
+  const { settings } = await readColumnSettings(client);
+  const exists = settings.bursts.some((burst) => burst.id === parsed.value.id);
+  if (!exists && settings.bursts.length >= MAX_BURSTS) backToColumn("invalid_value");
+  const bursts = exists
+    ? settings.bursts.map((burst) => (burst.id === parsed.value.id ? parsed.value : burst))
+    : [...settings.bursts, parsed.value];
+  await mergeColumnSettings(client, { bursts });
+  backToColumn("burst_saved");
+}
+
+export async function deleteColumnBurst(formData: FormData) {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const id = formData.get("id");
+  const client = createServiceClient();
+  const { settings } = await readColumnSettings(client);
+  if (typeof id !== "string" || !settings.bursts.some((burst) => burst.id === id)) backToColumn("burst_missing");
+  await mergeColumnSettings(client, { bursts: settings.bursts.filter((burst) => burst.id !== id) });
+  backToColumn("burst_deleted");
 }

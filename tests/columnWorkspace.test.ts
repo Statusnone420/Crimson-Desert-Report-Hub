@@ -2,7 +2,10 @@ import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/app/operator/column-actions", () => ({ approveEdition: vi.fn(), setColumnPaused: vi.fn(), vetoEdition: vi.fn() }));
+vi.mock("@/app/operator/column-actions", () => ({
+  approveEdition: vi.fn(), setColumnPaused: vi.fn(), vetoEdition: vi.fn(),
+  saveColumnCadence: vi.fn(), saveColumnBurst: vi.fn(), deleteColumnBurst: vi.fn(),
+}));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: ComponentProps<"a">) => createElement("a", { ...props, href }, children) }));
 
 import { ColumnWorkspace } from "@/components/operator/ColumnWorkspace";
@@ -19,8 +22,8 @@ function row(overrides: Partial<AdminEditionRow>): AdminEditionRow {
   };
 }
 
-function render(dashboard: ColumnDashboard | null, writesDisabled = false) {
-  return renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard, draft: null, notice: null, now: NOW, writesDisabled }));
+function render(dashboard: ColumnDashboard | null, writesDisabled = false, keys = { anthropic: true, openrouter: false }) {
+  return renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard, draft: null, notice: null, now: NOW, writesDisabled, keys }));
 }
 
 const ready = (overrides: Partial<Extract<ColumnDashboard, { state: "ready" }>> = {}): ColumnDashboard => ({

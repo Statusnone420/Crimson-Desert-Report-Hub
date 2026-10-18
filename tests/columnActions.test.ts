@@ -18,7 +18,7 @@ vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 vi.mock("@/lib/previewGuard", () => ({ assertProductionWriteAllowed: () => { if (mocks.preview()) throw new Error("preview writes disabled"); } }));
 
-import { approveEdition, setColumnPaused, vetoEdition } from "@/app/operator/column-actions";
+import { approveEdition, deleteColumnBurst, saveColumnBurst, saveColumnCadence, setColumnPaused, vetoEdition } from "@/app/operator/column-actions";
 
 const ID = "e0000000-0000-4000-8000-000000000001";
 
@@ -50,6 +50,9 @@ describe("Column card actions", () => {
     await expect(setColumnPaused(form({ paused: "true" }))).rejects.toThrow(AUTH_SENTINEL);
     await expect(vetoEdition(form({ id: ID }))).rejects.toThrow(AUTH_SENTINEL);
     await expect(approveEdition(form({ id: ID }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(saveColumnCadence(form({ mode: "weekly", days: "mon", hourUtc: "14", holdHours: "24", relevance: "normal", minGapHours: "20", provider: "anthropic" }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(saveColumnBurst(form({ label: "Launch", model: "claude-opus-5-5", startDate: "2026-10-29", endDate: "2026-11-04", hourUtc: "14", holdHours: "8" }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(deleteColumnBurst(form({ id: "expansion-launch" }))).rejects.toThrow(AUTH_SENTINEL);
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
@@ -100,5 +103,31 @@ describe("Column card actions", () => {
   it("refuse a malformed edition id before any database call", async () => {
     await expect(vetoEdition(form({ id: "not-a-uuid" }))).rejects.toThrow("could not be found");
     expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("saves only the cadence keys, and refuses mismatched days without writing", async () => {
+    mocks.rpc.mockResolvedValue({ data: {}, error: null });
+    const cadence = { mode: "weekly", days: "fri", hourUtc: "9", holdHours: "12", relevance: "strict", minGapHours: "30", defaultWriterModel: "claude-sonnet-5-5", nextEditionModel: "", monthlyCapUsd: "20", provider: "anthropic" };
+    await expect(saveColumnCadence(form(cadence))).rejects.toThrow("notice=settings_saved");
+    expect(mocks.rpc).toHaveBeenCalledWith("editorial_settings_merge", { p_patch: {
+      mode: "weekly", days: ["fri"], hourUtc: 9, holdHours: 12, relevance: "strict", minGapHours: 30, provider: "anthropic",
+      defaultWriterModel: "claude-sonnet-5-5", nextEditionModel: null, monthlyCapUsd: 20,
+    } });
+    mocks.rpc.mockClear();
+    const twoDays = new FormData();
+    for (const [key, value] of Object.entries({ ...cadence, mode: "2x" })) twoDays.set(key, value);
+    await expect(saveColumnCadence(twoDays)).rejects.toThrow("notice=days_mismatch");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("replaces an existing burst by id and deletes one by id", async () => {
+    const stored = [{ id: "expansion-launch", label: "Expansion launch", enabled: false, startDate: "2026-10-29", endDate: "2026-11-04", cadence: "daily", hourUtc: 14, model: "claude-opus-5-5", holdHours: 8, relevance: "always" }];
+    mocks.from.mockReturnValue({ select: () => ({ eq: () => ({ limit: async () => ({ data: [{ value: { bursts: stored }, updated_at: null }], error: null }) }) }) });
+    mocks.rpc.mockResolvedValue({ data: {}, error: null });
+    await expect(saveColumnBurst(form({ id: "expansion-launch", label: "Expansion launch", model: "claude-fable-5-1", startDate: "2026-10-29", endDate: "2026-11-04", hourUtc: "15", holdHours: "6", enabled: "on" }))).rejects.toThrow("notice=burst_saved");
+    expect(mocks.rpc).toHaveBeenLastCalledWith("editorial_settings_merge", { p_patch: { bursts: [expect.objectContaining({ id: "expansion-launch", model: "claude-fable-5-1", hourUtc: 15, enabled: true })] } });
+    await expect(deleteColumnBurst(form({ id: "expansion-launch" }))).rejects.toThrow("notice=burst_deleted");
+    expect(mocks.rpc).toHaveBeenLastCalledWith("editorial_settings_merge", { p_patch: { bursts: [] } });
+    await expect(deleteColumnBurst(form({ id: "gone" }))).rejects.toThrow("notice=burst_missing");
   });
 });

@@ -347,3 +347,13 @@ html[data-theme="dark"] .operator-workspace .theme-icon img { filter: invert(1);
   .operator-workspace .problem-inbox-report summary::after { grid-column:3; grid-row:1 / 3; }
   .operator-workspace .problem-inbox-detail button { width:100%; }
 }
+
+/* Column card: cadence dials and bursts. */
+.operator-workspace .column-cadence-grid, .operator-workspace .column-burst-fields { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.operator-workspace .column-days { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.operator-workspace .column-days legend { width: 100%; margin-bottom: 6px; }
+.operator-workspace .column-days label, .operator-workspace .column-checkbox { display: inline-flex; gap: 6px; align-items: center; font-weight: 500; min-height: 24px; }
+.operator-workspace .column-bursts h3 { margin-bottom: 6px; }
+.operator-workspace .column-burst-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 10px; }
+.operator-workspace .column-bursts summary { cursor: pointer; min-height: 24px; font-size: 13px; }
+.operator-workspace .column-bursts details form { margin-top: 12px; }
