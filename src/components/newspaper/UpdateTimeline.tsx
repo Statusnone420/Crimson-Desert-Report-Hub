@@ -207,6 +207,10 @@ export function UpdateTimeline({ history, patches, patchesUnavailable = false }:
   const marking = patchesUnavailable
     ? "Updates are not marked, because the official patch record could not be read."
     : "Labeled lines mark official updates; short ticks mark hotfixes.";
+  const measures = lanes(history);
+  // A lane that could not be read leaves its columns out, so a failed read never shows as blank days.
+  const unread = new Set(measures.filter((lane) => lane.state === "unavailable").map((lane) => lane.id));
+  const unreadNote = unread.size ? ` ${measures.filter((lane) => unread.has(lane.id)).map((lane) => lane.unavailableText).join(" ")} Their columns are left out.` : "";
 
   return (
     <figure className="dd-figure dd-timeline" aria-labelledby="timeline-title">
@@ -217,7 +221,7 @@ export function UpdateTimeline({ history, patches, patchesUnavailable = false }:
       <MeasureTabs
         id="timeline"
         label="Measure"
-        tabs={lanes(history).map((lane) => ({
+        tabs={measures.map((lane) => ({
           id: lane.id,
           label: lane.label,
           content: <LaneChart lane={lane} history={history} patches={patches} patchesUnavailable={patchesUnavailable} releases={releases} />,
@@ -227,22 +231,23 @@ export function UpdateTimeline({ history, patches, patchesUnavailable = false }:
         <summary>Read the daily numbers</summary>
         <div className="dd-table-scroll">
           <table>
-            <caption>Daily records, UTC. A blank cell means no record, or no release that day. A day&apos;s change needs the day before, and the 7-day share needs 5 full days.</caption>
+            <caption>Daily records, UTC. A blank cell means no record, or no release that day. A day&apos;s change needs the day before, and the 7-day share needs 5 full days.{unreadNote}</caption>
             <thead>
-              <tr><th scope="col">Day</th>{patchesUnavailable ? null : <th scope="col">Release</th>}<th scope="col">New reviews</th><th scope="col">Positive, last 7 days</th><th scope="col">Twitch avg</th><th scope="col">Twitch peak</th><th scope="col">Players min</th><th scope="col">Players avg</th><th scope="col">Players max</th></tr>
+              <tr>
+                <th scope="col">Day</th>{patchesUnavailable ? null : <th scope="col">Release</th>}
+                {unread.has("reviews") ? null : <><th scope="col">New reviews</th><th scope="col">Positive, last 7 days</th></>}
+                {unread.has("twitch") ? null : <><th scope="col">Twitch avg</th><th scope="col">Twitch peak</th></>}
+                {unread.has("players") ? null : <><th scope="col">Players min</th><th scope="col">Players avg</th><th scope="col">Players max</th></>}
+              </tr>
             </thead>
             <tbody>
               {days.map((day, index) => ({ day, index })).reverse().map(({ day, index }) => (
                 <tr key={day.day}>
                   <th scope="row">{day.day === today ? `${dayLabel(day.day)} (today so far)` : dayLabel(day.day)}</th>
                   {patchesUnavailable ? null : <td>{releasesOn(day.day)}</td>}
-                  <td>{day.newReviews === null ? "" : number(day.newReviews)}</td>
-                  <td>{rolling[index] == null ? "" : `${rolling[index]!.toFixed(1)}%`}</td>
-                  <td>{day.twitchAvg === null ? "" : number(day.twitchAvg)}</td>
-                  <td>{day.twitchPeak === null ? "" : number(day.twitchPeak)}</td>
-                  <td>{day.playersMin === null ? "" : number(day.playersMin)}</td>
-                  <td>{day.playersAvg === null ? "" : number(day.playersAvg)}</td>
-                  <td>{day.playersMax === null ? "" : number(day.playersMax)}</td>
+                  {unread.has("reviews") ? null : <><td>{day.newReviews === null ? "" : number(day.newReviews)}</td><td>{rolling[index] == null ? "" : `${rolling[index]!.toFixed(1)}%`}</td></>}
+                  {unread.has("twitch") ? null : <><td>{day.twitchAvg === null ? "" : number(day.twitchAvg)}</td><td>{day.twitchPeak === null ? "" : number(day.twitchPeak)}</td></>}
+                  {unread.has("players") ? null : <><td>{day.playersMin === null ? "" : number(day.playersMin)}</td><td>{day.playersAvg === null ? "" : number(day.playersAvg)}</td><td>{day.playersMax === null ? "" : number(day.playersMax)}</td></>}
                 </tr>
               ))}
             </tbody>

@@ -148,6 +148,24 @@ describe("activity components", () => {
     expect(html).toContain("Twitch viewer counts could not be read.");
   });
 
+  it("leaves a lane that could not be read out of the daily table and says so", () => {
+    const caption = (html: string) => html.match(/<caption>([\s\S]*?)<\/caption>/)?.[1] ?? "";
+    const failed = renderToStaticMarkup(createElement(UpdateTimeline, { history: history({ players: "ready", twitch: "unavailable", reviews: "ready" }), patches: [] }));
+    expect(failed).not.toContain('<th scope="col">Twitch avg</th>');
+    expect(failed).not.toContain('<th scope="col">Twitch peak</th>');
+    expect(failed).toContain('<th scope="col">New reviews</th>');
+    expect(failed).toContain('<th scope="col">Players avg</th>');
+    expect(caption(failed)).toContain("Twitch viewer counts could not be read. Their columns are left out.");
+    // Every row keeps one cell per remaining column.
+    const header = failed.match(/<thead>[\s\S]*?<\/thead>/)![0].match(/<th /g)!.length;
+    for (const row of failed.match(/<tbody>[\s\S]*?<\/tbody>/)![0].match(/<tr>[\s\S]*?<\/tr>/g)!) {
+      expect(row.match(/<t[hd][ >]/g)!.length).toBe(header);
+    }
+    const read = renderToStaticMarkup(createElement(UpdateTimeline, { history: history(), patches: [] }));
+    expect(read).toContain('<th scope="col">Twitch avg</th>');
+    expect(caption(read)).not.toContain("could not be read");
+  });
+
   it("does not read an unread patch record as a quiet one", () => {
     const quiet = renderToStaticMarkup(createElement(UpdateTimeline, { history: history(), patches: [] }));
     expect(quiet).toContain("No official release since then.");
