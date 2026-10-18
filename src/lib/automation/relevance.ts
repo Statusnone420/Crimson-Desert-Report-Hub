@@ -1,7 +1,7 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
 import { domainTier, isOfficialDomain } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
-import { isMostlyNonEnglish } from "@/lib/language";
+import { isMostlyNonEnglish, LATIN_SCRIPT_SYMPTOM_TERMS } from "@/lib/language";
 
 export type RelevanceSkipReason =
   | "category_other"
@@ -111,8 +111,10 @@ const SYMPTOM_PATTERNS = [
  * common crash, freeze, stutter, bug, error and won't-start words in Chinese,
  * Japanese, Korean, German, French, Spanish, Portuguese and Russian. CJK has no
  * word spacing, so those terms match as substrings; the rest need letter
- * boundaries, and `\p{L}*` marks a stem that takes any ending. Save-loss words
- * stay out: "Save game Gelöscht" is usually a support question, not a bug.
+ * boundaries, and `\p{L}*` marks a stem that takes any ending. The Latin-script
+ * words live in @/lib/language, which also uses them to tell a short report in
+ * another language from English. Save-loss words stay out: "Save game
+ * Gelöscht" is usually a support question, not a bug.
  */
 function multilingualSymptomPatterns(): RegExp[] {
   const cjk = [
@@ -125,33 +127,15 @@ function multilingualSymptomPatterns(): RegExp[] {
     "튕김", "튕겨", "튕기", "크래시", "버그", "멈춤", "멈춰", "프리징", "끊김", "진행 불가", "진행불가", "오류", "에러", "실행이 안", "검은 화면",
   ];
   const lettered = [
-    // German
-    // Separable verbs split around other words: "Das Spiel stürzt ständig ab".
-    "absturz\\p{L}*", "abstürz\\p{L}*", "st(?:ü|ue)rzt(?:\\s+\\p{L}+){0,4}\\s+ab", "friert(?:\\s+\\p{L}+){0,4}\\s+ein", "eingefroren",
-    "ruckel\\p{L}*", "ruckler", "startet nicht", "funktioniert nicht", "schwarzer bildschirm", "verbuggt", "kaputt",
-    "h(?:ä|ae)ngt sich(?:\\s+\\p{L}+){0,3}\\s+auf",
-    // French
-    "plantage\\p{L}*", "(?:jeu|il|ça|ca)\\s+plante", "écran noir", "ecran noir", "ne se lance pas", "ne démarre pas", "ne fonctionne pas",
-    // Past participles only: "bloquer" is the combat verb "to block".
-    "bugu[ée]\\p{L}*", "saccade\\p{L}*", "bloqu(?:é|ée|és|ées)",
-    // Spanish
-    "se cierra", "crashea\\p{L}*", "se congela\\p{L}*", "pantalla negra", "no funciona", "no inicia", "no arranca", "tirones",
-    "buguead\\p{L}*", "bugead\\p{L}*", "se traba\\p{L}*",
-    // Portuguese
-    "(?:jogo|game)\\s+trava\\p{L}*", "travamento\\p{L}*", "crashand\\p{L}*", "fecha sozinho", "tela preta", "não funciona", "nao funciona",
-    "não abre", "nao abre", "bugad\\p{L}*", "bugou",
+    // German, French, Spanish, Portuguese, Turkish, Polish and Italian.
+    ...LATIN_SCRIPT_SYMPTOM_TERMS,
+    // German slang that English speakers use too, so it stays out of the shared
+    // list, which also marks a text as another language.
+    "kaputt",
     // Russian. Closed endings where a bare stem is an everyday word: "зависит"
     // means "depends", "лагерь" is a camp, "багаж" is luggage.
     "вылет\\p{L}*", "краш\\p{L}*", "завис(?:ла|ло|ли|ает|ают|ание|ания)?", "фриз\\p{L}*", "лаг(?:и|ов|ает|ают|ал|ала|ало|ует|ать)?",
     "баг(?:и|ов|а|ом|ами|нут\\p{L}*|ован\\p{L}*)?", "не запускается", "ч[её]рный экран", "ошибк\\p{L}*", "не работает",
-    // Turkish
-    "çök(?:üyor|tü|me|üyo)\\p{L}*", "donuyor", "dondu", "takılıyor", "kasıyor", "kasma\\p{L}*", "açılmıyor", "çalışmıyor",
-    "siyah ekran", "masaüstüne atıyor",
-    // Polish
-    "crashuje", "wywala\\p{L}*", "zawiesza się", "zacina się", "przycina", "błąd", "błędy", "błędów", "nie działa",
-    "nie uruchamia się", "czarny ekran", "zbugowan\\p{L}*",
-    // Italian
-    "crasha\\p{L}*", "si blocca", "si chiude", "scatti", "errore", "buggat\\p{L}*", "non funziona", "non si avvia", "schermo nero",
   ];
   return [
     new RegExp(cjk.join("|"), "u"),

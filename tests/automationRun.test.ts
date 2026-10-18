@@ -697,6 +697,7 @@ function configureProviders() {
       platform: isCrash ? "ps5" : "pc_steam",
       confidence: canUseOpenRouter ? "high" : "medium",
       summary: isCrash ? "Map crash on PS5." : "Players report FPS drops on Steam.",
+      ...(canUseOpenRouter ? { isReport: true } : {}),
       clusterAssignment: "unsure",
       clusterReason: "The default test extractor does not make a semantic assignment.",
       clusterSlug: null,
@@ -1620,6 +1621,7 @@ describe("runAutomationMonitor", () => {
         platform: "pc_steam",
         confidence: "high",
         summary: isChinese ? (ai ? "Players report the game crashes when opening a menu." : candidate.snippet) : candidate.snippet,
+        ...(ai ? { isReport: true } : {}),
         clusterSlug: null,
         extractionProvider: ai ? "openrouter" : "deterministic",
         extractionModel: ai ? "deepseek/deepseek-v4.1-flash" : null,
@@ -1650,6 +1652,52 @@ describe("runAutomationMonitor", () => {
     for (const row of tables.source_signals) {
       expect(`${row.title} ${row.summary}`).not.toMatch(/[一-鿿]/);
     }
+  });
+
+  it("keeps a post only a language review let in when the AI says it reports a problem, and never praise", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${910000 + id}/`;
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    // Neither post has a symptom word, so each one needs a language review.
+    mocks.tavilySearch.mockResolvedValue([
+      { title: "Excellent jeu, très beau", url: thread(1), snippet: "Le monde est magnifique et les combats sont superbes.", ...dated },
+      { title: "背包里的物品消失了", url: thread(2), snippet: "背包里的物品消失了，找不回来", ...dated },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
+      const praise = candidate.title.startsWith("Excellent");
+      return {
+        issueTitle: praise ? "Players praise the graphics" : "Items vanish from the backpack",
+        // A category alone proves nothing: the praise still gets one.
+        category: praise ? "graphics_visual" : "controls_gameplay",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: praise ? "The player says the game is excellent and very beautiful." : "Items disappear from the backpack for good.",
+        isReport: !praise,
+        clusterAssignment: "unsure",
+        clusterReason: "Test extractor.",
+        clusterSlug: null,
+        extractionProvider: "openrouter",
+        extractionModel: "deepseek/deepseek-v4.1-flash",
+        llmCallsUsed: 1,
+        llmCostUsd: 0.0004,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const count = (skip: string) => result.skips.filter((value) => value === skip).length;
+    expect(count("language_review")).toBe(2);
+    expect(count("non_english_ai")).toBe(2);
+    expect(count("non_english_kept")).toBe(1);
+    const stored = (id: number) => tables.source_signals.find((row) => row.canonical_url === thread(id).replace(/\/$/, ""));
+    expect(stored(1)).toBeUndefined();
+    expect(stored(2)).toMatchObject({ title: "Items vanish from the backpack" });
+    expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({
+      url: thread(1).replace(/\/$/, ""), reason: "source_not_issue_report",
+    }));
   });
 
   it.each([

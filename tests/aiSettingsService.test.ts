@@ -92,14 +92,14 @@ describe("paid AI setup test boundary", () => {
     const setup = { modelId: "deepseek/deepseek-v4.1-flash", endpointTag: "morph/fp8", reasoning: "high" as const, retention: "zdr" as const, maxOutputTokens: 3200 };
     const fetcher = network({ ...setup, promptPrice: "0.000000026", completionPrice: "0.000000377" });
     const inspected = await inspectAiProfile(db.client, setup, fetcher);
-    expect(inspected.testCeilingUsd).toBe(0.006376554);
+    expect(inspected.testCeilingUsd).toBe(0.006391607);
     const result = await runAiTest(db.client, id, setup, inspected.quote!, fetcher);
-    expect(result.reservedUsd).toBe(0.006376554);
-    expect(db.rpc).toHaveBeenNthCalledWith(1, "ai_test_reserve", { p_id: id, p_usd: 0.006376554 });
+    expect(result.reservedUsd).toBe(0.006391607);
+    expect(db.rpc).toHaveBeenNthCalledWith(1, "ai_test_reserve", { p_id: id, p_usd: 0.006391607 });
     const indices = fetcher.mock.calls.flatMap(([url], i) => String(url).endsWith("/chat/completions") ? [i] : []);
     expect(indices).toHaveLength(6);
     for (const i of indices) expect(fetcher.mock.invocationCallOrder[i]).toBeGreaterThan(db.rpc.mock.invocationCallOrder[0]);
-    expect(result.cases.map((item) => item.attempt?.reservedUsd)).toEqual([0.001294826, 0.001295399, 0.001295633, 0.000830518, 0.000830154, 0.000830024]);
+    expect(result.cases.map((item) => item.attempt?.reservedUsd)).toEqual([0.001299844, 0.001300417, 0.00130065, 0.000830518, 0.000830154, 0.000830024]);
   });
 
   it("does not let a previously reviewed bundled quote authorize a six-request batch", async () => {

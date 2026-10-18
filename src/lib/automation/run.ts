@@ -2053,15 +2053,19 @@ async function prepareSignals(
     }
     if (storage.nonEnglish) result.skips.push("non_english_ai");
     // A post in another language is judged on what the AI wrote too: the
-    // source's own words may be ones the lists cannot read.
-    const relevance = operatorAllowed
+    // source's own words may be ones the lists cannot read. A post that only a
+    // language review let in matched no symptom word at all, so it is kept only
+    // when the AI itself says it reports a problem: praise must not become a lead.
+    const relevance: SignalRelevanceDecision = operatorAllowed
       ? { keep: true as const }
-      : shouldKeepExtractedSignal(
-          extraction,
-          storage.nonEnglish
-            ? `${signal.title} ${signal.body} ${extraction.issueTitle} ${extraction.summary}`
-            : `${signal.title} ${signal.body}`,
-        );
+      : languageReview && extraction.isReport !== true
+        ? { keep: false as const, reason: "source_not_issue_report" as const }
+        : shouldKeepExtractedSignal(
+            extraction,
+            storage.nonEnglish
+              ? `${signal.title} ${signal.body} ${extraction.issueTitle} ${extraction.summary}`
+              : `${signal.title} ${signal.body}`,
+          );
     if (storage.nonEnglish && relevance.keep) result.skips.push("non_english_kept");
     if (!relevance.keep) {
       result.skips.push(relevance.reason);

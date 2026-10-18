@@ -21,6 +21,12 @@ describe("telling English from the game's other big review languages", () => {
     ["Turkish, short", "Oyun çöküyor"],
     ["Spanish, short", "El mapa no carga"],
     ["French, in capitals", "LE JEU PLANTE"],
+    // Only a problem word marks these: no function word, no accent.
+    ["Spanish, problem words only", "Pantalla negra"],
+    ["Portuguese, problem words only", "Tela preta"],
+    ["French, problem words only", "Plantage constant"],
+    ["Polish, problem words only", "Czarny ekran"],
+    ["Italian, problem words only", "Errore"],
   ])("%s is not English", (_language, text) => {
     expect(isMostlyNonEnglish(text)).toBe(true);
   });
@@ -144,5 +150,6 @@ describe("storing only English", () => {
     expect(englishStorage({ title: "Spiel stürzt ab" }, "", { ...ai, extractionProvider: "deterministic" })).toEqual({ nonEnglish: true, store: false });
     expect(englishStorage({ title: "打开地图就闪退" }, "", { ...ai, extractionProvider: "deterministic" })).toEqual({ nonEnglish: true, store: false });
     expect(englishStorage({ title: "打开地图就闪退" }, "", { ...ai, summary: "打开地图就闪退" })).toEqual({ nonEnglish: true, store: false });
+    expect(englishStorage({ title: "Pantalla negra" }, "", { ...ai, extractionProvider: "deterministic" })).toEqual({ nonEnglish: true, store: false });
   });
 });

@@ -20,6 +20,39 @@ const ENGLISH_FUNCTION_WORDS = new Set([
 const FOREIGN_LATIN_LETTERS = /[äöüßçşğıłśżźęąńõãñáéíóúàèìòùâêîôûœæø]/iu;
 
 /**
+ * Problem words in the same languages, as regular expression sources: `\p{L}*`
+ * marks a stem that takes any ending. The scanner's symptom check reads them
+ * as reports. None of them occurs in English, so they also mark a short report
+ * as another language ("Pantalla negra", "Czarny ekran", "Errore").
+ */
+export const LATIN_SCRIPT_SYMPTOM_TERMS: readonly string[] = [
+  // German
+  // Separable verbs split around other words: "Das Spiel stürzt ständig ab".
+  "absturz\\p{L}*", "abstürz\\p{L}*", "st(?:ü|ue)rzt(?:\\s+\\p{L}+){0,4}\\s+ab", "friert(?:\\s+\\p{L}+){0,4}\\s+ein", "eingefroren",
+  "ruckel\\p{L}*", "ruckler", "startet nicht", "funktioniert nicht", "schwarzer bildschirm", "verbuggt",
+  "h(?:ä|ae)ngt sich(?:\\s+\\p{L}+){0,3}\\s+auf",
+  // French
+  "plantage\\p{L}*", "(?:jeu|il|ça|ca)\\s+plante", "écran noir", "ecran noir", "ne se lance pas", "ne démarre pas", "ne fonctionne pas",
+  // Past participles only: "bloquer" is the combat verb "to block".
+  "bugu[ée]\\p{L}*", "saccade\\p{L}*", "bloqu(?:é|ée|és|ées)",
+  // Spanish
+  "se cierra", "crashea\\p{L}*", "se congela\\p{L}*", "pantalla negra", "no funciona", "no inicia", "no arranca", "tirones",
+  "buguead\\p{L}*", "bugead\\p{L}*", "se traba\\p{L}*",
+  // Portuguese
+  "(?:jogo|game)\\s+trava\\p{L}*", "travamento\\p{L}*", "crashand\\p{L}*", "fecha sozinho", "tela preta", "não funciona", "nao funciona",
+  "não abre", "nao abre", "bugad\\p{L}*", "bugou",
+  // Turkish
+  "çök(?:üyor|tü|me|üyo)\\p{L}*", "donuyor", "dondu", "takılıyor", "kasıyor", "kasma\\p{L}*", "açılmıyor", "çalışmıyor",
+  "siyah ekran", "masaüstüne atıyor",
+  // Polish
+  "crashuje", "wywala\\p{L}*", "zawiesza się", "zacina się", "przycina", "błąd", "błędy", "błędów", "nie działa",
+  "nie uruchamia się", "czarny ekran", "zbugowan\\p{L}*",
+  // Italian
+  "crasha\\p{L}*", "si blocca", "si chiude", "scatti", "errore", "buggat\\p{L}*", "non funziona", "non si avvia", "schermo nero",
+];
+const FOREIGN_SYMPTOM = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${LATIN_SCRIPT_SYMPTOM_TERMS.join("|")})(?![\p{L}\p{N}])`, "iu");
+
+/**
  * True when text is mostly in another language: a third or more of its letters
  * are outside the Latin script (Chinese, Korean, Russian, Japanese, Thai...),
  * or its Latin words are more often another language's function words than
@@ -48,9 +81,10 @@ export function isMostlyNonEnglish(text: string | null | undefined): boolean {
   }
   if (foreign >= 2 && foreign > english) return true;
   // A short report carries one marker at most ("Spiel stürzt ab", "Gra wywala",
-  // "Oyun çöküyor"): a foreign function word, or letters English does not use,
-  // with no English function word beside it.
-  return words.length <= 8 && english === 0 && (foreign >= 1 || FOREIGN_LATIN_LETTERS.test(raw));
+  // "Oyun çöküyor", "Pantalla negra"): a foreign function word, letters English
+  // does not use, or a problem word in another language, with no English
+  // function word beside it.
+  return words.length <= 8 && english === 0 && (foreign >= 1 || FOREIGN_LATIN_LETTERS.test(raw) || FOREIGN_SYMPTOM.test(raw));
 }
 
 /** Shown in place of a title or snippet in another language. */

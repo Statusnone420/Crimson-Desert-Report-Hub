@@ -174,6 +174,26 @@ describe("automation extraction", () => {
     expect(() => parseOpenRouterExtraction(JSON.stringify({ category: "made_up" }))).toThrow(/category/);
   });
 
+  it("reads the model's isReport answer, and refuses one that is not true or false", () => {
+    const reply = (isReport?: unknown) => JSON.stringify({
+      issueTitle: "Players praise the graphics",
+      category: "graphics_visual",
+      platform: null,
+      confidence: "high",
+      summary: "The player says the game looks excellent.",
+      ...(isReport === undefined ? {} : { isReport }),
+      clusterAssignment: "unsure",
+      clusterReason: "No known cluster is a sure match.",
+      clusterSlug: null,
+    });
+    expect(parseOpenRouterExtraction(reply(false)).isReport).toBe(false);
+    expect(parseOpenRouterExtraction(reply(true)).isReport).toBe(true);
+    // A reply without it parses, and counts as unconfirmed where it matters.
+    expect(parseOpenRouterExtraction(reply())).not.toHaveProperty("isReport");
+    expect(() => parseOpenRouterExtraction(reply("no"))).toThrow(/isReport/);
+    expect(deterministicExtract(crashCandidate)).not.toHaveProperty("isReport");
+  });
+
   it("keeps a sure same-category clusterSlug from the bounded option set", () => {
     const parsed =
       parseOpenRouterExtraction(
@@ -459,6 +479,7 @@ describe("automation extraction", () => {
               "platform",
               "confidence",
               "summary",
+              "isReport",
               "clusterAssignment",
               "clusterReason",
               "clusterSlug",
@@ -473,6 +494,7 @@ describe("automation extraction", () => {
     expect(request.messages[0].content).toMatch(/untrusted data/i);
     expect(request.messages[0].content).toMatch(/ignore .*instructions/i);
     expect(request.messages[1].content).toContain("clusterSlug");
+    expect(request.messages[1].content).toMatch(/isReport to false when the source does not describe a problem/);
   });
 
   it("contains source and cluster prompt injection as bounded untrusted JSON data", async () => {
