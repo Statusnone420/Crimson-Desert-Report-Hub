@@ -1,6 +1,7 @@
 <div align="center">
 
-<a href="https://crimsonreporthub.com" title="Open the live site"><img alt="Crimson Desert Report Hub: a newspaper front page with a black and crimson masthead, the Pywel coastline and the headline &quot;The stories behind the updates.&quot;" src="src/app/opengraph-image.png" width="860"></a>
+<a href="https://crimsonreporthub.com" title="Open the live site"><img alt="Live preview of the Crimson Desert Report Hub front page" src="https://api.microlink.io/?url=https%3A%2F%2Fcrimsonreporthub.com&screenshot=true&meta=false&embed=screenshot.url" width="820"></a>
+<br><sub>Today's front page, captured live</sub>
 
 # Crimson Desert Report Hub
 
@@ -45,11 +46,6 @@ Crimson Desert Report Hub is a newspaper for one game. It puts the developer's o
 | **[Watch](https://crimsonreporthub.com/watch)** | Official video and selected creator coverage, linked to the original channels. |
 | **Feeds** | Original articles and patch rundowns through [Atom](https://crimsonreporthub.com/feed.xml) or [RSS](https://crimsonreporthub.com/rss.xml). |
 
-<div align="center">
-<a href="https://crimsonreporthub.com" title="Open the live site"><img alt="Live preview of the Crimson Desert Report Hub front page" src="https://api.microlink.io/?url=https%3A%2F%2Fcrimsonreporthub.com&screenshot=true&meta=false&embed=screenshot.url" width="820"></a>
-<br><sub>Today's front page, captured live</sub>
-</div>
-
 ## Built for honest answers
 
 - **Separate registers.** Official claims, player check-ins, source-radar links and editorial coverage each keep their own label. A link is a lead, not evidence; a developer's fix claim is not proof that a problem is gone.
@@ -62,7 +58,7 @@ Read the [privacy model](docs/PRIVACY.md) and the [architecture](docs/ARCHITECTU
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     cron["Cloudflare Worker<br/>hourly wake-up"] --> app["Next.js on Vercel<br/>budget-capped scanner"]
     web["Public web, Steam,<br/>Twitch, IGDB"] -. bounded reads .-> app
     app --> db[("Supabase<br/>private records")]
