@@ -97,7 +97,7 @@ import {
   type SteamReviewBatch,
   type SteamReviewCandidate,
 } from "@/lib/automation/steam";
-import { fetchSteamForumTopics, fetchSteamThreadLatestReply, isSteamForumThreadUrl } from "@/lib/automation/steamForum";
+import { fetchSteamForumTopics, fetchSteamThreadLatestReply, steamForumTopicId } from "@/lib/automation/steamForum";
 import { createServiceClient } from "@/lib/supabase";
 import { persistRunProgress, progressCheckpointEvidence } from "@/lib/automation/runProgress.server";
 import { appendOpenRouterDiagnostics, type OpenRouterDiagnostic } from "@/lib/automation/openRouterDiagnostics";
@@ -483,7 +483,9 @@ export async function withSteamThreadReplies(
     onCheck?: (found: boolean) => void;
   },
 ): Promise<SourceInput[]> {
-  const checked = new Set<string>();
+  // Keyed by topic id: a thread's base URL and its `?ctp=N` comment pages are
+  // one thread, read once, and every copy gets the reply that read found.
+  const latestByTopic = new Map<string, string | null>();
   const out: SourceInput[] = [];
   for (const signal of candidates) {
     let canonicalUrl: string | null = null;
@@ -492,21 +494,21 @@ export async function withSteamThreadReplies(
     } catch {
       // The main loop reports an invalid URL.
     }
-    if (
-      !canonicalUrl ||
-      signal.source !== "web_search" ||
-      signal.sourceActiveAt ||
-      checked.size >= maxChecks ||
-      checked.has(canonicalUrl) ||
-      !isSteamForumThreadUrl(canonicalUrl) ||
-      !looksStale(signal, canonicalUrl)
-    ) {
+    const topic = canonicalUrl ? steamForumTopicId(canonicalUrl) : null;
+    if (!canonicalUrl || !topic || signal.source !== "web_search" || signal.sourceActiveAt || !looksStale(signal, canonicalUrl)) {
       out.push(signal);
       continue;
     }
-    checked.add(canonicalUrl);
-    const latest = await readLatestReply(canonicalUrl).catch(() => null);
-    onCheck?.(latest !== null);
+    if (!latestByTopic.has(topic)) {
+      if (latestByTopic.size >= maxChecks) {
+        out.push(signal);
+        continue;
+      }
+      const read = await readLatestReply(canonicalUrl).catch(() => null);
+      latestByTopic.set(topic, read);
+      onCheck?.(read !== null);
+    }
+    const latest = latestByTopic.get(topic) ?? null;
     out.push(latest ? { ...signal, sourceActiveAt: latest } : signal);
   }
   return out;

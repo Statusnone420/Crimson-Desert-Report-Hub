@@ -124,9 +124,20 @@ describe("checking stale-looking Steam threads before screening", () => {
     const onCheck = vi.fn();
     const out = await withSteamThreadReplies([...threads, threads[0]], { looksStale: () => true, readLatestReply, maxChecks: 3, onCheck });
     expect(readLatestReply).toHaveBeenCalledTimes(3);
+    // The repeated first thread reuses its earlier read instead of spending a check.
     expect(out.map((item) => item.sourceActiveAt ?? null)).toEqual([
-      "2026-10-17T15:21:00.000Z", null, "2026-10-17T15:21:00.000Z", null, null,
+      "2026-10-17T15:21:00.000Z", null, "2026-10-17T15:21:00.000Z", null, "2026-10-17T15:21:00.000Z",
     ]);
     expect(onCheck.mock.calls).toEqual([[true], [false], [true]]);
+  });
+
+  it("treats a thread's comment pages as the same thread", async () => {
+    const readLatestReply = vi.fn(async () => "2026-10-17T15:21:00.000Z");
+    const out = await withSteamThreadReplies(
+      [candidate(), candidate({ url: `${THREAD}/?ctp=2` }), candidate({ url: `${THREAD.slice(0, -3)}999` })],
+      { looksStale: () => true, readLatestReply, maxChecks: 2 },
+    );
+    expect(readLatestReply).toHaveBeenCalledTimes(2);
+    expect(out.every((item) => item.sourceActiveAt === "2026-10-17T15:21:00.000Z")).toBe(true);
   });
 });
