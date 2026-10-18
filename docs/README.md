@@ -8,6 +8,7 @@ The [README](../README.md) is the front door. These pages hold the detail.
 | --- | --- |
 | [Architecture](ARCHITECTURE.md) | Public routes, the separate evidence registers, the data boundary, and the automation flow. |
 | [Privacy](PRIVACY.md) | What is collected, what is public, how network hashes and rate limits work, and which third parties are involved. |
+| [House style](STYLE.md) | How public text should read, the interface and accessibility rules, and the pre-publish checklist. |
 | [Contributing](../CONTRIBUTING.md) | Local setup, the full verification gate, database changes, and community links. |
 | [Security policy](../SECURITY.md) | Private vulnerability reports, secret handling, and the security model. |
 | [License](../LICENSE) and [NOTICE](../NOTICE) | GNU AGPL v3.0 terms, the attribution requirement, and what the license does not cover. |
