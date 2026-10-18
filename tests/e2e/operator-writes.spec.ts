@@ -64,8 +64,11 @@ test.describe("operator write paths", () => {
     await expect(page.locator('[name="modelPreset"], [name="monthlyLlmUsdCap"], [name="cadence"]')).toHaveCount(0);
     await page.getByRole("link", { name: "Open AI Settings", exact: true }).click();
     await expect(page.getByRole("heading", { name: "AI settings", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Spending & recovery", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Scanner schedule and searches", exact: true })).toBeVisible();
+    // The link loads a new page, and a click that lands before its scripts hydrate it is dropped.
+    await expect(async () => {
+      await page.getByRole("button", { name: "Spending & recovery", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Scanner schedule and searches", exact: true })).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
     await expect(page.getByText("This preview does not read or change them.", { exact: false })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "How often", exact: true })).toBeDisabled();
     await expect(page.getByRole("spinbutton", { name: "Monthly search cap", exact: true })).toBeDisabled();
