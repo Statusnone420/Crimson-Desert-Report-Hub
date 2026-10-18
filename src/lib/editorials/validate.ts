@@ -13,10 +13,10 @@ export const MAX_FACTS_BOX_ITEMS = 6;
 const MAX_FACT_CHARACTERS = 400;
 const REQUIRED_SECTIONS = ["the forecast", "the patch desk"];
 
-/** One numbered unit the checker judges: the title, the dek, a body sentence or a facts-box item. */
+/** One numbered unit the checker judges: the title, the dek, a subhead, a body sentence or a facts-box item. */
 export type SentenceRef = {
   id: string;
-  kind: "title" | "dek" | "body" | "fact";
+  kind: "title" | "dek" | "subhead" | "body" | "fact";
   section?: number;
   paragraph?: number;
   text: string;
@@ -35,11 +35,14 @@ export function numberSentences(output: WriterOutput): SentenceRef[] {
     { id: "d", kind: "dek", text: output.dek, writerIds: [] },
   ];
   let body = 0;
-  output.sections.forEach((section, sectionIndex) => section.paragraphs.forEach((paragraph, paragraphIndex) => {
-    for (const sentence of splitSentences(paragraph.text)) {
-      refs.push({ id: `b${++body}`, kind: "body", section: sectionIndex, paragraph: paragraphIndex, text: sentence, writerIds: paragraph.sourceIds });
-    }
-  }));
+  output.sections.forEach((section, sectionIndex) => {
+    refs.push({ id: `h${sectionIndex + 1}`, kind: "subhead", section: sectionIndex, text: section.subhead, writerIds: [] });
+    section.paragraphs.forEach((paragraph, paragraphIndex) => {
+      for (const sentence of splitSentences(paragraph.text)) {
+        refs.push({ id: `b${++body}`, kind: "body", section: sectionIndex, paragraph: paragraphIndex, text: sentence, writerIds: paragraph.sourceIds });
+      }
+    });
+  });
   output.factsBox.forEach((item, index) => refs.push({ id: `x${index + 1}`, kind: "fact", text: item.text.trim(), writerIds: item.sourceIds }));
   return refs;
 }
@@ -160,9 +163,23 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
   const title = output.title.trim();
   if (title.length > MAX_TITLE_CHARACTERS) return fail("check_failed");
 
+  // A subhead can't be deleted on its own: a rejected one takes its section with it.
+  for (const ref of refs.filter((item) => item.kind === "subhead")) {
+    const verdict = verdicts.get(ref.id);
+    const why = [
+      ...(!verdict ? ["not_checked"] : []),
+      ...(verdict && !verdict.supported ? ["unsupported"] : []),
+      ...(verdict?.quotesPlayer ? ["player_quote"] : []),
+      ...(verdict?.bannedWords.length ? ["banned_word"] : []),
+      ...(verdict?.slopRules.length ? ["checklist"] : []),
+      ...hardSlop(ref.text),
+    ];
+    if (why.length) deleted.set(ref.id, why);
+  }
+
   const sections: EditionSection[] = [];
   output.sections.forEach((section, sectionIndex) => {
-    if (hardSlop(section.subhead).length) return;
+    if (deleted.has(`h${sectionIndex + 1}`)) return;
     const paragraphs = section.paragraphs
       .map((_, paragraphIndex) => kept().filter((ref) => ref.kind === "body" && ref.section === sectionIndex && ref.paragraph === paragraphIndex).map((ref) => ref.text).join(" "))
       .filter(Boolean);

@@ -6,7 +6,7 @@ vi.mock("@/lib/editorials/store.server", () => ({ readPreviewEditions: mocks.rea
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({}), hasSupabaseServiceConfig: mocks.configured }));
 
 import { GET } from "@/app/editorials/preview.xml/route";
-import { previewTitle } from "@/lib/editorials/previewFeed";
+import { previewTitle, previewUpdatedAt } from "@/lib/editorials/previewFeed";
 import { NOW } from "./editorialFixtures";
 
 const TOKEN = "preview-token-for-tests-only";
@@ -77,6 +77,13 @@ describe("the private preview feed", () => {
     const xml = await (await GET(request(TOKEN))).text();
     expect(xml).toContain("<updated>2026-10-27T09:00:00Z</updated>");
     expect(xml).not.toContain("<updated>2026-10-26T14:00:00Z</updated>");
+  });
+
+  it("moves an entry's date to the end of its hold, when it went public without a write", () => {
+    const held = row({ publish_at: "2026-10-26T13:00:00Z", updated_at: "2026-10-25T13:00:00Z" });
+    expect(previewUpdatedAt(held, NOW)).toBe("2026-10-26T13:00:00Z");
+    expect(previewUpdatedAt({ ...held, publish_at: "2026-10-27T13:00:00Z" }, NOW)).toBe("2026-10-25T13:00:00Z");
+    expect(previewUpdatedAt({ ...held, status: "vetoed", vetoed_at: "2026-10-25T14:00:00Z" }, NOW)).toBe("2026-10-25T13:00:00Z");
   });
 
   it("reports an unavailable database as 503, not an empty feed", async () => {

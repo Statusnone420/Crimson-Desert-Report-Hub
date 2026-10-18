@@ -125,7 +125,8 @@ function windows(history: ActivityHistory) {
 }
 
 function playersAverage(days: ActivityDay[]): number | null {
-  return days.length >= 5 ? average(days.flatMap((day) => (day.playersAvg === null ? [] : [day.playersAvg]))) : null;
+  const values = days.flatMap((day) => (day.playersAvg === null ? [] : [day.playersAvg]));
+  return values.length >= 5 ? average(values) : null;
 }
 
 function twitchAverage(days: ActivityDay[]): number | null {
