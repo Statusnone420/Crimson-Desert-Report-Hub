@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { isMouseHover, pressToSelect } from "./pointerIntent";
 
 export type ScrubItem = { x: number; title: string; detail: string };
 
@@ -9,7 +10,8 @@ const TAP_SLOP = 10;
 
 /**
  * Adds a cursor, a readout and a keyboard slider to a server-drawn chart.
- * A mouse selects the nearest day as it moves. A touch selects on a tap or a
+ * A mouse selects the nearest day on a click, or while dragging with the button
+ * held; passing over the chart changes nothing. A touch selects on a tap or a
  * sideways drag, so scrolling past the chart never changes the day. The slider
  * announces each day through its value text; the readout repeats it on screen
  * only, so nothing is read twice. Previous and Next give touch a 44px target;
@@ -52,11 +54,14 @@ export function DayScrubber({
           className="dd-hit"
           aria-hidden="true"
           onPointerDown={(event) => {
-            if (event.pointerType === "mouse") pick(event);
+            if (event.pointerType === "mouse") pressToSelect(event, pick);
             else touch.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, dragging: false };
           }}
           onPointerMove={(event) => {
-            if (event.pointerType === "mouse") return pick(event);
+            if (event.pointerType === "mouse") {
+              if (!isMouseHover(event)) pick(event);
+              return;
+            }
             const start = touch.current;
             if (!start || start.pointer !== event.pointerId) return;
             const across = Math.abs(event.clientX - start.x);

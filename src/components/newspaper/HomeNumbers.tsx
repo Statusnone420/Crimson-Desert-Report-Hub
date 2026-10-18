@@ -78,7 +78,7 @@ export function HomeNumbers({ steam, radar, steamUnavailable }: { steam: SteamPu
                 <div><strong>{latest.positivePercentage.toFixed(1)}%</strong><span>Positive share</span></div>
               </div>
               <div id="home-review-readout" className="chart-readout" aria-live="polite">
-                {activePoint ? <><span>{day(activePoint.snapshotDay)}</span><strong>{(activePoint.reviewCountDelta ?? 0) > 0 ? "+" : ""}{number(activePoint.reviewCountDelta ?? 0)} reviews</strong></> : <span>Focus, hover, or tap a day to read its change.</span>}
+                {activePoint ? <><span>{day(activePoint.snapshotDay)}</span><strong>{(activePoint.reviewCountDelta ?? 0) > 0 ? "+" : ""}{number(activePoint.reviewCountDelta ?? 0)} reviews</strong></> : <span>Click, tap, or focus a day to read its change.</span>}
               </div>
               <div className="plot">
                 <div className="y-axis">{[1, 0.75, 0.5, 0.25, 0].map((value) => <span key={value}>{Math.ceil(value * max)}</span>)}</div>
@@ -91,8 +91,6 @@ export function HomeNumbers({ steam, radar, steamUnavailable }: { steam: SteamPu
                         key={reviewPoint.snapshotDay}
                         aria-label={`${day(reviewPoint.snapshotDay)}: ${value > 0 ? "+" : ""}${value} net reviews`}
                         aria-describedby="home-review-readout"
-                        onMouseEnter={() => setActive(index)}
-                        onMouseLeave={(event) => { if (event.currentTarget !== document.activeElement) setActive(null); }}
                         onFocus={() => setActive(index)}
                         onBlur={() => setActive(null)}
                         onClick={() => setActive(index)}

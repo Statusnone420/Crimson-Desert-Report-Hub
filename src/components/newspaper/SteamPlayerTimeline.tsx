@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isMouseHover, pressToSelect } from "./pointerIntent";
 import { ReadingLink } from "./ReadingLink";
 import { gapAtTime } from "@/lib/captureGaps";
 import { steamPlayerWindow, type SteamPlayerHistory, type SteamPlayerPoint } from "@/lib/steamPlayerHistory";
@@ -45,7 +46,7 @@ export function SteamPlayerTimeline({ history }: { history: SteamPlayerHistory }
           <div className="obs-player-figure">
             <div className="obs-y-axis" aria-hidden="true">{[4, 3, 2, 1, 0].map((tick) => <span key={tick} style={{ top: (1 - tick / 4) * 100 + "%" }}>{number(Math.round(ceiling * tick / 4))}</span>)}</div>
             <div className="obs-player-plot">
-              <svg className="obs-player-chart" viewBox="0 0 1000 200" preserveAspectRatio="none" role="img" aria-label={`Steam player history. ${window.points.length} captures in the selected ${hours === 24 ? "24-hour" : "seven-day"} window.${window.gaps.length ? ` ${window.gaps.length} ${window.gaps.length === 1 ? "gap" : "gaps"} of more than three hours with no capture.` : ""}`} onPointerMove={selectAtPointer} onClick={selectAtPointer} onPointerLeave={() => setGapAt(null)}>
+              <svg className="obs-player-chart" viewBox="0 0 1000 200" preserveAspectRatio="none" role="img" aria-label={`Steam player history. ${window.points.length} captures in the selected ${hours === 24 ? "24-hour" : "seven-day"} window.${window.gaps.length ? ` ${window.gaps.length} ${window.gaps.length === 1 ? "gap" : "gaps"} of more than three hours with no capture.` : ""}`} onPointerDown={(event) => pressToSelect(event, selectAtPointer)} onPointerMove={(event) => { if (!isMouseHover(event)) selectAtPointer(event); }} onClick={selectAtPointer} onPointerLeave={(event) => { if (event.pointerType !== "mouse") setGapAt(null); }}>
                 {[0, 50, 100, 150, 200].map((tick) => <line key={tick} className="obs-timeline-grid" x1="0" x2="1000" y1={tick} y2={tick} />)}
                 {gap ? <rect className="obs-timeline-gap-band" x={x(gap.from)} width={x(gap.to) - x(gap.from)} y="0" height="200" /> : null}
                 {window.segments.map((segment) => <polyline key={segment[0].capturedAt} className="obs-timeline-line" points={segment.map((point) => `${x(point)},${y(point)}`).join(" ")} />)}

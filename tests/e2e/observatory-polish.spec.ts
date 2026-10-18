@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { waitForHydration } from "./helpers";
 
-test("scrolling under a stationary pointer preserves the selected review reading", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "mobile-chromium", "Hover is a desktop interaction.");
+test("passing the mouse over the review bars leaves the reading alone until a click", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile-chromium", "The mouse is a desktop interaction.");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/observatory");
   await waitForHydration(page);
@@ -19,7 +19,12 @@ test("scrolling under a stationary pointer preserves the selected review reading
   await expect(firstBar).toBeInViewport();
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect(selectedDate).toHaveText(latest);
+  // Moving across a bar changes nothing; only a click selects it.
   await page.mouse.move(centerX + 1, centerY);
+  await page.mouse.move(centerX + 3, centerY);
+  await expect(firstBar).toHaveAttribute("aria-pressed", "false");
+  await expect(selectedDate).toHaveText(latest);
+  await page.mouse.click(centerX + 3, centerY);
   await expect(firstBar).toHaveAttribute("aria-pressed", "true");
 });
 
@@ -69,8 +74,8 @@ test("recorded Twitch history stays usable with an explicit capture timestamp", 
   await activity.screenshot({ path: testInfo.outputPath("twitch-history.png") });
 });
 
-test("a Twitch collection gap reports itself on hover and leaves its end captures selectable", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "mobile-chromium", "Hover is a desktop interaction.");
+test("a Twitch collection gap reports itself on a click and leaves its end captures selectable", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile-chromium", "The mouse is a desktop interaction.");
   await page.goto("/observatory#platform-activity");
   await waitForHydration(page);
   const activity = page.locator("#platform-activity");
@@ -83,17 +88,23 @@ test("a Twitch collection gap reports itself on hover and leaves its end capture
   const box = (await gap.boundingBox())!;
   const y = box.y + box.height / 2;
 
+  // Passing over the gap changes nothing; a click reads it.
+  const before = await readout.innerText();
   await page.mouse.move(box.x + box.width / 2, y);
+  await expect(readout).toHaveText(before, { useInnerText: true });
+  await expect(gap).not.toHaveClass(/is-active/);
+  await page.mouse.click(box.x + box.width / 2, y);
   await expect(readout).toContainText(/No capture\s+between .+ and .+ UTC/);
   await expect(gap).toHaveClass(/is-active/);
   for (const endX of [box.x + 1, box.x + box.width - 1]) {
-    await page.mouse.move(endX, y);
+    await page.mouse.click(endX, y);
     await expect(readout).not.toContainText("No capture");
     await expect(readout).toContainText(/viewers/);
   }
-  await page.mouse.move(box.x + box.width / 2, y);
+  // A reading the reader chose stays when the mouse leaves the chart.
+  await page.mouse.click(box.x + box.width / 2, y);
   await page.mouse.move(0, 0);
-  await expect(readout).not.toContainText("No capture");
+  await expect(readout).toContainText(/No capture\s+between .+ and .+ UTC/);
 });
 
 test("review movement offers full-size reading controls without reducing the data", async ({ page }) => {
@@ -246,7 +257,7 @@ test("chart captions stay above their charts and the section bar stays short on 
   await expect(current).toBeInViewport();
 });
 
-test("the day-by-day chart shows one measure at a time and keeps each one's day", async ({ page }) => {
+test("the day-by-day chart shows one measure at a time and keeps each one's day", async ({ page }, testInfo) => {
   await page.goto("/observatory#updates");
   await waitForHydration(page);
   const measures = page.getByRole("group", { name: "Measure" });
@@ -266,6 +277,21 @@ test("the day-by-day chart shows one measure at a time and keeps each one's day"
   await expect(twitch.locator(".dd-measure-title")).toContainText("Watching on Twitch");
   await measures.getByRole("button", { name: "New reviews a day", exact: true }).click();
   await expect(reviews.locator(".dd-readout")).toHaveText(first, { useInnerText: true });
+  if (testInfo.project.name !== "mobile-chromium") {
+    // The mouse moves the day only while its button is held; passing over the chart changes nothing.
+    await reviews.locator(".dd-hit").scrollIntoViewIfNeeded();
+    const area = (await reviews.locator(".dd-hit").boundingBox())!;
+    const midY = area.y + area.height / 2;
+    await page.mouse.move(area.x + area.width * 0.8, midY, { steps: 4 });
+    await expect(reviews.locator(".dd-readout")).toHaveText(first, { useInnerText: true });
+    await page.mouse.down();
+    await page.mouse.move(area.x + area.width * 0.6, midY, { steps: 4 });
+    await page.mouse.up();
+    const dragged = await reviews.locator(".dd-readout").innerText();
+    expect(dragged).not.toBe(first);
+    await page.mouse.move(area.x + area.width * 0.2, midY, { steps: 4 });
+    await expect(reviews.locator(".dd-readout")).toHaveText(dragged, { useInnerText: true });
+  }
   // Touch-sized steppers beside the slider, and today's partial day named as such.
   const next = reviews.getByRole("button", { name: "Next day" });
   await next.click();

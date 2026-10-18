@@ -5,6 +5,7 @@ import { SteamPlayerTimeline } from "./SteamPlayerTimeline";
 import { gapAtTime } from "@/lib/captureGaps";
 import type { SteamPlayerHistory } from "@/lib/steamPlayerHistory";
 import { useState, type CSSProperties } from "react";
+import { isMouseHover, pressToSelect } from "./pointerIntent";
 import type { PublicScannerData } from "@/lib/queries";
 import type { PatchRadarData } from "@/lib/radar.server";
 import {
@@ -120,12 +121,6 @@ function SteamMovementChart({
                   className={"obs-review-hit" + (selectedPoint ? " is-selected" : "")}
                   aria-label={displayDate(point.snapshotDay) + ": " + (delta === null ? "no prior recorded baseline" : signed(delta) + " reviews since the previous recorded snapshot")}
                   aria-pressed={selectedPoint}
-                  onPointerMove={(event) => {
-                    // A fragment jump can move a bar under a stationary cursor.
-                    if (event.pointerType === "mouse" && (event.movementX !== 0 || event.movementY !== 0) && window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
-                      setSelectedDay(point.snapshotDay);
-                    }
-                  }}
                   onFocus={() => setSelectedDay(point.snapshotDay)}
                   onClick={() => setSelectedDay(point.snapshotDay)}
                 >
@@ -327,7 +322,7 @@ function TwitchTimeline({ data }: { data: PublicScannerData }) {
       <div className={"obs-twitch-readout" + (gap ? " is-gap" : "")} aria-live="polite">{gap
         ? <><strong>No capture</strong> <span>between {captureLabel(gap.from.capturedAt)} and {captureLabel(gap.to.capturedAt)} UTC</span></>
         : <><strong>{number(selected[metric])} {metric}</strong><span>{captureLabel(selected.capturedAt)} UTC</span></>}</div>
-      <svg className="obs-twitch-chart" viewBox="0 0 710 265" role="img" aria-label={(hours === 24 ? "24-hour" : "Seven-day") + " Twitch " + metric + " history. " + points.length + " recorded captures from " + captureSpan + ", observed low " + low + ", observed peak " + peak + "." + (window.gaps.length ? " " + window.gaps.length + (window.gaps.length === 1 ? " gap" : " gaps") + " of more than three hours with no capture." : "")} onPointerMove={selectAtPointer} onClick={selectAtPointer} onPointerLeave={() => setGapAt(null)}>
+      <svg className="obs-twitch-chart" viewBox="0 0 710 265" role="img" aria-label={(hours === 24 ? "24-hour" : "Seven-day") + " Twitch " + metric + " history. " + points.length + " recorded captures from " + captureSpan + ", observed low " + low + ", observed peak " + peak + "." + (window.gaps.length ? " " + window.gaps.length + (window.gaps.length === 1 ? " gap" : " gaps") + " of more than three hours with no capture." : "")} onPointerDown={(event) => pressToSelect(event, selectAtPointer)} onPointerMove={(event) => { if (!isMouseHover(event)) selectAtPointer(event); }} onClick={selectAtPointer} onPointerLeave={(event) => { if (event.pointerType !== "mouse") setGapAt(null); }}>
         {[0, 1, 2, 3, 4].map((tick) => <g key={tick}><line className="obs-timeline-grid" x1="45" x2="685" y1={220 - tick * 47.5} y2={220 - tick * 47.5} /><text x="35" y={224 - tick * 47.5} textAnchor="end">{number((ceiling * tick) / 4)}</text></g>)}
         {gap ? <rect className="obs-timeline-gap-band" x={x(gap.from)} width={x(gap.to) - x(gap.from)} y="20" height="200" /> : null}
         {window.segments.map((segment) => <polyline className="obs-timeline-line" key={segment[0].capturedAt} points={segment.map((point) => x(point) + "," + y(point)).join(" ")} />)}
@@ -454,7 +449,7 @@ function ScannerRadar({ radar }: { radar: PatchRadarData }) {
       <div className="obs-section-heading"><div><p className="kicker">The source radar</p><h2 id="radar-title">What keeps showing up?</h2></div><Options label="Radar count" value={metric} onChange={(value) => setMetric(value === "newThisWeek" ? "newThisWeek" : "tracked")} options={[["tracked", "Tracked leads"], ["newThisWeek", "New this week"]]} /></div>
       <div className="obs-radar-spread">
         <div className="obs-radar-figure"><p><strong>{total}</strong> {metric === "tracked" ? "tracked leads" : "new leads in seven days"} <span>· not confirmed bugs</span></p><svg viewBox="0 0 440 395" role="img" aria-label={(metric === "tracked" ? "Tracked leads" : "New leads this week") + " by category. " + categories.map((category) => category.label + ": " + category[metric]).join("; ")}><g className="obs-radar-grid">{[1, 2, 3, 4, 5].map((step) => <polygon key={step} points={categories.map((_, index) => point(step * maximum / 5, index).join(",")).join(" ")} />)}{categories.map((_, index) => <line key={index} x1="220" y1="192" x2={point(maximum, index)[0]} y2={point(maximum, index)[1]} />)}</g><polygon className="obs-radar-shape" points={categories.map((category, index) => point(category[metric], index).join(",")).join(" ")} />{categories.map((category, index) => { const current = point(category[metric], index); const label = point(maximum, index, 179); return <g key={category.category}><circle cx={current[0]} cy={current[1]} r={active === index ? 6 : 3} className={active === index ? "obs-radar-active" : ""} /><text x={label[0]} y={label[1]} textAnchor="middle">{category.short}</text></g>; })}{[1, 2, 3, 4, 5].map((step) => <text className="obs-radar-scale" key={step} x="207" y={192 - step / 5 * 142}>{step * maximum / 5}</text>)}</svg></div>
-        <div className="obs-radar-ranking"><div className="obs-rank-labels"><span>Category</span><span>{metric === "tracked" ? "Tracked" : "New in 7 days"}</span></div>{categories.map((category, index) => <button type="button" className={"obs-rank-row" + (active === index ? " is-selected" : "")} key={category.category} aria-pressed={active === index} onPointerEnter={() => setActive(index)} onFocus={() => setActive(index)} onClick={() => setActive(index)}><span>{category.label}</span><span className="obs-rank-track"><i style={{ width: (category[metric] / maximum) * 100 + "%" }} /></span><strong>{category[metric]}</strong></button>)}<p className="obs-rank-readout" aria-live="polite"><b>{selected.label}</b> · {selected.tracked} tracked · {selected.newThisWeek} new this week</p></div>
+        <div className="obs-radar-ranking"><div className="obs-rank-labels"><span>Category</span><span>{metric === "tracked" ? "Tracked" : "New in 7 days"}</span></div>{categories.map((category, index) => <button type="button" className={"obs-rank-row" + (active === index ? " is-selected" : "")} key={category.category} aria-pressed={active === index} onFocus={() => setActive(index)} onClick={() => setActive(index)}><span>{category.label}</span><span className="obs-rank-track"><i style={{ width: (category[metric] / maximum) * 100 + "%" }} /></span><strong>{category[metric]}</strong></button>)}<p className="obs-rank-readout" aria-live="polite"><b>{selected.label}</b> · {selected.tracked} tracked · {selected.newThisWeek} new this week</p></div>
       </div>
       <div className="obs-radar-foot"><span><b>{radar.recurring.recurringLeads}</b> of {radar.recurring.trackedLeads} tracked leads seen again</span><span><b>{radar.activeLeadClusters}</b> mapped issue areas</span><ReadingLink variant="quiet" href="/issues"><b>{radar.evidence?.reports ?? "Unavailable"}</b> approved player report{radar.evidence?.reports === 1 ? "" : "s"} in this patch family</ReadingLink></div>
       <WeeklyScan radar={radar} />

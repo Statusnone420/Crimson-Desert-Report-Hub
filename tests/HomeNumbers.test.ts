@@ -76,7 +76,7 @@ describe("HomeNumbers", () => {
     const markup = render(radar([{ category: "performance", tracked: 4, new7d: 0 }]));
 
     expect(markup).toContain('id="home-review-readout" class="chart-readout" aria-live="polite"');
-    expect(markup).toContain("Focus, hover, or tap a day to read its change.");
+    expect(markup).toContain("Click, tap, or focus a day to read its change.");
     expect(markup).toContain('aria-describedby="home-review-readout"');
     expect(markup).not.toContain('class="tooltip"');
   });
