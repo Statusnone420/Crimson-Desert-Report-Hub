@@ -3,16 +3,16 @@ import path from "node:path";
 import { expect, it } from "vitest";
 
 // The handle may appear in exactly two declarations, each once: the footer's AGPL
-// source link in src/lib/site.ts, and the column's editor credit in
-// src/lib/editorials/content.ts (owner decision, 2026-10-18). The credit is plain
+// source link in src/lib/site.ts, and the column's byline in
+// src/lib/editorials/content.ts (owner decision, 2026-10-18). The byline is plain
 // text: never a link, and its JSON-LD Person has no url or sameAs. A copy anywhere
 // else still fails.
 const ALLOWED = [
   { file: path.join("src", "lib", "site.ts"), declaration: 'export const SOURCE_URL = "https://github.com/Statusnone420/Crimson-Desert-Report-Hub";' },
-  { file: path.join("src", "lib", "editorials", "content.ts"), declaration: 'export const COLUMN_EDITOR = "Statusnone";' },
+  { file: path.join("src", "lib", "editorials", "content.ts"), declaration: 'export const COLUMN_AUTHOR = "Statusnone";' },
 ];
 
-it("keeps the owner's handle out of public source, static assets, and build metadata, apart from the source link and the column credit", () => {
+it("keeps the owner's handle out of public source, static assets, and build metadata, apart from the source link and the column byline", () => {
   const textFile = /\.(?:[cm]?[jt]sx?|json|xml|txt|svg|html|webmanifest|css|map)$|security\.txt$/i;
   const files = ["next.config.ts", "package.json", ...["src", "public"].flatMap((root) =>
     readdirSync(root, { recursive: true, withFileTypes: true })

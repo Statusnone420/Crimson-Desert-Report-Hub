@@ -31,7 +31,7 @@ export function publicRow(overrides: Partial<PublicEditorialRow> = {}): PublicEd
     publish_at: "2026-10-26T14:00:00Z",
     vetoed_at: null,
     is_test: false,
-    author: "The Pywel Desk",
+    author: "Statusnone",
     ...overrides,
   };
 }
