@@ -15,9 +15,10 @@ import { CATEGORY_LABELS } from "@/lib/constants";
 
 const DAY_MS = 86_400_000;
 const number = (value: number) => Math.round(value).toLocaleString("en-US");
+// Dated in full, so a capture from an earlier day never reads as today's.
 const captureLabel = (iso: string) => {
   const date = new Date(iso);
-  return `${date.toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" })} ${date.toISOString().slice(11, 16)} UTC`;
+  return `${date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })}, ${date.toISOString().slice(11, 16)} UTC`;
 };
 const dateLabel = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -35,7 +36,10 @@ function PlayersTile({ history }: { history: ActivityHistory }) {
   }
   const latestTime = Date.parse(latest.capturedAt);
   const typical = typicalPlayers(history.playerCaptures);
-  const from = latestTime - 7 * DAY_MS;
+  // The week ends at the reading, not at the latest capture, so captures that stopped show their age.
+  const checked = Date.parse(history.checkedAt);
+  const to = Number.isFinite(checked) ? Math.max(checked, latestTime) : latestTime;
+  const from = to - 7 * DAY_MS;
   const recent = history.playerCaptures
     .filter((capture) => Date.parse(capture.capturedAt) > from)
     .map((capture) => ({ time: Date.parse(capture.capturedAt), value: capture.playerCount }));
@@ -60,15 +64,19 @@ function PlayersTile({ history }: { history: ActivityHistory }) {
             ? `The usual for a ${typical.weekday} at this time is 0 (median of the last ${typical.samples}), so no percentage is given.`
             : "Not enough earlier weeks yet to say what is usual for this time."}
       </p>
-      <div className="dd-spark">
-        <svg viewBox={`0 0 ${CHART_WIDTH} ${PANEL_HEIGHT}`} preserveAspectRatio="none" role="img"
-          aria-label={`Steam players over the last 7 days, from ${number(Math.min(...recent.map((point) => point.value)))} to ${number(Math.max(...recent.map((point) => point.value)))}, with the usual range at each time of day shaded.`}>
-          <path className="dd-band" d={timeBandPath(ranges, from, latestTime, max, maxGap)} />
-          <path className="dd-line" d={timeLinePath(recent, from, latestTime, max, maxGap)} vectorEffect="non-scaling-stroke" />
-        </svg>
-        <span className="dd-spark-dot" style={{ left: "100%", top: `${(1 - latest.playerCount / max) * 100}%` }} aria-hidden="true" />
-      </div>
-      <p className="dd-tile-note">Line: the last 7 days. Shaded: the usual range at that time of day in earlier weeks.</p>
+      {recent.length ? (
+        <>
+          <div className="dd-spark">
+            <svg viewBox={`0 0 ${CHART_WIDTH} ${PANEL_HEIGHT}`} preserveAspectRatio="none" role="img"
+              aria-label={`Steam players over the last 7 days, from ${number(Math.min(...recent.map((point) => point.value)))} to ${number(Math.max(...recent.map((point) => point.value)))}, with the usual range at each time of day shaded.`}>
+              <path className="dd-band" d={timeBandPath(ranges, from, to, max, maxGap)} />
+              <path className="dd-line" d={timeLinePath(recent, from, to, max, maxGap)} vectorEffect="non-scaling-stroke" />
+            </svg>
+            <span className="dd-spark-dot" style={{ left: `${((latestTime - from) / (to - from)) * 100}%`, top: `${(1 - latest.playerCount / max) * 100}%` }} aria-hidden="true" />
+          </div>
+          <p className="dd-tile-note">Line: the last 7 days. Shaded: the usual range at that time of day in earlier weeks.</p>
+        </>
+      ) : <p className="dd-tile-note">No Steam player capture in the last 7 days.</p>}
     </div>
   );
 }

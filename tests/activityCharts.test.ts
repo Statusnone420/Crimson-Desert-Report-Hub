@@ -229,6 +229,20 @@ describe("activity components", () => {
     expect(html).toContain("at this time is 0 (median of the last 3), so no percentage is given.");
   });
 
+  it("dates the latest player capture and ends the player week at the reading", () => {
+    const stale = history();
+    // Read three days after the last capture: the line stops short of the right edge.
+    stale.checkedAt = "2026-10-20T16:00:00.000Z";
+    const html = renderToStaticMarkup(createElement(BeforeYouPlay, { history: stale, latestPatch: null, watch: null }));
+    expect(html).toContain("Latest capture, Saturday, Oct 17, 16:00 UTC");
+    expect(html).toMatch(/class="dd-spark-dot" style="left:57\.14\d*%/);
+    // Ten days after it, no capture falls inside the last 7 days.
+    stale.checkedAt = "2026-10-27T16:00:00.000Z";
+    const old = renderToStaticMarkup(createElement(BeforeYouPlay, { history: stale, latestPatch: null, watch: null }));
+    expect(old).toContain("No Steam player capture in the last 7 days.");
+    expect(old).not.toMatch(/Infinity|NaN/);
+  });
+
   it("counts a patch's age in UTC calendar days, like the date beside it", () => {
     const render = (publishedAt: string) => renderToStaticMarkup(createElement(BeforeYouPlay, {
       history: history(), latestPatch: { version: "2.04.01", publishedAt, fixes: 2 }, watch: null,
