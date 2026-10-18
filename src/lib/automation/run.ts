@@ -3072,6 +3072,17 @@ async function persistOneSignal(
   return { clusterId, promoted, reobserved: persistence.kind === "reobserved", error: persistenceError };
 }
 
+// Adds or takes one signal from a cluster's count in the routing list. A cluster
+// created in this batch carries no count, and is left without one.
+function countRoutedSignal(clusters: RoutableCluster[], clusterId: string | null, delta: number): void {
+  if (!clusterId) return;
+  const cluster = clusters.find((candidate) => candidate.id === clusterId) as
+    | (RoutableCluster & { signal_count?: number | string | null })
+    | undefined;
+  if (!cluster || cluster.signal_count === null || cluster.signal_count === undefined) return;
+  cluster.signal_count = Math.max(0, Number(cluster.signal_count) + delta);
+}
+
 async function persistSignals(
   supabase: ReturnType<typeof createServiceClient>,
   signals: PreparedSignal[],
@@ -3096,8 +3107,14 @@ async function persistSignals(
       }
       if (persistence.kind === "reobserved") result.signalsReobserved += 1;
       else result.signalsInserted += 1;
-      if (persistence.previousClusterId && persistence.previousClusterId !== clusterId) {
-        touchedClusters.add(persistence.previousClusterId);
+      if (persistence.previousClusterId !== clusterId) {
+        if (persistence.previousClusterId) touchedClusters.add(persistence.previousClusterId);
+        // The routing list was read before this batch, and the stats refresh waits
+        // for its end. Keep the list's counts current meanwhile, so a cluster this
+        // move left empty is skipped like any emptied cluster, and a rewording
+        // later in the batch does not undo the move (nearDuplicateAutoCluster).
+        countRoutedSignal(routableClusters, persistence.previousClusterId, -1);
+        countRoutedSignal(routableClusters, clusterId, 1);
       }
       if (persistence.observationError !== null) throw persistence.observationError;
     }

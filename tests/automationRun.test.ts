@@ -3055,6 +3055,64 @@ describe("runAutomationMonitor", () => {
     expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: newCluster!.id });
   });
 
+  it("does not route a later rewording into a cluster a move emptied earlier in the same scan", async () => {
+    const movedUrl = "https://example.com/map-crash-thread";
+    const newUrl = "https://example.com/map-crash-rewording";
+    resetDb({
+      issue_clusters: [{
+        id: "emptied-cluster", slug: "auto-map-crash", title: "Crash when opening map", category: "crash_startup",
+        description: "The game closes when the map opens.", fix_status: "reported", confidence: "medium",
+        is_public: false, auto_public: false, signal_count: 1, visibility_revision: 0,
+      }],
+      source_signals: [{
+        id: "signal-moves-away", source: "web_search", source_type: "web_search", source_url: movedUrl, canonical_url: movedUrl,
+        external_id_hash: externalIdHash("web_search", movedUrl), title: "Map crash", summary: "The map crashes the game.",
+        source_domain: "example.com", source_published_at: "2026-07-04T12:00:00.000Z", semantic_fingerprint: "earlier-wording",
+        cluster_id: "emptied-cluster", category: "crash_startup", confidence: "medium", observed_at: "2026-07-05T11:00:00.000Z",
+        public_status: "private", seen_count: 1, first_seen_at: "2026-07-05T11:00:00.000Z",
+      }],
+    });
+    configureProviders();
+    // The stored source now reads as a performance problem and moves out, leaving
+    // its cluster empty; a new source in the same scan then rewords that cluster's title.
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
+      const moved = candidate.url === movedUrl;
+      return {
+        issueTitle: moved ? "FPS drops in towns" : "Game crashes when opening the map",
+        category: moved ? "performance" : "crash_startup",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: moved ? "Players report FPS drops in towns." : "The game crashes when opening the map.",
+        isReport: true,
+        clusterAssignment: "unsure",
+        clusterReason: "Test extractor.",
+        clusterSlug: null,
+        extractionProvider: "openrouter",
+        extractionModel: "deepseek/deepseek-v4.1-flash",
+        llmCallsUsed: 1,
+        llmCostUsd: 0.0004,
+      };
+    });
+    const hit = (title: string, url: string, snippet: string) => ({
+      title, url, snippet, sourceDomain: "example.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      hit("FPS drops in towns", movedUrl, "Players report Crimson Desert FPS drops and stutter in towns on Steam."),
+      hit("Game crashes when opening the map", newUrl, "Crimson Desert crashes when opening the map on PS5."),
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const clusterOf = (url: string) => sourceSignalRows().find((row) => row.canonical_url === url)?.cluster_id;
+    expect(clusterOf(movedUrl)).toBeTruthy();
+    expect(clusterOf(movedUrl)).not.toBe("emptied-cluster");
+    expect(clusterOf(newUrl)).toBeTruthy();
+    expect(clusterOf(newUrl)).not.toBe("emptied-cluster");
+    expect(tables.issue_clusters.find((row) => row.id === "emptied-cluster")).toMatchObject({ signal_count: 0 });
+  });
+
   describe("cluster stability and category", () => {
     const url = "https://example.com/map-crash-thread";
     const storedCluster = (overrides: Record<string, unknown> = {}) => ({
