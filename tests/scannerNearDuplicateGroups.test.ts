@@ -45,6 +45,16 @@ describe("joining a reworded lead to its automatic issue group", () => {
     expect(nearDuplicateAutoCluster("FPS drops in 8K", "performance", fps)).toBeNull();
   });
 
+  it("keeps a title apart from its opposite", () => {
+    const shadows = [{ id: "10", slug: "auto-shadows", title: "Shadows appear indoors", category: "graphics_visual" }];
+    expect(nearDuplicateAutoCluster("Shadows do not appear indoors", "graphics_visual", shadows)).toBeNull();
+    expect(nearDuplicateAutoCluster("Shadows don’t appear indoors", "graphics_visual", shadows)).toBeNull();
+    expect(nearDuplicateAutoCluster("Shadows never appear indoors", "graphics_visual", shadows)).toBeNull();
+    expect(nearDuplicateAutoCluster("Shadows appearing indoors", "graphics_visual", shadows)?.id).toBe("10");
+    const missing = [{ id: "11", slug: "auto-no-shadows", title: "Shadows do not appear indoors", category: "graphics_visual" }];
+    expect(nearDuplicateAutoCluster("Shadows never appear indoors", "graphics_visual", missing)?.id).toBe("11");
+  });
+
   it("skips an emptied automatic group but keeps one created earlier in the batch", () => {
     const emptied = { id: "5", slug: "auto-emptied", title: "Crash when opening map", category: "crash_startup", signal_count: 0 };
     expect(nearDuplicateAutoCluster("Game crashes when opening the map", "crash_startup", [emptied])).toBeNull();
