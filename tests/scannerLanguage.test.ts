@@ -16,6 +16,9 @@ describe("telling English from the game's other big review languages", () => {
     ["Polish", "Gra jest bardzo ładna ale nie mogę skończyć zadania"],
     ["Italian", "Il gioco è molto bello ma non riesco a finire la missione"],
     ["Japanese", "マップを開くと強制終了する"],
+    ["German, short", "Spiel stürzt ab"],
+    ["Polish, short", "Gra wywala"],
+    ["Turkish, short", "Oyun çöküyor"],
   ])("%s is not English", (_language, text) => {
     expect(isMostlyNonEnglish(text)).toBe(true);
   });
@@ -25,6 +28,8 @@ describe("telling English from the game's other big review languages", () => {
     "Crimson Desert patch 2.03.02 stutter in Pywel",
     "Tournament/Duel with Muskan is beyond broken",
     "Crimson Desert player issue on Steam",
+    "Crash when opening map",
+    "Kliff stuck in a wall after the update",
     "",
   ])("%j is English", (text) => {
     expect(isMostlyNonEnglish(text)).toBe(false);
@@ -101,6 +106,7 @@ describe("storing only English", () => {
   });
 
   it("stores nothing when the AI did not read it or answered in another language", () => {
+    expect(englishStorage({ title: "Spiel stürzt ab" }, "", { ...ai, extractionProvider: "deterministic" })).toEqual({ nonEnglish: true, store: false });
     expect(englishStorage({ title: "打开地图就闪退" }, "", { ...ai, extractionProvider: "deterministic" })).toEqual({ nonEnglish: true, store: false });
     expect(englishStorage({ title: "打开地图就闪退" }, "", { ...ai, summary: "打开地图就闪退" })).toEqual({ nonEnglish: true, store: false });
   });

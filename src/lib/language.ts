@@ -14,6 +14,8 @@ const NON_ENGLISH_FUNCTION_WORDS = new Set([
 const ENGLISH_FUNCTION_WORDS = new Set([
   "the", "and", "is", "it", "to", "of", "in", "for", "this", "that", "with", "on", "but", "was", "are", "you", "have", "not", "be", "my", "i", "game",
 ]);
+// Letters of the game's big Latin-script review languages that English text does not use.
+const FOREIGN_LATIN_LETTERS = /[äöüßçşğıłśżźęąńõãñáéíóúàèìòùâêîôûœæø]/iu;
 
 /**
  * True when text is mostly in another language: a third or more of its letters
@@ -29,11 +31,16 @@ export function isMostlyNonEnglish(text: string | null | undefined): boolean {
   if (nonLatin / letters.length >= 1 / 3) return true;
   let foreign = 0;
   let english = 0;
-  for (const word of text?.toLowerCase().match(/\p{L}+/gu) ?? []) {
+  const words = text?.toLowerCase().match(/\p{L}+/gu) ?? [];
+  for (const word of words) {
     if (NON_ENGLISH_FUNCTION_WORDS.has(word)) foreign += 1;
     else if (ENGLISH_FUNCTION_WORDS.has(word)) english += 1;
   }
-  return foreign >= 2 && foreign > english;
+  if (foreign >= 2 && foreign > english) return true;
+  // A short report carries one marker at most ("Spiel stürzt ab", "Gra wywala",
+  // "Oyun çöküyor"): a foreign function word, or letters English does not use,
+  // with no English function word beside it.
+  return words.length <= 8 && english === 0 && (foreign >= 1 || FOREIGN_LATIN_LETTERS.test(text ?? ""));
 }
 
 /** Shown in place of a title or snippet in another language. */

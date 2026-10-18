@@ -4136,9 +4136,17 @@ async function rescueCandidateSignalInner(
     }
     recordOpenRouterRunSkip(result, extraction.fallbackReason);
 
+    // English only (see englishStorage): a rescue may not store text in another
+    // language either.
+    const storage = englishStorage(source, source.body, extraction);
+    if (!storage.store) {
+      result.skips.push("language_needs_ai");
+      throw new Error("This post is not in English and the AI could not put it into English, so nothing was stored. Try again when the AI is available.");
+    }
     const externalHash = externalIdHash(source.source, source.id);
     const prepared: PreparedSignal = {
       ...source,
+      ...(storage.storedTitle ? { storedTitle: storage.storedTitle } : {}),
       canonicalUrl,
       externalHash,
       semantic: semanticFingerprint(extraction.issueTitle, extraction.category),

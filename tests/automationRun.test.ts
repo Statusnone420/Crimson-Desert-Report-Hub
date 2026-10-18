@@ -1652,6 +1652,42 @@ describe("runAutomationMonitor", () => {
     }
   });
 
+  it.each([
+    ["refuses to store", "deterministic"],
+    ["stores in English only", "openrouter"],
+  ] as const)("an operator rescue of a non-English post %s when the AI is %s", async (_label, provider) => {
+    resetDb({});
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => ({
+      issueTitle: provider === "openrouter" ? "Crash after 1.13.00 when opening the map" : candidate.title,
+      category: "crash_startup",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: provider === "openrouter" ? "The game crashes when opening the map." : candidate.snippet,
+      clusterAssignment: "unsure",
+      clusterSlug: null,
+      extractionProvider: provider,
+      extractionModel: provider === "openrouter" ? "deepseek/deepseek-v4.1-flash" : null,
+      llmCallsUsed: provider === "openrouter" ? 1 : 0,
+      llmCostUsd: provider === "openrouter" ? 0.0004 : 0,
+    }));
+    const { rescueCandidateSignal } = await importRunner();
+    const rescue = rescueCandidateSignal({ from: mocks.from, rpc: mocks.rpc } as never, {
+      title: "打开地图就闪退",
+      url: "https://steamcommunity.com/app/3321460/discussions/0/700001/",
+      sourceDomain: "steamcommunity.com",
+      snippet: "打开地图就闪退，重启也没用",
+    });
+    if (provider === "deterministic") {
+      await expect(rescue).rejects.toThrow(/not in English/);
+      expect(sourceSignalRows()).toEqual([]);
+      return;
+    }
+    await rescue;
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ title: "Crash after when opening the map", summary: "The game crashes when opening the map." });
+  });
+
   it("stops asking OpenRouter for the rest of the run once no provider matches", async () => {
     resetDb({});
     configureProviders();

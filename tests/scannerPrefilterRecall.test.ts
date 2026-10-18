@@ -97,6 +97,10 @@ describe("praise and roundups stay out", () => {
     expect(screen("Keine Abstürze bis zum Patch", "Jetzt stürzt es ständig ab.")).toEqual({ keep: true });
   });
 
+  it.each(["Never crashed until 2.03.02", "No crashes before this update"])("keeps %s: it says the problem started afterward", (title) => {
+    expect(screen(title, "")).toEqual({ keep: true });
+  });
+
   it("keeps a player's own thread renamed with an Updated: prefix", () => {
     expect(screen("UPDATED: Still crashing after 2.03.02", "Verified files, still crashes.")).toEqual({ keep: true });
   });

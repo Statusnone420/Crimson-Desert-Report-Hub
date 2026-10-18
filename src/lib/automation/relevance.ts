@@ -208,14 +208,17 @@ const UNSUPPORTED_SOURCE_CONTEXT_PATTERNS = [
 // recognized here or "runs with no <noun>" reads as a complaint.
 const NO_ISSUE_NOUN = String.raw`(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag|artifacts?|ghosting|flicker(?:ing)?|(?:frame|fps) ?drops?|hitch(?:es|ing)?|freez(?:es|ing)|screen tearing|pop.?in)`;
 const NO_ISSUE_NOUN_SERIES = String.raw`${NO_ISSUE_NOUN}(?:\s*(?:[,/]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${NO_ISSUE_NOUN})*`;
+// "Never crashed until 2.03.02" and "no crashes before this update" say the
+// problem started afterward, so a following until/before/prior to undoes the praise.
+const UNTIL_THEN = String.raw`(?!\s+(?:until|till|before|prior\s+to)\b)`;
 // Praise in Steam reviews: "smooth 4K, no artifacts", "zero crashes", "not a
 // single stutter", "never crashed once".
 const NO_ISSUE_PATTERNS = [
-  new RegExp(String.raw`\bno (?:reported |known )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
-  new RegExp(String.raw`\bwithout (?:reported |known |any )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
-  new RegExp(String.raw`\bzero ${NO_ISSUE_NOUN_SERIES}\b`, "i"),
-  new RegExp(String.raw`\bnot (?:a|one) single ${NO_ISSUE_NOUN}\b`, "i"),
-  new RegExp(String.raw`\bnever (?:once )?(?:(?:had|got|saw|seen|noticed|experienced) (?:a |an |any |one )?)?(?:crash(?:ed)?|froze|stuttered|lagged|${NO_ISSUE_NOUN_SERIES})(?: once)?\b`, "i"),
+  new RegExp(String.raw`\bno (?:reported |known )?${NO_ISSUE_NOUN_SERIES}\b${UNTIL_THEN}`, "i"),
+  new RegExp(String.raw`\bwithout (?:reported |known |any )?${NO_ISSUE_NOUN_SERIES}\b${UNTIL_THEN}`, "i"),
+  new RegExp(String.raw`\bzero ${NO_ISSUE_NOUN_SERIES}\b${UNTIL_THEN}`, "i"),
+  new RegExp(String.raw`\bnot (?:a|one) single ${NO_ISSUE_NOUN}\b${UNTIL_THEN}`, "i"),
+  new RegExp(String.raw`\bnever (?:once )?(?:(?:had|got|saw|seen|noticed|experienced) (?:a |an |any |one )?)?(?:crash(?:ed)?|froze|stuttered|lagged|${NO_ISSUE_NOUN_SERIES})(?: once)?\b${UNTIL_THEN}`, "i"),
   ...multilingualNoIssuePatterns(),
 ] as const;
 
