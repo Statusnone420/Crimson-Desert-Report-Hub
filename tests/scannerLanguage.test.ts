@@ -28,6 +28,9 @@ describe("telling English from the game's other big review languages", () => {
     ["French, problem words only", "Plantage constant"],
     ["Polish, problem words only", "Czarny ekran"],
     ["Italian, problem words only", "Errore"],
+    // A problem word outweighs one English word borrowed into gaming talk.
+    ["Portuguese, with an English loanword", "Game não abre"],
+    ["Spanish, with an English loanword", "Game crashea"],
   ])("%s is not English", (_language, text) => {
     expect(isMostlyNonEnglish(text)).toBe(true);
   });
@@ -46,6 +49,8 @@ describe("telling English from the game's other big review languages", () => {
     "EU servers down",
     "Lag on EU servers since the ET maintenance",
     "Windows OS crash",
+    "WINDOWS OS CRASH",
+    "EU SERVERS DOWN",
     "",
   ])("%j is English", (text) => {
     expect(isMostlyNonEnglish(text)).toBe(false);

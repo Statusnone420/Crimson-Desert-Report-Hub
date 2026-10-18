@@ -1748,6 +1748,31 @@ describe("runAutomationMonitor", () => {
     }));
   });
 
+  it("keeps posts in another language out of the rescue lane once the language reviews are spent", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${930000 + id}/`;
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    // No post has a symptom word. The first three take the scan's language reviews.
+    mocks.tavilySearch.mockResolvedValue([
+      { title: "任务道具不见了", url: thread(1), snippet: "任务道具不见了，怎么办", ...dated },
+      { title: "坐骑叫不出来了", url: thread(2), snippet: "坐骑叫不出来了，怎么办", ...dated },
+      { title: "商店里的东西买不了", url: thread(3), snippet: "商店里的东西买不了，怎么办", ...dated },
+      // "Bug" is one of the rescue lane's English context words.
+      { title: "Bug dans la quête", url: thread(4), snippet: "La quête ne se termine pas.", ...dated },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips.filter((skip) => skip === "language_review")).toHaveLength(3);
+    const fourth = thread(4).replace(/\/$/, "");
+    expect(mocks.extractSignalWithOpenRouter.mock.calls.some(([candidate]) => candidate.url === fourth)).toBe(false);
+    expect(result.skips).not.toContain("candidate_rescued");
+    expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({ url: fourth, reason: "source_not_issue_report" }));
+  });
+
   it.each([
     ["refuses to store", "deterministic"],
     ["stores in English only", "openrouter"],

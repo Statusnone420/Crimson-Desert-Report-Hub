@@ -65,6 +65,7 @@ export function isMostlyNonEnglish(text: string | null | undefined): boolean {
   const nonLatin = letters.filter((letter) => !/\p{Script=Latin}/u.test(letter)).length;
   if (nonLatin / letters.length >= 1 / 3) return true;
   let foreign = 0;
+  let shortCapitals = 0;
   let english = 0;
   const raw = text ?? "";
   const allCapitals = raw === raw.toUpperCase();
@@ -73,18 +74,24 @@ export function isMostlyNonEnglish(text: string | null | undefined): boolean {
     const word = token.toLowerCase();
     if (ENGLISH_FUNCTION_WORDS.has(word)) english += 1;
     else if (NON_ENGLISH_FUNCTION_WORDS.has(word)) {
-      // Short capitals in mixed-case text are English abbreviations
-      // ("EU servers", "Windows OS", "8pm ET"), not function words.
-      if (!allCapitals && token.length <= 3 && token === token.toUpperCase()) continue;
-      foreign += 1;
+      // Short capitals are usually English abbreviations ("EU servers",
+      // "Windows OS", "8pm ET"), not function words.
+      if (token.length <= 3 && token === token.toUpperCase()) shortCapitals += 1;
+      else foreign += 1;
     }
   }
+  // In text written all in capitals, two or more of them are another language
+  // ("LE JEU PLANTE"); one is an abbreviation ("WINDOWS OS CRASH").
+  if (allCapitals && shortCapitals >= 2) foreign += shortCapitals;
   if (foreign >= 2 && foreign > english) return true;
   // A short report carries one marker at most ("Spiel stürzt ab", "Gra wywala",
   // "Oyun çöküyor", "Pantalla negra"): a foreign function word, letters English
   // does not use, or a problem word in another language, with no English
-  // function word beside it.
-  return words.length <= 8 && english === 0 && (foreign >= 1 || FOREIGN_LATIN_LETTERS.test(raw) || FOREIGN_SYMPTOM.test(raw));
+  // function word beside it. A problem word outweighs one English word borrowed
+  // into gaming talk ("Game não abre", "Game crashea").
+  const foreignSymptom = FOREIGN_SYMPTOM.test(raw);
+  return words.length <= 8 && (english === 0 || (foreignSymptom && english === 1)) &&
+    (foreign >= 1 || FOREIGN_LATIN_LETTERS.test(raw) || foreignSymptom);
 }
 
 /** Shown in place of a title or snippet in another language. */

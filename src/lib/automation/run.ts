@@ -1791,6 +1791,10 @@ async function prepareSignals(
     if (!preScreen.keep) {
       if (
         preScreen.reason === "source_not_issue_report" &&
+        // A post in another language reaches the AI through a language review
+        // only, so MAX_LANGUAGE_CALLS_PER_RUN holds: the rescue's English context
+        // words ("bug", "thread") say little about such a post.
+        !preScreen.languageReview &&
         isBorderlineRescueCandidate(signal, snippetDates.asserted, currentPatch)
       ) {
         // Recon lane: read the real page ONCE before rejecting a promising
