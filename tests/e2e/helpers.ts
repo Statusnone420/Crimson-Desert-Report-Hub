@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 export function collectConsoleProblems(page: Page, expectedNotFoundUrl?: string): string[] {
   const problems: string[] = [];
@@ -63,6 +63,20 @@ export async function expectHealthyPage(page: Page, problems: string[]) {
     layout.scrollWidth,
     `page has horizontal overflow:\n${JSON.stringify(layout, null, 2)}`,
   ).toBeLessThanOrEqual(layout.viewportWidth + 1);
+}
+
+/**
+ * Wait until React has hydrated the page, so a click, hover, key press or fill reaches its
+ * handler. A slow runner paints server-rendered controls seconds before then, and React drops
+ * an event it cannot handle yet. React marks <body> when it commits the hydrated page. A
+ * Suspense boundary hydrates after that, so for a control inside one, pass the control.
+ */
+export async function waitForHydration(page: Page, control?: Locator) {
+  if (control) {
+    await expect.poll(() => control.evaluate((element) => Object.keys(element).some((key) => key.startsWith("__reactProps$"))), { timeout: 30_000 }).toBe(true);
+    return;
+  }
+  await page.waitForFunction(() => Object.keys(document.body).some((key) => key.startsWith("__reactFiber$")), undefined, { timeout: 30_000 });
 }
 
 export async function signInAsAdmin(page: Page) {

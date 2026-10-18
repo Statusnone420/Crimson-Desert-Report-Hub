@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 async function expectReadableText(controls: Locator) {
   const result = await controls.evaluateAll((elements) => {
@@ -41,6 +41,7 @@ test.describe("secondary public states remain readable", () => {
   test("empty public watchlist keeps its reset action and counting disclosure readable", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/issues");
+    await waitForHydration(page);
     const switcher = page.getByRole("group", { name: "Choose board view" });
     const watchlist = switcher.getByRole("button", { name: /Watchlist/ });
     await watchlist.click();
@@ -66,6 +67,7 @@ test.describe("secondary public states remain readable", () => {
   test("positive-share readings and expanded Twitch captures retain readable controls", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/observatory");
+    await waitForHydration(page);
     const positiveShare = page.getByRole("button", { name: "Positive share", exact: true });
     await positiveShare.click();
     await expect(positiveShare).toHaveAttribute("aria-pressed", "true");

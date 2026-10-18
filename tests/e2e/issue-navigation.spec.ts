@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { refreshFixtureReads, signInAsAdmin } from "./helpers";
+import { refreshFixtureReads, signInAsAdmin, waitForHydration } from "./helpers";
 import { choosePlatform, installTurnstile } from "./checkin-helpers";
 
 const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
@@ -66,6 +66,7 @@ test.describe("mutating issue navigation fixture", () => {
         await page.setViewportSize({ width, height: 1000 });
         await expect(async () => {
           await page.goto("/issues");
+          await waitForHydration(page);
           await expect(page.getByRole("button", { name: "Browse 1 watchlist topic", exact: true })).toBeVisible({ timeout: 1_000 });
         }).toPass({ timeout: 30_000 });
         const empty = await page.locator(".board-empty").boundingBox();
@@ -96,6 +97,7 @@ test.describe("mutating issue navigation fixture", () => {
         await revalidatePublicIssues(page);
         await expect(async () => {
           await page.goto("/issues");
+          await waitForHydration(page);
           await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
           await expect(page.locator(`#issue-${CANDIDATE_ONLY_ID}`)).toBeVisible({ timeout: 1_000 });
         }).toPass({ timeout: 30_000 });
@@ -192,6 +194,7 @@ test.describe("mutating issue navigation fixture", () => {
         await revalidatePublicIssues(page);
         await expect(async () => {
           await page.goto("/issues");
+          await waitForHydration(page);
           await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
           await expect(page.locator(`#issue-${CANDIDATE_ONLY_ID}`)).toBeVisible({ timeout: 1_000 });
         }).toPass({ timeout: 30_000 });
@@ -257,6 +260,7 @@ test.describe("mutating issue navigation fixture", () => {
       await page.setViewportSize({ width: 1440, height: 1100 });
       const publishedId = "00000000-0000-4000-8000-000000000002";
       await page.goto(`/report?issue=${publishedId}`);
+      await waitForHydration(page);
       await expect(page).toHaveURL(new RegExp(`/issues#issue-${publishedId}$`));
       await expect(page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Published issues/ })).toHaveAttribute("aria-pressed", "true");
       await expect(page.locator(`#issue-${publishedId}`)).toBeInViewport();

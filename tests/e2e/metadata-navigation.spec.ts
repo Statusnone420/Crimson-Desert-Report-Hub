@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { patch20300 } from "../../src/lib/editorialArticles";
 import { SITE_URL } from "../../src/lib/site";
+import { waitForHydration } from "./helpers";
 
 for (const route of [
   { from: "/about", to: "/contact", link: "Contact" },
@@ -15,6 +16,7 @@ for (const route of [
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setCPUThrottlingRate", { rate: 8 });
     await page.goto(route.from);
+    await waitForHydration(page);
     await page.getByRole("link", { name: route.link, exact: true }).click();
     await page.waitForURL(new RegExp(`${route.to}$`), { timeout: 60_000, waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(new RegExp(`${route.to}$`));

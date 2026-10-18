@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SOURCE_URL } from "../../src/lib/site";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 const E2E_NOW = new Date("2026-07-20T00:10:00.000Z");
 const PRIVATE_MARKERS = [
@@ -199,6 +199,7 @@ test.describe("integrated newspaper public UI", () => {
   test("privacy page resolves from the footer and keeps the unofficial disclaimer", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
+    await waitForHydration(page);
     await page.getByRole("contentinfo").getByRole("link", { name: "Privacy" }).click();
     // CI compiles this client navigation on demand while other specs share the
     // mock server; wait past the default expect timeout before asserting.
@@ -228,6 +229,7 @@ test.describe("integrated newspaper public UI", () => {
 
   test("admin sign-in explains throttling and preview restrictions without losing the password", async ({ page }) => {
     await page.goto("/admin/login");
+    await waitForHydration(page, page.getByLabel("Password", { exact: true }));
     const password = page.getByLabel("Password");
     await password.fill("not-a-real-password");
     await page.route("**/api/admin/login", (route) => route.fulfill({
@@ -249,6 +251,7 @@ test.describe("integrated newspaper public UI", () => {
   test("admin sign-in recovers from a network failure without losing the password", async ({ page }) => {
     await page.route("**/api/admin/login", (route) => route.abort("failed"));
     await page.goto("/admin/login");
+    await waitForHydration(page, page.getByLabel("Password", { exact: true }));
     const password = page.getByLabel("Password");
     await password.fill("not-a-real-password");
     await page.getByRole("button", { name: "Sign in" }).click();
@@ -266,6 +269,7 @@ test.describe("integrated newspaper public UI", () => {
     await expect(footer.getByRole("link", { name: "Admin", exact: true })).toHaveCount(0);
 
     await page.goto("/admin/login?from=%2Foperator%3Fview%3Dreports");
+    await waitForHydration(page, page.getByLabel("Password", { exact: true }));
     await expect(page.getByRole("heading", { level: 1, name: "Admin sign-in" })).toBeVisible();
     await page.getByLabel("Password").fill("admin-password");
     for (const theme of ["light", "dark"] as const) {
@@ -279,6 +283,7 @@ test.describe("integrated newspaper public UI", () => {
     // CI compiles this client navigation on demand; wait for its document
     // transition before asserting the authenticated page and its controls.
     await page.waitForURL(/\/operator\?view=reports$/, { timeout: 30_000 });
+    await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
     const operator = page.getByRole("navigation", { name: "Operator" });
     await expect(operator.getByRole("link", { name: "Overview" })).toHaveAttribute("href", "/operator");

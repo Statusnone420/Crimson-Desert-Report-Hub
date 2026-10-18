@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { patch20200, patch20300, chartingTheUnknown, chartingTheUnknownDelay } from "../../src/lib/editorialArticles";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 test("front-page readers can open the delay story and previous patch reports", async ({ page }) => {
   test.slow();
   const problems = collectConsoleProblems(page);
   await page.goto("/");
+  await waitForHydration(page);
   const reports = page.getByRole("region", { name: "Hub reports and patch rundowns" });
   await expect(reports.getByRole("heading")).toHaveText([
     chartingTheUnknownDelay.title,
@@ -22,6 +23,7 @@ test("front-page readers can open the delay story and previous patch reports", a
   await expect(page.locator(".article-heading .article-deck")).toHaveText(chartingTheUnknownDelay.description);
 
   await page.goto("/");
+  await waitForHydration(page);
   await reports.getByRole("article").nth(2).getByRole("link", { name: "Read the report" }).click();
   await page.waitForURL(/\/articles\/patch-2-02-00$/, { timeout: 60_000, waitUntil: "domcontentloaded" });
   await expect(page).toHaveURL(/\/articles\/patch-2-02-00$/);
@@ -34,6 +36,7 @@ test("original reports keep their hierarchy across screen sizes and themes", asy
   const widths = testInfo.project.name === "mobile-chromium" ? [390, 320] : [1440, 768];
   await page.clock.setFixedTime(new Date("2026-09-11T09:00:00Z"));
   await page.goto("/");
+  await waitForHydration(page);
   for (const width of widths) {
     await page.setViewportSize({ width, height: width <= 390 ? 844 : 1100 });
     for (const theme of ["light", "dark"] as const) {

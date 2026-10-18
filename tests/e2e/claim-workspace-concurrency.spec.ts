@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signInAsAdmin } from "./helpers";
+import { signInAsAdmin, waitForHydration } from "./helpers";
 
 const MOCK_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 const PAIRING_ID = "00000000-0000-4000-8000-000000000201";
@@ -26,6 +26,7 @@ test("public exact claim context stays unavailable before the first durable sync
 test("claim decisions reject stale lifecycle state and recover after explicit reload", async ({ page }) => {
   await signInAsAdmin(page);
   await page.goto(`/operator?view=claims&item=${PAIRING_ID}`);
+  await waitForHydration(page);
   const pairingRead = await page.request.get(`${MOCK_ORIGIN}/rest/v1/claim_review_pairings?id=eq.${PAIRING_ID}`);
   expect(pairingRead.ok()).toBe(true);
   const pairing = (await pairingRead.json()).find((row: { id: string }) => row.id === PAIRING_ID);
@@ -58,12 +59,14 @@ test("a confirmed match exposes only its exact public claim and opens the matchi
   expect(pairingResponse.ok()).toBe(true);
   const pairing = (await pairingResponse.json()).find((row: { id: string }) => row.id === PAIRING_ID);
   await page.goto(`/operator?view=claims&item=${PAIRING_ID}`);
+  await waitForHydration(page);
   await page.getByRole("button", { name: "Confirm match", exact: true }).click();
   await expect(page.getByText("Decision saved. You can undo it in Decision history.")).toBeVisible();
 
   try {
     await expect(async () => {
       await page.goto("/issues");
+      await waitForHydration(page);
       // A stale render needs another request, not a wait on the same DOM.
       expect(await page.getByRole("region", { name: "Official fix being checked", exact: true }).allTextContents())
         .toEqual([expect.stringContaining(pairing.exact_official_text)]);
@@ -90,6 +93,7 @@ test("a confirmed match exposes only its exact public claim and opens the matchi
     await expect(page.locator(`#claim-${pairing.claim_key}`)).toBeInViewport();
   } finally {
     await page.goto(`/operator?view=claims&item=${PAIRING_ID}`);
+    await waitForHydration(page);
     await page.getByRole("button", { name: "Undo decision" }).click();
     await expect(page.getByText("Decision undone. This match is waiting for review again.")).toBeVisible();
     // A public read can serve the old cache once while its tagged refresh runs.

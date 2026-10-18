@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { waitForHydration } from "./helpers";
 
 for (const theme of ["light", "dark"] as const) {
   test(`issue categories paint their icons and dividers in ${theme} mode`, async ({ page }) => {
     await page.goto("/issues");
+    await waitForHydration(page);
     await expect(page.getByRole("button", { name: "Catch me up", exact: true })).toBeEnabled();
     if (theme === "dark") await page.getByRole("button", { name: "Switch to dark mode" }).click();
     await expect(page.getByRole("button", { name: `Switch to ${theme === "dark" ? "light" : "dark"} mode` })).toBeVisible();

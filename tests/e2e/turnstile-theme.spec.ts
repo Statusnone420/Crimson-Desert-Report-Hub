@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 type StubState = {
   renders: { id: string; sitekey: string; theme: string; size: string }[];
@@ -55,6 +55,7 @@ async function installStub(page: Page, theme: "light" | "dark" | null, delayed =
 
 async function checkInCard(page: Page) {
   await page.goto("/issues");
+  await waitForHydration(page);
   const card = page.getByRole("article").filter({ hasText: "FPS regression since 1.13" });
   await expect(card).toHaveCount(1);
   return card;

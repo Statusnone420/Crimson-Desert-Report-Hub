@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage } from "../e2e/helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "../e2e/helpers";
 
 test("the latest hotfix remains discoverable below newer news and in archive, feeds and Catch up", async ({ page, request }, testInfo) => {
   const problems = collectConsoleProblems(page);
   await page.goto("/");
+  await waitForHydration(page);
   await expect(page.locator("#lead h2")).toHaveText("Charting the Unknown delayed two weeks to October 29");
   await expect(page.locator(".front-page-secondary").getByRole("heading", { name: /weekly patches coming with 2.03.00/ })).toBeVisible();
   await expect(page.locator(".newspaper").locator("..")).toHaveCSS("opacity", "1");
@@ -56,6 +57,7 @@ test("patch previews scroll by button, pointer and keyboard without losing the o
   const problems = collectConsoleProblems(page);
   if (!testInfo.project.use.isMobile) await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/patches#archive");
+  await waitForHydration(page);
   const archive = page.locator("#archive");
   const rail = archive.getByRole("list");
   const newer = archive.getByRole("button", { name: "Show newer patches" });
@@ -114,6 +116,7 @@ test("patch previews scroll by button, pointer and keyboard without losing the o
 test("patch archive supports reduced motion and dark mode", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/patches#archive");
+  await waitForHydration(page);
   await page.evaluate(() => document.documentElement.dataset.theme = "dark");
   const archive = page.locator("#archive");
   await archive.getByRole("button", { name: "Show older patches" }).click();

@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage, signInAsAdmin } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, signInAsAdmin, waitForHydration } from "./helpers";
 
 const PRIVATE_NOTE = "Invented review note for the private inbox screenshot.";
 const PENDING_TITLE = "Fixture expansion commentary for inbox tests";
@@ -19,6 +19,7 @@ test.describe("private video review inbox", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=videos");
+    await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Video review" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Operator" }).getByRole("link", { name: "Videos" })).toHaveAttribute(
       "aria-current",

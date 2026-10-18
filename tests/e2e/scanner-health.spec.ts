@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectHealthyPage, signInAsAdmin } from "./helpers";
+import { expectHealthyPage, signInAsAdmin, waitForHydration } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signInAsAdmin(page);
@@ -27,6 +27,7 @@ test("a failed manual start explains its stage and warns about uncertain writes"
     diagnostic: { stage: "run_create", code: "database_timeout" },
   } }));
   await page.goto("/operator?view=scanner");
+  await waitForHydration(page);
   await page.getByRole("button", { name: "Run capped scan now" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Creating the run record" })).toContainText("a timed-out write may still have committed");
   await expect(page.getByRole("alert").filter({ hasText: "Creating the run record" })).toContainText("214ff53e-dc69-4792-90b0-ea074a137685");
@@ -40,6 +41,7 @@ test("a partial manual completion keeps its failure visible", async ({ page }) =
       diagnostics: [{ stage: "progress_write", code: "database_timeout" }] },
   } }));
   await page.goto("/operator?view=scanner");
+  await waitForHydration(page);
   await page.getByRole("button", { name: "Run capped scan now" }).click();
   await expect(page.getByText("Scan finished with failures", { exact: false })).toBeVisible();
   await expect(page.getByText(/Saving scan progress: The database request timed out/)).toBeVisible();
