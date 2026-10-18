@@ -18,7 +18,7 @@ function row(overrides: Partial<AdminEditionRow>): AdminEditionRow {
     id: "e0000000-0000-4000-8000-000000000001", slot_key: "2026-W44:s0", is_test: false, slug: "an-edition", status: "held",
     title: "An edition", dek: null, body_md: "## The forecast\n\nClear skies.", facts_box: null, relevance_score: 3,
     writer_model: "claude-opus-5-5", writer_effort: "high", skip_reason: null, hold_hours: 24,
-    created_at: "2026-10-26T14:00:00Z", publish_at: null, published_at: null, vetoed_at: null, ...overrides,
+    created_at: "2026-10-26T14:00:00Z", updated_at: "2026-10-26T14:00:00Z", publish_at: null, published_at: null, vetoed_at: null, ...overrides,
   };
 }
 

@@ -54,6 +54,19 @@ export function isPublicSourceUrl(value: string): boolean {
   }
 }
 
+/** Who published a source, by its host. A Hub page can be a path or an absolute Hub URL. */
+export function sourceProvenance(value: string): string {
+  if (value.startsWith("/")) return "Crimson Desert Report Hub";
+  try {
+    const host = new URL(value).hostname;
+    if (host === HUB_HOST) return "Crimson Desert Report Hub";
+    if (host === OFFICIAL_HOST) return "Pearl Abyss";
+  } catch {
+    // isPublicSourceUrl has already refused anything unparseable.
+  }
+  return "Source";
+}
+
 export function absoluteSourceUrl(value: string): string {
   return value.startsWith("/") ? `${SITE_URL}${value}` : value;
 }
