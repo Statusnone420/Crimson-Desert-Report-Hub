@@ -494,7 +494,7 @@ describe("automation extraction", () => {
     expect(request.messages[0].content).toMatch(/untrusted data/i);
     expect(request.messages[0].content).toMatch(/ignore .*instructions/i);
     expect(request.messages[1].content).toContain("clusterSlug");
-    expect(request.messages[1].content).toMatch(/isReport to false when the source does not describe a problem/);
+    expect(request.messages[1].content).toMatch(/isReport to true when the source describes a problem a player hit, even one asked about as a question/);
   });
 
   it("contains source and cluster prompt injection as bounded untrusted JSON data", async () => {

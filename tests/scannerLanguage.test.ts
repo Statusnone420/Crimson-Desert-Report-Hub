@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { englishOnly, isMostlyNonEnglish, NOT_IN_ENGLISH } from "@/lib/language";
-import { preScreenCandidate } from "@/lib/automation/relevance";
+import type { ExtractionResult } from "@/lib/automation/extract";
+import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
 import { admitsLanguageReview, englishStorage, paidAiEnabled } from "@/lib/automation/run";
 
 describe("telling English from the game's other big review languages", () => {
@@ -93,6 +94,12 @@ describe("posts the word lists cannot read", () => {
     "Keine Abstürze bis zum Patch",
     "Aucun plantage avant cette mise à jour",
     "更新之前没有闪退",
+    // An "at all" or "ever" word between the two does not change that.
+    "Keine Abstürze überhaupt bis zum Patch",
+    "Aucun plantage du tout avant cette mise à jour",
+    "更新之前都没有闪退",
+    "アップデート前は一度もバグがなかった",
+    "업데이트 전에는 한 번도 튕김이 없었어요",
   ])("keeps %s: it says the problem started afterward", (title) => {
     expect(screen(title, "")).toEqual({ keep: true });
   });
@@ -103,6 +110,21 @@ describe("posts the word lists cannot read", () => {
     ["Italian", "Nessun crash, gioco fantastico"],
   ])("rejects %s praise", (_language, title) => {
     expect(screen(title, "")).toMatchObject({ keep: false, reason: "source_not_issue_report" });
+  });
+});
+
+describe("the AI's own answer on whether a post reports a problem", () => {
+  const read = { category: "crash_startup", issueTitle: "Game no longer crashes", summary: "The player says the crash is fixed." };
+
+  it("drops a post the AI read as no report, even when a symptom word matched", () => {
+    expect(screen("Das Spiel stürzt nicht mehr ab", "")).toEqual({ keep: true });
+    expect(shouldKeepExtractedSignal({ ...read, isReport: false } as ExtractionResult, "Das Spiel stürzt nicht mehr ab"))
+      .toEqual({ keep: false, reason: "source_not_issue_report" });
+    expect(shouldKeepExtractedSignal({ ...read, isReport: true } as ExtractionResult, "Das Spiel stürzt nicht mehr ab")).toEqual({ keep: true });
+  });
+
+  it("judges deterministic extraction, which gives no answer, as before", () => {
+    expect(shouldKeepExtractedSignal(read as ExtractionResult, "Das Spiel stürzt ständig ab")).toEqual({ keep: true });
   });
 });
 

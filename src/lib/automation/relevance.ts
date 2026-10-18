@@ -72,8 +72,9 @@ const SYMPTOM_PATTERNS = [
   // Blocked actions players report in their own words ("I cant craft the pet",
   // "can't equip the new sword"). The verb list is closed on purpose: "can't
   // wait" and "can't stop playing" are praise, not reports, and so are "can't
-  // play (it) enough" and "can't play anything else".
-  /\b(?:can'?t|cannot|can not|unable to|won'?t let (?:me|you|us))\s+(?:even\s+|still\s+)?(?:craft|use|equip|unequip|open|interact|claim|unlock|buy|purchase|sell|accept|talk|enter|access|select|summon|mount|ride|loot|pick up|fast travel|travel|save|continue|finish|play(?!(?:\s+(?:it|this(?:\s+(?:game|one))?|the\s+game))?\s+enough\b|\s+any(?:thing)?\s+(?:else|other)\b)|join|skip|move|aim|dodge|parry|hold|press|redeem|upgrade|repair|cook|tame|teleport|respawn)\b/i,
+  // play (it) enough", "can't play anything else" and "can't play it without
+  // smiling". "Can't play without issues" is still a report.
+  /\b(?:can'?t|cannot|can not|unable to|won'?t let (?:me|you|us))\s+(?:even\s+|still\s+)?(?:craft|use|equip|unequip|open|interact|claim|unlock|buy|purchase|sell|accept|talk|enter|access|select|summon|mount|ride|loot|pick up|fast travel|travel|save|continue|finish|play(?!(?:\s+(?:it|this(?:\s+(?:game|one))?|the\s+game))?\s+(?:enough|without\s+\w+ing)\b|\s+any(?:thing)?\s+(?:else|other)\b)|join|skip|move|aim|dodge|parry|hold|press|redeem|upgrade|repair|cook|tame|teleport|respawn)\b/i,
   // A bare "is (beyond|completely) broken/bugged" with no symptom noun — "The duel
   // with Muskan is beyond broken". Negated forms ("is not broken", "is no longer
   // bugged") are not complaints.
@@ -193,9 +194,10 @@ const UNSUPPORTED_SOURCE_CONTEXT_PATTERNS = [
 // recognized here or "runs with no <noun>" reads as a complaint.
 const NO_ISSUE_NOUN = String.raw`(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag|artifacts?|ghosting|flicker(?:ing)?|(?:frame|fps) ?drops?|hitch(?:es|ing)?|freez(?:es|ing)|screen tearing|pop.?in)`;
 const NO_ISSUE_NOUN_SERIES = String.raw`${NO_ISSUE_NOUN}(?:\s*(?:[,/]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${NO_ISSUE_NOUN})*`;
-// "Never crashed until 2.03.02" and "no crashes before this update" say the
-// problem started afterward, so a following until/before/prior to undoes the praise.
-const UNTIL_THEN = String.raw`(?!\s+(?:until|till|before|prior\s+to)\b)`;
+// "Never crashed until 2.03.02" and "no crashes at all before this update" say
+// the problem started afterward, so an until/before/prior to up to two words
+// later undoes the praise.
+const UNTIL_THEN = String.raw`(?!(?:\s+\w+){0,2}\s+(?:until|till|before|prior\s+to)\b)`;
 // Praise in Steam reviews: "smooth 4K, no artifacts", "zero crashes", "not a
 // single stutter", "never crashed once".
 const NO_ISSUE_PATTERNS = [
@@ -232,17 +234,18 @@ function multilingualNoIssuePatterns(): RegExp[] {
     // Italian
     String.raw`(?:nessun|nessuna|zero|senza)\s+(?:\p{L}+\s+)?(?:crash|bug|errori?|problem[ai]|scatti|blocchi)`,
   ];
-  // As in English, "Keine Abstürze bis zum Patch" or "Aucun plantage avant cette
-  // mise à jour" says the problem started afterward: an until/before word right
-  // after the phrase undoes the praise.
-  const untilThen = String.raw`(?!\s+(?:bis|vor|avant|jusqu|hasta|antes|até|ate|до|перед|przed|do|fino|prima|kadar|önce)(?![\p{L}\p{N}]))`;
+  // As in English, "Keine Abstürze bis zum Patch" or "Aucun plantage du tout
+  // avant cette mise à jour" says the problem started afterward: an until/before
+  // word up to two words after the phrase undoes the praise.
+  const untilThen = String.raw`(?!(?:\s+\p{L}+){0,2}\s+(?:bis|vor|avant|jusqu|hasta|antes|até|ate|до|перед|przed|do|fino|prima|kadar|önce)(?![\p{L}\p{N}]))`;
   return [
     new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${lettered.join("|")})(?![\p{L}\p{N}])${untilThen}`, "iu"),
     // Japanese, Chinese and Korean put the negation after or before the noun with
-    // no spacing, and the until/before word comes first ("更新之前没有闪退").
-    /(?<!まで(?:は)?|前(?:は)?)(?:バグ|クラッシュ|フリーズ|エラー|強制終了)(?:は|も|が)?(?:一切|一度も)?(?:ない|無い|なし|無し|ありません|なかった)/u,
-    /(?<!之前|以前|前)(?:没有|沒有|无|無|零)(?:任何)?(?:闪退|閃退|崩溃|崩潰|卡顿|卡頓|bug|BUG|报错|報錯|掉帧|掉幀)/u,
-    /(?<!전에는\s?|전엔\s?|까지는\s?)(?:버그|튕김|크래시|렉|끊김|오류|에러)(?:가|이|는|도)?\s*(?:전혀\s*)?없/u,
+    // no spacing, and the until/before word comes first ("更新之前没有闪退"), at
+    // most one "ever"/"at all" word away ("更新之前都没有闪退").
+    /(?<!(?:まで|前)(?:は)?(?:一度も|全然|まったく|全く)?)(?:バグ|クラッシュ|フリーズ|エラー|強制終了)(?:は|も|が)?(?:一切|一度も)?(?:ない|無い|なし|無し|ありません|なかった)/u,
+    /(?<!(?:之前|以前|前)(?:都|也|从来|從來|一直|根本)?)(?:没有|沒有|无|無|零)(?:任何)?(?:闪退|閃退|崩溃|崩潰|卡顿|卡頓|bug|BUG|报错|報錯|掉帧|掉幀)/u,
+    /(?<!(?:전에는|전엔|까지는)\s?(?:한\s?번도\s?|전혀\s?)?)(?:버그|튕김|크래시|렉|끊김|오류|에러)(?:가|이|는|도)?\s*(?:전혀\s*)?없/u,
   ];
 }
 
@@ -589,6 +592,11 @@ export function shouldKeepExtractedSignal(
   extraction: ExtractionResult,
   sourceText?: string,
 ): SignalRelevanceDecision {
+  // The model read the whole source and said it reports no problem a player hit:
+  // praise, news, or a problem described as fixed ("Das Spiel stürzt nicht mehr
+  // ab"), even though a symptom word matched. Deterministic extraction gives no
+  // answer and is judged as before.
+  if (extraction.isReport === false) return { keep: false, reason: "source_not_issue_report" };
   if (extraction.category === "other") {
     // A real complaint with no category keyword (cross-save failures, boss-fight
     // bugs) still deserves tracking under "other" — this gate exists to drop

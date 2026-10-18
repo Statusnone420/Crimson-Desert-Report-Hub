@@ -30,6 +30,7 @@ describe("real reports the pre-filter used to drop before the AI saw them", () =
     ["I can’t craft the Pheonix pet", "Typed on a phone, with a curly apostrophe."],
     ["I can't play since the last hotfix", "Every time."],
     ["I can't play long enough to finish a quest", "Every time."],
+    ["I can't play without issues since the patch", "Every time."],
     ["The 'Shadows Cast Over The River' quest is bugged", "The cutscene doesn't play."],
     ["PSA: The control mechanics in this game are EXTREMELY buggy", "Inputs get eaten."],
   ])("keeps %s", (title, snippet) => {
@@ -71,6 +72,8 @@ describe("praise and roundups stay out", () => {
     ["I can't play enough of this game", "Best open world this year."],
     ["Can't play it enough", "Love it."],
     ["Can't play anything else now", "Love it."],
+    ["I can't play this game without smiling", "Love it."],
+    ["Can't play it without admiring the scenery", "Love it."],
   ])("rejects praise: %s", (title, snippet) => {
     expect(screen(title, snippet)).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     expect(shouldKeepExtractedSignal(otherExtraction(title), `${title} ${snippet}`)).toEqual({ keep: false, reason: "category_other" });
@@ -102,7 +105,12 @@ describe("praise and roundups stay out", () => {
     expect(screen("Keine Abstürze bis zum Patch", "Jetzt stürzt es ständig ab.")).toEqual({ keep: true });
   });
 
-  it.each(["Never crashed until 2.03.02", "No crashes before this update"])("keeps %s: it says the problem started afterward", (title) => {
+  it.each([
+    "Never crashed until 2.03.02",
+    "No crashes before this update",
+    "No crashes at all before this update",
+    "Never crashed even once before 2.03.02",
+  ])("keeps %s: it says the problem started afterward", (title) => {
     expect(screen(title, "")).toEqual({ keep: true });
   });
 
