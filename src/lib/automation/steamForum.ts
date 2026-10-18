@@ -184,3 +184,68 @@ export async function fetchSteamForumTopics({
   }
   return [...found.values()];
 }
+
+export type SteamThreadPage = {
+  /** Newest post time on this page, in ms, or null when none could be read. */
+  latestMs: number | null;
+  /** From "Showing 1 - 15 of 71 comments": first and last reply shown, and the total. */
+  shown: { from: number; to: number; total: number } | null;
+};
+
+/**
+ * Reads one page of a Steam thread: every post carries a Unix
+ * `data-timestamp`, and the paging summary says which replies the page shows
+ * out of how many. Steam draws the page links with script, so the summary is
+ * the only way to find the last page.
+ */
+export function parseSteamThreadPage(html: string): SteamThreadPage {
+  const stamps = [...html.matchAll(/commentthread_comment_timestamp"[^>]*?data-timestamp="(\d{9,11})"/g)]
+    .map((match) => Number(match[1]) * 1000)
+    .filter(Number.isFinite);
+  const at = html.indexOf("forum_paging_summary");
+  const summary = at < 0 ? "" : html.slice(at, at + 600).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+  const counts = summary.match(/Showing\s+([\d,]+)\s*-\s*([\d,]+)\s+of\s+([\d,]+)/i);
+  const number = (value: string) => Number(value.replace(/,/g, ""));
+  return {
+    latestMs: stamps.length ? Math.max(...stamps) : null,
+    shown: counts ? { from: number(counts[1]), to: number(counts[2]), total: number(counts[3]) } : null,
+  };
+}
+
+async function readSteamThreadPage(url: URL, fetchImpl: FetchLike): Promise<SteamThreadPage | null> {
+  const response = await fetchImpl(url, {
+    headers: { accept: "text/html", cookie: "timezoneOffset=0,0" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) return null;
+  return parseSteamThreadPage(await response.text());
+}
+
+/**
+ * The latest reply in a Steam thread, as UTC ISO, or null when it cannot be
+ * read. A search result carries only a thread's opening date, so a thread that
+ * players are still answering looks as old as its first post. This reads the
+ * first page and, when the thread runs longer, its last page (`?ctp=N`): at
+ * most two free public page reads. A time more than a day ahead of `now` is
+ * ignored, the same skew bound the forum reader uses.
+ */
+export async function fetchSteamThreadLatestReply(
+  threadUrl: string,
+  { now, fetchImpl = fetch }: { now: Date; fetchImpl?: FetchLike },
+): Promise<string | null> {
+  if (!isSteamForumThreadUrl(threadUrl)) return null;
+  const first = await readSteamThreadPage(new URL(threadUrl), fetchImpl);
+  if (!first) return null;
+  const times = first.latestMs === null ? [] : [first.latestMs];
+  const shown = first.shown;
+  if (shown && shown.to >= shown.from && shown.total > shown.to) {
+    const lastPage = Math.ceil(shown.total / (shown.to - shown.from + 1));
+    const url = new URL(threadUrl);
+    url.searchParams.set("ctp", String(lastPage));
+    const last = await readSteamThreadPage(url, fetchImpl);
+    if (last?.latestMs !== null && last?.latestMs !== undefined) times.push(last.latestMs);
+  }
+  const latest = times.filter((time) => time <= now.getTime() + 24 * 60 * 60 * 1000);
+  return latest.length ? new Date(Math.max(...latest)).toISOString() : null;
+}
