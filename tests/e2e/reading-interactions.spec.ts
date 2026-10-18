@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 test("section navigation follows reading position and preserves native hashes and history", async ({ page }) => {
   const errors: string[] = [];
@@ -8,6 +8,7 @@ test("section navigation follows reading position and preserves native hashes an
   page.on("pageerror", (error) => errors.push(error.message));
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/observatory");
+  await waitForHydration(page);
   const nav = page.getByRole("navigation", { name: "Observatory sections" });
   const platform = nav.getByRole("link", { name: "Platform activity", exact: true });
   await platform.focus();
@@ -37,6 +38,7 @@ for (const article of ["patch-2-03-00", "patch-2-02-00", "charting-the-unknown"]
     page.on("pageerror", (error) => errors.push(error.message));
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(`/articles/${article}`);
+    await waitForHydration(page);
     const desktop = page.locator(".article-rail .section-nav");
     const mobile = page.locator(".mobile-contents .section-nav");
     const hrefs = (selector: string) => page.locator(selector).evaluateAll((links) => links.map((link) => link.getAttribute("href")));
@@ -70,6 +72,7 @@ for (const theme of ["light", "dark"]) {
     const routes = ["/", "/news", "/watch", "/issues", "/patches", "/observatory", "/about", "/privacy", "/catch-up", "/articles/patch-2-02-00", "/articles/charting-the-unknown"];
     for (const route of routes) {
       await page.goto(route);
+      await waitForHydration(page);
       await expect(page.locator(".reading-link").first()).toBeVisible();
       const defects = await page.locator(".reading-link").evaluateAll((links) => links.flatMap((link) => {
         const rect = link.getBoundingClientRect();
@@ -192,6 +195,7 @@ test("confirmed CSS collisions no longer distort shared reading controls", async
 test("reading actions keep hover, focus, and reduced-motion cues without changing the box", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
+  await waitForHydration(page);
   const action = page.locator(".front-page-secondary .reading-link--action").first();
   await expect(action).toBeVisible();
   const rest = await action.evaluate((link) => {

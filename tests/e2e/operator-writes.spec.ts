@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectConsoleProblems, expectHealthyPage, refreshFixtureReads, signInAsAdmin } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, refreshFixtureReads, signInAsAdmin, waitForHydration } from "./helpers";
 
 const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 
@@ -61,9 +61,12 @@ test.describe("operator write paths", () => {
     const before = await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/automation_settings?key=eq.scanner`);
     const saved = await before.json();
     await page.goto("/operator?view=scanner");
+    await waitForHydration(page);
     await expect(page.locator('[name="modelPreset"], [name="monthlyLlmUsdCap"], [name="cadence"]')).toHaveCount(0);
     await page.getByRole("link", { name: "Open AI Settings", exact: true }).click();
     await expect(page.getByRole("heading", { name: "AI settings", exact: true })).toBeVisible();
+    // The link loads a new page, which shows its heading before its scripts hydrate it.
+    await waitForHydration(page);
     await page.getByRole("button", { name: "Spending & recovery", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Scanner schedule and searches", exact: true })).toBeVisible();
     await expect(page.getByText("This preview does not read or change them.", { exact: false })).toBeVisible();
@@ -202,6 +205,7 @@ test.describe("operator write paths", () => {
     await expect(page.getByText(ask)).toHaveCount(0);
 
     await page.goto("/operator?view=scanner");
+    await waitForHydration(page);
     const contextLanes = page.locator('section[aria-label="Scanner context archive"]');
     // Context lanes is a record, so it opens on request. Everything inside —
     // including the Undo this test proves — stays one click away.
@@ -230,6 +234,7 @@ test.describe("operator write paths", () => {
     });
 
     await page.goto("/operator?view=scanner");
+    await waitForHydration(page);
     // A fresh load closes the record sections again; the undoable item is still
     // announced in the section summary, so it is found rather than hunted for.
     await expect(contextLanes.locator(".operator-section__count")).toContainText("2 undoable");
@@ -252,6 +257,7 @@ test.describe("operator write paths", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=scanner");
+    await waitForHydration(page);
 
     const candidate = page.locator("article.decision-card").filter({ hasText: "Crimson Desert patch 1.13 patch notes repost" });
     await expect(candidate).toHaveCount(1);
@@ -279,6 +285,7 @@ test.describe("operator write paths", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=scanner");
+    await waitForHydration(page);
 
     // The whole rescue pipeline runs before this returns: run ledger insert,
     // deterministic extraction (no OPENROUTER key in the harness), cluster
@@ -319,6 +326,7 @@ test.describe("operator write paths", () => {
     const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
     expect(reset.ok(), "mid-test fixture reset failed").toBe(true);
     await page.goto("/operator?view=settings");
+    await waitForHydration(page);
     const patchLedger = page
       .locator("details")
       .filter({ has: page.getByText("Current patch override", { exact: true }) })
@@ -337,6 +345,7 @@ test.describe("operator write paths", () => {
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toBeVisible();
 
     await page.goto("/operator?view=settings");
+    await waitForHydration(page);
     const visibilityLedger = page
       .locator("details")
       .filter({ has: page.getByText("Visibility overrides", { exact: true }) })
@@ -367,6 +376,7 @@ test.describe("operator write paths", () => {
     // Reset is the only writer of visibility=auto, and the restore columns are
     // what put the issue back the way the engine had it.
     await page.goto("/operator?view=settings");
+    await waitForHydration(page);
     await visibilityLedger.locator(":scope > summary").click();
     await submitAction(page, () => forcedCard.getByRole("button", { name: "Reset to automatic" }).click());
     await expect(forcedCard).toHaveCount(0);
@@ -380,6 +390,7 @@ test.describe("operator write paths", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=settings");
+    await waitForHydration(page);
 
     const patchLedger = page
       .locator("details")
@@ -400,6 +411,7 @@ test.describe("operator write paths", () => {
     // screenshot projects. Overriding back makes the app do its own
     // revalidation, so the pages the next project renders are the seeded ones.
     await page.goto("/operator?view=settings");
+    await waitForHydration(page);
     await patchLedger.locator(":scope > summary").click();
     await patchLedger.getByLabel("New current patch").fill("1.13.01");
     await submitAction(page, () => patchLedger.getByRole("button", { name: "Set current patch" }).click());
@@ -413,6 +425,7 @@ test.describe("operator write paths", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=videos");
+    await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Video review" })).toBeVisible();
 
     const pending = page.locator("article[data-video-state='pending']");

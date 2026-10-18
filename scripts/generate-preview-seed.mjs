@@ -132,6 +132,10 @@ const signals = [];
 for (let i = 0; i < LEADS; i += 1) {
   const category = weighted(CATEGORIES);
   const domain = weighted(DOMAINS);
+  // Steam Community leads are forum threads, the only Steam pages the board's watch counts.
+  const url = domain === "steamcommunity.com"
+    ? `https://steamcommunity.com/app/3321460/discussions/0/59000000${String(i).padStart(10, "0")}`
+    : `https://${domain}/preview/${PATCH.replaceAll(".", "-")}/thread-${i}`;
   const symptom = pick(SYMPTOMS[category] ?? SYMPTOMS.other);
   const ageDays = Math.floor(Math.pow(rand(), 1.4) * DAYS); // biased recent
   const firstSeenMs = nowMs - ageDays * DAY_MS - Math.floor(rand() * 20 * 60 * 60 * 1000);
@@ -157,8 +161,8 @@ for (let i = 0; i < LEADS; i += 1) {
     id: uuid(3, i),
     source: "web_search",
     source_type: "web_search",
-    source_url: `https://${domain}/preview/${PATCH.replaceAll(".", "-")}/thread-${i}`,
-    canonical_url: `https://${domain}/preview/${PATCH.replaceAll(".", "-")}/thread-${i}`,
+    source_url: url,
+    canonical_url: url,
     title: `Crimson Desert: ${symptom} since patch ${PATCH}`,
     source_domain: domain,
     semantic_fingerprint: `preview-${category}-${i}`,

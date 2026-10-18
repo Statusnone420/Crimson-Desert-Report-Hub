@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 test("search finds a published issue from Watchlist and preserves the filters when switching", async ({ page }) => {
   const problems = collectConsoleProblems(page);
   await page.goto("/issues");
+  await waitForHydration(page);
   const views = page.getByRole("group", { name: "Choose board view" });
   const published = views.getByRole("button", { name: /Published issues/ });
   const watchlist = views.getByRole("button", { name: /Watchlist/ });

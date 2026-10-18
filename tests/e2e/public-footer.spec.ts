@@ -1,13 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { SOURCE_URL } from "../../src/lib/site";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 for (const theme of ["light", "dark"] as const) {
   test(`public endings keep one next step and a compact readable footer in ${theme} mode`, async ({ page }, testInfo) => {
     const problems = collectConsoleProblems(page);
     for (const [route, name] of [["/patches", "patches"], ["/articles/patch-2-02-00", "article"]]) {
       await page.goto(route);
+      await waitForHydration(page);
       if (await page.locator("html").getAttribute("data-theme") !== theme) {
         await page.getByRole("button", { name: `Switch to ${theme} mode`, exact: true }).click();
       }
@@ -63,6 +64,7 @@ test("public information stays readable without access to the source repository"
   const problems = collectConsoleProblems(page);
   for (const route of ["/about", "/privacy", "/contact"]) {
     await page.goto(route);
+    await waitForHydration(page);
     const main = page.getByRole("main");
     // Only the shared footer links to the source; the page content itself does not.
     await expect(main.locator('a[href*="github.com/Statusnone420"]')).toHaveCount(0);
@@ -104,6 +106,7 @@ test("contact stays public and navigation keeps unique metadata", async ({ page,
   const contact = await request.get("/contact", { maxRedirects: 0 });
   expect(contact.status()).toBe(200);
   const response = await page.goto("/contact");
+  await waitForHydration(page);
   expect(response?.status()).toBe(200);
   await expect(page).toHaveURL(/\/contact$/);
   await expect.poll(canonicalUrls).toEqual(["https://crimsonreporthub.com/contact"]);

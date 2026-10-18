@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 test("interior pages keep the publication identity and leave more room to read", async ({ page }, testInfo) => {
   const problems = collectConsoleProblems(page);
   await page.goto("/");
+  await waitForHydration(page);
   const homeHeader = await page.locator(".paper > header").boundingBox();
   expect(homeHeader).not.toBeNull();
 

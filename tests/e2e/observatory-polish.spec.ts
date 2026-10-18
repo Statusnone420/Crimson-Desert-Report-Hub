@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { waitForHydration } from "./helpers";
 
 test("scrolling under a stationary pointer preserves the selected review reading", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "mobile-chromium", "Hover is a desktop interaction.");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/observatory");
+  await waitForHydration(page);
   const selectedDate = page.locator(".obs-chart-readout p > span").first();
   const latest = await selectedDate.innerText();
   const firstBar = page.locator(".obs-review-hit").first();
@@ -23,6 +25,7 @@ test("scrolling under a stationary pointer preserves the selected review reading
 
 test("recorded Twitch history stays usable with an explicit capture timestamp", async ({ page }, testInfo) => {
   await page.goto("/observatory#platform-activity");
+  await waitForHydration(page);
   const activity = page.locator("#platform-activity");
   const olderHistory = process.env.PREVIEW_SEED_FILE?.endsWith("platform-context-older-history.json");
   const range = activity.getByRole("group", { name: "Twitch window" });
@@ -69,6 +72,7 @@ test("recorded Twitch history stays usable with an explicit capture timestamp", 
 test("a Twitch collection gap reports itself on hover and leaves its end captures selectable", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "mobile-chromium", "Hover is a desktop interaction.");
   await page.goto("/observatory#platform-activity");
+  await waitForHydration(page);
   const activity = page.locator("#platform-activity");
   const readout = activity.locator(".obs-twitch-readout");
   const chart = activity.locator(".obs-twitch-chart");
@@ -94,6 +98,7 @@ test("a Twitch collection gap reports itself on hover and leaves its end capture
 
 test("review movement offers full-size reading controls without reducing the data", async ({ page }) => {
   await page.goto("/observatory#review-record");
+  await waitForHydration(page);
 
   const movementMode = page.getByRole("group", { name: "Review chart" }).getByRole("button", { name: "Review movement", exact: true });
   const shareMode = page.getByRole("group", { name: "Review chart" }).getByRole("button", { name: "Positive share", exact: true });
@@ -142,6 +147,7 @@ test("review movement offers full-size reading controls without reducing the dat
 
 test("review exploration connects the slider, positive-share line, and recorded table", async ({ page }) => {
   await page.goto("/observatory#review-record");
+  await waitForHydration(page);
   const record = page.locator("#review-record");
   const slider = record.getByRole("slider", { name: "Choose a review reading" });
   const latest = await record.locator(".obs-chart-readout p > span").innerText();
@@ -164,6 +170,7 @@ test("review exploration connects the slider, positive-share line, and recorded 
 
 test("weekly scan exploration preserves the radar and connects daily outcomes to its table", async ({ page }) => {
   await page.goto("/observatory#scanner-radar");
+  await waitForHydration(page);
   await expect(page.getByRole("img", { name: /^Tracked leads by category/ })).toBeVisible();
   await page.getByRole("button", { name: "New this week", exact: true }).click();
   await expect(page.getByRole("img", { name: /^New leads this week by category/ })).toBeVisible();
@@ -203,6 +210,7 @@ test("platform record retains its source and date through a missing latest looku
 
 test("Steam player captures can be explored without changing the Twitch controls", async ({ page }) => {
   await page.goto("/observatory#platform-activity");
+  await waitForHydration(page);
   const players = page.getByRole("region", { name: "Playing on Steam", exact: true });
   await expect(players.getByRole("img", { name: /^Steam player history/ })).toBeVisible();
   const slider = players.getByRole("slider", { name: "Choose a Steam player capture" });
@@ -217,4 +225,57 @@ test("Steam player captures can be explored without changing the Twitch controls
   expect(await players.locator("tbody tr").count()).toBeGreaterThan(12);
   await expect(players).toContainText("excludes offline play and other platforms");
   await expect(page.getByRole("group", { name: "Twitch window" }).getByRole("button", { name: "24 hours", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("chart captions stay above their charts and the section bar stays short on a phone", async ({ page }, testInfo) => {
+  await page.goto("/observatory");
+  // The paper's figcaption is an image overlay; a chart caption must stay in the flow.
+  const positions = await page.locator(".dd-figcaption").evaluateAll((captions) => captions.map((caption) => getComputedStyle(caption).position));
+  expect(positions.length).toBeGreaterThan(0);
+  expect(positions.filter((position) => position !== "static")).toEqual([]);
+  const timeline = page.locator("#updates .dd-timeline");
+  const caption = await timeline.locator(".dd-figcaption").boundingBox();
+  const readout = await timeline.locator(".dd-measure:not([hidden]) .dd-readout").boundingBox();
+  expect(caption!.y + caption!.height).toBeLessThanOrEqual(readout!.y);
+  if (testInfo.project.name !== "mobile-chromium") return;
+  const bar = page.getByRole("navigation", { name: "Observatory sections" });
+  expect((await bar.boundingBox())!.height).toBeLessThanOrEqual(120);
+  await page.locator("#scanner-radar").evaluate((element) => element.scrollIntoView({ block: "start", behavior: "instant" }));
+  const current = bar.locator('a[aria-current="location"]');
+  await expect(current).toHaveAttribute("href", "#scanner-radar");
+  await expect(current).toBeInViewport();
+});
+
+test("the day-by-day chart shows one measure at a time and keeps each one's day", async ({ page }) => {
+  await page.goto("/observatory#updates");
+  await waitForHydration(page);
+  const measures = page.getByRole("group", { name: "Measure" });
+  const reviews = page.locator("#timeline-reviews");
+  const twitch = page.locator("#timeline-twitch");
+  await expect(measures.getByRole("button", { name: "New reviews a day", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(reviews).toBeVisible();
+  await expect(twitch).toBeHidden();
+  const slider = reviews.getByRole("slider", { name: "Choose a day: new Steam reviews" });
+  await slider.focus();
+  await slider.press("Home");
+  const first = await reviews.locator(".dd-readout").innerText();
+  await measures.getByRole("button", { name: "Twitch viewers", exact: true }).click();
+  await expect(twitch).toBeVisible();
+  await expect(reviews).toBeHidden();
+  await expect(measures.getByRole("button", { name: "Twitch viewers", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(twitch.locator(".dd-measure-title")).toContainText("Watching on Twitch");
+  await measures.getByRole("button", { name: "New reviews a day", exact: true }).click();
+  await expect(reviews.locator(".dd-readout")).toHaveText(first, { useInnerText: true });
+  // Touch-sized steppers beside the slider, and today's partial day named as such.
+  const next = reviews.getByRole("button", { name: "Next day" });
+  await next.click();
+  await expect(reviews.locator(".dd-readout")).not.toHaveText(first, { useInnerText: true });
+  for (const control of [next, reviews.getByRole("button", { name: "Previous day" }), slider]) {
+    expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  await slider.press("End");
+  await expect(reviews.locator(".dd-readout")).toContainText("today so far");
+  // Updates are compared only when the record has one; the fixture has a hotfix alone.
+  await expect(page.locator("#updates")).toContainText("No official update was released in the recorded days");
+  await expect(page.locator("#daily-reviews")).not.toContainText(/warmer|cooler|mood/i);
 });

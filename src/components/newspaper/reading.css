@@ -143,7 +143,11 @@
 @media (max-width: 650px) {
   .newspaper .section-nav--bar { padding-top: 10px; margin-bottom: 28px; }
   .newspaper .section-nav--bar .section-nav__caption { margin-bottom: 8px; }
-  .newspaper .section-nav--bar a { flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 10px; font-size: 14px; }
+  /* One row that scrolls sideways keeps the sticky bar short on a phone. */
+  .newspaper .section-nav--bar .section-nav__links { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .newspaper .section-nav--bar .section-nav__links::-webkit-scrollbar { display: none; }
+  .newspaper .section-nav--bar a { flex: 0 0 auto; gap: 8px; min-height: 52px; padding: 12px 14px; font-size: 14px; white-space: nowrap; }
+  .newspaper .section-nav--bar .section-nav__marker { bottom: 0; }
   .newspaper .section-nav--bar .reading-link__icon { height: 18px; width: 18px; flex-basis: 18px; }
   .newspaper .observatory-paper .obs-section { scroll-margin-top: 160px; }
   .newspaper .paper > header nav > a:not(.file) { padding-inline: 4px; }

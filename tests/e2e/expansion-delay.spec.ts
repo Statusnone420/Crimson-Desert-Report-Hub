@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { chartingTheUnknownDelay as report } from "../../src/lib/editorialArticles";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 test("the delay report opens from News and Catch Up with credited art and separate editorial opinion", async ({ page, request }, testInfo) => {
   test.slow();
   const problems = collectConsoleProblems(page);
   await page.goto("/news");
+  await waitForHydration(page);
   await page.getByRole("link", { name: report.title, exact: true }).click();
   await page.waitForURL(new RegExp(`${report.path}$`), { timeout: 60_000, waitUntil: "domcontentloaded" });
   await expect(page).toHaveURL(new RegExp(`${report.path}$`));
@@ -28,6 +29,7 @@ test("the delay report opens from News and Catch Up with credited art and separa
   await expectHealthyPage(page, problems);
 
   await page.goto("/catch-up#history=all&chapter=announcement-charting-the-unknown-delay");
+  await waitForHydration(page);
   const chapter = page.locator("#announcement-charting-the-unknown-delay");
   await expect(chapter).toBeFocused();
   await expect(chapter.locator(".cu-chapter-meta time")).toHaveAttribute("datetime", "2026-09-30T10:20:00Z");

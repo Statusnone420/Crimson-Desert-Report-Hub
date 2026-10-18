@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signInAsAdmin } from "./helpers";
+import { signInAsAdmin, waitForHydration } from "./helpers";
 
 const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 const CANDIDATE_ID = "video-pending-1";
@@ -11,6 +11,7 @@ async function archiveFixture(page: Parameters<typeof signInAsAdmin>[0]) {
   expect(response.ok()).toBe(true);
   await signInAsAdmin(page);
   await page.goto("/operator?view=videos&item=video-draft-1");
+  await waitForHydration(page);
 }
 
 for (const failure of ["database", "stale", "transport"] as const) {
@@ -57,6 +58,7 @@ test.afterEach(async ({ page }) => {
 test("video draft keeps its original revision after an unrelated queue refresh", async ({ page }) => {
   await signInAsAdmin(page);
   await page.goto(`/operator?view=videos&item=${CANDIDATE_ID}`);
+  await waitForHydration(page);
   const editor = page.getByRole("region", { name: /^Video details:/ });
   await editor.getByLabel("Title").fill("Unsaved local title from revision one");
 
@@ -92,6 +94,7 @@ test("video draft keeps its original revision after an unrelated queue refresh",
 test("video draft advances its revision only after its own confirmed save", async ({ page }) => {
   await signInAsAdmin(page);
   await page.goto(`/operator?view=videos&item=${CANDIDATE_ID}`);
+  await waitForHydration(page);
   const editor = page.getByRole("region", { name: /^Video details:/ });
   await editor.getByLabel("Title").fill("First confirmed title");
   await editor.getByRole("button", { name: "Save", exact: true }).click();

@@ -6,14 +6,14 @@ This is the public architecture contract: enough structure to review the privacy
 
 | Route | Public purpose |
 | --- | --- |
-| `/` | Newspaper front page: newest patch story, official record, selected external coverage, patch context, and aggregate platform pulse. Manual reporting wins for the same exact version. |
+| `/` | Newspaper front page: a "Before you play" band of recorded Steam and patch readings, then the newest patch story, official record, selected external coverage, patch context, and aggregate platform pulse. Manual reporting wins for the same exact version. |
 | `/news` | Original Hub reports and automatic official-note rundowns, plus selected external coverage. |
 | `/articles/*` | Source-backed editorial reports and templated official patch rundowns. The legacy `/topics/charting-the-unknown` route redirects to its canonical article. |
 | `/watch` | Official video and selected creator coverage, with links to the original channels. |
 | `/patches` | Current official patch record, stated fix claims, player responses, and an archive of retained official versions. |
 | `/patches/[version]` | Permanent historical claim record; does not reuse current player verdicts. `/patches/archive` redirects to `/patches#archive`. |
-| `/issues` | Issue board with evidence counts, reviewed links, player responses, and patch-scoped readouts. |
-| `/observatory` | Aggregate Steam, Twitch, IGDB, and source-radar context with collection-health labels. |
+| `/issues` | Issue board with evidence counts, reviewed links, player responses, and patch-scoped readouts. An empty board shows only the scanner's thread and topic counts for the patch. |
+| `/observatory` | Aggregate Steam, Twitch, IGDB, and source-radar context with collection-health labels: the week before and after each official update with a one-sentence summary of the newest, a day-by-day chart of new Steam reviews, Twitch viewers and Steam players (one at a time, with updates marked and today's partial day kept out of averages), and each day's Steam reviews against the usual positive share of the recorded full days. |
 | `/report` | Permanent redirect to `/issues`, preserving valid issue references. `POST /api/reports` returns 410 without reading a payload or writing data. |
 | `/scanner` | Permanent redirect to `/observatory`. Signed-in diagnostics and review actions live at `/operator?view=scanner`; model, budget, schedule, and search settings live at `/operator?view=ai`. |
 | `/admin/videos` | Authenticated owner inbox for manually reviewing YouTube links. Approval stores a private draft only. |

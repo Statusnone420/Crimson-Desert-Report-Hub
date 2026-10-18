@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { patch20200, patch20300, chartingTheUnknownDelay } from "../../src/lib/editorialArticles";
 import { SITE_URL } from "../../src/lib/site";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 function metaContent(head: string, property: string): string {
   const tags = [...head.matchAll(/<meta\s[^>]*>/g)]
@@ -89,6 +89,7 @@ test("X and messaging crawlers receive complete cards and publicly readable imag
 test("the new report is readable from News and is present in RSS and Atom", async ({ page, request }, testInfo) => {
   const problems = collectConsoleProblems(page);
   await page.goto("/news");
+  await waitForHydration(page);
   const newsReport = page.locator("article").filter({ has: page.getByRole("heading", { name: patch20300.title, exact: true }) });
   await expect(newsReport.getByText(patch20300.description, { exact: true })).toBeVisible();
   await page.getByRole("link", { name: patch20300.title, exact: true }).click();

@@ -27,6 +27,7 @@ import { countIndependentDomains, domainTier, isOfficialDomain, isProviderContex
 import {
   evaluateCurrentPatchEligibility,
   extractSourcePatchVersions,
+  storedSourceActiveAt,
   storedSourceFreshnessInput,
   type CurrentPatchContext,
   type CurrentPatchEligibilityReason,
@@ -49,7 +50,8 @@ import {
   type ObservationKind,
   type RelevanceSkipReason,
 } from "@/lib/automation/relevance";
-import { routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
+import { categoriesCompatible, routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
+import { compareClusterRecency, createClusterRetriever } from "@/lib/automation/clusterRetrieval";
 import {
   buildWireNewsQuery,
   tavilyExtract,
@@ -60,7 +62,7 @@ import {
 } from "@/lib/automation/search";
 import { resolveBurstState } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient, type ScannerPolicy } from "@/lib/automation/settings";
-import type { Category, Platform } from "@/lib/constants";
+import { CATEGORIES, type Category, type Platform } from "@/lib/constants";
 import { externalIdHash } from "@/lib/crypto";
 import { belongsToPatchFamily, isCurrentPatchVerified } from "@/lib/patchWatch";
 import {
@@ -360,6 +362,8 @@ type SourceInput = {
   observedAt: string;
   sourceDomain: string | null;
   sourcePublishedAt?: string | null;
+  /** Latest activity the source shows (a forum thread's last reply), never a publication date. */
+  sourceActiveAt?: string | null;
   steam?: Omit<SteamReviewCandidate, "reviewText">;
   /**
    * Present on threads read directly from the Steam Community forum, including
@@ -531,7 +535,7 @@ function isBorderlineRescueCandidate(
   if (RESCUE_EXCLUDED_CONTENT.test(text)) return false;
   if (!RESCUE_CONTEXT.test(text)) return false;
   return evaluateCurrentPatchEligibility(
-    { title: signal.title, snippet: signal.body, sourcePublishedAt: assertedSourceDate },
+    { title: signal.title, snippet: signal.body, sourcePublishedAt: assertedSourceDate, sourceActiveAt: signal.sourceActiveAt ?? null },
     currentPatch,
   ).canStore;
 }
@@ -963,7 +967,8 @@ export function forumSourceTextHash(title: string, text: string): string {
  * steamcommunity.com, the same shape a search result for the thread would have,
  * so the pre-screen, extraction and promotion rules apply unchanged. Recent
  * activity decides intake; the opening post's time is the publication date that
- * patch freshness judges, so a new reply does not make an old thread current.
+ * patch freshness judges. A reply after the patch keeps an older thread as a
+ * stored lead (`active_after_patch`), but never makes it current evidence.
  * An opening time Steam shows but that cannot be read is passed through as is,
  * which the date gate rejects as invalid_source_date before any extraction call.
  * Author names are never read into the candidate.
@@ -1004,6 +1009,7 @@ async function collectSteamForumInputs(
         observedAt: now.toISOString(),
         sourceDomain: "steamcommunity.com",
         sourcePublishedAt: topic.postedAtStatus === "malformed" ? topic.postedText : topic.postedAt,
+        sourceActiveAt: topic.lastPostAt,
         forum: {
           forumTextHash,
           inputHash: forumTextHash,
@@ -1113,6 +1119,7 @@ export function mergeForumWithSearch(
       ...search,
       body,
       sourcePublishedAt: thread.forum?.postedAtStatus === "missing" ? search.sourcePublishedAt : thread.sourcePublishedAt,
+      sourceActiveAt: thread.sourceActiveAt ?? search.sourceActiveAt ?? null,
       ...(thread.forum
         ? { forum: { ...thread.forum, viaSearch: true, inputHash: forumSourceTextHash(search.title, body) } }
         : {}),
@@ -1331,7 +1338,7 @@ async function prepareSignals(
   result: AutomationResult,
   budget: AutomationBudget,
   currentPatch: CurrentPatchContext,
-  clusterOptions: ClusterOption[],
+  clusterOptionsFor: (text: string) => ClusterOption[],
   feedbackRules: ScannerFeedbackRule[],
   storedSourceDates: StoredObservationDates,
   now: Date,
@@ -1441,6 +1448,7 @@ async function prepareSignals(
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
         sourcePublishedAt: dates.asserted,
+        sourceActiveAt: signal.sourceActiveAt ?? null,
       },
       { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
     ).keep;
@@ -1514,6 +1522,7 @@ async function prepareSignals(
                 url: canonicalUrl,
                 sourceDomain: signal.sourceDomain,
                 sourcePublishedAt: snippetDates.asserted,
+                sourceActiveAt: signal.sourceActiveAt ?? null,
               },
               { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
             );
@@ -1593,6 +1602,7 @@ async function prepareSignals(
         url: canonicalUrl,
         sourceDomain: signal.sourceDomain,
         sourcePublishedAt: snippetDates.asserted,
+        sourceActiveAt: signal.sourceActiveAt ?? null,
       },
       { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
     );
@@ -1690,6 +1700,7 @@ async function prepareSignals(
               url: canonicalUrl,
               sourceDomain: signal.sourceDomain,
               sourcePublishedAt: effectiveDates.asserted,
+              sourceActiveAt: signal.sourceActiveAt ?? null,
             },
             { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
           );
@@ -1734,7 +1745,7 @@ async function prepareSignals(
             llmDeadlineAtMs: budget.llmDeadlineAtMs,
             llmCallsRemaining: allocation.callsFor(lane),
             llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
-            clusterOptions,
+            clusterOptions: clusterOptionsFor(`${signal.title} ${effectiveBody}`),
           }),
         );
         result.llmCallsUsed += extraction.llmCallsUsed;
@@ -1812,7 +1823,7 @@ async function prepareSignals(
         llmDeadlineAtMs: budget.llmDeadlineAtMs,
         llmCallsRemaining: allocation.callsFor(lane),
         llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
-        clusterOptions,
+        clusterOptions: clusterOptionsFor(`${signal.title} ${signal.body}`),
       }),
     );
     result.llmCallsUsed += extraction.llmCallsUsed;
@@ -1891,15 +1902,16 @@ export type SemanticClusterCandidate = {
   last_signal_at?: string | null;
   created_at?: string | null;
   lifecycle_reason?: string | null;
+  signal_count?: number | string | null;
 };
 
 type RoutableClusterRow = SemanticClusterCandidate;
 
 export const MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS = 24;
-export const MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS = 24;
+export const MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS = 8;
 const ROUTABLE_CLUSTER_PAGE_SIZE = 1000;
 const ROUTABLE_CLUSTER_COLUMNS =
-  "id, slug, title, category, description, last_signal_at, created_at, lifecycle_reason";
+  "id, slug, title, category, description, last_signal_at, created_at, lifecycle_reason, signal_count";
 
 function isAutoCluster(cluster: RoutableClusterRow): boolean {
   return cluster.slug.startsWith("auto-");
@@ -1916,38 +1928,43 @@ function isRoutableClusterRow(value: unknown): value is RoutableClusterRow {
   return ["id", "slug", "title", "category"].every((field) => typeof row[field] === "string" && row[field].trim() !== "");
 }
 
-/** Newest activity first, then creation, then slug: bounded and reproducible. */
-function compareSemanticClusterRecency(left: RoutableClusterRow, right: RoutableClusterRow): number {
-  const fields: (keyof Pick<RoutableClusterRow, "last_signal_at" | "created_at">)[] = ["last_signal_at", "created_at"];
-  for (const field of fields) {
-    const leftValue = left[field] ?? "";
-    const rightValue = right[field] ?? "";
-    if (leftValue === rightValue) continue;
-    return leftValue < rightValue ? 1 : -1;
-  }
-  if (left.slug === right.slug) return 0;
-  return left.slug < right.slug ? -1 : 1;
-}
-
-export function selectSemanticClusterOptions(clusters: SemanticClusterCandidate[]): ClusterOption[] {
-  const select = (predicate: (cluster: RoutableClusterRow) => boolean, limit: number) =>
-    clusters.filter(predicate).sort(compareSemanticClusterRecency).slice(0, limit);
-  const named = select((cluster) => !isAutoCluster(cluster), MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS);
-  const auto = select(isActiveAutoCluster, MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS);
-  return [...named, ...auto].map((cluster) => ({
+/**
+ * The known clusters one source may be assigned to: the newest named clusters,
+ * as before, plus the automatic clusters that share the most distinctive words
+ * with that source, across categories and ages. The newest-first window let
+ * older topics fall out of reach, so each new wording started its own cluster.
+ * Empty clusters are left out; a match should accumulate where signals are.
+ */
+export function createSemanticClusterOptions(clusters: SemanticClusterCandidate[]): (text: string) => ClusterOption[] {
+  const named = clusters
+    .filter((cluster) => !isAutoCluster(cluster))
+    .sort(compareClusterRecency)
+    .slice(0, MAX_SEMANTIC_NAMED_CLUSTER_OPTIONS);
+  const isEmpty = (cluster: SemanticClusterCandidate) =>
+    cluster.signal_count !== null && cluster.signal_count !== undefined && Number(cluster.signal_count) === 0;
+  const retrieve = createClusterRetriever(
+    clusters.filter((cluster) => isActiveAutoCluster(cluster) && !isEmpty(cluster)),
+    MAX_SEMANTIC_AUTO_CLUSTER_OPTIONS,
+  );
+  const toOption = (cluster: SemanticClusterCandidate): ClusterOption => ({
     slug: cluster.slug,
     title: cluster.title,
     category: cluster.category,
     description: cluster.description ?? null,
-  }));
+  });
+  return (text) => [...named, ...retrieve(text)].map(toOption);
 }
 
 type ClusterRoutingState = {
   /** All explicitly named clusters preserve the existing keyword route path. */
   keywordClusters: RoutableClusterRow[];
-  /** Bounded auto choices may be reached only by a parser-validated sure LLM assignment. */
+  /**
+   * Named clusters plus every active automatic cluster. An automatic cluster is
+   * reached only by a parser-validated sure assignment from the options that
+   * one source was offered.
+   */
   semanticRoutingClusters: RoutableClusterRow[];
-  semanticOptions: ClusterOption[];
+  semanticOptionsFor: (text: string) => ClusterOption[];
 };
 
 /**
@@ -1981,17 +1998,10 @@ async function loadClusterRoutingState(
   // of throwing while constructing bounded semantic options.
   const allClusters = rows.filter(isRoutableClusterRow);
   const keywordClusters = allClusters.filter((cluster) => !isAutoCluster(cluster));
-  const semanticOptions = selectSemanticClusterOptions(allClusters);
-  const selectedAutoSlugs = new Set(
-    semanticOptions.filter((option) => option.slug.startsWith("auto-")).map((option) => option.slug),
-  );
   return {
     keywordClusters,
-    semanticRoutingClusters: [
-      ...keywordClusters,
-      ...allClusters.filter((cluster) => isActiveAutoCluster(cluster) && selectedAutoSlugs.has(cluster.slug)),
-    ],
-    semanticOptions,
+    semanticRoutingClusters: [...keywordClusters, ...allClusters.filter(isActiveAutoCluster)],
+    semanticOptionsFor: createSemanticClusterOptions(allClusters),
   };
 }
 
@@ -2203,6 +2213,78 @@ async function findExistingSignalCluster(
   return rows[0]?.cluster_id ?? null;
 }
 
+/**
+ * The routable cluster a source was stored in on an earlier observation. The
+ * source stays when the new extraction names the cluster's category, or when the
+ * stored record already matched its cluster and the new label differs only by
+ * "other" (see `categoriesCompatible`), so an adopted category survives an unsure
+ * re-extraction. Any other change of category means the page may now describe
+ * another problem, so it routes afresh.
+ */
+async function findStoredSignalCluster(
+  supabase: ReturnType<typeof createServiceClient>,
+  signal: PreparedSignal,
+  routableClusters: RoutableCluster[],
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("source_signals")
+    .select("cluster_id, category")
+    .eq("external_id_hash", signal.externalHash)
+    .not("cluster_id", "is", null)
+    .limit(1);
+  if (error) throw new Error(`stored signal cluster read failed: ${error.message}`);
+  const stored = ((data ?? []) as { cluster_id?: string | null; category?: string | null }[])[0];
+  const cluster = stored?.cluster_id ? routableClusters.find((candidate) => candidate.id === stored.cluster_id) : undefined;
+  if (!cluster) return null;
+  const category = String(cluster.category);
+  const extracted = signal.extraction.category;
+  return category === extracted || (stored?.category === category && categoriesCompatible(category, extracted)) ? cluster.id : null;
+}
+
+/** The routed cluster when it is the model's validated sure assignment, not a keyword fallback. */
+function sureSemanticRoute(signal: PreparedSignal, routed: RoutableCluster | null): RoutableCluster | null {
+  return signal.extraction.clusterAssignment === "sure" && routed?.slug === signal.extraction.clusterSlug ? routed : null;
+}
+
+/**
+ * A signal stored in a cluster whose category differs from its own only by
+ * "other" (see `categoriesCompatible`) takes the cluster's category, so the
+ * record and its cluster agree. That covers a sure assignment across the two, a
+ * same-scan duplicate reaching the cluster from the route cache, and a
+ * re-observed source staying in the cluster it was stored in.
+ */
+function adoptedClusterCategory(
+  signal: PreparedSignal,
+  clusterId: string | null,
+  routableClusters: RoutableCluster[],
+): Category | null {
+  const cluster = clusterId ? routableClusters.find((candidate) => candidate.id === clusterId) : undefined;
+  const category = cluster ? String(cluster.category) : null;
+  return category
+    && category !== signal.extraction.category
+    && categoriesCompatible(category, signal.extraction.category)
+    && (CATEGORIES as readonly string[]).includes(category)
+    ? (category as Category)
+    : null;
+}
+
+/** The signal as it is stored: in its cluster's category, with a fingerprint to match. */
+function withAdoptedCategory(
+  signal: PreparedSignal,
+  clusterId: string | null,
+  routableClusters: RoutableCluster[],
+): PreparedSignal {
+  const category = adoptedClusterCategory(signal, clusterId, routableClusters);
+  if (!category) return signal;
+  // The stored fingerprint must match the stored category, so a later source
+  // with the same title and the cluster's category finds this record.
+  return {
+    ...signal,
+    extraction: { ...signal.extraction, category },
+    semantic: semanticFingerprint(signal.extraction.issueTitle, category),
+  };
+}
+
 async function findAutoClusterBySlug(
   supabase: ReturnType<typeof createServiceClient>,
   slug: string,
@@ -2277,6 +2359,15 @@ async function resolveClusterId(
     routableClusters,
   );
   const reportCluster = matchingReportCluster(signal, reports);
+  // A source seen before stays in its cluster when nothing more specific
+  // applies: a reworded re-extraction of the same kind of problem must not move
+  // it into a fresh cluster and leave the old one empty. A sure model
+  // assignment still moves it.
+  const sureRoute = sureSemanticRoute(signal, routedCluster);
+  const storedCluster = existingSignalCluster || sureRoute
+    ? null
+    : await findStoredSignalCluster(supabase, signal, routableClusters);
+  const preferredCluster = existingSignalCluster ?? sureRoute?.id ?? storedCluster ?? routedCluster?.id ?? null;
   if (isProviderContextSource({ source: signal.source, domain: signal.sourceDomain, url: signal.canonicalUrl })) {
     // Steam reviews and the publisher's own pages are private provider context,
     // never player evidence. Either may support a cluster whose public-safe
@@ -2286,16 +2377,16 @@ async function resolveClusterId(
     // rejection Relevant stores the signal, and it must still never mint a
     // cluster. The canonical url rides along because the domain column is
     // nullable, and a candidate stored without one must not slip the guard.
-    const clusterId = existingSignalCluster ?? routedCluster?.id ?? reportCluster;
+    const clusterId = preferredCluster ?? reportCluster;
     if (clusterId) clusterBySemantic.set(signal.semantic, clusterId);
     return clusterId ?? null;
   }
   const existingAutoCluster =
-    existingSignalCluster || routedCluster?.id || reportCluster
+    preferredCluster || reportCluster
       ? null
       : await findAutoClusterBySlug(supabase, clusterSlug(signal.semantic));
   const clusterId =
-    existingSignalCluster ?? routedCluster?.id ?? reportCluster ?? existingAutoCluster ?? (await createCluster(supabase, signal));
+    preferredCluster ?? reportCluster ?? existingAutoCluster ?? (await createCluster(supabase, signal));
   clusterBySemantic.set(signal.semantic, clusterId);
   return clusterId;
 }
@@ -2390,6 +2481,9 @@ async function upsertSignal(
             sourceUpdatedAt: signal.steam.sourceUpdatedAt,
           }
         : {}),
+      ...(storedSourceActiveAt({ sourceActiveAt: signal.sourceActiveAt })
+        ? { sourceActiveAt: signal.sourceActiveAt as string }
+        : {}),
     },
     category: signal.extraction.category,
     confidence: signal.extraction.confidence,
@@ -2415,9 +2509,16 @@ async function upsertSignal(
     // proof an earlier successful forum extraction left, so overlap with search
     // cannot erase it.
     const priorProof = forumProcessingProof((existing.extracted_facts as Record<string, unknown> | null | undefined)?.forumProcessed);
-    const facts = !("forumProcessed" in baseRow.extracted_facts) && priorProof
+    const withProof = !("forumProcessed" in baseRow.extracted_facts) && priorProof
       ? { ...baseRow.extracted_facts, forumProcessed: priorProof }
       : baseRow.extracted_facts;
+    // The same rule for activity: a sighting without the forum's last-reply time
+    // (or with an older one) keeps the latest activity already stored.
+    const priorActiveAt = storedSourceActiveAt(existing.extracted_facts);
+    const nextActiveAt = storedSourceActiveAt(withProof);
+    const facts = priorActiveAt && (!nextActiveAt || Date.parse(priorActiveAt) > Date.parse(nextActiveAt))
+      ? { ...withProof, sourceActiveAt: priorActiveAt }
+      : withProof;
     const { error } = await supabase
       .from("source_signals")
       .update({
@@ -2698,7 +2799,7 @@ async function persistOneSignal(
   let promoted = false;
 
   try {
-    persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
+    persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters), clusterId, now, runId);
     if (persistence.previousClusterId && persistence.previousClusterId !== clusterId) {
       touchedClusters.add(persistence.previousClusterId);
     }
@@ -2737,7 +2838,7 @@ async function persistSignals(
     for (const signal of signals) {
       const clusterId = await resolveClusterId(supabase, signal, reports, clusterBySemantic, routableClusters);
       if (clusterId) touchedClusters.add(clusterId);
-      const persistence = await upsertSignal(supabase, signal, clusterId, now, runId);
+      const persistence = await upsertSignal(supabase, withAdoptedCategory(signal, clusterId, routableClusters), clusterId, now, runId);
       if (signal.source === "steam_review" && signal.steam?.recommendationHash) {
         persistedSteamReviewHashes.add(signal.steam.recommendationHash);
       }
@@ -3383,7 +3484,6 @@ async function executeAutomationRun(
     }
 
     const clusterRouting = await loadClusterRoutingState(supabase);
-    const clusterOptions = clusterRouting.semanticOptions;
     // Intake only. Re-canonicalizing an exact-URL scope widens what it matches,
     // which is right for "have I been taught about this page" and wrong for
     // re-evaluating stored evidence — refreshClusterStats keeps comparing scope
@@ -3412,7 +3512,7 @@ async function executeAutomationRun(
       result,
       budget,
       currentPatch,
-      clusterOptions,
+      clusterRouting.semanticOptionsFor,
       feedbackRules,
       storedSourceDates,
       now,
@@ -3711,7 +3811,6 @@ async function rescueCandidateSignalInner(
   };
 
   const clusterRouting = await loadClusterRoutingState(supabase);
-  const clusterOptions = clusterRouting.semanticOptions;
 
   let scannerPolicy = applyAutomationBudgetCeiling(
     await getAutomationControlState(supabase as unknown as AutomationSettingsClient),
@@ -3819,7 +3918,7 @@ async function rescueCandidateSignalInner(
         llmDeadlineAtMs: budget.llmDeadlineAtMs,
         llmCallsRemaining: budget.maxLlmCalls,
         llmBudgetRemainingUsd: budget.remainingLlmUsd,
-        clusterOptions,
+        clusterOptions: clusterRouting.semanticOptionsFor(`${source.title} ${source.body}`),
       }),
     );
     result.llmCallsUsed = extraction.llmCallsUsed;

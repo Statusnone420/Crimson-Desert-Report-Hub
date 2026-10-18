@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage, signInAsAdmin } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, signInAsAdmin, waitForHydration } from "./helpers";
 
 const fixture = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 const installCaptcha = async (page: Page) => {
@@ -38,6 +38,7 @@ test("the global problem form captures the current path, traps focus, and closes
   const footerEnd = await page.locator(".np-footer").evaluate((footer) => footer.lastElementChild!.getBoundingClientRect().bottom);
   expect(footerEnd).toBeLessThanOrEqual(shortcut!.y);
   await page.goto("/news?private=hidden#secret");
+  await waitForHydration(page);
   if (testInfo.project.name === "mobile-chromium") await page.setViewportSize({ width: 320, height: 844 });
   await page.getByRole("button", { name: "Report a problem", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Report a problem" });
@@ -78,6 +79,7 @@ test("a report stays private, enters the authenticated inbox, and changes only i
   test.slow();
   await installCaptcha(page);
   await page.goto("/watch?email=private#fragment");
+  await waitForHydration(page);
   await page.getByRole("button", { name: "Report a problem", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Report a problem" });
   await dialog.getByLabel("Type", { exact: true }).selectOption("remove_content");
@@ -112,6 +114,7 @@ test("a report stays private, enters the authenticated inbox, and changes only i
   expect(report.page_url).toMatch(/\/watch$/);
   expect(report).not.toHaveProperty("ip_hash");
   await page.goto("/operator?view=problem-reports");
+  await waitForHydration(page);
   await expect(page.getByRole("heading", { name: "Reports inbox", exact: true })).toBeVisible();
   if (testInfo.project.name === "mobile-chromium") {
     await page.setViewportSize({ width: 320, height: 844 });
@@ -142,6 +145,7 @@ test("a report stays private, enters the authenticated inbox, and changes only i
   const conflict = await page.request.patch(`/api/admin/problem-reports/${report.id}`, { headers: { origin: baseURL }, data: { revision: 0, status: "dismissed" } });
   expect(conflict.status()).toBe(409);
   await page.goto("/contact");
+  await waitForHydration(page);
   await page.getByRole("button", { name: "Report a problem", exact: true }).click();
   await dialog.getByLabel("What needs attention?", { exact: true }).fill("A second report from the same network.");
   const limited = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/problem-reports" && response.request().method() === "POST");

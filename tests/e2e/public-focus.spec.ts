@@ -1,8 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { waitForHydration } from "./helpers";
 
 async function openInTheme(page: Page, route: string, theme: "light" | "dark") {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(route);
+  await waitForHydration(page);
   await expect(page.getByRole("button", { name: "Catch me up", exact: true })).toBeEnabled();
   if (await page.locator("html").getAttribute("data-theme") !== theme) {
     await page.getByRole("button", { name: `Switch to ${theme} mode`, exact: true }).click();

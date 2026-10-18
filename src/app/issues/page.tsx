@@ -6,6 +6,7 @@ import { IssueBoard, type IssueBoardEntry } from "@/components/newspaper/IssueBo
 import { CATEGORY_LABELS, PLATFORM_LABELS, PLATFORMS } from "@/lib/constants";
 import { displayDescription, needsFullIssueCard, splitWatchlistByCandidates } from "@/lib/evidence";
 import { getIssuesData } from "@/lib/queries";
+import { getBoardWatchSummary } from "@/lib/boardWatch.server";
 import { routeMetadata } from "@/lib/site";
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
@@ -28,6 +29,7 @@ export default async function IssuesPage() {
   const active = clusters.filter(needsFullIssueCard);
   const watchlist = clusters.filter((cluster) => !needsFullIssueCard(cluster));
   const { candidates } = splitWatchlistByCandidates(watchlist);
+  const watching = active.length === 0 ? await getBoardWatchSummary(currentPatch) : null;
 
   function entryFrom(cluster: (typeof clusters)[number]): IssueBoardEntry {
     const reportPlatforms = Object.entries(cluster.reportPlatformCounts).filter(([, count]) => count > 0).map(([platform, count]) => `${PLATFORM_LABELS[platform as keyof typeof PLATFORM_LABELS] ?? platform} (${count})`);
@@ -74,7 +76,7 @@ export default async function IssuesPage() {
         <a className="skip" href="#board">Skip to the issue board</a>
         <section className="board-heading"><ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink><div className="board-heading-row"><div><p className="kicker">Issue board · Patch {currentPatch.version}</p><h1>What are you seeing?</h1><p className="board-deck">Find an issue. Choose your experience and platform.</p><p className="board-contribution-note">No account. No written report. A fresh tally for every patch.</p></div><Link href="/patches" className="board-patch-link"><span>Coming from the patch notes?</span><strong>Read the claims record</strong><span className="reading-cue">Visit the patch desk <DirectionIcon /></span></Link></div></section>
         {!checkinsAvailable ? <p className="np-error" role="status">Current-patch check-ins could not be loaded. Earlier records remain visible; new responses are temporarily unavailable.</p> : null}
-        <IssueBoard published={active.map(entryFrom)} watchlist={candidates.map(entryFrom)} emptyPatchVersion={currentPatch.version} />
+        <IssueBoard published={active.map(entryFrom)} watchlist={candidates.map(entryFrom)} emptyPatchVersion={currentPatch.version} watching={watching} />
         <div className="article-bottom"><ReadingLink variant="quiet" direction="back" href="/patches">Back to the patch desk</ReadingLink><ReadingLink variant="quiet" direction="up" href="#issues-top">Back to top</ReadingLink></div>
       </div>
     </PublicShell>

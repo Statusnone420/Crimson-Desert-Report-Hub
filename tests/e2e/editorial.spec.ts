@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 const now = process.env.PLAYWRIGHT_NOW ?? "2026-07-20T00:10:00.000Z";
 const coverageVisible = Date.parse(now) >= Date.parse("2026-09-05T00:00:00Z");
@@ -45,6 +45,7 @@ test("newspaper editorial routes retain the brand and separate coverage from sca
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ animations: "disabled", path: `output/playwright/watch-${testInfo.project.name}.png`, fullPage: true });
   await page.goto("/");
+  await waitForHydration(page);
   await expect(page).toHaveTitle(/Crimson Desert Report Hub.*News/);
   await expect(page.locator("#asks")).toHaveCount(0);
   await expect(page.getByText(/Day 20 of asking|Airbnb|No dated coverage is available for this patch/)).toHaveCount(0);

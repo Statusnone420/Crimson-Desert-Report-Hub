@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signInAsAdmin } from "./helpers";
+import { signInAsAdmin, waitForHydration } from "./helpers";
 
 test("the scanner alias redirects permanently to the canonical public Observatory", async ({ page, request }) => {
   for (const method of ["GET", "HEAD"]) {
@@ -65,6 +65,7 @@ test("a changed answer stays on its patch while a fresh hotfix starts with its o
     body: JSON.stringify({ ok: true, kind: "not_happening", platform: "pc_steam", patch_version: "1.13.01" }),
   }));
   await page.goto("/issues");
+  await waitForHydration(page);
   const card = page.locator(`#issue-${clusterId}`);
   await expect(card.getByRole("button", { name: /Happening to me/ })).toHaveAttribute("aria-pressed", "true");
   await card.getByRole("button", { name: /Not happening for me/ }).click();

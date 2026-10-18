@@ -1,6 +1,6 @@
 import { expect, test, type Route } from "@playwright/test";
 
-import { collectConsoleProblems, expectHealthyPage, signInAsAdmin } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, signInAsAdmin, waitForHydration } from "./helpers";
 
 const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 const MAP_PAIRING = "00000000-0000-4000-8000-000000000201";
@@ -77,6 +77,7 @@ test.describe("operator workspace flows", () => {
       expect(await page.content()).not.toContain("PRIVATE-AI-EVIDENCE-MARKER");
       await signInAsAdmin(page);
       await page.goto("/operator?view=scanner");
+      await waitForHydration(page);
       await expect(page.locator(".op-rail__sentence").filter({ hasText: /Found 8, kept 2.*AI unavailable/ })).toBeVisible();
       const details = page.locator("details").filter({ has: page.locator("summary", { hasText: "AI request evidence" }) }).first();
       await details.locator("summary").click();
@@ -111,6 +112,7 @@ test.describe("operator workspace flows", () => {
       expect(await page.content()).not.toMatch(/214ff53e|PRIVATE-CHECKPOINT-MARKER|Failed terminal checkpoint/);
       await signInAsAdmin(page);
       await page.goto("/operator?view=scanner");
+      await waitForHydration(page);
       const details = page.locator("details").filter({ has: page.locator("summary", { hasText: "AI request evidence" }) }).first();
       await details.locator("summary").click();
       await expect(details).toContainText("1 attempted; 1 validated");
@@ -128,6 +130,7 @@ test.describe("operator workspace flows", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator");
+    await waitForHydration(page);
 
     const health = page.locator(".workspace-overview-health");
     await expect(health.getByRole("heading", { name: "Scanner health" })).toBeVisible();
@@ -200,6 +203,7 @@ test.describe("operator workspace flows", () => {
     expect(inserted.ok()).toBe(true);
     await signInAsAdmin(page);
     await page.goto("/operator");
+    await waitForHydration(page);
     await expect(page.locator(".workspace-overview-health").getByText("in 12h", { exact: true })).toBeVisible();
     await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
     await expect(page.locator(".workspace-overview-health").getByText("Current scanner policy", { exact: true }).locator("..").locator("strong")).toHaveText("CAPPED");
@@ -213,6 +217,7 @@ test.describe("operator workspace flows", () => {
     });
     expect(recovered.ok()).toBe(true);
     await page.goto("/operator");
+    await waitForHydration(page);
     await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
     await expect(page.locator(".workspace-overview-health").getByText("Current scanner policy", { exact: true }).locator("..").locator("strong")).toHaveText("ACTIVE");
     await page.getByRole("link", { name: "Open diagnostics" }).click();
@@ -235,6 +240,7 @@ test.describe("operator workspace flows", () => {
     expect(inserted.ok()).toBe(true);
     await signInAsAdmin(page);
     await page.goto("/operator");
+    await waitForHydration(page);
     await expect(page.locator(".workspace-overview-health").getByText("1m ago", { exact: true })).toBeVisible();
     await expect(page.locator(".workspace-overview-health").getByText("in 50m", { exact: true })).toBeVisible();
     await page.getByRole("link", { name: "Open diagnostics" }).click();
@@ -255,6 +261,7 @@ test.describe("operator workspace flows", () => {
     expect(changed.ok()).toBe(true);
     await signInAsAdmin(page);
     await page.goto("/operator");
+    await waitForHydration(page);
     await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
     await expect(page.locator(".workspace-overview-health").getByText("Current scanner policy", { exact: true }).locator("..").locator("strong")).toHaveText("CAPPED");
     await page.getByRole("link", { name: "Open diagnostics" }).click();
@@ -266,6 +273,7 @@ test.describe("operator workspace flows", () => {
     });
     expect(raised.ok()).toBe(true);
     await page.goto("/operator");
+    await waitForHydration(page);
     await expect(page.locator(".workspace-overview-health .workspace-badge")).toHaveText("EXECUTION EVIDENCE NOT CONFIGURED");
     await expect(page.locator(".workspace-overview-health").getByText("Current scanner policy", { exact: true }).locator("..").locator("strong")).toHaveText("ACTIVE");
     await page.getByRole("link", { name: "Open diagnostics" }).click();
@@ -278,6 +286,7 @@ test.describe("operator workspace flows", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto(`/operator?view=claims&item=${MAP_PAIRING}`);
+    await waitForHydration(page);
 
     await page.getByRole("button", { name: "Not the same issue" }).click();
     const reason = page.getByLabel("Why is this not the same issue?");
@@ -290,6 +299,7 @@ test.describe("operator workspace flows", () => {
     await expect(reason).toHaveValue("The fixture claim names a map crash, but this pairing needs a different issue.");
 
     await page.reload();
+    await waitForHydration(page);
     await page.getByRole("button", { name: "Not the same issue" }).click();
     await reason.fill("The exact official text describes a map crash, not this broad player issue.");
     await submitAction(page, () => page.getByRole("button", { name: "Reject this match" }).click());
@@ -307,6 +317,7 @@ test.describe("operator workspace flows", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=reports");
+    await waitForHydration(page);
     const excerpt = page.getByLabel("Public excerpt");
     await excerpt.fill("The fixture player reports frame-rate drops near the open field after the patch.");
     const armed = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/fail-next-approved-excerpt`);
@@ -346,6 +357,7 @@ test.describe("operator workspace flows", () => {
   test("a transport abort preserves the report excerpt without deciding the report", async ({ page }) => {
     await signInAsAdmin(page);
     await page.goto("/operator?view=reports");
+    await waitForHydration(page);
     const excerpt = page.getByLabel("Public excerpt");
     await excerpt.fill("This report excerpt must survive an unconfirmed request.");
     const aborted = await abortActionBeforeSend(page, () => page.getByRole("button", { name: "Approve" }).click());
@@ -361,6 +373,7 @@ test.describe("operator workspace flows", () => {
   test("a transport abort preserves the claim rejection reason", async ({ page }) => {
     await signInAsAdmin(page);
     await page.goto(`/operator?view=claims&item=${MAP_PAIRING}`);
+    await waitForHydration(page);
     await page.getByRole("button", { name: "Not the same issue" }).click();
     const reason = page.getByLabel("Why is this not the same issue?");
     await reason.fill("This claim reason must survive an unconfirmed request.");
@@ -374,6 +387,7 @@ test.describe("operator workspace flows", () => {
   test("a transport abort preserves Video editor values", async ({ page }) => {
     await signInAsAdmin(page);
     await page.goto("/operator?view=videos&item=video-pending-1");
+    await waitForHydration(page);
     const editor = page.getByRole("region", { name: /^Video details:/ });
     const title = editor.getByLabel("Title");
     const note = editor.getByLabel("Review note");
@@ -390,6 +404,7 @@ test.describe("operator workspace flows", () => {
   test("a transport abort preserves the Dossier AI selection", async ({ page }) => {
     await signInAsAdmin(page);
     await page.goto("/operator?view=dossiers");
+    await waitForHydration(page);
     const useAi = page.getByRole("checkbox", { name: "Draft prose with AI" });
     await useAi.check();
     const aborted = await abortActionBeforeSend(page, () => page.getByRole("button", { name: "Compile now" }).click());
@@ -403,6 +418,7 @@ test.describe("operator workspace flows", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=videos&item=video-pending-1");
+    await waitForHydration(page);
     const editor = page.getByRole("region", { name: /^Video details:/ });
     const title = editor.getByLabel("Title");
     const note = editor.getByLabel("Review note");
@@ -418,6 +434,7 @@ test.describe("operator workspace flows", () => {
     await expect(title).toHaveValue("Edited fixture title survives a failed save");
 
     await page.reload();
+    await waitForHydration(page);
     const staleEditor = page.getByRole("region", { name: /^Video details:/ });
     const staleTitle = staleEditor.getByLabel("Title");
     const staleNote = staleEditor.getByLabel("Review note");
@@ -437,6 +454,7 @@ test.describe("operator workspace flows", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=dossiers");
+    await waitForHydration(page);
     const useAi = page.getByRole("checkbox", { name: "Draft prose with AI" });
     await expect(useAi).toBeEnabled();
     await useAi.check();
@@ -451,6 +469,7 @@ test.describe("operator workspace flows", () => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     await page.goto("/operator?view=dossiers");
+    await waitForHydration(page);
     const redirected = page.waitForURL(/\/operator\?view=dossiers&run=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     await submitAction(page, () => page.getByRole("button", { name: "Compile now" }).click());
     await redirected;
@@ -532,6 +551,7 @@ test.describe("operator workspace flows", () => {
     for (const theme of ["light", "dark"] as const) {
       for (const [name, path] of destinations) {
         await page.goto(path);
+        await waitForHydration(page);
         if (await page.locator("html").getAttribute("data-theme") !== theme) {
           await page.getByRole("button", { name: `Switch to ${theme} mode` }).click();
         }

@@ -1,0 +1,181 @@
+/* Activity charts and the front-page readings band. Colors were checked for
+   contrast and color-vision separation against both papers; the dark chart
+   blue is one step deeper than the link blue so marks stay in range. In the
+   review colors blue is better than usual and red worse, so update markers
+   stay neutral. */
+.newspaper{--dd-series:#2457a1;--dd-wash:rgba(36,87,161,.11);--dd-band:rgba(83,85,80,.15);--dd-grid:color-mix(in srgb,var(--line) 32%,transparent);--dd-patch:var(--muted);--dd-quiet:#a8a59b;--dd-axis:44px;--rv-w3:#a51e23;--rv-w2:#c4675e;--rv-w1:#db9f96;--rv-z:#e2dfd6;--rv-b1:#93abcd;--rv-b2:#5e83b9;--rv-b3:#2457a1;--dd-better:var(--rv-b3);--dd-worse:var(--rv-w3)}
+html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,.16);--dd-band:rgba(184,187,192,.16);--dd-quiet:#4a4c50;--rv-w3:#e15b62;--rv-w2:#a74147;--rv-w1:#70292d;--rv-z:#1a1b1e;--rv-b1:#3e5378;--rv-b2:#5672a3;--rv-b3:#6490e4}
+
+/* Front-page readings band */
+.newspaper .dd-brief{padding:30px 0 24px;border-bottom:2px solid var(--ink)}
+.newspaper .dd-brief-heading h2{font:400 clamp(34px,4.4vw,52px)/1.08 var(--serif),serif;margin:8px 0;text-wrap:balance}
+.newspaper .dd-brief-deck{font-size:15px;line-height:1.55;color:var(--muted);max-width:64ch}
+.newspaper .dd-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--line);margin-top:20px}
+.newspaper .dd-tile{min-width:0;padding:16px 26px 8px;border-left:1px solid var(--line)}
+.newspaper .dd-tile:first-child{border-left:0;padding-left:0}
+.newspaper .dd-tile:last-child{padding-right:0}
+.newspaper .dd-tile-label{font-size:14px;font-weight:600}
+.newspaper .dd-tile-value{font:400 64px/1 var(--serif),serif;margin:10px 0 6px}
+.newspaper .dd-tile-sub{font-size:14px;line-height:1.5;color:var(--muted)}
+.newspaper .dd-tile-delta{font-size:14px;line-height:1.5;margin-top:6px}
+.newspaper .dd-tile-note{font-size:12px;line-height:1.5;color:var(--muted);margin-top:6px}
+.newspaper .dd-tile-link{margin-top:12px}
+.newspaper .dd-spark{position:relative;height:56px;margin-top:12px}
+.newspaper .dd-spark svg{display:block;width:100%;height:100%;overflow:visible}
+.newspaper .dd-spark-dot{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--dd-series);box-shadow:0 0 0 2px var(--paper);transform:translate(-50%,-50%);pointer-events:none}
+.newspaper .dd-watch{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 18px;align-items:baseline;border-top:1px solid var(--line);margin-top:18px;padding-top:14px;font-size:15px;line-height:1.55}
+.newspaper .dd-watch strong{font-weight:600}
+.newspaper .dd-brief-link{margin-top:14px}
+
+/* Charts */
+.newspaper .dd-figure{margin:0;padding-top:6px}
+.newspaper .dd-figure + .dd-figure{margin-top:40px}
+/* The paper's figcaption is an image overlay; a chart caption sits in the flow. */
+.newspaper .dd-figcaption{position:static;color:var(--ink);font-size:inherit;font-style:normal;text-shadow:none}
+.newspaper .dd-figcaption h3{font:400 clamp(28px,3.4vw,40px)/1.1 var(--serif),serif;text-wrap:balance}
+/* Captions and notes stay under about 75 characters a line. */
+.newspaper .dd-figcaption p{font-size:15px;line-height:1.55;color:var(--muted);max-width:50ch;margin-top:6px}
+.newspaper .dd-figcaption .dd-takeaway{font:400 20px/1.4 var(--serif),serif;color:var(--ink);max-width:52ch;margin-top:10px;text-wrap:pretty}
+.newspaper .dd-scrub{margin-top:14px}
+/* The readout sits directly above the slider and keeps its height while the day changes. */
+.newspaper .dd-readout{min-height:46px;min-height:calc(2lh + 4px);font-size:14px;line-height:1.5;border-left:2px solid var(--ink);padding:2px 0 2px 12px;margin:12px 0 0 var(--dd-axis);max-width:56ch}
+.newspaper .dd-readout strong{font-weight:600;margin-right:4px}
+.newspaper .dd-stepper{display:flex;align-items:center;gap:8px;margin:8px 0 0 var(--dd-axis)}
+.newspaper .dd-step{flex:0 0 44px;display:grid;place-items:center;width:44px;height:44px;padding:0;border:1px solid var(--line);border-radius:2px;background:transparent;color:var(--ink);font-size:24px;line-height:1;cursor:pointer}
+.newspaper .dd-step:disabled{opacity:.35;cursor:default}
+.newspaper .dd-scrub-area{position:relative;margin-left:var(--dd-axis)}
+.newspaper .dd-hit{position:absolute;inset:0;cursor:crosshair;touch-action:pan-y}
+.newspaper .dd-cursor{position:absolute;top:0;bottom:26px;width:0;border-left:1px solid var(--ink);pointer-events:none}
+/* Update labels sit on one row on wide screens and stagger into two or three rows below that, so none is hidden. */
+.newspaper .dd-patch-strip{position:relative;height:26px}
+.newspaper .dd-patch-tick{position:absolute;bottom:0;height:5px;border-left:1px solid var(--dd-patch);opacity:.7}
+.newspaper .dd-patch-tick.is-update{height:10px;opacity:1}
+/* Labels sit on the paper above every tick, so a neighbor's tick never crosses one. */
+.newspaper .dd-patch-label{position:absolute;z-index:1;bottom:calc(100% + 1px);left:0;transform:translateX(-50%);padding:1px 2px;background:var(--paper);font-size:12px;font-weight:600;line-height:1;white-space:nowrap;color:var(--ink)}
+.newspaper .dd-patch-label.is-start{transform:translateX(-2px)}
+.newspaper .dd-patch-label.is-end{transform:translateX(calc(-100% + 2px))}
+.newspaper .dd-plot{position:relative;height:200px}
+.newspaper .dd-plot svg{display:block;width:100%;height:100%;overflow:visible}
+.newspaper .dd-yaxis span{position:absolute;right:calc(100% + 6px);transform:translateY(-50%);font-size:12px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.newspaper .dd-gridline{stroke:var(--dd-grid);stroke-width:1}
+.newspaper .dd-baseline{stroke:var(--line);stroke-width:1}
+.newspaper .dd-patch-line{stroke:var(--dd-patch);stroke-width:1;opacity:.45}
+.newspaper .dd-line{fill:none;stroke:var(--dd-series);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+/* Today's partial day: lighter, so it never reads as a finished day. */
+.newspaper .dd-line.is-partial{stroke-dasharray:3 3;opacity:.6}
+.newspaper .dd-column.is-partial{opacity:.4}
+/* A day that lost more reviews than it gained: a short mark under the baseline. */
+.newspaper .dd-column.is-loss{fill:var(--muted)}
+.newspaper .dd-wash{fill:var(--dd-wash)}
+.newspaper .dd-band{fill:var(--dd-band)}
+.newspaper .dd-column{fill:var(--dd-series)}
+.newspaper .dd-column.is-quiet{fill:var(--dd-quiet)}
+.newspaper .dd-panel-state{font-size:14px;line-height:1.5;color:var(--muted);padding:28px 0}
+.newspaper .dd-months{position:relative;height:26px;margin-top:4px}
+.newspaper .dd-months span{position:absolute;top:6px;font-size:12px;line-height:1;color:var(--muted);white-space:nowrap;transform:translateX(-50%)}
+.newspaper .dd-slider-input{flex:1 1 auto;min-width:0;min-height:44px;margin:0;accent-color:var(--dd-series)}
+.newspaper .dd-table{margin-top:14px}
+.newspaper .dd-table-scroll{max-height:340px;overflow:auto}
+.newspaper .dd-table table{font-size:12px;font-variant-numeric:tabular-nums}
+.newspaper .dd-table th,.newspaper .dd-table td{white-space:nowrap}
+.newspaper .dd-nowrap{white-space:nowrap}
+.newspaper .dd-source{font-size:12px;line-height:1.5;color:var(--muted);margin-top:12px;max-width:50ch}
+
+/* Update by update: one row per update, one column per measure */
+.newspaper .dd-updates{--dd-cols:3}
+.newspaper .dd-cards-head,.newspaper .dd-card{display:grid;grid-template-columns:minmax(150px,1.1fr) repeat(var(--dd-cols),minmax(0,1fr));gap:0 24px}
+.newspaper .dd-cards-head{margin-top:20px;padding-bottom:8px;border-bottom:1px solid var(--ink);font-size:13px;font-weight:600;color:var(--muted);row-gap:4px}
+.newspaper .dd-cards-head-update{grid-row:1/span 2;align-self:end}
+.newspaper .dd-cards-head-window{grid-column:2/-1;font-weight:400}
+.newspaper .dd-cards{list-style:none;margin:0;padding:0}
+.newspaper .dd-card{align-items:start;padding:14px 0;border-bottom:1px solid var(--line)}
+.newspaper .dd-card-update{min-width:0}
+.newspaper .dd-card-update h4{font:400 26px/1.1 var(--serif),serif}
+.newspaper .dd-card-update p{font-size:13px;line-height:1.45;color:var(--muted);margin-top:4px}
+.newspaper .dd-card-measures{grid-column:2/-1;display:grid;grid-template-columns:repeat(var(--dd-cols),minmax(0,1fr));gap:0 24px;margin:0}
+.newspaper .dd-card-measures>div{min-width:0;margin:0}
+/* The column heads name each value on wide screens; the terms stay for screen readers. */
+.newspaper .dd-card-measures dt{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.newspaper .dd-card-measures dd{display:flex;flex-direction:column;gap:3px;margin:0;font-size:15px;line-height:1.35;text-align:left}
+.newspaper .dd-change-values{font-weight:600;font-variant-numeric:tabular-nums}
+.newspaper .dd-change{font-size:14px}
+.newspaper .dd-change-mark{display:inline-block;min-width:1.1em;font-style:normal;color:var(--ink)}
+.newspaper .dd-change.is-tone.is-up .dd-change-mark,.newspaper .dd-cards-key .dd-change-mark.is-up{color:var(--dd-better)}
+.newspaper .dd-change.is-tone.is-down .dd-change-mark,.newspaper .dd-cards-key .dd-change-mark.is-down{color:var(--dd-worse)}
+.newspaper .dd-change-reason{font-size:14px;color:var(--muted)}
+.newspaper .dd-cards-key{font-size:13px;line-height:1.5;color:var(--muted);margin-top:12px;max-width:50ch}
+.newspaper .dd-cards-key .dd-change-mark{min-width:0}
+
+/* Day by day: one measure at a time */
+.newspaper .dd-measures{margin-top:12px}
+.newspaper .dd-measure-options{flex-wrap:wrap;gap:0 24px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.newspaper .dd-measure-title{font-size:14px;line-height:1.5;max-width:54ch}
+.newspaper .dd-measure-title strong{font-weight:600;margin-right:4px}
+.newspaper .dd-measure-title span{color:var(--muted)}
+
+/* Each day's Steam reviews */
+.newspaper .dd-ribbon{display:flex;gap:1px;height:38px}
+.newspaper .dd-cell{flex:1 1 0;min-width:0;border-radius:1px}
+.newspaper .dd-cell.is-empty{background:transparent}
+/* Under 50 reviews: a thin center line, which stays visible at phone cell widths. */
+.newspaper .dd-cell.is-small,.newspaper .dd-swatch.is-small{background:linear-gradient(to right,transparent calc(50% - .5px),var(--muted) calc(50% - .5px) calc(50% + .5px),transparent calc(50% + .5px))}
+.newspaper .dd-swatch.is-empty{box-shadow:inset 0 0 0 1px var(--line)}
+.newspaper .dd-cell.is-loss,.newspaper .dd-swatch.is-loss{background:linear-gradient(to top,var(--muted) 0 30%,transparent 30%)}
+.newspaper .dd-cell.is-partial,.newspaper .dd-swatch.is-partial{background:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 5px)}
+.newspaper .rv-w3{background:var(--rv-w3)}
+.newspaper .rv-w2{background:var(--rv-w2)}
+.newspaper .rv-w1{background:var(--rv-w1)}
+.newspaper .rv-z{background:var(--rv-z)}
+.newspaper .rv-b1{background:var(--rv-b1)}
+.newspaper .rv-b2{background:var(--rv-b2)}
+.newspaper .rv-b3{background:var(--rv-b3)}
+.newspaper .dd-legend{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0;margin:10px 0 0;font-size:12px;color:var(--muted)}
+/* One scale from worse to better, read left to right, above the strip. */
+.newspaper .dd-scale{margin-top:14px}
+.newspaper .dd-scale-title{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.newspaper .dd-scale-row{display:flex;align-items:flex-start;gap:10px;font-size:12px;color:var(--muted)}
+.newspaper .dd-scale-end{line-height:14px;white-space:nowrap}
+.newspaper .dd-scale-steps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));flex:0 1 420px;min-width:0;list-style:none;margin:0;padding:0}
+.newspaper .dd-scale-steps li{display:grid;justify-items:center;gap:4px;min-width:0;margin:0;text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap}
+.newspaper .dd-scale-swatch{display:block;width:100%;height:14px}
+.newspaper .dd-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.newspaper .dd-swatch{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-2px}
+
+@media (max-width:900px){
+  /* Three narrower columns keep the band short above the reports on a tablet. */
+  .newspaper .dd-tile{padding:14px 16px 8px}
+  .newspaper .dd-tile-value{font-size:46px}
+  .newspaper .dd-watch{grid-template-columns:1fr}
+  .newspaper .dd-plot{height:180px}
+  .newspaper .dd-patch-strip{height:40px}
+  .newspaper .dd-patch-tick.is-update.r2-1{height:24px}
+  .newspaper .dd-cards-head,.newspaper .dd-card{grid-template-columns:minmax(120px,.9fr) repeat(var(--dd-cols),minmax(0,1fr));gap:0 16px}
+  .newspaper .dd-card-measures{gap:0 16px}
+}
+@media (max-width:650px){
+  .newspaper{--dd-axis:36px}
+  .newspaper .dd-tiles{grid-template-columns:1fr}
+  .newspaper .dd-tile{border-left:0;border-top:1px solid var(--line);padding:14px 0 8px}
+  .newspaper .dd-tile:first-child{border-top:0}
+  .newspaper .dd-plot{height:150px}
+  .newspaper .dd-readout{min-height:67px;min-height:calc(3lh + 4px)}
+  .newspaper .dd-figcaption .dd-takeaway{font-size:18px}
+  .newspaper .dd-tile-value{font-size:54px}
+  .newspaper .dd-ribbon{height:30px}
+  /* Each update becomes a block, with each value named beside it. */
+  .newspaper .dd-cards-head{display:none}
+  .newspaper .dd-cards{border-top:1px solid var(--ink);margin-top:16px}
+  .newspaper .dd-card{display:block;padding:14px 0}
+  .newspaper .dd-card-measures{display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px}
+  .newspaper .dd-card-measures>div{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,5fr);gap:12px;align-items:baseline}
+  .newspaper .dd-card-measures dt{position:static;width:auto;height:auto;overflow:visible;clip-path:none;white-space:normal;font-size:13px;line-height:1.35;color:var(--muted)}
+  .newspaper .dd-card-measures dd{gap:1px;font-size:14px}
+  .newspaper .dd-change,.newspaper .dd-change-reason{font-size:13px}
+  .newspaper .dd-measure-options{gap:0 18px}
+}
+@media (max-width:420px){
+  .newspaper .dd-patch-strip{height:54px}
+  .newspaper .dd-patch-tick.is-update.r2-1{height:10px}
+  .newspaper .dd-patch-tick.is-update.r3-1{height:24px}
+  .newspaper .dd-patch-tick.is-update.r3-2{height:38px}
+}

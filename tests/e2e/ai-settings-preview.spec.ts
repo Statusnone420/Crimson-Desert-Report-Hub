@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage, signInAsAdmin } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, signInAsAdmin, waitForHydration } from "./helpers";
 
 async function inspectSelectedProvider(page: Page) {
   await page.getByRole("button", { name: "Inspect sample model", exact: true }).click();
@@ -19,6 +19,7 @@ test("reopening setup preserves the active policy and cancellation leaves it unc
   });
   await signInAsAdmin(page);
   await page.goto("/operator?view=ai");
+  await waitForHydration(page);
   await page.getByRole("button", { name: "Set up a model", exact: true }).click();
   await page.getByLabel("Reasoning", { exact: true }).selectOption("high");
   await page.getByLabel("Data retention", { exact: true }).selectOption("zdr");
@@ -55,6 +56,7 @@ test("the shared AI settings UI keeps its design preview local and resets on rel
   });
   await signInAsAdmin(page);
   await page.goto("/operator?view=ai");
+  await waitForHydration(page);
 
   await expect(page.getByRole("navigation", { name: "Operator" }).getByRole("link", { name: "AI settings" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("Design preview · sample data", { exact: true })).toBeVisible();
@@ -122,6 +124,7 @@ test("the shared AI settings UI keeps its design preview local and resets on rel
 test("unknown models, timeouts and invalid samples cannot activate", async ({ page }) => {
   await signInAsAdmin(page);
   await page.goto("/operator?view=ai");
+  await waitForHydration(page);
   await page.getByRole("button", { name: "Set up a model", exact: true }).click();
 
   const modelId = page.getByLabel("OpenRouter model ID", { exact: true });
@@ -150,6 +153,7 @@ test("AI settings stays readable in light and dark themes without horizontal ove
   const problems = collectConsoleProblems(page);
   await signInAsAdmin(page);
   await page.goto("/operator?view=ai");
+  await waitForHydration(page);
   async function captureState(name: string) {
     for (const theme of ["light", "dark"]) {
       await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);

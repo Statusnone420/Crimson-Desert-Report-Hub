@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 const E2E_NOW = new Date("2026-07-20T00:10:00.000Z");
 const PUBLIC_ROUTES = [
@@ -91,6 +91,7 @@ test.describe("public newspaper readability", () => {
 
     for (const route of PUBLIC_ROUTES) {
       await page.goto(route);
+      await waitForHydration(page);
 
       const nav = page.getByRole("navigation", { name: "Main navigation" });
       const navMetrics = await visibleTargetMetrics(nav.getByRole("link"));
@@ -134,6 +135,7 @@ test.describe("public newspaper readability", () => {
     test.slow();
     for (const route of PUBLIC_ROUTES) {
       await page.goto(route);
+      await waitForHydration(page);
       for (const theme of ["light", "dark"]) {
         if (await page.locator("html").getAttribute("data-theme") !== theme) {
           await page.getByRole("button", { name: `Switch to ${theme} mode` }).click();
@@ -198,6 +200,7 @@ test.describe("public newspaper readability", () => {
 
   test("light is the first-visit theme and a saved dark choice persists", async ({ page }) => {
     await page.goto("/");
+    await waitForHydration(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#f6f4ee");
     const manifest = await (await page.request.get("/manifest.webmanifest")).json();
@@ -219,6 +222,7 @@ test.describe("public newspaper readability", () => {
 
   test("review-chart keyboard and tap readouts do not cover the total", async ({ page }) => {
     await page.goto("/");
+    await waitForHydration(page);
     const chart = page.getByRole("heading", { name: "Daily review-count change" }).locator("..");
     const total = chart.getByText("Total reviews").locator("..");
     const point = chart.getByRole("button", { name: /net reviews/ }).first();

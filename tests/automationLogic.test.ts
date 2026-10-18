@@ -232,6 +232,27 @@ describe("automation extraction", () => {
     expect(parsed.clusterReason).toMatch(/category does not match/i);
   });
 
+  it.each([
+    ["the source is other and the cluster is specific", "other", "quest_progression"],
+    ["the source is specific and the cluster is other", "quest_progression", "other"],
+  ])("accepts a sure cross-category assignment when %s", (_label, category, clusterCategory) => {
+    const parsed = parseOpenRouterExtraction(
+      JSON.stringify({
+        issueTitle: "Lyselia dialogue softlock",
+        category,
+        platform: null,
+        confidence: "medium",
+        summary: "Players are stuck in Lyselia's dialogue after the fourth sanctuary.",
+        clusterAssignment: "sure",
+        clusterReason: "The same softlock after the fourth sanctuary.",
+        clusterSlug: "auto-lyselia",
+      }),
+      [{ slug: "auto-lyselia", title: "Lyselia softlock", category: clusterCategory }],
+    );
+
+    expect(parsed).toMatchObject({ clusterAssignment: "sure", clusterSlug: "auto-lyselia" });
+  });
+
   it("refuses an unsure assignment even if its slug is otherwise valid", () => {
     const parsed = parseOpenRouterExtraction(
       JSON.stringify({

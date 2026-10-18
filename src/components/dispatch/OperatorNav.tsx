@@ -19,6 +19,9 @@ const OPERATOR_PAGES: Array<{ key: OperatorNavKey; view: OperatorView; label: st
   { key: "settings", view: "settings", label: "Settings & tools" },
 ];
 
+// Views no longer in regular use stay reachable by link; the sidebar lists one only while it is open.
+const RETIRED_FROM_NAV = new Set<OperatorNavKey>(["review", "videos", "compile"]);
+
 /**
  * Operator navigation split into two registers (Phase 4): page destinations on
  * the left, utilities on the right. Export CSV is a bulk download of the
@@ -56,7 +59,7 @@ export function OperatorNav({ active, showAiSettings = false }: { active?: Opera
       {active === "problem-reports" && <button ref={menuTriggerRef} type="button" className="workspace-menu-toggle" aria-expanded={mobileMenuOpen} aria-controls="operator-navigation" onClick={() => setMobileMenuOpen((value) => !value)} onKeyDown={closeOnEscape}>Workspace menu<span aria-hidden="true" /></button>}
       <nav id="operator-navigation" className="workspace-nav" aria-label="Operator" data-collapsible={active === "problem-reports" ? "true" : undefined} data-mobile-open={mobileMenuOpen} onKeyDown={closeOnEscape}>
         <div className="workspace-nav-pages">
-          {OPERATOR_PAGES.filter((item) => item.key !== "ai" || showAiSettings).map((item) => (
+          {OPERATOR_PAGES.filter((item) => (item.key !== "ai" || showAiSettings) && (!RETIRED_FROM_NAV.has(item.key) || item.key === active)).map((item) => (
             <Link
               key={item.key}
               href={workspaceHref(item.view)}

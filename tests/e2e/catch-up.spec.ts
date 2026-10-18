@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { CATCH_UP_STORAGE_KEY, type CatchUpPreferences } from "../../src/lib/catchUpPreferences";
 import { chartingTheUnknownDelay } from "../../src/lib/editorialArticles";
-import { collectConsoleProblems, expectHealthyPage } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 const NOW = new Date("2026-09-11T12:00:00.000Z");
 const PREVIOUS_VISIT = "2026-08-27T12:00:00.000Z";
@@ -97,6 +97,7 @@ for (const scenario of [
     test("date-only links use local midnight and reject local tomorrow", async ({ page }) => {
       await page.clock.setFixedTime(new Date(scenario.now));
       await page.goto(`/catch-up#since=${scenario.today}`);
+      await waitForHydration(page);
       await expect(page.locator(".cu-edition")).toContainText(scenario.label);
       const dialog = await openCatchUpMenu(page);
       await expect(dialog.getByLabel("Last played")).toHaveValue(scenario.today);
@@ -122,6 +123,7 @@ for (const scenario of [
         localStorage.setItem(key, JSON.stringify({ remember: true, lastVisit: saved, caughtUpThrough: saved }));
       }, { key: CATCH_UP_STORAGE_KEY, saved });
       await page.goto("/catch-up");
+      await waitForHydration(page);
       for (const label of ["Where I left off", "Since my last visit"]) {
         const dialog = await openCatchUpMenu(page);
         const shortcut = dialog.getByRole("button", { name: new RegExp(label) });
@@ -138,6 +140,7 @@ for (const scenario of [
     test("uses local today for the limit, submission, and reopened date", async ({ page }) => {
       await page.clock.setFixedTime(new Date(scenario.now));
       await page.goto("/catch-up");
+      await waitForHydration(page);
       let dialog = await openCatchUpMenu(page);
       await dialog.getByRole("tab", { name: "Date" }).click();
       const input = dialog.getByLabel("Last played");
@@ -163,6 +166,7 @@ test.describe("public catch-up journey", () => {
 
   test("a direct admin login initializes the menu without recording a visit", async ({ page }) => {
     await page.goto("/admin/login");
+    await waitForHydration(page, page.getByLabel("Password", { exact: true }));
     const dialog = await openCatchUpMenu(page);
     await expect.poll(() => storedPreferences(page)).toBeNull();
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
@@ -187,6 +191,7 @@ test.describe("public catch-up journey", () => {
       if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value));
     }, { key: CATCH_UP_STORAGE_KEY, value: previous });
     await page.goto("/admin/login?from=%2Fscanner");
+    await waitForHydration(page, page.getByLabel("Password", { exact: true }));
     await expect(page.getByRole("button", { name: "Catch me up", exact: true })).toBeEnabled();
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
     await page.getByLabel("Password", { exact: true }).fill("admin-password");
@@ -196,6 +201,7 @@ test.describe("public catch-up journey", () => {
     await expect(page.locator(".operator-newspaper")).toBeVisible();
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
     await page.reload();
+    await waitForHydration(page);
     await expect(page.locator(".operator-newspaper")).toBeVisible();
     await expect.poll(() => storedPreferences(page)).toEqual(previous);
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
@@ -205,6 +211,7 @@ test.describe("public catch-up journey", () => {
     await waitForClientPath(page, "/");
     await expect.poll(() => storedPreferences(page)).toEqual({ ...previous, lastVisit: NOW.toISOString() });
     await page.goBack();
+    await waitForHydration(page);
     await expect(page.locator(".operator-newspaper")).toBeVisible();
     await page.clock.setFixedTime(new Date("2026-09-11T13:00:00.000Z"));
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
@@ -213,6 +220,7 @@ test.describe("public catch-up journey", () => {
 
   test("anonymous scanner visits still record the public Observatory visit", async ({ page }) => {
     await page.goto("/scanner");
+    await waitForHydration(page);
     await expect(page).toHaveURL(/\/observatory$/);
     await expect(page.getByRole("heading", { name: "The game, in context." })).toBeVisible();
     await expect(page.locator(".operator-newspaper")).toHaveCount(0);
@@ -226,6 +234,7 @@ test.describe("public catch-up journey", () => {
 
   test("an older patch link includes the later expansion announcement", async ({ page }) => {
     await page.goto("/catch-up#patch=2.03.00");
+    await waitForHydration(page);
     await expect(page.locator("article.cu-milestone")).toHaveCount(1);
     await expect(page.locator("article.cu-milestone")).toHaveAttribute("id", "announcement-charting-the-unknown-delay");
     await expect(page.locator("article.cu-milestone")).toContainText("Charting the Unknown moves to October 29");
@@ -236,6 +245,7 @@ test.describe("public catch-up journey", () => {
   test("a new visit can build a catch-up from a patch", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/catch-up");
+    await waitForHydration(page);
     await expect(page.getByRole("heading", { level: 1, name: "Catch up on Pywel" })).toBeVisible();
     await expect.poll(() => storedPreferences(page)).toEqual({
       remember: true,
@@ -261,6 +271,7 @@ test.describe("public catch-up journey", () => {
   test("the latest patch appears after 2.02.00, opens its report, and can be selected as the starting point", async ({ page }, testInfo) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/catch-up#patch=2.02.00");
+    await waitForHydration(page);
     await expect(page.locator("article.cu-milestone")).toHaveCount(2);
     const milestone = page.locator("#update-2-03-00");
     await expect(milestone).toHaveCount(1);
@@ -310,6 +321,7 @@ test.describe("public catch-up journey", () => {
       localStorage.setItem(key, JSON.stringify({ remember: true, lastVisit: previousVisit, caughtUpThrough }));
     }, { key: CATCH_UP_STORAGE_KEY, previousVisit: PREVIOUS_VISIT, caughtUpThrough: CAUGHT_UP_THROUGH });
     await page.goto("/catch-up");
+    await waitForHydration(page);
 
     let dialog = await openCatchUpMenu(page);
     await expect(dialog.getByRole("button", { name: /Where I left off/ })).toContainText("August 29");
@@ -333,6 +345,7 @@ test.describe("public catch-up journey", () => {
       localStorage.setItem(key, JSON.stringify({ remember: true, lastVisit: cursor, caughtUpThrough: cursor }));
     }, { key: CATCH_UP_STORAGE_KEY, cursor });
     await page.goto("/catch-up");
+    await waitForHydration(page);
 
     for (const label of [/Where I left off/, /Since my last visit/]) {
       const dialog = await openCatchUpMenu(page);
@@ -358,6 +371,7 @@ test.describe("public catch-up journey", () => {
 
   test("date selection and explicit completion update the edition", async ({ page }) => {
     await page.goto("/catch-up");
+    await waitForHydration(page);
     const dialog = await openCatchUpMenu(page);
     await dialog.getByRole("tab", { name: "Date" }).click();
     await dialog.getByLabel("Last played").fill("2026-09-03");
@@ -374,6 +388,7 @@ test.describe("public catch-up journey", () => {
 
   test("an early date and patch expose the full history while keeping the brief short", async ({ page }) => {
     await page.goto("/catch-up");
+    await waitForHydration(page);
     await expect(page.locator(".cu-edition")).toContainText("History: July 3 – September 30, 2026");
 
     let dialog = await openCatchUpMenu(page);
@@ -405,6 +420,7 @@ test.describe("public catch-up journey", () => {
       sessionStorage.setItem("catch-up-seeded", "true");
     }, { key: CATCH_UP_STORAGE_KEY, previousVisit: PREVIOUS_VISIT, caughtUpThrough: CAUGHT_UP_THROUGH });
     await page.goto("/catch-up");
+    await waitForHydration(page);
 
     let dialog = await openCatchUpMenu(page);
     await dialog.getByLabel("Remember my place on this browser").uncheck();
@@ -421,6 +437,7 @@ test.describe("public catch-up journey", () => {
 
   test("a delayed opt-out cannot be overwritten when the page is hidden", async ({ page }) => {
     await page.goto("/catch-up");
+    await waitForHydration(page);
     await expect.poll(() => storedPreferences(page)).toMatchObject({ remember: true });
 
     await page.evaluate((key) => {
@@ -438,6 +455,7 @@ test.describe("public catch-up journey", () => {
   test("pagehide preserves a newer caught-up timestamp from storage", async ({ page }) => {
     const newerCaughtUpThrough = "2026-09-11T11:59:00.000Z";
     await page.goto("/catch-up");
+    await waitForHydration(page);
     await expect.poll(() => storedPreferences(page)).toMatchObject({ remember: true });
 
     await page.evaluate(({ key, caughtUpThrough }) => {
@@ -458,6 +476,7 @@ test.describe("public catch-up journey", () => {
 
   test("journey links keep the chosen edition and focus their chapter", async ({ page }) => {
     await page.goto("/catch-up#patch=2.00.01");
+    await waitForHydration(page);
     const milestones = page.locator("article.cu-milestone");
     await expect(milestones).toHaveCount(6);
     const journeyLink = page.getByRole("link", { name: "In the journey" }).first();
@@ -475,6 +494,7 @@ test.describe("public catch-up journey", () => {
   test("middle-clicking an older chapter opens its full edition in a new tab", async ({ page, context }, testInfo) => {
     test.skip(testInfo.project.name === "mobile-chromium", "A physical mouse middle-click is covered by the desktop project.");
     await page.goto("/catch-up#history=all");
+    await waitForHydration(page);
     await expect(page.locator("article.cu-milestone")).toHaveCount(21);
     const chapterLink = page.locator(".cu-rail-links a").first();
     await expect(chapterLink).toHaveAttribute("href", "#history=all&chapter=update-1-13-00");
@@ -524,6 +544,7 @@ test.describe("public catch-up journey", () => {
 
   test("a visible filter explains a patch selection and opens the full history", async ({ page }) => {
     await page.goto("/catch-up#patch=1.18.02");
+    await waitForHydration(page);
     const milestones = page.locator("article.cu-milestone");
     await expect(milestones).toHaveCount(8);
     await expect(page.locator(".cu-journey-filter p, .cu-rail-selection").filter({ visible: true }).first()).toContainText("After patch 1.18.02");
@@ -541,6 +562,7 @@ test.describe("public catch-up journey", () => {
 
   test("menu tabs support arrow keys and the All mode submits full history", async ({ page }) => {
     await page.goto("/catch-up");
+    await waitForHydration(page);
     const dialog = await openCatchUpMenu(page);
     const tabs = dialog.getByRole("tab");
     await expect(tabs).toHaveCount(4);
@@ -572,6 +594,7 @@ test.describe("public catch-up journey", () => {
     await page.setViewportSize({ width: 320, height: 844 });
     const problems = collectConsoleProblems(page);
     await page.goto("/catch-up");
+    await waitForHydration(page);
     const dialog = await openCatchUpMenu(page);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
@@ -603,6 +626,7 @@ test.describe("public catch-up journey", () => {
     test.skip(testInfo.project.name === "mobile-chromium", "Journey rail coverage runs in the desktop project.");
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/catch-up#history=all");
+    await waitForHydration(page);
     await expect(page.locator("article.cu-milestone")).toHaveCount(21);
 
     await revealJourneyChapter(page, "update-1-17-00");
@@ -641,6 +665,7 @@ test.describe("public catch-up journey", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/catch-up#history=all");
+    await waitForHydration(page);
     await revealJourneyChapter(page, "charting-the-unknown-announcement");
     await page.getByRole("button", { name: "Switch to dark mode" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

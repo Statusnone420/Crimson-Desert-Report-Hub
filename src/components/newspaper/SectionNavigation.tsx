@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { DirectionIcon } from "./ReadingLink";
 
@@ -46,10 +46,22 @@ export function SectionNavigation({ sections, label = "On this page", variant = 
     };
   }, [sections]);
 
+  // On a phone the bar scrolls sideways; keep the current section's link in view.
+  const links = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const strip = links.current;
+    const link = strip?.querySelector<HTMLElement>('a[aria-current="location"]');
+    if (!strip || !link || strip.scrollWidth <= strip.clientWidth) return;
+    const box = strip.getBoundingClientRect();
+    const rect = link.getBoundingClientRect();
+    if (rect.left >= box.left && rect.right <= box.right) return;
+    strip.scrollBy({ left: rect.left - box.left - 16, behavior: reducedMotion ? "auto" : "smooth" });
+  }, [active, reducedMotion]);
+
   return (
     <nav className={`section-nav section-nav--${variant}`} aria-label={label}>
       <span className="section-nav__caption">{variant === "bar" ? "On this page" : label}</span>
-      <div className="section-nav__links">
+      <div className="section-nav__links" ref={links}>
         {sections.map(({ id, label: sectionLabel }) => (
           <a key={id} href={`#${id}`} aria-current={active === id ? "location" : undefined}>
             <span>{sectionLabel}</span>

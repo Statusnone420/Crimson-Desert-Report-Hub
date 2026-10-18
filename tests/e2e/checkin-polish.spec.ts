@@ -1,8 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { choosePlatform, installTurnstile } from "./checkin-helpers";
+import { waitForHydration } from "./helpers";
 
 async function checkInCard(page: Page, title = "FPS regression since 1.13") {
   await page.goto("/issues");
+  await waitForHydration(page);
   const card = page.getByRole("article").filter({ hasText: title });
   await expect(card).toHaveCount(1);
   return card;
