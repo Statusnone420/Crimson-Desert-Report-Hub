@@ -6,7 +6,7 @@ This is the public architecture contract: enough structure to review the privacy
 
 | Route | Public purpose |
 | --- | --- |
-| `/` | Newspaper front page: a "Before you play" band of recorded Steam and patch readings, then the newest patch story, official record, selected external coverage, patch context, and aggregate platform pulse. Manual reporting wins for the same exact version. |
+| `/` | Newspaper front page: the newest patch story, official record, selected external coverage, patch context, then a "Before you play" band of recorded Steam and patch readings above the aggregate platform pulse. Manual reporting wins for the same exact version. |
 | `/news` | Original Hub reports and automatic official-note rundowns, plus selected external coverage. |
 | `/articles/*` | Source-backed editorial reports and templated official patch rundowns. The legacy `/topics/charting-the-unknown` route redirects to its canonical article. |
 | `/watch` | Official video and selected creator coverage, with links to the original channels. |
