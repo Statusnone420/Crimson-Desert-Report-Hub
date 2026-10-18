@@ -75,9 +75,13 @@ function distinguishingTerms(title: string): string {
 }
 
 // Word pairs that turn a report into its opposite when one replaces the other
-// ("Subtitles keep turning on" / "turning off"). At least one word of each pair
-// is filler to retrievalTokens, so the word match alone cannot see the change.
-const OPPOSITES = [["on", "off"], ["up", "down"], ["in", "out"], ["over", "under"], ["more", "less"]] as const;
+// ("Subtitles keep turning on" / "turning off", "transfer items to storage" /
+// "from storage"). At least one word of each pair is filler to retrievalTokens,
+// so the word match alone cannot see the change.
+const OPPOSITES = [
+  ["on", "off"], ["up", "down"], ["in", "out"], ["over", "under"], ["more", "less"],
+  ["to", "from"], ["into", "out"], ["onto", "off"],
+] as const;
 // Timing words, by the moment they name. "Crash after loading a save" is not
 // "Crash while loading a save", but "while" and "when" name the same moment.
 const MOMENTS = new Map([

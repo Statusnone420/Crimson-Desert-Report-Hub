@@ -59,6 +59,19 @@ describe("joining a reworded lead to its automatic issue group", () => {
     expect(nearDuplicateAutoCluster("Game crashes before the final boss cutscene", "crash_startup", boss)).toBeNull();
   });
 
+  it("keeps titles apart when a direction is swapped", () => {
+    const deposit = [{ id: "17", slug: "auto-storage-deposit", title: "Cannot transfer items to storage", category: "controls_gameplay" }];
+    expect(nearDuplicateAutoCluster("Cannot transfer items from storage", "controls_gameplay", deposit)).toBeNull();
+    expect(nearDuplicateAutoCluster("Can't transfer my items to storage", "controls_gameplay", deposit)?.id).toBe("17");
+    const tower = [{ id: "18", slug: "auto-tower", title: "Can't climb into the castle tower", category: "controls_gameplay" }];
+    expect(nearDuplicateAutoCluster("Can't climb out of the castle tower", "controls_gameplay", tower)).toBeNull();
+    const saddle = [{ id: "19", slug: "auto-saddle", title: "Can't jump onto the horse saddle", category: "controls_gameplay" }];
+    expect(nearDuplicateAutoCluster("Can't jump off the horse saddle", "controls_gameplay", saddle)).toBeNull();
+    // A pair word only one title has changes nothing.
+    const save = [{ id: "20", slug: "auto-save-cloud", title: "Failed to load a save", category: "crash_startup" }];
+    expect(nearDuplicateAutoCluster("Failed to load a save from the cloud", "crash_startup", save)?.id).toBe("20");
+  });
+
   it("keeps titles apart when they name different moments, but joins words for the same moment", () => {
     const save = [{ id: "15", slug: "auto-save-load", title: "Crash after loading a save", category: "crash_startup" }];
     expect(nearDuplicateAutoCluster("Crash while loading a save", "crash_startup", save)).toBeNull();
