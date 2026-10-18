@@ -18,6 +18,7 @@ Guidance for AI coding agents and the people who run them. Human contributors sh
 - Make the smallest complete change. Keep behavior and public contracts unless the task changes them.
 - Fix root causes. Never silence diagnostics, swallow failures, bypass type safety or weaken tests to pass.
 - Ask before adding dependencies, tables, settings, background jobs or paid provider calls.
+- Follow [docs/STYLE.md](docs/STYLE.md) for every public word: page text, articles, labels, feeds, and anything a model writes for the site.
 
 ## Protect the system
 
