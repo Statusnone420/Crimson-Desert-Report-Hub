@@ -218,17 +218,15 @@ WCAG 2.2 level AA is the floor. Success criteria are in brackets.
 
 ### Direction
 
-Stay with Crimson Desert. Charting the Unknown launches 29 October, which will be the busiest week the site has had. A one-person site wins by being the most useful place for one game. A general gaming hub would compete with outlets that have full staffs.
+The site stays focused on Crimson Desert.
 
 The planned home page is a data-led "check before you play" page: players online against a normal day, Steam mood, the latest patch, and the top live problems, drawn as strong, accessible charts. The audit clears the way for it with one vocabulary, answer-first copy, and charts that meet the accessibility rules above.
-
-The name doesn't block anything later. If you ever widen the site, Pearl Abyss's next game is the natural step: same publisher, same players, and "Crimson Report Hub" still fits. No new domain needed.
 
 ### Bylines and the human element
 
 - The column stays "The Pywel Desk", with an "Edited by Statusnone" line.
 - Opinion pieces are signed Statusnone.
-- A short "Who runs this" note in your own words, signed Statusnone and linked from the footer. I won't write it for you.
+- A short "Who runs this" note in your own words, signed Statusnone and linked from the footer.
 - Pseudonym only. The note, and everything else on the site, carry no legal name and no personal details.
 - Keep "made with AI help", next to a person who answers for the site.
 
@@ -238,12 +236,10 @@ Build it after the audit, with this standard as its style guide.
 
 - The 15-point checklist goes into both the writer prompt and the checker prompt.
 - The first three editions run approve-first. Each one waits in /operator until you approve it, so you can tune the voice. After the third approved edition, the column switches automatically to the 24-hour hold, with auto-publish and your veto.
-- Grok's v3 build prompt needs both changes before anyone builds from it. It also names you by first name in two places, and one of them sits in the style-guide block that gets committed to the public repo. Both change to Statusnone first.
-- Cost is about $0.50–3 a month from the API credit. It needs an Anthropic key in Vercel later; that decision can wait.
 
 ### AI on the site
 
-On-site AI spends the Anthropic API credit first, because the $100 a month expires at the end of each billing cycle. That covers the State of the Game column and a bigger budget for the scanner's second-pass review and cluster merging. Any feature can run on either provider, Anthropic or OpenRouter, so neither one is forced.
+The State of the Game column is the only on-site feature that will use the Anthropic API. The scanner stays on OpenRouter (DeepSeek V4.1 Flash) for now.
 
 ### The audit (after PRs 11 and 13 land)
 
@@ -253,4 +249,4 @@ On-site AI spends the Anthropic API credit first, because the $100 a month expir
 4. Match the publish rule to "Reported". Today an issue goes public on an approved player report, on two different sites with at least one trusted, or on three sites. Every Steam forum thread counts as the same site, so ten separate threads about one crash still count once, and no issue has been published on 2.03.02. The code rule changes so separate threads from different people count, even on the same site. The scanner never reads author names, so telling people apart needs a privacy-safe check; the audit settles which.
 5. Lock it in. Add the style test to CI, and put the standard and checklist in every writing prompt.
 
-Who does what: I run it and bring every decision to you. A few subagents do the mechanical parts (string inventory, lint, screenshot diffs). That runs on your Claude plan. The API credit only pays for features that run on the site itself, like the column. You approve wording and write the personal parts.
+Who does what: I run it and bring every decision to you. A few subagents do the mechanical parts (string inventory, lint, screenshot diffs). You approve wording and write the personal parts.
