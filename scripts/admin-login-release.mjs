@@ -1,4 +1,5 @@
 const MIGRATION = "20261002191659_admin_login_attempts.sql";
+const SESSION_MIGRATION = "20261018120000_admin_session_generation.sql";
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function record(value) {
@@ -20,9 +21,23 @@ function supportsLoginLimits(schema) {
     && Object.keys(body.schema.properties).length === 1 && Object.hasOwn(body.schema.properties, "p_address_hash");
 }
 
+/** Both session RPCs take no arguments: an absent or empty body schema is that signature. @param {unknown} schema */
+function supportsSessionGenerations(schema) {
+  if (!record(schema) || !record(schema.paths)) return false;
+  return ["/rpc/admin_session_generation", "/rpc/revoke_admin_sessions"].every((path) => {
+    const rpc = schema.paths[path];
+    if (!record(rpc) || !record(rpc.post)) return false;
+    const parameters = Array.isArray(rpc.post.parameters) ? rpc.post.parameters : [];
+    const body = parameters.find((parameter) => record(parameter) && parameter.in === "body");
+    const properties = record(body) && record(body.schema) ? body.schema.properties : undefined;
+    return properties === undefined || (record(properties) && Object.keys(properties).length === 0);
+  });
+}
+
 /**
  * Keep the previous production deployment serving until the additive login
- * migration exists. This reads schema metadata only; it never reserves attempts.
+ * migrations exist. This reads schema metadata only; it never reserves attempts
+ * or reads a session generation.
  * @param {Record<string, string | undefined>} env
  * @param {typeof fetch} fetchSchema
  */
@@ -52,5 +67,8 @@ export async function assertProductionLoginReady(env = process.env, fetchSchema 
   }
   if (!supportsLoginLimits(schema)) {
     throw new Error(`Production login requires ${MIGRATION}. Keep the current deployment live, apply the migration only with approval, then create a fresh Production build.`);
+  }
+  if (!supportsSessionGenerations(schema)) {
+    throw new Error(`Production login requires ${SESSION_MIGRATION}. Keep the current deployment live, apply the migration only with approval, then create a fresh Production build.`);
   }
 }

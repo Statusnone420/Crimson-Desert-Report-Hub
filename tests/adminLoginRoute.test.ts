@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  passwordMatches: vi.fn(), rpc: vi.fn(), configured: vi.fn(() => true),
+  passwordMatches: vi.fn(), rpc: vi.fn(), configured: vi.fn(() => true), generation: vi.fn(),
 }));
+vi.mock("@/lib/adminSessions.server", () => ({ currentSessionGeneration: mocks.generation }));
 vi.mock("@/lib/session", async (original) => ({
   ...await original<typeof import("@/lib/session")>(), passwordMatches: mocks.passwordMatches,
 }));
@@ -30,6 +31,7 @@ beforeEach(() => {
   mocks.passwordMatches.mockReset().mockResolvedValue(true);
   mocks.configured.mockReset().mockReturnValue(true);
   mocks.rpc.mockReset().mockReturnValue(outcome({ allowed: true, retry_after: 0 }));
+  mocks.generation.mockReset().mockResolvedValue(1);
 });
 afterEach(() => { vi.unstubAllEnvs(); });
 
@@ -46,10 +48,17 @@ describe("admin login admission", () => {
     const res = await POST(request());
     expect(res.status).toBe(200);
     const cookie = res.cookies.get("cd_admin");
-    expect(verifySessionToken(cookie?.value, secret)).toBe(true);
-    expect(cookie).toMatchObject({ httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 43200 });
+    expect(verifySessionToken(cookie?.value, secret, 1)).toBe(true);
+    expect(cookie).toMatchObject({ httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 2592000 });
     expect(mocks.rpc).toHaveBeenCalledOnce();
     expect(mocks.passwordMatches).toHaveBeenCalledExactlyOnceWith("test-password", "test-password", secret);
+  });
+  it("issues no session when the login generation cannot be read", async () => {
+    mocks.generation.mockResolvedValue(null);
+    const res = await POST(request());
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: "sign_in_unavailable" });
+    expect(res.headers.get("set-cookie")).toBeNull();
   });
   it("reserves before every comparison, including repeated successes", async () => {
     let count = 0;

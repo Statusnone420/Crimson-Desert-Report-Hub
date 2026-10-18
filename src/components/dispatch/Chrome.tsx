@@ -9,6 +9,7 @@ import { patchFamilyKey } from "@/lib/patchWatch";
 import { CatchUpPublicVisit } from "@/components/catchup/CatchUpContext";
 import { WORKSPACE_LABELS, type OperatorView } from "@/lib/operatorWorkspace";
 import { WorkspaceIcon } from "@/components/operator/WorkspaceIcon";
+import { SessionRenewal } from "@/components/operator/SessionRenewal";
 import { getPatchPublications } from "@/lib/patchPublications.server";
 import { buildCatchUpMilestones } from "@/lib/catchUpContent";
 import { CatchUpMilestones } from "@/components/catchup/CatchUpMilestones";
@@ -61,8 +62,9 @@ export async function OperatorShell({
       <div className="workspace-main-column">
         <header className="workspace-topbar"><div className="workspace-breadcrumb"><span>Workspace</span><WorkspaceIcon name="arrow"/><strong>{WORKSPACE_LABELS[view]}</strong></div><div className="workspace-top-tools"><Link href="/">View public site</Link><ThemeToggle/></div></header>
         {isVercelPreview() && <p className="workspace-preview-notice">{process.env.CD_LOCAL_SNAPSHOT === "true" ? "Local preview · Copy of production data. Changes and scans are disabled." : "Preview edition · Changes and scans are disabled."}</p>}
+        <SessionRenewal />
         <main id="main-content" className="workspace-main">{children}</main>
-        <footer className="workspace-footer">Operator surfaces are never linked publicly. Sessions expire 12 hours after sign-in.</footer>
+        <footer className="workspace-footer">Operator surfaces are never linked publicly. Sign-ins last 30 days and renew as you use the workspace.</footer>
       </div>
     </div>
   );

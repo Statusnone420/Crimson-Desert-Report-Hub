@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState, type KeyboardEvent } from "react";
-import { signOutAdmin } from "@/app/admin/actions";
+import { signOutAdmin, signOutEverywhere } from "@/app/admin/actions";
 import { workspaceHref, type OperatorView } from "@/lib/operatorWorkspace";
 import { WorkspaceIcon } from "@/components/operator/WorkspaceIcon";
 import type { OperatorNavKey } from "@/components/dispatch/Chrome";
@@ -31,8 +31,10 @@ const RETIRED_FROM_NAV = new Set<OperatorNavKey>(["review", "videos", "compile"]
  */
 export function OperatorNav({ active, showAiSettings = false }: { active?: OperatorNavKey; showAiSettings?: boolean }) {
   const [confirmingExport, setConfirmingExport] = useState(false);
+  const [confirmingSignOutAll, setConfirmingSignOutAll] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const exportTriggerRef = useRef<HTMLButtonElement>(null);
+  const signOutAllTriggerRef = useRef<HTMLButtonElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Closing unmounts whatever was focused inside the strip; hand focus back to
@@ -42,11 +44,17 @@ export function OperatorNav({ active, showAiSettings = false }: { active?: Opera
     exportTriggerRef.current?.focus();
   }
 
+  function closeSignOutAllConfirm() {
+    setConfirmingSignOutAll(false);
+    signOutAllTriggerRef.current?.focus();
+  }
+
   // The strip is a sibling of the nav, so an Escape pressed while focus is
   // still on the trigger never reaches the strip's own handler. Both elements
   // share this handler so Escape closes from either side of that boundary.
   function closeOnEscape(event: KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape" && confirmingExport) closeExportConfirm();
+    else if (event.key === "Escape" && confirmingSignOutAll) closeSignOutAllConfirm();
     else if (event.key === "Escape" && mobileMenuOpen) {
       setMobileMenuOpen(false);
       menuTriggerRef.current?.focus();
@@ -78,7 +86,11 @@ export function OperatorNav({ active, showAiSettings = false }: { active?: Opera
             className="workspace-nav-link"
             aria-expanded={confirmingExport}
             aria-controls="export-confirm"
-            onClick={() => (confirmingExport ? closeExportConfirm() : setConfirmingExport(true))}
+            onClick={() => {
+              if (confirmingExport) return closeExportConfirm();
+              setConfirmingSignOutAll(false);
+              setConfirmingExport(true);
+            }}
             onKeyDown={closeOnEscape}
           >
             <WorkspaceIcon name="export"/><span>Export CSV…</span><span className="sr-only"> — confirms the private 22-field report export</span>
@@ -88,6 +100,21 @@ export function OperatorNav({ active, showAiSettings = false }: { active?: Opera
               <WorkspaceIcon name="logout"/><span>Sign out</span>
             </button>
           </form>
+          <button
+            ref={signOutAllTriggerRef}
+            type="button"
+            className="workspace-nav-link"
+            aria-expanded={confirmingSignOutAll}
+            aria-controls="sign-out-all-confirm"
+            onClick={() => {
+              if (confirmingSignOutAll) return closeSignOutAllConfirm();
+              setConfirmingExport(false);
+              setConfirmingSignOutAll(true);
+            }}
+            onKeyDown={closeOnEscape}
+          >
+            <WorkspaceIcon name="logout"/><span>Sign out everywhere…</span>
+          </button>
         </div>
       </nav>
       {confirmingExport ? (
@@ -110,6 +137,30 @@ export function OperatorNav({ active, showAiSettings = false }: { active?: Opera
             Download CSV
           </a>
           <button type="button" className="workspace-button" onClick={closeExportConfirm}>
+            Cancel
+          </button>
+        </div>
+      ) : null}
+      {confirmingSignOutAll ? (
+        <div
+          id="sign-out-all-confirm"
+          className="workspace-export-confirm"
+          role="group"
+          aria-labelledby="sign-out-all-title"
+          aria-describedby="sign-out-all-detail"
+          onKeyDown={closeOnEscape}
+        >
+          <p>
+            <b id="sign-out-all-title">Sign out everywhere?</b>{" "}
+            <span id="sign-out-all-detail">
+              Ends every admin login at once: this browser, any other browser, and any agent signed in for you.
+              Everyone signs in again with the password.
+            </span>
+          </p>
+          <form action={signOutEverywhere} style={{ display: "contents" }}>
+            <button type="submit" className="workspace-button">Sign out everywhere</button>
+          </form>
+          <button type="button" className="workspace-button" onClick={closeSignOutAllConfirm}>
             Cancel
           </button>
         </div>

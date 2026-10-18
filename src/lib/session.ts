@@ -7,26 +7,57 @@ function derivePassword(password: string, secret: string): Promise<Buffer> {
 }
 
 export const ADMIN_COOKIE = "cd_admin";
-const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000;
+/** A login lasts 30 days from when it was last issued or renewed. */
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** A session older than a day is re-issued on the next admin visit, so regular use keeps it alive. */
+export const SESSION_RENEW_AFTER_MS = 24 * 60 * 60 * 1000;
 
-export function createSessionToken(secret: string, ttlMs: number = DEFAULT_TTL_MS): string {
-  const expiresAt = String(Date.now() + ttlMs);
-  const sig = createHmac("sha256", secret).update(expiresAt).digest("base64url");
-  return `${expiresAt}.${sig}`;
+export type AdminSession = { generation: number; issuedAt: number; expiresAt: number };
+
+export function adminCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: SESSION_TTL_MS / 1000,
+  };
 }
 
-export function verifySessionToken(token: string | undefined, secret: string): boolean {
-  if (!token) return false;
+function sign(secret: string, payload: string): string {
+  return createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+/**
+ * A session is "<generation>.<issuedAt>.<expiresAt>.<signature>". Only the
+ * database's current admin login generation is accepted; "Sign out everywhere"
+ * moves to the next one, which ends every older session at once.
+ */
+export function createSessionToken(secret: string, generation: number, now: number = Date.now(), ttlMs: number = SESSION_TTL_MS): string {
+  if (!Number.isSafeInteger(generation) || generation < 1) throw new Error("invalid session generation");
+  const payload = `${generation}.${now}.${now + ttlMs}`;
+  return `${payload}.${sign(secret, payload)}`;
+}
+
+/** The signed, unexpired session in a token, or null. The caller still checks its generation. */
+export function readSessionToken(token: string | undefined, secret: string, now: number = Date.now()): AdminSession | null {
+  if (!token) return null;
   const parts = token.split(".");
-  if (parts.length !== 2) return false;
-  const [expiresAt, sig] = parts;
-  if (!/^\d+$/.test(expiresAt)) return false;
-  const expected = createHmac("sha256", secret).update(expiresAt).digest("base64url");
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  if (!timingSafeEqual(a, b)) return false;
-  return Number(expiresAt) > Date.now();
+  if (parts.length !== 4 || !parts.slice(0, 3).every((part) => /^\d{1,16}$/.test(part))) return null;
+  const expected = Buffer.from(sign(secret, parts.slice(0, 3).join(".")));
+  const actual = Buffer.from(parts[3]);
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+  const [generation, issuedAt, expiresAt] = parts.slice(0, 3).map(Number);
+  if (generation < 1 || expiresAt <= now) return null;
+  return { generation, issuedAt, expiresAt };
+}
+
+export function verifySessionToken(token: string | undefined, secret: string, generation: number, now: number = Date.now()): boolean {
+  return readSessionToken(token, secret, now)?.generation === generation;
+}
+
+export function sessionNeedsRenewal(session: AdminSession, now: number = Date.now()): boolean {
+  return now - session.issuedAt >= SESSION_RENEW_AFTER_MS;
 }
 
 export async function passwordMatches(candidate: string, actual: string, comparisonSecret: string): Promise<boolean> {

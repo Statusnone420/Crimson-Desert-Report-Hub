@@ -8,6 +8,8 @@ function ready() {
   return { paths: {
     "/admin_login_attempts": { get: {}, post: {}, delete: {} },
     "/rpc/reserve_admin_login_attempt": { post: { parameters: [{ in: "body", schema: { properties: { p_address_hash: {} } } }] } },
+    "/rpc/admin_session_generation": { post: { parameters: [{ in: "body", schema: { type: "object" } }] } },
+    "/rpc/revoke_admin_sessions": { post: { parameters: [{ in: "body", schema: { type: "object", properties: {} } }] } },
   }, definitions: { admin_login_attempts: { properties: { id: {}, created_at: {}, address_hash: {} } } } };
 }
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
@@ -30,6 +32,17 @@ describe("login migration release gate", () => {
     if (missing === "column") Reflect.deleteProperty(schema.definitions.admin_login_attempts.properties, "address_hash");
     if (missing === "RPC signature") Reflect.deleteProperty(schema.paths["/rpc/reserve_admin_login_attempt"].post.parameters[0].schema.properties, "p_address_hash");
     await expect(assertProductionLoginReady(env, vi.fn<typeof fetch>().mockResolvedValue(Response.json(schema)))).rejects.toThrow("20261002191659");
+  });
+  it.each(["/rpc/admin_session_generation", "/rpc/revoke_admin_sessions"])("blocks a build without the session migration: %s", async (path) => {
+    const schema = ready();
+    Reflect.deleteProperty(schema.paths, path);
+    await expect(assertProductionLoginReady(env, vi.fn<typeof fetch>().mockResolvedValue(Response.json(schema))))
+      .rejects.toThrow("20261018120000_admin_session_generation.sql");
+  });
+  it("blocks a session RPC with an unexpected signature", async () => {
+    const schema = ready();
+    Reflect.set(schema.paths["/rpc/revoke_admin_sessions"].post.parameters[0].schema, "properties", { p_generation: {} });
+    await expect(assertProductionLoginReady(env, vi.fn<typeof fetch>().mockResolvedValue(Response.json(schema)))).rejects.toThrow("20261018120000");
   });
   it.each([undefined, "preview", "development"])("never contacts the database in %s builds", async (VERCEL_ENV) => {
     const fetchSchema = vi.fn<typeof fetch>();

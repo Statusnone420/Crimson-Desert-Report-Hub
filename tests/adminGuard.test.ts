@@ -8,6 +8,9 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn(),
 }));
 
+const sessions = vi.hoisted(() => ({ generation: vi.fn<() => Promise<number | null>>() }));
+vi.mock("@/lib/adminSessions.server", () => ({ currentSessionGeneration: sessions.generation }));
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { adminSessionSecret, requireAdmin } from "@/lib/adminGuard";
@@ -54,6 +57,7 @@ describe("requireAdmin", () => {
       throw new Error("NEXT_REDIRECT");
     });
     vi.stubEnv("SESSION_SECRET", SECRET);
+    sessions.generation.mockReset().mockResolvedValue(1);
   });
 
   afterEach(() => {
@@ -75,14 +79,14 @@ describe("requireAdmin", () => {
   });
 
   it("redirects when the cookie was signed with a different secret", async () => {
-    stubCookieStore(createSessionToken("some-other-secret"));
+    stubCookieStore(createSessionToken("some-other-secret", 1));
 
     await expect(requireAdmin()).rejects.toThrow("NEXT_REDIRECT");
     expect(redirect).toHaveBeenCalledWith("/admin/login");
   });
 
   it("redirects when the session token has expired", async () => {
-    stubCookieStore(createSessionToken(SECRET, -60_000));
+    stubCookieStore(createSessionToken(SECRET, 1, Date.now(), -60_000));
 
     await expect(requireAdmin()).rejects.toThrow("NEXT_REDIRECT");
     expect(redirect).toHaveBeenCalledWith("/admin/login");
@@ -90,14 +94,30 @@ describe("requireAdmin", () => {
 
   it("redirects when no session secret is configured, even with a well-formed cookie", async () => {
     vi.stubEnv("SESSION_SECRET", "");
-    stubCookieStore(createSessionToken(SECRET));
+    stubCookieStore(createSessionToken(SECRET, 1));
 
     await expect(requireAdmin()).rejects.toThrow("NEXT_REDIRECT");
     expect(redirect).toHaveBeenCalledWith("/admin/login");
   });
 
-  it("passes a genuinely signed, unexpired session through without redirecting", async () => {
-    stubCookieStore(createSessionToken(SECRET));
+  it("redirects a session from before Sign out everywhere", async () => {
+    sessions.generation.mockResolvedValue(2);
+    stubCookieStore(createSessionToken(SECRET, 1));
+
+    await expect(requireAdmin()).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirect).toHaveBeenCalledWith("/admin/login");
+  });
+
+  it("redirects when the login generation cannot be read", async () => {
+    sessions.generation.mockResolvedValue(null);
+    stubCookieStore(createSessionToken(SECRET, 1));
+
+    await expect(requireAdmin()).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirect).toHaveBeenCalledWith("/admin/login");
+  });
+
+  it("passes a genuinely signed, unexpired session of the current generation through without redirecting", async () => {
+    stubCookieStore(createSessionToken(SECRET, 1));
 
     await expect(requireAdmin()).resolves.toBeUndefined();
     expect(redirect).not.toHaveBeenCalled();
