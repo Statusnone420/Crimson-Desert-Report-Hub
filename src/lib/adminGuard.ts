@@ -2,7 +2,8 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_COOKIE, verifySessionToken } from "@/lib/session";
+import { currentSessionGeneration } from "@/lib/adminSessions.server";
+import { ADMIN_COOKIE, readSessionToken } from "@/lib/session";
 
 export function adminSessionSecret(env: NodeJS.ProcessEnv = process.env): string | null {
   const value = env.SESSION_SECRET?.trim();
@@ -14,7 +15,10 @@ export async function isAdmin(): Promise<boolean> {
   const secret = adminSessionSecret();
   if (!secret) return false;
   const store = await cookies();
-  return verifySessionToken(store.get(ADMIN_COOKIE)?.value, secret);
+  const session = readSessionToken(store.get(ADMIN_COOKIE)?.value, secret);
+  if (!session) return false;
+  // A session from before "Sign out everywhere" no longer counts.
+  return session.generation === await currentSessionGeneration();
 }
 
 /**

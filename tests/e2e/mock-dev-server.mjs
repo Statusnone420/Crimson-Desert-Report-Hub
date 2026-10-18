@@ -1736,6 +1736,12 @@ const server = createServer(async (req, res) => {
     sendJson(res, req.method, 200, { allowed: true, retry_after: 0 });
     return;
   }
+  if (req.method === "POST" && url.pathname === "/rest/v1/rpc/admin_session_generation") {
+    // Parallel browser tests share this server, so the generation stays fixed;
+    // "Sign out everywhere" is covered by SQL and route tests instead.
+    sendJson(res, req.method, 200, 1);
+    return;
+  }
   if (req.method === "POST" && ["/rest/v1/rpc/scanner_budget_summary", "/rest/v1/rpc/scanner_ai_health_runs", "/rest/v1/rpc/scanner_admit_run"].includes(url.pathname)) {
     // Browser fixtures model the pre-migration schema. Only this exact missing
     // function response permits the application's legacy read path.

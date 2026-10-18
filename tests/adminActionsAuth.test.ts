@@ -59,6 +59,7 @@ type Actions = typeof import("@/app/admin/actions");
  * "bad input" instead of the sentinel.
  */
 const WRITE_ACTIONS: { name: keyof Actions; form: Record<string, string> }[] = [
+  { name: "signOutEverywhere", form: {} },
   { name: "moderateReport", form: { id: "report-one", decision: "approved", cluster_id: "cluster-one" } },
   { name: "setClusterFixStatus", form: { cluster_id: "cluster-one", fix_status: "verified_fixed" } },
   {

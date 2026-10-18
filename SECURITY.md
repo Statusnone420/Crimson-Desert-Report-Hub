@@ -31,7 +31,7 @@ Only the current `main` branch is supported.
 
 - Browser code never receives the Supabase service role key.
 - Server routes and actions access Supabase tables. Public table access is denied through row-level security and revoked grants.
-- Cron and preview routes require `CRON_SECRET`. Admin routes require a signed session cookie, and admin sign-in attempts are rate-limited per network.
+- Cron and preview routes require `CRON_SECRET`. Admin routes require a signed session cookie. A session lasts 30 days and renews itself with use; "Sign out everywhere" in the operator menu ends every session at once. Admin sign-in attempts are rate-limited per network.
 - Public report text is moderation-gated before it appears in public.
 - The database stores salted one-way network hashes, never raw IP addresses. An IPv6 address counts by its /64 network.
 - Check-in writes use a service-role-only database function. It takes the shared visibility lock, then cluster and network locks, rechecks public issue visibility in the same transaction, and enforces a limit of 20 attempts per network per hour.

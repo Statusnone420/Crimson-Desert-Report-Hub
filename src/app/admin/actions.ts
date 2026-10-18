@@ -21,6 +21,7 @@ import {
 } from "@/lib/automation/settings";
 import { FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
+import { revokeAdminSessions } from "@/lib/adminSessions.server";
 import { draftDossierWithAi } from "@/lib/ai";
 import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
 import { features } from "@/lib/env";
@@ -36,6 +37,15 @@ import { isMissingSupabaseRpc } from "@/lib/supabaseCompatibility";
 const DECISIONS = ["approved", "rejected", "spam"] as const;
 
 export async function signOutAdmin() {
+  const store = await cookies();
+  store.set(ADMIN_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  redirect("/admin/login");
+}
+
+/** Ends every admin session at once, this browser's and any agent's, then asks for a fresh sign-in. */
+export async function signOutEverywhere() {
+  await requireAdmin();
+  if (await revokeAdminSessions() === null) throw new Error("Could not sign out everywhere. Try again in a moment.");
   const store = await cookies();
   store.set(ADMIN_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
   redirect("/admin/login");

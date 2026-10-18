@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { ADMIN_COOKIE, createSessionToken, passwordMatches } from "@/lib/session";
+import { ADMIN_COOKIE, adminCookieOptions, createSessionToken, passwordMatches } from "@/lib/session";
 import { requiredEnv } from "@/lib/env";
 import { readLoginPassword, reserveLoginAttempt } from "@/lib/adminLogin.server";
+import { currentSessionGeneration } from "@/lib/adminSessions.server";
 import { isVercelPreview } from "@/lib/previewGuard";
 
 export async function POST(req: Request) {
@@ -33,14 +34,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
   }
 
+  const generation = await currentSessionGeneration();
+  if (generation === null) return NextResponse.json({ error: "sign_in_unavailable" }, { status: 503 });
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(ADMIN_COOKIE, createSessionToken(secret), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 12 * 60 * 60,
-  });
+  res.cookies.set(ADMIN_COOKIE, createSessionToken(secret, generation), adminCookieOptions());
   return res;
 }
 
