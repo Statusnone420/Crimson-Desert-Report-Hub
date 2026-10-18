@@ -697,6 +697,7 @@ function configureProviders() {
       platform: isCrash ? "ps5" : "pc_steam",
       confidence: canUseOpenRouter ? "high" : "medium",
       summary: isCrash ? "Map crash on PS5." : "Players report FPS drops on Steam.",
+      ...(canUseOpenRouter ? { isReport: true } : {}),
       clusterAssignment: "unsure",
       clusterReason: "The default test extractor does not make a semantic assignment.",
       clusterSlug: null,
@@ -1588,6 +1589,257 @@ describe("runAutomationMonitor", () => {
     expect(openRouterAttempts).toBe(3);
     expect(result.llmCostUsd).toBe(0.0025);
     expect(result.skips).not.toContain("openrouter_cost_unverified");
+  });
+
+  it("puts two rewordings of one new issue from the same scan into one issue group", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    mocks.tavilySearch.mockResolvedValue([
+      { title: "Game crashes when opening the map", url: "https://steamcommunity.com/app/3321460/discussions/0/800001/", snippet: "Crashes every time after patch 1.13.00.", ...dated },
+      { title: "Crash when opening map", url: "https://steamcommunity.com/app/3321460/discussions/0/800002/", snippet: "Crash on the map screen since 1.13.00.", ...dated },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => ({
+      issueTitle: candidate.title,
+      category: "crash_startup",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: candidate.snippet,
+      clusterAssignment: "unsure",
+      clusterSlug: null,
+      extractionProvider: "openrouter",
+      extractionModel: "deepseek/deepseek-v4.1-flash",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0004,
+    }));
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const autoClusters = tables.issue_clusters.filter((row) => String(row.slug).startsWith("auto-"));
+    expect(autoClusters).toHaveLength(1);
+    const clusterIds = tables.source_signals.map((row) => row.cluster_id);
+    expect(clusterIds).toHaveLength(2);
+    expect(new Set(clusterIds)).toEqual(new Set([autoClusters[0].id]));
+  });
+
+  it("reads non-English posts with the extra AI calls and stores them in English only", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${900000 + id}/`;
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    // One English post whose extraction spends every shared call (retries and
+    // backups can), so the Chinese posts after it meet spent lanes.
+    const english = [{
+      title: "Crimson Desert patch 1.13 combat stutter",
+      url: thread(1),
+      snippet: "Players report combat stutter and FPS drops after patch 1.13.00.",
+      ...dated,
+    }];
+    const chinese = [
+      { title: "进去背包或者技能里面会出现闪退", url: thread(101), snippet: "进去背包或者技能里面会出现闪退，每次都这样" },
+      { title: "打开地图就闪退", url: thread(102), snippet: "打开地图就闪退，重启也没用" },
+      { title: "背包里的物品消失了", url: thread(103), snippet: "背包里的物品消失了，找不回来" },
+      { title: "过场动画后闪退", url: thread(104), snippet: "过场动画后闪退，每次都这样" },
+    ].map((item) => ({ ...item, ...dated }));
+    mocks.tavilySearch.mockResolvedValue([...english, ...chinese]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
+      const ai = options.llmCallsRemaining > 0;
+      const isChinese = /[一-鿿]/.test(candidate.title);
+      return {
+        issueTitle: isChinese ? (ai ? "Crash after the 1.13 update in the backpack menu" : candidate.title) : candidate.title,
+        category: isChinese ? "crash_startup" : "performance",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: isChinese ? (ai ? "Players report the game crashes when opening a menu." : candidate.snippet) : candidate.snippet,
+        ...(ai ? { isReport: true } : {}),
+        clusterSlug: null,
+        extractionProvider: ai ? "openrouter" : "deterministic",
+        extractionModel: ai ? "deepseek/deepseek-v4.1-flash" : null,
+        llmCallsUsed: ai ? (isChinese ? 1 : options.llmCallsRemaining) : 0,
+        llmCostUsd: ai ? 0.0004 : 0,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const callsFor = (url: string) => mocks.extractSignalWithOpenRouter.mock.calls.find(([candidate]) => candidate.url === url.replace(/\/$/, ""))?.[1];
+    // The first three Chinese posts run on the extra allowance; the fourth finds it spent.
+    expect([101, 102, 103].map((id) => callsFor(thread(id))?.llmCallsRemaining)).toEqual([1, 1, 1]);
+    expect(callsFor(thread(104))?.llmCallsRemaining).toBe(0);
+    const count = (skip: string) => result.skips.filter((value) => value === skip).length;
+    expect(count("language_extra_call")).toBe(3);
+    expect(count("language_review")).toBe(1);
+    expect(count("non_english_ai")).toBe(3);
+    expect(count("non_english_kept")).toBe(3);
+    expect(count("language_needs_ai")).toBe(1);
+
+    const stored = (id: number) => tables.source_signals.find((row) => row.canonical_url === thread(id).replace(/\/$/, ""));
+    for (const id of [101, 102, 103]) {
+      expect(stored(id)).toMatchObject({ title: "Crash after the update in the backpack menu" });
+    }
+    expect(stored(104)).toBeUndefined();
+    for (const row of tables.source_signals) {
+      expect(`${row.title} ${row.summary}`).not.toMatch(/[一-鿿]/);
+    }
+  });
+
+  it("keeps a post only a language review let in when the AI says it reports a problem, and nothing else", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${910000 + id}/`;
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    // No post has a symptom word, so each one needs a language review.
+    mocks.tavilySearch.mockResolvedValue([
+      { title: "Excellent jeu, très beau", url: thread(1), snippet: "Le monde est magnifique et les combats sont superbes.", ...dated },
+      { title: "背包里的物品消失了", url: thread(2), snippet: "背包里的物品消失了，找不回来", ...dated },
+      { title: "坐骑叫不出来了", url: thread(3), snippet: "坐骑叫不出来了，怎么办", ...dated },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
+      const praise = candidate.title.startsWith("Excellent");
+      const unanswered = candidate.title.startsWith("坐骑");
+      return {
+        issueTitle: praise ? "Players praise the graphics" : unanswered ? "Mount cannot be summoned" : "Items vanish from the backpack",
+        // A category alone proves nothing: the praise still gets one.
+        category: praise ? "graphics_visual" : "controls_gameplay",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: praise ? "The player says the game is excellent and very beautiful." : "Items disappear from the backpack for good.",
+        // The third reply leaves isReport out, which counts as unconfirmed.
+        ...(unanswered ? {} : { isReport: !praise }),
+        clusterAssignment: "unsure",
+        clusterReason: "Test extractor.",
+        clusterSlug: null,
+        extractionProvider: "openrouter",
+        extractionModel: "deepseek/deepseek-v4.1-flash",
+        llmCallsUsed: 1,
+        llmCostUsd: 0.0004,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const count = (skip: string) => result.skips.filter((value) => value === skip).length;
+    expect(count("language_review")).toBe(3);
+    expect(count("non_english_ai")).toBe(3);
+    expect(count("non_english_kept")).toBe(1);
+    const stored = (id: number) => tables.source_signals.find((row) => row.canonical_url === thread(id).replace(/\/$/, ""));
+    expect(stored(1)).toBeUndefined();
+    expect(stored(2)).toMatchObject({ title: "Items vanish from the backpack" });
+    expect(stored(3)).toBeUndefined();
+    for (const id of [1, 3]) {
+      expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({
+        url: thread(id).replace(/\/$/, ""), reason: "source_not_issue_report",
+      }));
+    }
+  });
+
+  it("follows the AI's no-report answer for posts in other languages only", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${920000 + id}/`;
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    // Both posts match a symptom word, so neither needs a language review.
+    mocks.tavilySearch.mockResolvedValue([
+      { title: "Crimson Desert crashes when opening the map", url: thread(1), snippet: "The game crashes to desktop every time I open the map.", ...dated },
+      { title: "Das Spiel stürzt nicht mehr ab", url: thread(2), snippet: "Seit dem Patch läuft alles stabil.", ...dated },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
+      const german = candidate.title.startsWith("Das");
+      return {
+        issueTitle: german ? "Crashes fixed since the patch" : "Map crash on PC",
+        category: "crash_startup",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: german ? "The player says the game no longer crashes." : "The game crashes when opening the map.",
+        // The AI answers "no report" for both; only the German post follows it.
+        isReport: false,
+        clusterAssignment: "unsure",
+        clusterReason: "Test extractor.",
+        clusterSlug: null,
+        extractionProvider: "openrouter",
+        extractionModel: "deepseek/deepseek-v4.1-flash",
+        llmCallsUsed: 1,
+        llmCostUsd: 0.0004,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const stored = (id: number) => tables.source_signals.find((row) => row.canonical_url === thread(id).replace(/\/$/, ""));
+    expect(stored(1)).toMatchObject({ title: "Crimson Desert crashes when opening the map" });
+    expect(stored(2)).toBeUndefined();
+    expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({
+      url: thread(2).replace(/\/$/, ""), reason: "source_not_issue_report",
+    }));
+  });
+
+  it("keeps posts in another language out of the rescue lane once the language reviews are spent", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${930000 + id}/`;
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    // No post has a symptom word. The first three take the scan's language reviews.
+    mocks.tavilySearch.mockResolvedValue([
+      { title: "任务道具不见了", url: thread(1), snippet: "任务道具不见了，怎么办", ...dated },
+      { title: "坐骑叫不出来了", url: thread(2), snippet: "坐骑叫不出来了，怎么办", ...dated },
+      { title: "商店里的东西买不了", url: thread(3), snippet: "商店里的东西买不了，怎么办", ...dated },
+      // "Bug" is one of the rescue lane's English context words.
+      { title: "Bug dans la quête", url: thread(4), snippet: "La quête ne se termine pas.", ...dated },
+    ]);
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    expect(result.skips.filter((skip) => skip === "language_review")).toHaveLength(3);
+    const fourth = thread(4).replace(/\/$/, "");
+    expect(mocks.extractSignalWithOpenRouter.mock.calls.some(([candidate]) => candidate.url === fourth)).toBe(false);
+    expect(result.skips).not.toContain("candidate_rescued");
+    expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({ url: fourth, reason: "source_not_issue_report" }));
+  });
+
+  it.each([
+    ["refuses to store", "deterministic"],
+    ["stores in English only", "openrouter"],
+  ] as const)("an operator rescue of a non-English post %s when the AI is %s", async (_label, provider) => {
+    resetDb({});
+    configureProviders();
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => ({
+      issueTitle: provider === "openrouter" ? "Crash after 1.13.00 when opening the map" : candidate.title,
+      category: "crash_startup",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: provider === "openrouter" ? "The game crashes when opening the map." : candidate.snippet,
+      clusterAssignment: "unsure",
+      clusterSlug: null,
+      extractionProvider: provider,
+      extractionModel: provider === "openrouter" ? "deepseek/deepseek-v4.1-flash" : null,
+      llmCallsUsed: provider === "openrouter" ? 1 : 0,
+      llmCostUsd: provider === "openrouter" ? 0.0004 : 0,
+    }));
+    const { rescueCandidateSignal } = await importRunner();
+    const rescue = rescueCandidateSignal({ from: mocks.from, rpc: mocks.rpc } as never, {
+      title: "打开地图就闪退",
+      url: "https://steamcommunity.com/app/3321460/discussions/0/700001/",
+      sourceDomain: "steamcommunity.com",
+      snippet: "打开地图就闪退，重启也没用",
+    });
+    if (provider === "deterministic") {
+      await expect(rescue).rejects.toThrow(/not in English/);
+      expect(sourceSignalRows()).toEqual([]);
+      return;
+    }
+    await rescue;
+    expect(sourceSignalRows()).toHaveLength(1);
+    expect(sourceSignalRows()[0]).toMatchObject({ title: "Crash after when opening the map", summary: "The game crashes when opening the map." });
   });
 
   it("stops asking OpenRouter for the rest of the run once no provider matches", async () => {
@@ -2801,6 +3053,64 @@ describe("runAutomationMonitor", () => {
     expect(tables.issue_clusters.find((row) => row.id === "old-cluster")).toMatchObject({ signal_count: 0 });
     expect(newCluster).toMatchObject({ signal_count: 1 });
     expect(sourceSignalRows()[0]).toMatchObject({ cluster_id: newCluster!.id });
+  });
+
+  it("does not route a later rewording into a cluster a move emptied earlier in the same scan", async () => {
+    const movedUrl = "https://example.com/map-crash-thread";
+    const newUrl = "https://example.com/map-crash-rewording";
+    resetDb({
+      issue_clusters: [{
+        id: "emptied-cluster", slug: "auto-map-crash", title: "Crash when opening map", category: "crash_startup",
+        description: "The game closes when the map opens.", fix_status: "reported", confidence: "medium",
+        is_public: false, auto_public: false, signal_count: 1, visibility_revision: 0,
+      }],
+      source_signals: [{
+        id: "signal-moves-away", source: "web_search", source_type: "web_search", source_url: movedUrl, canonical_url: movedUrl,
+        external_id_hash: externalIdHash("web_search", movedUrl), title: "Map crash", summary: "The map crashes the game.",
+        source_domain: "example.com", source_published_at: "2026-07-04T12:00:00.000Z", semantic_fingerprint: "earlier-wording",
+        cluster_id: "emptied-cluster", category: "crash_startup", confidence: "medium", observed_at: "2026-07-05T11:00:00.000Z",
+        public_status: "private", seen_count: 1, first_seen_at: "2026-07-05T11:00:00.000Z",
+      }],
+    });
+    configureProviders();
+    // The stored source now reads as a performance problem and moves out, leaving
+    // its cluster empty; a new source in the same scan then rewords that cluster's title.
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
+      const moved = candidate.url === movedUrl;
+      return {
+        issueTitle: moved ? "FPS drops in towns" : "Game crashes when opening the map",
+        category: moved ? "performance" : "crash_startup",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: moved ? "Players report FPS drops in towns." : "The game crashes when opening the map.",
+        isReport: true,
+        clusterAssignment: "unsure",
+        clusterReason: "Test extractor.",
+        clusterSlug: null,
+        extractionProvider: "openrouter",
+        extractionModel: "deepseek/deepseek-v4.1-flash",
+        llmCallsUsed: 1,
+        llmCostUsd: 0.0004,
+      };
+    });
+    const hit = (title: string, url: string, snippet: string) => ({
+      title, url, snippet, sourceDomain: "example.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z",
+    });
+    mocks.tavilySearch.mockImplementationOnce(async () => [
+      hit("FPS drops in towns", movedUrl, "Players report Crimson Desert FPS drops and stutter in towns on Steam."),
+      hit("Game crashes when opening the map", newUrl, "Crimson Desert crashes when opening the map on PS5."),
+    ]);
+    mocks.tavilySearch.mockResolvedValue([]);
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const clusterOf = (url: string) => sourceSignalRows().find((row) => row.canonical_url === url)?.cluster_id;
+    expect(clusterOf(movedUrl)).toBeTruthy();
+    expect(clusterOf(movedUrl)).not.toBe("emptied-cluster");
+    expect(clusterOf(newUrl)).toBeTruthy();
+    expect(clusterOf(newUrl)).not.toBe("emptied-cluster");
+    expect(tables.issue_clusters.find((row) => row.id === "emptied-cluster")).toMatchObject({ signal_count: 0 });
   });
 
   describe("cluster stability and category", () => {
@@ -9196,6 +9506,38 @@ describe("Steam forum intake", () => {
         await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
 
         expect(extractionsFor(canonical(topic))).toHaveLength(2);
+      });
+
+      it("skips threads it already read before they take a language review from a new post", async () => {
+        // Chinese posts with no listed symptom word: each one needs a language review.
+        const seen = ["任务道具不见了", "坐骑叫不出来了", "商店里的东西买不了"].map((title, index) =>
+          forumTopic({ topicId: `58281000514000011${index}`, title, preview: `${title}，怎么办` }));
+        const searchHit = (thread: { title: string; url: string }, extra: Record<string, string> = {}) => ({
+          title: `${thread.title} :: Crimson Desert General Discussions`, url: thread.url,
+          snippet: `${thread.title}，更新以后一直这样，验证文件也没用。`,
+          sourceDomain: "steamcommunity.com", observedAt: NOW.toISOString(), ...extra,
+        });
+        const fresh = { title: "地图上的标记都没了", url: `${FORUM}582810005140000120/` };
+        mocks.fetchSteamForumTopics.mockResolvedValue(seen);
+        mocks.tavilySearch.mockResolvedValue(seen.map((thread) => searchHit(thread)));
+        const { runAutomationMonitor } = await importRunner();
+        const reviews = (skips: string[]) => skips.filter((skip) => skip === "language_review").length;
+
+        const first = await runAutomationMonitor({ mode: "manual", now: NOW });
+        expect(reviews(first.skips)).toBe(3);
+        for (const thread of seen) expect(extractionsFor(canonical(thread))).toHaveLength(1);
+
+        // The same three threads, unchanged, come back first; a new post follows.
+        mocks.tavilySearch.mockResolvedValue([
+          ...seen.map((thread) => searchHit(thread)),
+          searchHit(fresh, { sourcePublishedAt: "2026-07-05T12:30:00.000Z" }),
+        ]);
+        const second = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+        expect(second.skips.filter((skip) => skip === "steam_forum_unchanged")).toHaveLength(3);
+        expect(reviews(second.skips)).toBe(1);
+        for (const thread of seen) expect(extractionsFor(canonical(thread))).toHaveLength(1);
+        expect(extractionsFor(canonical(fresh))).toHaveLength(1);
       });
 
       it("keeps a cached thread's malformed opening date authoritative over a dated search hit", async () => {

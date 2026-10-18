@@ -4,13 +4,14 @@ import { useMemo, useState } from "react";
 import { rescueRejectedCandidate } from "@/app/admin/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { plainSkipPhrase } from "@/lib/automation/runDisplay";
+import { englishOnly } from "@/lib/language";
 import type { RejectedCandidateRow } from "@/lib/queries";
 
 function ReviewCandidate({ candidate }: { candidate: RejectedCandidateRow }) {
   return (
     <div className="archive-item">
       <div className="min-w-0">
-        <div className="archive-item__title">{candidate.title}</div>
+        <div className="archive-item__title">{englishOnly(candidate.title)}</div>
         <div className="archive-item__meta">
           {candidate.source_domain ? `${candidate.source_domain} · ` : ""}
           {plainSkipPhrase(candidate.reason)} ·{" "}

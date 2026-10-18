@@ -1286,7 +1286,7 @@ export async function getAutomationAdminData() {
   const signalsResult = await supabase
     .from("source_signals")
     .select(
-      "id, cluster_id, source, source_type, source_url, title, source_domain, source_published_at, first_seen_at, last_seen_at, seen_count, summary, category, confidence, observed_at, public_status",
+      "id, cluster_id, source, source_type, source_url, title, source_domain, source_published_at, first_seen_at, last_seen_at, seen_count, summary, category, confidence, observed_at, public_status, extracted_facts",
     )
     .order("observed_at", { ascending: false })
     .limit(20);

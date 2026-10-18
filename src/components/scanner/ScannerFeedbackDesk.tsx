@@ -5,6 +5,7 @@ import { recordScannerDecision, undoScannerDecision } from "@/app/admin/actions"
 import { SubmitButton } from "@/components/SubmitButton";
 import { scannerRuleScopeValue, type ScannerRuleScope } from "@/lib/automation/feedback";
 import { plainSkipPhrase } from "@/lib/automation/runDisplay";
+import { englishOnly, isMostlyNonEnglish } from "@/lib/language";
 import { groupScannerLessons, summarizeScannerLessons } from "@/lib/scannerLessonGroups";
 import type { RejectedCandidateRow, ScannerFeedbackRuleRow } from "@/lib/queries";
 
@@ -52,14 +53,14 @@ function DecisionCard({
           <p className="decision-card__eyebrow">
             {candidate.source_domain ?? "unknown source"} · discovered {relativeTime(candidate.created_at, nowMs)}
           </p>
-          <h3 className="decision-card__title">{candidate.title}</h3>
+          <h3 className="decision-card__title">{englishOnly(candidate.title)}</h3>
         </div>
         <a href={candidate.url} target="_blank" rel="noreferrer noopener" className="dispatch-link">
           Inspect source ↗
         </a>
       </div>
 
-      {candidate.snippet ? <p className="decision-card__snippet">{candidate.snippet}</p> : null}
+      {candidate.snippet && !isMostlyNonEnglish(candidate.snippet) ? <p className="decision-card__snippet">{candidate.snippet}</p> : null}
 
       <ol className="provenance-path" aria-label="Why this candidate is here">
         <li>

@@ -42,6 +42,74 @@ function fold(word: string): string {
   return folded.length > 4 && folded.endsWith("e") ? folded.slice(0, -1) : folded;
 }
 
+// Short English words that say nothing about which problem a title names, and
+// the pieces contractions split into ("don't" gives "t"; NEGATION reads those).
+const SHORT_FILLER = new Set([
+  "a", "an", "am", "as", "at", "be", "by", "do", "go", "he", "i", "if", "in", "is", "it", "me", "my", "no", "of", "oh", "ok",
+  "on", "or", "so", "to", "up", "us", "we",
+  "d", "ll", "m", "re", "s", "t", "ve",
+]);
+// Words that turn a title into its opposite: "Shadows do not appear indoors" is
+// not "Shadows appear indoors".
+const NEGATION = /\b(?:not|no|never|none|nothing|cannot|cant|dont|doesnt|didnt|wont|isnt|arent|wasnt|werent|without|unable)\b|n['’]t\b/i;
+
+// What retrievalTokens drops that can still tell two problems apart: a negation,
+// bare numbers ("Error 15" / "Error 30") and words under three letters ("UI" /
+// "AI", "4K"), short English filler aside. Version numbers are left out, as the
+// semantic fingerprint leaves them out, so "after 1.04" still meets "after the
+// update".
+function distinguishingTerms(title: string): string {
+  const words = title
+    .replace(/\bv?\d+(?:\.\d+)+\b/gi, " ")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .match(/[\p{L}\p{N}]+/gu) ?? [];
+  // "!" never occurs in a word, so the negation mark cannot meet a real term.
+  const terms = new Set<string>(NEGATION.test(title) ? ["!not"] : []);
+  for (const word of words) {
+    if (/^\d+$/.test(word)) terms.add(String(Number(word)));
+    else if (word.length < 3 && !SHORT_FILLER.has(word)) terms.add(word);
+  }
+  return [...terms].sort().join(" ");
+}
+
+// Word pairs that turn a report into its opposite when one replaces the other
+// ("Subtitles keep turning on" / "turning off", "transfer items to storage" /
+// "from storage"). At least one word of each pair is filler to retrievalTokens,
+// so the word match alone cannot see the change.
+const OPPOSITES = [
+  ["on", "off"], ["up", "down"], ["in", "out"], ["over", "under"], ["more", "less"],
+  ["to", "from"], ["into", "out"], ["onto", "off"],
+] as const;
+// Timing words, by the moment they name. "Crash after loading a save" is not
+// "Crash while loading a save", but "while" and "when" name the same moment.
+const MOMENTS = new Map([
+  ["before", "before"], ["until", "before"], ["till", "before"],
+  ["while", "during"], ["during", "during"], ["when", "during"], ["whenever", "during"], ["upon", "during"],
+  ["after", "after"], ["since", "after"],
+]);
+
+function moments(words: Set<string>): Set<string> {
+  return new Set([...words].flatMap((word) => MOMENTS.get(word) ?? []));
+}
+
+function titleWords(title: string): Set<string> {
+  return new Set(title.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+}
+
+// True when the titles differ in both words of a pair, one saying "on" where the
+// other says "off", or when each names a moment the other does not ("after" /
+// "while"). A word both titles share, or one only a single title has ("Crash on
+// PS5" / "PS5 crash", "Crash after 1.04 when opening the map" / "Crash when
+// opening map"), changes nothing.
+function opposed(left: Set<string>, right: Set<string>): boolean {
+  if (OPPOSITES.some(([a, b]) => left.has(a) !== right.has(a) && left.has(b) !== right.has(b))) return true;
+  const leftMoments = moments(left);
+  const rightMoments = moments(right);
+  return [...leftMoments].some((moment) => !rightMoments.has(moment)) && [...rightMoments].some((moment) => !leftMoments.has(moment));
+}
+
 /** Distinct comparable words of a text, accents removed ("Créchard" meets "Crechard"). */
 export function retrievalTokens(text: string): string[] {
   const words = text.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -51,6 +119,57 @@ export function retrievalTokens(text: string): string[] {
     tokens.add(fold(word));
   }
   return [...tokens];
+}
+
+/**
+ * The automatic cluster whose title says the same thing as `issueTitle`, or
+ * null. Consulted only where a source would otherwise start a new automatic
+ * cluster, or stay unclustered: without it, every rewording ("Game crashes when
+ * opening the map" / "Crash when opening map") started its own cluster, because
+ * the exact fingerprint is the only other match a source the model never saw
+ * can make. Deliberately strict: same category, at least two shared
+ * distinctive words, and those cover three quarters of both titles, so titles
+ * that share only a symptom ("crash opening map" / "crash opening inventory")
+ * stay apart. One title's words must all appear in the other, so a swapped
+ * word ("map screen" / "inventory screen") keeps them apart even at three
+ * quarters, and so does a swapped pair of opposites ("turning on" / "turning
+ * off") or moment ("after" / "while"). Both titles must also agree on
+ * negation and carry the same numbers and short terms, versions aside, so
+ * "Shadows appear" / "Shadows do not appear", "Error 15" / "Error 30" and
+ * "UI stutter" / "AI stutter" stay apart too. A cluster whose signals were
+ * all moved elsewhere (signal_count 0) is skipped, as the model's options skip
+ * it, so a relocation is not undone; a cluster created earlier in the same
+ * batch carries no count and is kept.
+ */
+export function nearDuplicateAutoCluster<T extends RetrievalCluster & { signal_count?: number | string | null }>(
+  issueTitle: string,
+  category: string,
+  clusters: readonly T[],
+): T | null {
+  const wanted = new Set(retrievalTokens(issueTitle));
+  if (wanted.size < 2) return null;
+  const terms = distinguishingTerms(issueTitle);
+  const wantedWords = titleWords(issueTitle);
+  let best: { cluster: T; score: number } | null = null;
+  for (const cluster of clusters) {
+    if (!cluster.slug.startsWith("auto-") || String(cluster.category) !== category) continue;
+    if (cluster.signal_count !== null && cluster.signal_count !== undefined && Number(cluster.signal_count) === 0) continue;
+    if (distinguishingTerms(cluster.title) !== terms) continue;
+    const tokens = new Set(retrievalTokens(cluster.title));
+    let shared = 0;
+    for (const token of wanted) if (tokens.has(token)) shared += 1;
+    const score = shared / Math.max(wanted.size, tokens.size);
+    if (shared < 2 || score < 0.75) continue;
+    // A rewording adds or drops words. When each title has a word the other
+    // lacks, one was swapped for another and names a different target ("map
+    // screen" / "inventory screen").
+    if (shared < wanted.size && shared < tokens.size) continue;
+    if (opposed(wantedWords, titleWords(cluster.title))) continue;
+    if (!best || score > best.score || (score === best.score && compareClusterRecency(cluster, best.cluster) < 0)) {
+      best = { cluster, score };
+    }
+  }
+  return best?.cluster ?? null;
 }
 
 /** Newest activity first, then creation, then slug: bounded and reproducible. */
