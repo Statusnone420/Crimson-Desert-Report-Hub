@@ -11,10 +11,13 @@ async function inspectSelectedProvider(page: Page) {
 }
 
 const PRIVATE_OR_PROVIDER = /\/api\/admin\/ai-settings|openai\.com|openrouter\.ai|supabase\.(co|com)/i;
+// Every operator page renews the admin login; that request belongs to the workspace shell, not to AI settings.
+const isSessionRenewal = (url: string) => new URL(url).pathname === "/api/admin/session";
 
 test("reopening setup preserves the active policy and cancellation leaves it unchanged", async ({ page }) => {
   const effects: string[] = [];
   page.on("request", (request) => {
+    if (isSessionRenewal(request.url())) return;
     if (request.method() !== "GET" || PRIVATE_OR_PROVIDER.test(request.url())) effects.push(request.url());
   });
   await signInAsAdmin(page);
@@ -52,6 +55,7 @@ test("the shared AI settings UI keeps its design preview local and resets on rel
   const problems = collectConsoleProblems(page);
   const effects: string[] = [];
   page.on("request", (request) => {
+    if (isSessionRenewal(request.url())) return;
     if (request.method() !== "GET" || PRIVATE_OR_PROVIDER.test(request.url())) effects.push(`${request.method()} ${request.url()}`);
   });
   await signInAsAdmin(page);
@@ -91,7 +95,7 @@ test("the shared AI settings UI keeps its design preview local and resets on rel
   await page.getByRole("button", { name: "Activate model in preview", exact: true }).click();
   await expect(page.locator(".ai-current .ai-model-name")).toHaveText("Sample Backup Reader");
   await expect(page.locator(".ai-model-row").first()).toContainText("medium reasoning · Zero data retention required · 768 output tokens maximum");
-  await expect(page.getByRole("status")).toContainText("No production settings changed.");
+  await expect(page.getByRole("status").filter({ hasText: "No production settings changed." })).toBeVisible();
   await page.getByRole("button", { name: "Restore previous model", exact: true }).click();
   await expect(page.locator(".ai-current .ai-model-name")).toHaveText("Sample Issue Reader");
 

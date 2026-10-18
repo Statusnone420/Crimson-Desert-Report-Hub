@@ -126,6 +126,28 @@ test.describe("operator workspace flows", () => {
     });
   }
 
+  test("a login renewal the server cannot complete is retried once, then shown", async ({ page }) => {
+    let renewals = 0;
+    await page.route("**/api/admin/session", async (route) => {
+      renewals += 1;
+      await route.fulfill({ status: 503, headers: { "cache-control": "no-store" }, body: "" });
+    });
+    await signInAsAdmin(page);
+    await page.goto("/operator");
+    await waitForHydration(page);
+    const notice = "Your sign-in could not be extended just now.";
+    await expect(page.getByRole("status").filter({ hasText: notice })).toBeVisible({ timeout: 10_000 });
+    // The notice waits for the retry. Development mode runs the effect twice, so count at least two
+    // requests here; tests/sessionRenewal.test.ts pins exactly one retry per renewal.
+    expect(renewals).toBeGreaterThanOrEqual(2);
+
+    await page.unroute("**/api/admin/session");
+    const renewed = page.waitForResponse((response) => response.url().endsWith("/api/admin/session") && response.request().method() === "POST");
+    await page.reload();
+    expect((await renewed).status()).toBe(204);
+    await expect(page.getByText(notice)).toHaveCount(0);
+  });
+
   test("overview shows scanner schedule, providers, counters, and a diagnostics path", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);

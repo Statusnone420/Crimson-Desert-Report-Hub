@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { signOutAdmin, signOutEverywhere } from "@/app/admin/actions";
 import { workspaceHref, type OperatorView } from "@/lib/operatorWorkspace";
 import { WorkspaceIcon } from "@/components/operator/WorkspaceIcon";
@@ -36,11 +36,6 @@ export function OperatorNav({ active, showAiSettings = false }: { active?: Opera
   const exportTriggerRef = useRef<HTMLButtonElement>(null);
   const signOutAllTriggerRef = useRef<HTMLButtonElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
-
-  // Each visit keeps a used login alive; the endpoint re-issues a session that is more than a day old.
-  useEffect(() => {
-    void fetch("/api/admin/session", { method: "POST", cache: "no-store" }).catch(() => undefined);
-  }, []);
 
   // Closing unmounts whatever was focused inside the strip; hand focus back to
   // the trigger so a keyboard operator does not restart from the document top.
