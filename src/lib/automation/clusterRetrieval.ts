@@ -42,14 +42,30 @@ function fold(word: string): string {
   return folded.length > 4 && folded.endsWith("e") ? folded.slice(0, -1) : folded;
 }
 
-// The bare numbers in a title, which retrievalTokens drops but which can tell
-// two problems apart ("Error 15" / "Error 30"). Version numbers are left out, as
-// the semantic fingerprint leaves them out, so "after 1.04" still meets "after
-// the update".
-function titleNumbers(title: string): string {
-  const words = title.replace(/\bv?\d+(?:\.\d+)+\b/gi, " ").match(/[\p{L}\p{N}]+/gu) ?? [];
-  const numbers = new Set(words.filter((word) => /^\d+$/.test(word)).map((word) => String(Number(word))));
-  return [...numbers].sort().join(" ");
+// Short English words that say nothing about which problem a title names.
+const SHORT_FILLER = new Set([
+  "a", "an", "am", "as", "at", "be", "by", "do", "go", "he", "i", "if", "in", "is", "it", "me", "my", "no", "of", "oh", "ok",
+  "on", "or", "so", "to", "up", "us", "we",
+]);
+
+// What retrievalTokens drops that can still tell two problems apart: bare
+// numbers ("Error 15" / "Error 30") and words under three letters ("UI" / "AI",
+// "4K"), short English filler aside. Version numbers are left out, as the
+// semantic fingerprint leaves them out, so "after 1.04" still meets "after the
+// update".
+function distinguishingTerms(title: string): string {
+  const words = title
+    .replace(/\bv?\d+(?:\.\d+)+\b/gi, " ")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .match(/[\p{L}\p{N}]+/gu) ?? [];
+  const terms = new Set<string>();
+  for (const word of words) {
+    if (/^\d+$/.test(word)) terms.add(String(Number(word)));
+    else if (word.length < 3 && !SHORT_FILLER.has(word)) terms.add(word);
+  }
+  return [...terms].sort().join(" ");
 }
 
 /** Distinct comparable words of a text, accents removed ("Créchard" meets "Crechard"). */
@@ -72,11 +88,12 @@ export function retrievalTokens(text: string): string[] {
  * can make. Deliberately strict: same category, at least two shared
  * distinctive words, and those cover three quarters of both titles, so titles
  * that share only a symptom ("crash opening map" / "crash opening inventory")
- * stay apart. Both titles must carry the same numbers, versions aside, so
- * "Error 15" and "Error 30" stay apart too. A cluster whose signals were all
- * moved elsewhere (signal_count 0) is skipped, as the model's options skip it,
- * so a relocation is not undone; a cluster created earlier in the same batch
- * carries no count and is kept.
+ * stay apart. Both titles must also carry the same numbers and short terms,
+ * versions aside, so "Error 15" / "Error 30" and "UI stutter" / "AI stutter"
+ * stay apart too. A cluster whose signals were all moved elsewhere
+ * (signal_count 0) is skipped, as the model's options skip it, so a relocation
+ * is not undone; a cluster created earlier in the same batch carries no count
+ * and is kept.
  */
 export function nearDuplicateAutoCluster<T extends RetrievalCluster & { signal_count?: number | string | null }>(
   issueTitle: string,
@@ -85,12 +102,12 @@ export function nearDuplicateAutoCluster<T extends RetrievalCluster & { signal_c
 ): T | null {
   const wanted = new Set(retrievalTokens(issueTitle));
   if (wanted.size < 2) return null;
-  const numbers = titleNumbers(issueTitle);
+  const terms = distinguishingTerms(issueTitle);
   let best: { cluster: T; score: number } | null = null;
   for (const cluster of clusters) {
     if (!cluster.slug.startsWith("auto-") || String(cluster.category) !== category) continue;
     if (cluster.signal_count !== null && cluster.signal_count !== undefined && Number(cluster.signal_count) === 0) continue;
-    if (titleNumbers(cluster.title) !== numbers) continue;
+    if (distinguishingTerms(cluster.title) !== terms) continue;
     const tokens = new Set(retrievalTokens(cluster.title));
     let shared = 0;
     for (const token of wanted) if (tokens.has(token)) shared += 1;

@@ -36,6 +36,15 @@ describe("joining a reworded lead to its automatic issue group", () => {
     expect(nearDuplicateAutoCluster("Crash after v2.03.02 when opening the map", "crash_startup", clusters)?.id).toBe("1");
   });
 
+  it("keeps titles apart when a short term differs, but not its short filler", () => {
+    const stutter = [{ id: "8", slug: "auto-ui", title: "UI stutter during combat", category: "performance" }];
+    expect(nearDuplicateAutoCluster("AI stutter during combat", "performance", stutter)).toBeNull();
+    expect(nearDuplicateAutoCluster("UI stutters during combat", "performance", stutter)?.id).toBe("8");
+    const fps = [{ id: "9", slug: "auto-4k", title: "FPS drops at 4K", category: "performance" }];
+    expect(nearDuplicateAutoCluster("FPS drops in 4K", "performance", fps)?.id).toBe("9");
+    expect(nearDuplicateAutoCluster("FPS drops in 8K", "performance", fps)).toBeNull();
+  });
+
   it("skips an emptied automatic group but keeps one created earlier in the batch", () => {
     const emptied = { id: "5", slug: "auto-emptied", title: "Crash when opening map", category: "crash_startup", signal_count: 0 };
     expect(nearDuplicateAutoCluster("Game crashes when opening the map", "crash_startup", [emptied])).toBeNull();
