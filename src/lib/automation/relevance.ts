@@ -66,7 +66,9 @@ const SYMPTOM_PATTERNS = [
   // with Muskan is beyond broken". Negated forms ("is not broken", "is no longer
   // bugged") are not complaints.
   /\b(?:is|are|was|were|seems?|feels?|looks?|gets?|got)\s+(?!(?:not|no\s+longer|never)\b)(?:\w+\s+){0,2}?(?:broken|bugged|glitched|busted)\b/i,
-  /(?<!\bnot\s)(?<!\bnever\s)\bbugg(?:ed|y)\b/i,
+  // A negation up to two words back ("is no longer bugged", "not very buggy")
+  // makes it a fixed or praised state, not a report.
+  /(?<!\b(?:not|never|no\s+longer|isn'?t|aren'?t|wasn'?t|weren'?t|hardly|barely)\s+(?:\w+\s+){0,2})\bbugg(?:ed|y)\b/i,
   /\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
   /\b(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b.{0,50}\b(?:missing|gone|muted|silent|broken|cut(?:s|ting)? out|doesn'?t play|not playing|desync(?:ed)?|out of sync)\b/i,
   /\b(?:quests?|missions?|objectives?|npcs?|cutscenes?|dialogue)\b.{0,60}\b(?:stuck|blocked|frozen|missing|broken|bugged|softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete|not progressing|not spawning)\b/i,
@@ -164,8 +166,8 @@ const BROAD_CONTENT_PATTERNS = [
   /\bwalkthrough\b/i,
   /\bfirst look\b/i,
   // Wiki and guide roundups ("Added: Glitches & Exploits – 2.03.02 Bugs") list
-  // other people's findings; they are not one player's report.
-  /^\s*(?:added|updated)\s*:/i,
+  // other people's findings; they are not one player's report. The roundup shape
+  // decides, not an "Updated:" prefix a player's own thread can carry.
   /\bglitch(?:es)?\s*(?:&|and)\s*exploits?\b/i,
 ] as const;
 
@@ -195,7 +197,35 @@ const NO_ISSUE_PATTERNS = [
   new RegExp(String.raw`\bzero ${NO_ISSUE_NOUN_SERIES}\b`, "i"),
   new RegExp(String.raw`\bnot (?:a|one) single ${NO_ISSUE_NOUN}\b`, "i"),
   new RegExp(String.raw`\bnever (?:once )?(?:(?:had|got|saw|seen|noticed|experienced) (?:a |an |any |one )?)?(?:crash(?:ed)?|froze|stuttered|lagged|${NO_ISSUE_NOUN_SERIES})(?: once)?\b`, "i"),
+  ...multilingualNoIssuePatterns(),
 ] as const;
+
+/**
+ * The same praise in the languages the symptom list reads, so "Keine
+ * Abstürze", "Aucun plantage" or "バグがない" is not mistaken for a report the
+ * moment its symptom word is recognized.
+ */
+function multilingualNoIssuePatterns(): RegExp[] {
+  const lettered = [
+    // German
+    String.raw`(?:kein|keine|keinen|keinerlei|ohne)\s+(?:\p{L}+\s+)?(?:abst(?:ü|ue)rz\p{L}*|absturz|ruckler|ruckeln|bugs?|fehler|probleme?)`,
+    // French
+    String.raw`(?:aucun|aucune|pas\s+de|pas\s+un\s+seul|sans)\s+(?:\p{L}+\s+)?(?:plantages?|bugs?|crash(?:es)?|saccades?|freezes?|probl[èe]mes?|erreurs?)`,
+    // Spanish
+    String.raw`(?:ning[úu]n|ninguna|sin|cero|no\s+hay)\s+(?:\p{L}+\s+)?(?:crash(?:es|eos)?|cierres?|congelamientos?|tirones|bugs?|errores?|problemas?)`,
+    // Portuguese
+    String.raw`(?:nenhum|nenhuma|sem|zero|n[ãa]o\s+tem)\s+(?:\p{L}+\s+)?(?:crash(?:es)?|travamentos?|bugs?|erros?|problemas?)`,
+    // Russian
+    String.raw`(?:нет|без|никаких|ни\s+одного|ни\s+одной|ноль)\s+(?:\p{L}+\s+)?(?:вылет\p{L}*|краш\p{L}*|баг\p{L}*|фриз\p{L}*|лаг\p{L}*|ошиб\p{L}*|проблем\p{L}*)`,
+  ];
+  return [
+    new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${lettered.join("|")})(?![\p{L}\p{N}])`, "iu"),
+    // Japanese, Chinese and Korean put the negation after or before the noun with no spacing.
+    /(?:バグ|クラッシュ|フリーズ|エラー|強制終了)(?:は|も|が)?(?:一切|一度も)?(?:ない|無い|なし|無し|ありません|なかった)/u,
+    /(?:没有|沒有|无|無|零)(?:任何)?(?:闪退|閃退|崩溃|崩潰|卡顿|卡頓|bug|BUG|报错|報錯|掉帧|掉幀)/u,
+    /(?:버그|튕김|크래시|렉|끊김|오류|에러)(?:가|이|는|도)?\s*(?:전혀\s*)?없/u,
+  ];
+}
 
 const CLAIMED_FIX_PATTERNS = [
   /\bfix(?:es|ed) an issue where\b/i,
@@ -359,8 +389,9 @@ export function hasCrimsonDesertContext(
 
 function saysNoIssue(text: string): boolean {
   if (!matchesAny(text, NO_ISSUE_PATTERNS)) return false;
+  // Keep each pattern's own flags: the multilingual ones need "u" for \p{L}.
   const withoutNoIssueCopy = NO_ISSUE_PATTERNS.reduce(
-    (value, pattern) => value.replace(new RegExp(pattern.source, "gi"), " "),
+    (value, pattern) => value.replace(new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`), " "),
     text,
   );
   return !hasComplaintSymptom(withoutNoIssueCopy);

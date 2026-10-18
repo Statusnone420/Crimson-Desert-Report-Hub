@@ -71,8 +71,34 @@ describe("praise and roundups stay out", () => {
     expect(shouldKeepExtractedSignal(otherExtraction(title), `${title} ${snippet}`)).toEqual({ keep: false, reason: "category_other" });
   });
 
+  it.each([
+    ["German", "Keine Abstürze, läuft super"],
+    ["French", "Aucun plantage, excellent jeu"],
+    ["Spanish", "Sin crashes, todo perfecto"],
+    ["Portuguese", "Sem travamentos, perfeito"],
+    ["Russian", "Никаких вылетов, всё отлично"],
+    ["Japanese", "バグがない、最高"],
+    ["Chinese", "没有闪退，很流畅"],
+    ["Korean", "버그 없음, 최고"],
+  ])("rejects %s praise", (_language, title) => {
+    expect(screen(title, "")).toMatchObject({ keep: false, reason: "source_not_issue_report" });
+    expect(shouldKeepExtractedSignal(otherExtraction(title), title)).toEqual({ keep: false, reason: "category_other" });
+  });
+
+  it.each([
+    ["The duel is no longer bugged", "Fixed in the hotfix."],
+    ["The game is not very buggy", "Runs fine."],
+  ])("rejects a fixed or praised state: %s", (title, snippet) => {
+    expect(screen(title, snippet)).toMatchObject({ keep: false, reason: "source_not_issue_report" });
+  });
+
   it("still keeps praise that turns into a crash report", () => {
     expect(screen("No crashes until 2.03.02", "Now it crashes every hour.")).toEqual({ keep: true });
+    expect(screen("Keine Abstürze bis zum Patch", "Jetzt stürzt es ständig ab.")).toEqual({ keep: true });
+  });
+
+  it("keeps a player's own thread renamed with an Updated: prefix", () => {
+    expect(screen("UPDATED: Still crashing after 2.03.02", "Verified files, still crashes.")).toEqual({ keep: true });
   });
 
   it("rejects a wiki roundup of other people's glitches", () => {
