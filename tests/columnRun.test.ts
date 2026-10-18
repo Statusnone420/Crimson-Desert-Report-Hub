@@ -175,9 +175,28 @@ describe("one wake of the column", () => {
     expect(provider.impl).not.toHaveBeenCalled();
   });
 
-  it("never touches the scanner's settings, ledger or tables", async () => {
-    await run(providerFetch().impl);
-    expect(db.tables.automation_settings.find((row) => row.key === "scanner")!.value).toEqual({ paused: false });
-    expect([...db.touched].filter((name) => /automation_runs|ai_settings|scanner|source_signals|issue_clusters/.test(name))).toEqual([]);
+  it("isolation: the openrouter provider never borrows the scanner's OPENROUTER_API_KEY", async () => {
+    settings({ provider: "openrouter" });
+    vi.stubEnv("OPENROUTER_API_KEY", "scanner-key-must-not-be-used");
+    vi.stubEnv("COLUMN_OPENROUTER_API_KEY", "");
+    const provider = providerFetch();
+    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:s0", reason: "provider_unavailable" });
+    expect(provider.impl).not.toHaveBeenCalled();
+    expect(db.tables.editorial_ai_spend).toEqual([]);
+  });
+
+  it.each(["anthropic", "openrouter"])("isolation: a column run on %s writes only to the column's tables, never the scanner's ledger, budget or settings", async (selected) => {
+    const scannerSettings = { key: "scanner", value: { paused: false, monthlyLlmUsdCap: 5, modelPreset: "gpt_5_6_luna" }, updated_at: "2026-10-01T00:00:00Z" };
+    const aiSettings = { id: true, configuration: { policy: { monthlyUsd: 5 } }, revision: 7 };
+    db = createFakeDb({ automation_settings: [scannerSettings], ai_settings_state: [aiSettings] }, () => RUN_NOW);
+    settings({ provider: selected, nextEditionModel: "claude-sonnet-5-5" });
+    vi.stubEnv("COLUMN_OPENROUTER_API_KEY", "or-column-key");
+    expect(await run(providerFetch().impl)).toMatchObject({ status: "held" });
+    expect(db.tables.automation_settings.find((row) => row.key === "scanner")).toEqual(scannerSettings);
+    expect(db.tables.ai_settings_state).toEqual([aiSettings]);
+    expect(db.tables.editorial_ai_spend.map((row) => row.provider)).toEqual([selected, selected]);
+    const touched = [...db.touched];
+    expect(touched.filter((name) => !["automation_settings", "editorials", "editorial_ai_spend", "voice_examples", "style_notes"].includes(name) && !name.startsWith("rpc:editorial_"))).toEqual([]);
+    expect(touched).not.toContain("ai_settings_state");
   });
 });
