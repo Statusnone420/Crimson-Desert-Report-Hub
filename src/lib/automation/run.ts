@@ -53,7 +53,7 @@ import {
   type SignalRelevanceDecision,
 } from "@/lib/automation/relevance";
 import { categoriesCompatible, routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
-import { compareClusterRecency, createClusterRetriever } from "@/lib/automation/clusterRetrieval";
+import { compareClusterRecency, createClusterRetriever, nearDuplicateAutoCluster } from "@/lib/automation/clusterRetrieval";
 import {
   buildWireNewsQuery,
   tavilyExtract,
@@ -2604,6 +2604,11 @@ async function resolveClusterId(
     ? null
     : await findStoredSignalCluster(supabase, signal, routableClusters);
   const preferredCluster = existingSignalCluster ?? sureRoute?.id ?? storedCluster ?? routedCluster?.id ?? null;
+  // A reworded duplicate of an automatic cluster joins it instead of starting a
+  // new one (or, for provider context, staying unclustered).
+  const nearDuplicate = preferredCluster || reportCluster
+    ? null
+    : nearDuplicateAutoCluster(signal.extraction.issueTitle, signal.extraction.category, routableClusters)?.id ?? null;
   if (isProviderContextSource({ source: signal.source, domain: signal.sourceDomain, url: signal.canonicalUrl })) {
     // Steam reviews and the publisher's own pages are private provider context,
     // never player evidence. Either may support a cluster whose public-safe
@@ -2613,7 +2618,7 @@ async function resolveClusterId(
     // rejection Relevant stores the signal, and it must still never mint a
     // cluster. The canonical url rides along because the domain column is
     // nullable, and a candidate stored without one must not slip the guard.
-    const clusterId = preferredCluster ?? reportCluster;
+    const clusterId = preferredCluster ?? reportCluster ?? nearDuplicate;
     if (clusterId) clusterBySemantic.set(signal.semantic, clusterId);
     return clusterId ?? null;
   }
@@ -2621,8 +2626,19 @@ async function resolveClusterId(
     preferredCluster || reportCluster
       ? null
       : await findAutoClusterBySlug(supabase, clusterSlug(signal.semantic));
-  const clusterId =
-    preferredCluster ?? reportCluster ?? existingAutoCluster ?? (await createCluster(supabase, signal));
+  let clusterId = preferredCluster ?? reportCluster ?? existingAutoCluster ?? nearDuplicate;
+  if (!clusterId) {
+    clusterId = await createCluster(supabase, signal);
+    // The routing list was read before this batch. A cluster created here joins
+    // it, so a rewording later in the same batch can join this cluster instead
+    // of starting another (nearDuplicateAutoCluster).
+    routableClusters.push({
+      id: clusterId,
+      slug: clusterSlug(signal.semantic),
+      title: signal.extraction.issueTitle,
+      category: signal.extraction.category,
+    });
+  }
   clusterBySemantic.set(signal.semantic, clusterId);
   return clusterId;
 }
@@ -3056,6 +3072,17 @@ async function persistOneSignal(
   return { clusterId, promoted, reobserved: persistence.kind === "reobserved", error: persistenceError };
 }
 
+// Adds or takes one signal from a cluster's count in the routing list. A cluster
+// created in this batch carries no count, and is left without one.
+function countRoutedSignal(clusters: RoutableCluster[], clusterId: string | null, delta: number): void {
+  if (!clusterId) return;
+  const cluster = clusters.find((candidate) => candidate.id === clusterId) as
+    | (RoutableCluster & { signal_count?: number | string | null })
+    | undefined;
+  if (!cluster || cluster.signal_count === null || cluster.signal_count === undefined) return;
+  cluster.signal_count = Math.max(0, Number(cluster.signal_count) + delta);
+}
+
 async function persistSignals(
   supabase: ReturnType<typeof createServiceClient>,
   signals: PreparedSignal[],
@@ -3080,8 +3107,14 @@ async function persistSignals(
       }
       if (persistence.kind === "reobserved") result.signalsReobserved += 1;
       else result.signalsInserted += 1;
-      if (persistence.previousClusterId && persistence.previousClusterId !== clusterId) {
-        touchedClusters.add(persistence.previousClusterId);
+      if (persistence.previousClusterId !== clusterId) {
+        if (persistence.previousClusterId) touchedClusters.add(persistence.previousClusterId);
+        // The routing list was read before this batch, and the stats refresh waits
+        // for its end. Keep the list's counts current meanwhile, so a cluster this
+        // move left empty is skipped like any emptied cluster, and a rewording
+        // later in the batch does not undo the move (nearDuplicateAutoCluster).
+        countRoutedSignal(routableClusters, persistence.previousClusterId, -1);
+        countRoutedSignal(routableClusters, clusterId, 1);
       }
       if (persistence.observationError !== null) throw persistence.observationError;
     }
