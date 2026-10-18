@@ -149,6 +149,45 @@ describe("shared verification runner", () => {
     },
   );
 
+  it("splits the browser gate into the main suite and the other suites without dropping a suite", () => {
+    const browser = fixture().run({}, ["--browser"]);
+    const main = fixture().run({}, ["--browser-main"]);
+    const other = fixture().run({}, ["--browser-other"]);
+    for (const { result } of [browser, main, other]) expect(result.status, result.stderr).toBe(0);
+    const setup = [["ci"], ["exec", "playwright", "--", "install", "chromium"]];
+    expect(main.commands.slice(0, 2).map(({ args }) => args)).toEqual(setup);
+    expect(other.commands.slice(0, 2).map(({ args }) => args)).toEqual(setup);
+    expect(main.commands.slice(2).map(({ args }) => args)).toEqual([["run", "test:e2e"]]);
+    expect([...main.commands.slice(2), ...other.commands.slice(2)].map(({ args, seed }) => ({ args, seed })))
+      .toEqual(browser.commands.slice(2).map(({ args, seed }) => ({ args, seed })));
+  });
+
+  it("runs one shard of the main suite without rerunning its project dependencies", () => {
+    const shard = fixture().run({}, ["--browser-main", "--shard=2/4"]);
+    expect(shard.result.status, shard.result.stderr).toBe(0);
+    expect(shard.commands.at(-1).args).toEqual(["run", "test:e2e", "--", "--no-deps", "--shard=2/4"]);
+    const visible = fixture().run({}, ["--browser-main", "--headed", "--shard=4/4"]);
+    expect(visible.result.status, visible.result.stderr).toBe(0);
+    expect(visible.commands.at(-1).args).toEqual(["run", "test:e2e", "--", "--headed", "--no-deps", "--shard=4/4"]);
+  });
+
+  it.each([
+    ["--shard=1/4"],
+    ["--browser", "--shard=1/4"],
+    ["--browser-other", "--shard=1/4"],
+    ["--browser-main", "--shard=0/4"],
+    ["--browser-main", "--shard=5/4"],
+    ["--browser-main", "--shard=1/0"],
+    ["--browser-main", "--shard=1/4x"],
+    ["--browser-main", "--shard=1/4", "--shard=2/4"],
+    ["--browser-main", "--browser-other"],
+  ])("rejects a shard outside the main browser suite or an invalid shard %j", (...args) => {
+    const { result, commands } = fixture().run({}, args);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Usage:");
+    expect(commands).toEqual([]);
+  });
+
   it("accepts the pinned npm executable even when an older launcher leaves its user-agent", () => {
     const { result, commands } = fixture().run({ npm_config_user_agent: "npm/10.9.8 node/v22.23.2 linux x64" });
     expect(result.status, result.stderr).toBe(0);
