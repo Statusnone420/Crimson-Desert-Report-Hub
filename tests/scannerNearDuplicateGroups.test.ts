@@ -51,6 +51,14 @@ describe("joining a reworded lead to its automatic issue group", () => {
     expect(nearDuplicateAutoCluster("Crash when opening the map", "crash_startup", screens)?.id).toBe("12");
   });
 
+  it("keeps titles apart when a pair of opposites is swapped", () => {
+    const subtitles = [{ id: "13", slug: "auto-subtitles-on", title: "Subtitles keep turning on by themselves", category: "other" }];
+    expect(nearDuplicateAutoCluster("Subtitles keep turning off by themselves", "other", subtitles)).toBeNull();
+    expect(nearDuplicateAutoCluster("Subtitles keep turning on by themselves in menus", "other", subtitles)?.id).toBe("13");
+    const boss = [{ id: "14", slug: "auto-boss", title: "Game crashes after the final boss cutscene", category: "crash_startup" }];
+    expect(nearDuplicateAutoCluster("Game crashes before the final boss cutscene", "crash_startup", boss)).toBeNull();
+  });
+
   it("keeps a title apart from its opposite", () => {
     const shadows = [{ id: "10", slug: "auto-shadows", title: "Shadows appear indoors", category: "graphics_visual" }];
     expect(nearDuplicateAutoCluster("Shadows do not appear indoors", "graphics_visual", shadows)).toBeNull();

@@ -74,6 +74,22 @@ function distinguishingTerms(title: string): string {
   return [...terms].sort().join(" ");
 }
 
+// Word pairs that turn a report into its opposite when one replaces the other
+// ("Subtitles keep turning on" / "turning off"). At least one word of each pair
+// is filler to retrievalTokens, so the word match alone cannot see the change.
+const OPPOSITES = [["on", "off"], ["up", "down"], ["in", "out"], ["over", "under"], ["before", "after"], ["more", "less"]] as const;
+
+function titleWords(title: string): Set<string> {
+  return new Set(title.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+}
+
+// True when the titles differ in both words of a pair: one says "on" where the
+// other says "off". A word both titles share, or one only a single title has
+// ("Crash on PS5" / "PS5 crash"), changes nothing.
+function opposed(left: Set<string>, right: Set<string>): boolean {
+  return OPPOSITES.some(([a, b]) => left.has(a) !== right.has(a) && left.has(b) !== right.has(b));
+}
+
 /** Distinct comparable words of a text, accents removed ("Créchard" meets "Crechard"). */
 export function retrievalTokens(text: string): string[] {
   const words = text.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -96,10 +112,11 @@ export function retrievalTokens(text: string): string[] {
  * that share only a symptom ("crash opening map" / "crash opening inventory")
  * stay apart. One title's words must all appear in the other, so a swapped
  * word ("map screen" / "inventory screen") keeps them apart even at three
- * quarters. Both titles must also agree on negation and carry the same
- * numbers and short terms, versions aside, so "Shadows appear" / "Shadows do
- * not appear", "Error 15" / "Error 30" and "UI stutter" / "AI stutter" stay
- * apart too. A cluster whose signals were all moved elsewhere
+ * quarters, and so does a swapped pair of opposites ("turning on" / "turning
+ * off", "after" / "before"). Both titles must also agree on negation and carry
+ * the same numbers and short terms, versions aside, so "Shadows appear" /
+ * "Shadows do not appear", "Error 15" / "Error 30" and "UI stutter" / "AI
+ * stutter" stay apart too. A cluster whose signals were all moved elsewhere
  * (signal_count 0) is skipped, as the model's options skip it, so a relocation
  * is not undone; a cluster created earlier in the same batch carries no count
  * and is kept.
@@ -112,6 +129,7 @@ export function nearDuplicateAutoCluster<T extends RetrievalCluster & { signal_c
   const wanted = new Set(retrievalTokens(issueTitle));
   if (wanted.size < 2) return null;
   const terms = distinguishingTerms(issueTitle);
+  const wantedWords = titleWords(issueTitle);
   let best: { cluster: T; score: number } | null = null;
   for (const cluster of clusters) {
     if (!cluster.slug.startsWith("auto-") || String(cluster.category) !== category) continue;
@@ -126,6 +144,7 @@ export function nearDuplicateAutoCluster<T extends RetrievalCluster & { signal_c
     // lacks, one was swapped for another and names a different target ("map
     // screen" / "inventory screen").
     if (shared < wanted.size && shared < tokens.size) continue;
+    if (opposed(wantedWords, titleWords(cluster.title))) continue;
     if (!best || score > best.score || (score === best.score && compareClusterRecency(cluster, best.cluster) < 0)) {
       best = { cluster, score };
     }
