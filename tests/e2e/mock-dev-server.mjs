@@ -892,6 +892,8 @@ const editorials = [
   },
 ];
 const editorialAiSpend = [];
+const voiceExamples = [];
+const styleNotes = [];
 
 /**
  * Test-only fixture reset. Every table above is a module-level array that the
@@ -926,6 +928,8 @@ const resettableTables = [
   claimReviewSyncState,
   editorials,
   editorialAiSpend,
+  voiceExamples,
+  styleNotes,
 ];
 
 const pristineTables = resettableTables.map((table) => structuredClone(table));
@@ -2437,6 +2441,16 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/rest/v1/voice_examples" && req.method === "GET") {
+    sendJson(res, req.method, 200, [...voiceExamples].sort((a, b) => a.position - b.position));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/style_notes" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(styleNotes, url));
+    return;
+  }
+
   if (url.pathname === "/rest/v1/editorial_ai_spend" && req.method === "GET") {
     const month = url.searchParams.get("month")?.slice(3);
     sendJson(res, req.method, 200, editorialAiSpend.filter((row) => !month || row.month === month));
@@ -2589,6 +2603,10 @@ server.listen(supabasePort, "127.0.0.1", () => {
       CLOUDFLARE_SCANNER_KV_NAMESPACE_ID: "",
       CLOUDFLARE_SCANNER_STATUS_TOKEN: "",
       XAI_API_KEY: "",
+      // The column never calls a provider in fixture runs, whatever a developer's .env.local holds.
+      ANTHROPIC_API_KEY: "",
+      COLUMN_OPENROUTER_API_KEY: "",
+      COLUMN_PREVIEW_TOKEN: "",
       PLAYWRIGHT_NOW: fixtureNowIso,
       NODE_OPTIONS: nodeOptions,
     },
