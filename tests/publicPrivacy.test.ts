@@ -3,9 +3,10 @@ import path from "node:path";
 import { expect, it } from "vitest";
 
 // The handle may appear in exactly two declarations, each once: the footer's AGPL
-// source link in src/lib/site.ts, and the column's plain-text "Edited by" credit in
-// src/lib/editorials/content.ts. The credit is never a link and carries no profile
-// URL. A copy anywhere else still fails.
+// source link in src/lib/site.ts, and the column's editor credit in
+// src/lib/editorials/content.ts (owner decision, 2026-10-18). The credit is plain
+// text: never a link, and its JSON-LD Person has no url or sameAs. A copy anywhere
+// else still fails.
 const ALLOWED = [
   { file: path.join("src", "lib", "site.ts"), declaration: 'export const SOURCE_URL = "https://github.com/Statusnone420/Crimson-Desert-Report-Hub";' },
   { file: path.join("src", "lib", "editorials", "content.ts"), declaration: 'export const COLUMN_EDITOR = "Statusnone";' },
