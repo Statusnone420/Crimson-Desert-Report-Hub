@@ -89,22 +89,51 @@ describe("feeds and sitemap with editions", () => {
     expect(rssXml).not.toContain("<author>");
   });
 
-  it("is unavailable when either read fails, so a partial feed never looks complete", async () => {
+  it("serves editions when patch data fails, flagged by header, a short cache and a logged code", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mocks.catalog.mockResolvedValue({ editions: [], articles: patchPublications([]), unavailable: true });
-    expect((await atom()).status).toBe(503);
-    expect((await rss()).status).toBe(503);
+    for (const [name, get] of [["atom", atom], ["rss", rss]] as const) {
+      const response = await get();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-feed-unavailable")).toBe("patches");
+      expect(response.headers.get("cache-control")).toBe("public, max-age=60, s-maxage=60");
+      expect(await response.text()).toContain(`/editorials/${edition.slug}`);
+      expect(warn).toHaveBeenCalledWith(JSON.stringify({ event: "feed_partial", feed: name, unavailable: "patches" }));
+    }
+    warn.mockRestore();
+  });
 
-    mocks.catalog.mockResolvedValue({ editions: [patch], articles: patchPublications([patch]), unavailable: false });
+  it("serves patches when editions fail: a column problem never takes down the patch feed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mocks.editions.mockResolvedValue({ editions: [], unavailable: true });
+    for (const [name, get] of [["atom", atom], ["rss", rss]] as const) {
+      const response = await get();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-feed-unavailable")).toBe("editorials");
+      expect(response.headers.get("cache-control")).toBe("public, max-age=60, s-maxage=60");
+      expect(await response.text()).toContain("/articles/patch-2-03-01");
+      expect(warn).toHaveBeenCalledWith(JSON.stringify({ event: "feed_partial", feed: name, unavailable: "editorials" }));
+    }
+    warn.mockRestore();
+  });
+
+  it("returns 503 only when both reads fail", async () => {
+    mocks.catalog.mockResolvedValue({ editions: [], articles: patchPublications([]), unavailable: true });
     mocks.editions.mockResolvedValue({ editions: [], unavailable: true });
     expect((await atom()).status).toBe(503);
     expect((await rss()).status).toBe(503);
   });
 
-  it("serves the patch feed unchanged before the column has any editions", async () => {
+  it("serves a normal feed before the column's migration: no header, no log", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mocks.editions.mockResolvedValue({ editions: [], unavailable: false });
     const response = await atom();
     expect(response.status).toBe(200);
+    expect(response.headers.get("x-feed-unavailable")).toBeNull();
+    expect(response.headers.get("cache-control")).toBeNull();
     expect(await response.text()).toContain("/articles/patch-2-03-01");
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("keeps FEED_ITEM_LIMIT across the merged list", async () => {
@@ -121,8 +150,13 @@ describe("feeds and sitemap with editions", () => {
     expectNoPrivateProcessWords(JSON.stringify(entries));
   });
 
-  it("surfaces an editorial read failure in the sitemap instead of dropping editions silently", async () => {
+  it("keeps the sitemap working when editions fail, and logs the gap", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mocks.editions.mockResolvedValue({ editions: [], unavailable: true });
-    await expect(sitemap()).rejects.toThrow("temporarily unavailable");
+    const entries = await sitemap();
+    expect(entries).toContainEqual(expect.objectContaining({ url: "https://crimsonreporthub.com/articles/patch-2-03-01" }));
+    expect(entries.some((entry) => entry.url.includes("/editorials/"))).toBe(false);
+    expect(warn).toHaveBeenCalledWith(JSON.stringify({ event: "feed_partial", feed: "sitemap", unavailable: "editorials" }));
+    warn.mockRestore();
   });
 });
