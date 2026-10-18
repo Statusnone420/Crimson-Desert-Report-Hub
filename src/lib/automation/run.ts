@@ -172,7 +172,7 @@ export type RunProgress = {
 };
 
 /** True when no further AI call may be made this run, whatever allowance it would use. */
-function llmStopped(result: AutomationResult, budget: AutomationBudget): boolean {
+function llmStopped(result: Pick<AutomationResult, "skips" | "llmCostUsd">, budget: AutomationBudget): boolean {
   if (aiRuntimeForBudget(budget)?.failed) return true;
   if (
     [
@@ -187,6 +187,18 @@ function llmStopped(result: AutomationResult, budget: AutomationBudget): boolean
     return true;
   }
   return result.llmCostUsd >= budget.remainingLlmUsd;
+}
+
+/**
+ * The extra non-English calls ride on the run's paid AI lane: they are never
+ * granted when that lane was switched off (`maxLlmCalls` 0 after an accounting
+ * outage, a circuit pause or a spent budget), only when its calls ran out.
+ */
+export function paidAiEnabled(
+  result: Pick<AutomationResult, "skips" | "llmCostUsd">,
+  budget: AutomationBudget,
+): boolean {
+  return budget.maxLlmCalls > 0 && !llmStopped(result, budget);
 }
 
 /** Calls this run spent from the separate non-English allowance, one note each. */
@@ -1761,7 +1773,7 @@ async function prepareSignals(
     const languageReview =
       admitsLanguageReview(signal, screened) &&
       languageReviewsUsed < MAX_LANGUAGE_CALLS_PER_RUN &&
-      !llmStopped(result, budget);
+      paidAiEnabled(result, budget);
     if (languageReview) {
       languageReviewsUsed += 1;
       result.skips.push("language_review");
@@ -1988,7 +2000,7 @@ async function prepareSignals(
       nonEnglishInput &&
       laneCalls <= 0 &&
       extraLanguageCallsUsed(result) < MAX_LANGUAGE_CALLS_PER_RUN &&
-      !llmStopped(result, budget);
+      paidAiEnabled(result, budget);
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
       applyAiRuntimeOptions(budget, {

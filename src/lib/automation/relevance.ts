@@ -247,12 +247,17 @@ function multilingualNoIssuePatterns(): RegExp[] {
     // Italian
     String.raw`(?:nessun|nessuna|zero|senza)\s+(?:\p{L}+\s+)?(?:crash|bug|errori?|problem[ai]|scatti|blocchi)`,
   ];
+  // As in English, "Keine Abstürze bis zum Patch" or "Aucun plantage avant cette
+  // mise à jour" says the problem started afterward: an until/before word right
+  // after the phrase undoes the praise.
+  const untilThen = String.raw`(?!\s+(?:bis|vor|avant|jusqu|hasta|antes|até|ate|до|перед|przed|do|fino|prima|kadar|önce)(?![\p{L}\p{N}]))`;
   return [
-    new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${lettered.join("|")})(?![\p{L}\p{N}])`, "iu"),
-    // Japanese, Chinese and Korean put the negation after or before the noun with no spacing.
-    /(?:バグ|クラッシュ|フリーズ|エラー|強制終了)(?:は|も|が)?(?:一切|一度も)?(?:ない|無い|なし|無し|ありません|なかった)/u,
-    /(?:没有|沒有|无|無|零)(?:任何)?(?:闪退|閃退|崩溃|崩潰|卡顿|卡頓|bug|BUG|报错|報錯|掉帧|掉幀)/u,
-    /(?:버그|튕김|크래시|렉|끊김|오류|에러)(?:가|이|는|도)?\s*(?:전혀\s*)?없/u,
+    new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${lettered.join("|")})(?![\p{L}\p{N}])${untilThen}`, "iu"),
+    // Japanese, Chinese and Korean put the negation after or before the noun with
+    // no spacing, and the until/before word comes first ("更新之前没有闪退").
+    /(?<!まで(?:は)?|前(?:は)?)(?:バグ|クラッシュ|フリーズ|エラー|強制終了)(?:は|も|が)?(?:一切|一度も)?(?:ない|無い|なし|無し|ありません|なかった)/u,
+    /(?<!之前|以前|前)(?:没有|沒有|无|無|零)(?:任何)?(?:闪退|閃退|崩溃|崩潰|卡顿|卡頓|bug|BUG|报错|報錯|掉帧|掉幀)/u,
+    /(?<!전에는\s?|전엔\s?|까지는\s?)(?:버그|튕김|크래시|렉|끊김|오류|에러)(?:가|이|는|도)?\s*(?:전혀\s*)?없/u,
   ];
 }
 
@@ -576,7 +581,9 @@ export function preScreenCandidate(
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {
     const languageReview = !saysNoIssue(sourceText)
       && !isOfficialDomain(input.sourceDomain)
-      && isMostlyNonEnglish(input.snippet.trim() ? input.snippet : input.title);
+      // Title and snippet are judged apart: a foreign title can come with an
+      // English search summary, and a Steam review's placeholder title is English.
+      && (isMostlyNonEnglish(input.title) || isMostlyNonEnglish(input.snippet));
     return { keep: false, reason: "source_not_issue_report", ...(languageReview ? { languageReview: true as const } : {}) };
   }
   // The publisher's own pages are provider context, never player evidence. A

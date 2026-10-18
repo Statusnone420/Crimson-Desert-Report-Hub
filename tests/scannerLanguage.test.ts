@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { englishOnly, isMostlyNonEnglish, NOT_IN_ENGLISH } from "@/lib/language";
 import { preScreenCandidate } from "@/lib/automation/relevance";
-import { admitsLanguageReview, englishStorage } from "@/lib/automation/run";
+import { admitsLanguageReview, englishStorage, paidAiEnabled } from "@/lib/automation/run";
 
 describe("telling English from the game's other big review languages", () => {
   it.each([
@@ -54,6 +54,10 @@ describe("posts the word lists cannot read", () => {
     expect(screen("Die Quest lässt sich nicht abschließen", "Das Spiel ist nicht fertig.")).toMatchObject({ languageReview: true });
   });
 
+  it("judges the title and the snippet apart", () => {
+    expect(screen("背包里的物品消失了", "Crimson Desert discussion")).toMatchObject({ languageReview: true });
+  });
+
   it("does not mark English posts, recognized praise, or the publisher's own pages", () => {
     expect(screen("Great game, highly recommended", "Loved every hour.")).not.toHaveProperty("languageReview");
     expect(screen("没有闪退，很流畅", "")).not.toHaveProperty("languageReview");
@@ -67,6 +71,14 @@ describe("posts the word lists cannot read", () => {
     ["Polish", "Gra wywala do pulpitu przy otwieraniu mapy"],
     ["Italian", "Il gioco crasha quando apro la mappa"],
   ])("keeps a %s crash report on its words alone", (_language, title) => {
+    expect(screen(title, "")).toEqual({ keep: true });
+  });
+
+  it.each([
+    "Keine Abstürze bis zum Patch",
+    "Aucun plantage avant cette mise à jour",
+    "更新之前没有闪退",
+  ])("keeps %s: it says the problem started afterward", (title) => {
     expect(screen(title, "")).toEqual({ keep: true });
   });
 
@@ -87,6 +99,16 @@ describe("which rejections may become a language review", () => {
     expect(admitsLanguageReview({ source: "steam_review", steam: { votedUp: false } as never }, flagged)).toBe(true);
     expect(admitsLanguageReview({ source: "steam_review", steam: { votedUp: true } as never }, flagged)).toBe(false);
     expect(admitsLanguageReview({ source: "web_search", steam: undefined }, { keep: false, reason: "source_not_issue_report" })).toBe(false);
+  });
+});
+
+describe("the extra non-English calls", () => {
+  const clean = { skips: [], llmCostUsd: 0 };
+  it("are never granted while the paid AI lane is switched off", () => {
+    expect(paidAiEnabled(clean, { maxLlmCalls: 0, remainingLlmUsd: 0.5 } as never)).toBe(false);
+    expect(paidAiEnabled({ skips: ["openrouter_budget_exceeded"], llmCostUsd: 0 }, { maxLlmCalls: 4, remainingLlmUsd: 0.5 } as never)).toBe(false);
+    expect(paidAiEnabled({ skips: [], llmCostUsd: 0.5 }, { maxLlmCalls: 4, remainingLlmUsd: 0.5 } as never)).toBe(false);
+    expect(paidAiEnabled(clean, { maxLlmCalls: 4, remainingLlmUsd: 0.5 } as never)).toBe(true);
   });
 });
 
