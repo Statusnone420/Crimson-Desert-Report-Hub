@@ -28,8 +28,9 @@ const parts: WriterPromptParts = {
 describe("the column's guides", () => {
   it("reads the one committed copy of the style guide and the checklist", () => {
     const directory = path.join(process.cwd(), "src", "lib", "editorials");
-    expect(guides.style).toBe(readFileSync(path.join(directory, "pywelDeskStyle.md"), "utf8"));
-    expect(guides.slop).toBe(readFileSync(path.join(directory, "avoidAiSlop.md"), "utf8"));
+    const file = (name: string) => readFileSync(path.join(directory, name), "utf8").replace(/\r\n/g, "\n");
+    expect(guides.style).toBe(file("pywelDeskStyle.md"));
+    expect(guides.slop).toBe(file("avoidAiSlop.md"));
     expect(guides.style.startsWith("# The Pywel Desk: voice, style guide and comedy guardrails (v1)\n")).toBe(true);
     expect(guides.slop.startsWith("## Pre-publish checklist\n")).toBe(true);
     expect(guides.slop.match(/^\d+\. /gm)).toHaveLength(15);

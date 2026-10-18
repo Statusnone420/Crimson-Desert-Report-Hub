@@ -11,10 +11,12 @@ import type { ColumnGuides } from "@/lib/editorials/prompts";
 const GUIDE_DIRECTORY = path.join(process.cwd(), "src", "lib", "editorials");
 let cached: ColumnGuides | null = null;
 
+// A Windows checkout may hold CRLF; the prompt is the same bytes everywhere, so caching matches.
+function read(name: string): string {
+  return readFileSync(path.join(GUIDE_DIRECTORY, name), "utf8").replace(/\r\n/g, "\n");
+}
+
 export function readColumnGuides(): ColumnGuides {
-  cached ??= {
-    style: readFileSync(path.join(GUIDE_DIRECTORY, "pywelDeskStyle.md"), "utf8"),
-    slop: readFileSync(path.join(GUIDE_DIRECTORY, "avoidAiSlop.md"), "utf8"),
-  };
+  cached ??= { style: read("pywelDeskStyle.md"), slop: read("avoidAiSlop.md") };
   return cached;
 }
