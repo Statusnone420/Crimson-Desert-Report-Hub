@@ -5,7 +5,7 @@ import { MAX_VOICE_EXAMPLES, type StyleNoteInput, type VoiceExampleInput } from 
 import { ColumnNotSetUpError } from "@/lib/editorials/settings.server";
 import { ADMIN_EDITORIAL_COLUMNS, isColumnTableMissing, type AdminEditionRow } from "@/lib/editorials/store.server";
 import { approvedEditions } from "@/lib/editorials/runStore.server";
-import type { SupabaseErrorLike } from "@/lib/supabaseCompatibility";
+import { isMissingSupabaseRpc, type SupabaseErrorLike } from "@/lib/supabaseCompatibility";
 
 function check(error: SupabaseErrorLike | null, what: string): void {
   if (!error) return;
@@ -55,18 +55,23 @@ export async function deleteVoiceExample(client: SupabaseClient, id: string): Pr
   check(error, "Voice example delete");
 }
 
-/** Swaps an example with its neighbour, so the list order is the order the writer reads them. */
-export async function moveVoiceExample(client: SupabaseClient, id: string, direction: "up" | "down"): Promise<void> {
+/**
+ * Swaps an example with its neighbour, so the list order is the order the writer reads
+ * them. The database writes the whole new order in one transaction, or nothing.
+ */
+export async function moveVoiceExample(client: SupabaseClient, id: string, direction: "up" | "down"): Promise<"moved" | "missing" | "changed"> {
   const examples = await listVoiceExamples(client);
   const index = examples.findIndex((example) => example.id === id);
   const other = examples[direction === "up" ? index - 1 : index + 1];
-  if (index < 0 || !other) return;
+  if (index < 0) return "missing";
+  if (!other) return "moved";
   const order = examples.map((example) => example.id);
   [order[index], order[index + (direction === "up" ? -1 : 1)]] = [other.id, id];
-  for (const [position, exampleId] of order.entries()) {
-    const { error } = await client.from("voice_examples").update({ position, updated_at: new Date().toISOString() }).eq("id", exampleId);
-    check(error, "Voice example move");
-  }
+  const { error } = await client.rpc("voice_examples_reorder", { p_ids: order });
+  if (isMissingSupabaseRpc(error, "voice_examples_reorder")) throw new ColumnNotSetUpError();
+  if (error?.code === "22023") return "changed";
+  check(error, "Voice example move");
+  return "moved";
 }
 
 export type ColumnStudio = {

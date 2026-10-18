@@ -148,6 +148,15 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
       row.value = { ...(row.value as Row), nextEditionModel: null };
       return { data: true, error: null };
     },
+    voice_examples_reorder: (args) => {
+      const ids = args.p_ids as string[];
+      const rows = tables.voice_examples;
+      if (ids.length !== rows.length || new Set(ids).size !== ids.length || ids.some((id) => !rows.some((row) => row.id === id))) {
+        return { data: null, error: { code: "22023", message: "voice_examples_reorder_mismatch" } };
+      }
+      for (const [position, id] of ids.entries()) Object.assign(rows.find((row) => row.id === id)!, { position });
+      return { data: ids.length, error: null };
+    },
     editorial_approve: (args) => {
       const edition = tables.editorials.find((row) => row.id === args.p_id && row.status === "held" && !row.is_test && row.publish_at == null && row.vetoed_at == null);
       if (!edition) return { data: "not_pending", error: null };

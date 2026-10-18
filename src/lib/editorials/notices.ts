@@ -20,6 +20,7 @@ export const COLUMN_NOTICES = {
   example_missing: "That voice example no longer exists. Nothing changed.",
   example_deleted: "Voice example removed.",
   example_moved: "Voice example moved.",
+  examples_changed: "The examples changed in the meantime, so nothing moved. Try again.",
   test_saved: "Test draft saved. It's listed below and in the preview feed, never on the site.",
   test_skipped: "The test draft didn't pass. The reason is in the test draft list.",
   test_cap: "Ten test drafts already ran today (UTC). Try again tomorrow.",

@@ -63,10 +63,23 @@ describe("voice examples", () => {
     expect(await saveVoiceExample(db.client, { id: null, body: "six", label: null })).toBe("full");
     db.tables.voice_examples.pop();
     const [first, second] = await listVoiceExamples(db.client);
-    await moveVoiceExample(db.client, second.id, "up");
+    expect(await moveVoiceExample(db.client, second.id, "up")).toBe("moved");
+    expect(db.touched).toContain("rpc:voice_examples_reorder");
     expect((await listVoiceExamples(db.client)).map((example) => example.body)).toEqual(["two", "one", "three", "four"]);
     await deleteVoiceExample(db.client, first.id);
     expect((await listVoiceExamples(db.client)).map((example) => example.body)).toEqual(["two", "three", "four"]);
+  });
+
+  it("move nothing when the list changes between the read and the reorder", async () => {
+    for (const body of ["one", "two"]) await saveVoiceExample(db.client, { id: null, body, label: null });
+    const [, second] = await listVoiceExamples(db.client);
+    const rpc = db.client.rpc.bind(db.client);
+    db.client.rpc = (async (name: string, args: Record<string, unknown>) => {
+      db.tables.voice_examples.push({ id: "racer", body: "three", label: null, position: 2, created_at: RUN_NOW.toISOString() });
+      return rpc(name, args);
+    }) as unknown as typeof db.client.rpc;
+    expect(await moveVoiceExample(db.client, second.id, "up")).toBe("changed");
+    expect(db.tables.voice_examples.map((example) => [example.body, example.position])).toEqual([["one", 0], ["two", 1], ["three", 2]]);
   });
 
   it("rotate in at most two thumbs-up editions, newest rating first, never a skip", async () => {

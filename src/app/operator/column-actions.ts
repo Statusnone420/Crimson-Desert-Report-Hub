@@ -145,8 +145,8 @@ export async function moveVoiceExampleAction(formData: FormData) {
   const id = formData.get("id");
   const direction = formData.get("direction");
   if (typeof id !== "string" || !UUID.test(id) || (direction !== "up" && direction !== "down")) backToColumn("example_missing");
-  await moveVoiceExample(createServiceClient(), id, direction);
-  backToColumn("example_moved");
+  const result = await moveVoiceExample(createServiceClient(), id, direction);
+  backToColumn(result === "moved" ? "example_moved" : result === "missing" ? "example_missing" : "examples_changed");
 }
 
 /** One A/B test draft on the newest fact pack, charged to the column budget, ten per UTC day. */
