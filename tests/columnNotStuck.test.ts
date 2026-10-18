@@ -59,7 +59,7 @@ describe("the column never gets stuck", () => {
     db.tables.automation_settings.push({ key: "column", value: { paused: true } });
     const provider = providerFetch();
     await wakeHourly(provider.impl);
-    expect(slotKeys()).toEqual(["2026-W44:s0", "2026-W45:s0", "2026-W46:s0", "2026-W47:s0"]);
+    expect(slotKeys()).toEqual(["2026-W44:mon", "2026-W45:mon", "2026-W46:mon", "2026-W47:mon"]);
     expect(rows().every((row) => row.status === "skipped" && row.skip_reason === "paused")).toBe(true);
     expect(provider.impl).not.toHaveBeenCalled();
     expect(db.tables.editorial_ai_spend).toEqual([]);
@@ -84,8 +84,8 @@ describe("the column never gets stuck", () => {
     const provider = providerFetch({ writer });
     await wakeHourly(provider.impl);
     expect(rows().map((row) => [row.slot_key, row.status, row.skip_reason])).toEqual([
-      ["2026-W44:s0", "skipped", "provider_unavailable"], ["2026-W45:s0", "skipped", "provider_unavailable"],
-      ["2026-W46:s0", "skipped", "provider_unavailable"], ["2026-W47:s0", "skipped", "provider_unavailable"],
+      ["2026-W44:mon", "skipped", "provider_unavailable"], ["2026-W45:mon", "skipped", "provider_unavailable"],
+      ["2026-W46:mon", "skipped", "provider_unavailable"], ["2026-W47:mon", "skipped", "provider_unavailable"],
     ]);
     // One refused writer call per slot, never retried at later wakes.
     expect(provider.messageCalls()).toHaveLength(WEEKS);
@@ -99,13 +99,13 @@ describe("the column never gets stuck", () => {
     db.tables.automation_settings.push({ key: "column", value: { paused: true } });
     const provider = providerFetch();
     await wakeHourly(provider.impl, START, 8 * 24); // two weekly slots while paused
-    expect(slotKeys()).toEqual(["2026-W44:s0", "2026-W45:s0"]);
+    expect(slotKeys()).toEqual(["2026-W44:mon", "2026-W45:mon"]);
 
     db.tables.automation_settings.find((row) => row.key === "column")!.value = { paused: false };
     // No wakes at all during the third slot's window: that slot is missed for good.
     await wakeHourly(provider.impl, Date.UTC(2026, 10, 9, 21), 7 * 24 - 21 + 15);
-    expect(slotKeys()).toEqual(["2026-W44:s0", "2026-W45:s0", "2026-W47:s0"]);
-    expect(rows().at(-1)).toMatchObject({ slot_key: "2026-W47:s0", status: "held" });
+    expect(slotKeys()).toEqual(["2026-W44:mon", "2026-W45:mon", "2026-W47:mon"]);
+    expect(rows().at(-1)).toMatchObject({ slot_key: "2026-W47:mon", status: "held" });
     expect(provider.messageCalls()).toHaveLength(2);
   });
 });

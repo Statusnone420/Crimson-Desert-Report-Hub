@@ -16,26 +16,34 @@ describe("slot keys", () => {
   });
 
   it("schedules weekly, 2x and 3x slots on their days at the hour", () => {
-    expect(dueSlot(settings({}), at("2026-10-26T14:00:00Z"))?.key).toBe("2026-W44:s0");
+    expect(dueSlot(settings({}), at("2026-10-26T14:00:00Z"))?.key).toBe("2026-W44:mon");
     const twice = settings({ mode: "2x", days: ["mon", "thu"] });
-    expect(dueSlot(twice, at("2026-10-29T14:30:00Z"))?.key).toBe("2026-W44:s1");
+    expect(dueSlot(twice, at("2026-10-29T14:30:00Z"))?.key).toBe("2026-W44:thu");
     const thrice = settings({ mode: "3x", days: ["mon", "wed", "fri"] });
-    expect(dueSlot(thrice, at("2026-10-28T15:00:00Z"))?.key).toBe("2026-W44:s1");
-    expect(dueSlot(thrice, at("2026-10-30T19:59:00Z"))?.key).toBe("2026-W44:s2");
+    expect(dueSlot(thrice, at("2026-10-28T15:00:00Z"))?.key).toBe("2026-W44:wed");
+    expect(dueSlot(thrice, at("2026-10-30T19:59:00Z"))?.key).toBe("2026-W44:fri");
     expect(dueSlot(thrice, at("2026-10-27T14:00:00Z"))).toBeNull();
+  });
+
+  it("keeps written slots and new days apart when the days change mid-week", () => {
+    const monday = dueSlot(settings({}), at("2026-10-26T14:00:00Z"))?.key;
+    const thursday = dueSlot(settings({ days: ["thu"] }), at("2026-10-29T14:00:00Z"))?.key;
+    expect([monday, thursday]).toEqual(["2026-W44:mon", "2026-W44:thu"]);
+    // Adding an earlier day never renames Monday's slot, so it can't be written twice.
+    expect(dueSlot(settings({ mode: "2x", days: ["sun", "mon"] }), at("2026-10-26T14:00:00Z"))?.key).toBe("2026-W44:mon");
   });
 
   it("is due from the slot time for six hours, then is gone for good", () => {
     const base = settings({});
     expect(dueSlot(base, at("2026-10-26T13:59:59Z"))).toBeNull();
-    expect(dueSlot(base, at("2026-10-26T19:59:59Z"))?.key).toBe("2026-W44:s0");
+    expect(dueSlot(base, at("2026-10-26T19:59:59Z"))?.key).toBe("2026-W44:mon");
     expect(dueSlot(base, at("2026-10-26T20:00:00Z"))).toBeNull();
     expect(dueSlot(base, at("2026-10-27T14:00:00Z"))).toBeNull();
   });
 
   it("keeps a late slot due past midnight UTC", () => {
     const late = settings({ hourUtc: 22 });
-    expect(dueSlot(late, at("2026-10-27T01:00:00Z"))?.key).toBe("2026-W44:s0");
+    expect(dueSlot(late, at("2026-10-27T01:00:00Z"))?.key).toBe("2026-W44:mon");
     expect(dueSlot(late, at("2026-10-27T04:00:00Z"))).toBeNull();
   });
 
@@ -52,12 +60,12 @@ describe("slot keys", () => {
     // A Monday inside the burst is a burst day, not the weekly slot.
     expect(dueSlot(burst, at("2026-11-02T14:00:00Z"))?.key).toBe("burst:expansion-launch:2026-11-02");
     expect(dueSlot(burst, at("2026-11-05T14:00:00Z"))).toBeNull();
-    expect(dueSlot(burst, at("2026-11-09T14:00:00Z"))?.key).toBe("2026-W46:s0");
+    expect(dueSlot(burst, at("2026-11-09T14:00:00Z"))?.key).toBe("2026-W46:mon");
   });
 
   it("names the next slot for the card", () => {
-    expect(nextSlot(settings({}), at("2026-10-26T15:00:00Z"))?.key).toBe("2026-W45:s0");
-    expect(nextSlot(settings({}), at("2026-10-26T13:00:00Z"))?.key).toBe("2026-W44:s0");
+    expect(nextSlot(settings({}), at("2026-10-26T15:00:00Z"))?.key).toBe("2026-W45:mon");
+    expect(nextSlot(settings({}), at("2026-10-26T13:00:00Z"))?.key).toBe("2026-W44:mon");
   });
 });
 

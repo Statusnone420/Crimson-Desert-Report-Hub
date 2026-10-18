@@ -48,10 +48,12 @@ export function slotForDate(settings: ColumnSettings, date: string): ColumnSlot 
       relevance: burst.relevance ?? settings.relevance,
     };
   }
-  const index = settings.days.indexOf(WEEKDAY_BY_UTC_DAY[new Date(midnight).getUTCDay()]);
-  if (index < 0) return null;
+  const weekday = WEEKDAY_BY_UTC_DAY[new Date(midnight).getUTCDay()];
+  if (!settings.days.includes(weekday)) return null;
+  // Keyed by weekday, not its place in the list, so editing the days mid-week never
+  // renames a written slot or hides a new one.
   return {
-    key: `${isoWeek(date)}:s${index}`,
+    key: `${isoWeek(date)}:${weekday}`,
     at: new Date(midnight + settings.hourUtc * HOUR_MS),
     burst: null,
     holdHours: settings.holdHours,

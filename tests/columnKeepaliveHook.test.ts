@@ -90,10 +90,10 @@ describe("the keepalive hook", () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const started = Date.now();
-    mocks.runColumn.mockResolvedValue({ status: "skipped", slot: "2026-W44:s0", reason: "paused" });
+    mocks.runColumn.mockResolvedValue({ status: "skipped", slot: "2026-W44:mon", reason: "paused" });
     await runColumnWithinDeadline(started);
     expect(mocks.runColumn).toHaveBeenCalledWith(expect.objectContaining({ deadlineMs: started + KEEPALIVE_MAX_MS - KEEPALIVE_SAFETY_MS }));
-    expect(log).toHaveBeenCalledWith(JSON.stringify({ event: "column_run", status: "skipped", slot: "2026-W44:s0", reason: "paused" }));
+    expect(log).toHaveBeenCalledWith(JSON.stringify({ event: "column_run", status: "skipped", slot: "2026-W44:mon", reason: "paused" }));
     const notSetUp = Object.assign(new Error("relation editorials does not exist"), { name: "ColumnNotSetUpError" });
     mocks.runColumn.mockRejectedValue(notSetUp);
     await runColumnWithinDeadline(started);

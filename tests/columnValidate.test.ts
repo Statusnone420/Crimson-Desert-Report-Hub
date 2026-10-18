@@ -136,6 +136,21 @@ describe("post-processing", () => {
     expect(process(output).report.deleted).toContainEqual({ id: "b1", why: ["question_opener"] });
   });
 
+  it("skips when the checker rejects or skips the title or dek", () => {
+    expect(process(writer(), { t: { supported: false } })).toMatchObject({ ok: false, reason: "check_failed" });
+    expect(process(writer(), { d: { quotesPlayer: true } })).toMatchObject({ ok: false, reason: "check_failed" });
+    expect(process(writer(), {}, ["t"])).toMatchObject({ ok: false, reason: "check_failed" });
+    expect(process(writer(), { t: { slopRules: [11] } })).toMatchObject({ ok: false, reason: "slop_check_failed" });
+  });
+
+  it("links the facts box to the sources the checker cited, not the writer's guess", () => {
+    const output = writer({ factsBox: [{ text: "Patch 2.03.02 lists 2 fixes.", sourceIds: ["S1"] }] });
+    const result = process(output, { x1: { citedIds: ["P1"] } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.factsBox.items).toEqual([{ text: "Patch 2.03.02 lists 2 fixes.", sourceIds: ["P1"] }]);
+  });
+
   it("skips a title of 70 characters or more", () => {
     expect(process(writer({ title: "x".repeat(69) })).ok).toBe(true);
     expect(process(writer({ title: "x".repeat(70) }))).toMatchObject({ ok: false, reason: "check_failed" });

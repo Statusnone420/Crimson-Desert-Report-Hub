@@ -65,6 +65,17 @@ describe("the fact pack", () => {
     expect(pack.facts.find((fact) => fact.text.startsWith("Steam players online averaged"))?.text).toContain("up 25% since the last edition");
   });
 
+  it("always describes the newly Reported issues that raise the score, even past the first eight", () => {
+    const strong = Array.from({ length: 9 }, (_, index) => issue({ id: `00000000-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`, title: `Old ${index}`, strength: 50 - index, approvedReports: 2 }));
+    const fresh = issue({ id: "00000000-0000-4000-8000-0000000002aa", title: "New and weak", strength: 1, checkinNetworks: 2, checkins: 2 });
+    const previous = { ...samplePack().metrics, patternIssueIds: strong.map((item) => item.id) };
+    const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, history: history(), previous,
+      board: { available: true, patchVersion: "2.03.02", issues: [...strong, fresh] } });
+    expect(pack.deltas.newPatternIssueIds).toEqual([fresh.id]);
+    expect(pack.facts.some((fact) => fact.text.includes("New and weak"))).toBe(true);
+    expect(pack.facts.filter((fact) => fact.id.startsWith("C"))).toHaveLength(8);
+  });
+
   it("records unavailable data as gaps instead of inventing facts", () => {
     const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null,
       history: { ...history(), lanes: { players: "unavailable", twitch: "unavailable", reviews: "unavailable" } } });
