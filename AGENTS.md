@@ -36,5 +36,5 @@ Guidance for AI coding agents and the people who run them. Human contributors sh
 ## Verify
 
 - Add focused tests for behavior changes.
-- GitHub runs the full gate on every pull request: `verify` (lint, unit tests, type check, build), `browser` (all browser suites) and `migrations` (migrations and database tests). Merge only when every required check passes on the final commit.
+- GitHub runs the gate on every pull request: `verify` (lint, unit tests, type check, build), `browser` (all browser suites) and `migrations` (migrations and database tests). `verify` always runs. When every changed file is documentation (`docs/**` except `docs/share-card/**`, `*.md` outside `docs/`, `.github/ISSUE_TEMPLATE/**`, `.github/PULL_REQUEST_TEMPLATE.md`), `browser` and `migrations` skip, but a change under `supabase/**` still runs `migrations`. Every push to `main` runs the whole gate. Merge only when every required check passes on the final commit.
 - Before pushing, run the checks that cover your change. `npm run verify` runs the full gate locally when you need it; only one local run at a time, because its browser tests use fixed ports.

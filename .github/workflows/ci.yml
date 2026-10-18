@@ -1,24 +1,94 @@
 name: CI
 
-# GitHub runs the full gate on every pull request to main: the core checks,
-# the browser suites, and every migration plus the database tests on a
-# throwaway local database. Branches from forks are not tested here; an
-# accepted outside change is applied on a branch in this repository first.
+# GitHub runs the gate on every pull request to main, on every push to main,
+# and on every manual run: the core checks, the browser suites, and every
+# migration plus the database tests on a throwaway local database. A pull
+# request that changes only documentation skips the browser suites and the
+# database tests; pushes to main and manual runs always run all of it.
+# Branches from forks are not tested here; an accepted outside change is
+# applied on a branch in this repository first.
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
+# A newer push to a pull request cancels its older run. Every push to main and
+# every manual run gets a group of its own, so it never cancels another run
+# and is never cancelled by one.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  # Decides which parts of the gate a pull request needs. Everything runs
+  # unless every changed file is on the safe list below. A failure here runs
+  # everything, because the jobs below skip only on an explicit "false".
+  changes:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      browser: ${{ steps.gate.outputs.browser }}
+      migrations: ${{ steps.gate.outputs.migrations }}
+    steps:
+      # The pull request checkout is GitHub's test merge commit. Its first
+      # parent is the current tip of main, so the diff below is exactly what
+      # the pull request would change.
+      - name: Check out repository
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Choose the checks
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          browser=true
+          migrations=true
+          if [ "$EVENT" = "pull_request" ]; then
+            git rev-parse --verify --quiet HEAD^2 > /dev/null || { echo "::error::The checkout is not a merge commit."; exit 1; }
+            # --no-renames lists a moved file under both names, so moving code
+            # into docs/ still runs everything.
+            git diff --name-only --no-renames -z HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+            count=0
+            docs_only=true
+            database=false
+            while IFS= read -r -d '' file; do
+              count=$((count + 1))
+              echo "Changed: $file"
+              case "$file" in
+                # A browser test compares a social preview with this folder.
+                docs/share-card/*) docs_only=false ;;
+                docs/*|*.md|.github/ISSUE_TEMPLATE/*) ;;
+                *) docs_only=false ;;
+              esac
+              case "$file" in
+                supabase/*|package.json|package-lock.json) database=true ;;
+              esac
+            done < "$RUNNER_TEMP/changed"
+            if [ "$count" -gt 0 ] && [ "$docs_only" = true ]; then
+              browser=false
+              migrations=false
+            fi
+            if [ "$database" = true ]; then
+              migrations=true
+            fi
+          fi
+          echo "browser=$browser" >> "$GITHUB_OUTPUT"
+          echo "migrations=$migrations" >> "$GITHUB_OUTPUT"
+          echo "Browser suites: $browser. Database tests: $migrations." | tee -a "$GITHUB_STEP_SUMMARY"
+
   verify:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -37,12 +107,19 @@ jobs:
       - name: Shared core verification
         run: npm run verify:core
 
-  browser:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
-    # The screenshot baselines are drawn on Windows, where Chromium renders text
-    # differently from Linux, so the browser suites run on Windows too.
+  # The main browser suite, split four ways by Playwright's --shard. The
+  # screenshot baselines are drawn on Windows, where Chromium renders text
+  # differently from Linux, so the browser suites run on Windows too.
+  browser-main:
+    name: browser main ${{ matrix.shard }}/4
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result != 'skipped' && needs.changes.outputs.browser != 'false' }}
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -56,22 +133,84 @@ jobs:
           cache: npm
           package-manager-cache: false
 
-      - name: Shared browser verification
-        run: npm run verify:browser
+      - name: Shared browser verification, main suite
+        run: npm run verify -- --browser-main --shard=${{ matrix.shard }}/4
 
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-artifacts
+          name: playwright-artifacts-main-${{ matrix.shard }}
           path: |
             test-results
             playwright-report
           if-no-files-found: ignore
           retention-days: 7
 
+  # The patch, Twitch, IGDB, empty-state and Turnstile suites.
+  browser-other:
+    name: browser other suites
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result != 'skipped' && needs.changes.outputs.browser != 'false' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+          package-manager-cache: false
+
+      - name: Shared browser verification, other suites
+        run: npm run verify -- --browser-other
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-artifacts-other
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The required browser check. It passes only when every browser job passed,
+  # or when the gate skipped them on purpose for a documentation change.
+  browser:
+    needs: [changes, browser-main, browser-other]
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check every browser job
+        env:
+          GATE: ${{ needs.changes.result }}
+          RUN_BROWSER: ${{ needs.changes.outputs.browser }}
+          MAIN: ${{ needs.browser-main.result }}
+          OTHER: ${{ needs.browser-other.result }}
+        run: |
+          echo "Gate: $GATE (browser suites: ${RUN_BROWSER:-unset}). Main suite: $MAIN. Other suites: $OTHER."
+          if [ "$GATE" = success ] && [ "$RUN_BROWSER" = false ] && [ "$MAIN" = skipped ] && [ "$OTHER" = skipped ]; then
+            echo "Only documentation changed, so the browser suites were skipped."
+            exit 0
+          fi
+          if [ "$MAIN" = success ] && [ "$OTHER" = success ]; then
+            echo "Every browser job passed."
+            exit 0
+          fi
+          echo "::error::A browser job did not pass."
+          exit 1
+
   migrations:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result != 'skipped' && needs.changes.outputs.migrations != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
