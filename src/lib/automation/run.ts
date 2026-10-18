@@ -1770,8 +1770,17 @@ async function prepareSignals(
     // instead of being dropped, up to MAX_LANGUAGE_CALLS_PER_RUN per scan. The run
     // log's "language_review", "non_english_ai" and "non_english_kept" notes show
     // whether these calls find real reports.
+    const wantsLanguageReview = admitsLanguageReview(signal, screened);
+    // A thread already read on this patch with this same text is skipped here,
+    // before it can take a language review from a post that is new.
+    if (wantsLanguageReview && isUnchangedForumWork(signal)) {
+      result.skips.push("steam_forum_unchanged");
+      result.signalsDeduped += 1;
+      await report?.();
+      continue;
+    }
     const languageReview =
-      admitsLanguageReview(signal, screened) &&
+      wantsLanguageReview &&
       languageReviewsUsed < MAX_LANGUAGE_CALLS_PER_RUN &&
       paidAiEnabled(result, budget);
     if (languageReview) {

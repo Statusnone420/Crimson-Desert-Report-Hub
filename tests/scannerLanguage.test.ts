@@ -19,6 +19,8 @@ describe("telling English from the game's other big review languages", () => {
     ["German, short", "Spiel stürzt ab"],
     ["Polish, short", "Gra wywala"],
     ["Turkish, short", "Oyun çöküyor"],
+    ["Spanish, short", "El mapa no carga"],
+    ["French, in capitals", "LE JEU PLANTE"],
   ])("%s is not English", (_language, text) => {
     expect(isMostlyNonEnglish(text)).toBe(true);
   });
@@ -30,6 +32,13 @@ describe("telling English from the game's other big review languages", () => {
     "Crimson Desert player issue on Steam",
     "Crash when opening map",
     "Kliff stuck in a wall after the update",
+    // Keys, codes and abbreviations that look like another language's words.
+    "Error E100 crash",
+    "Can't press E",
+    "Y button broken",
+    "EU servers down",
+    "Lag on EU servers since the ET maintenance",
+    "Windows OS crash",
     "",
   ])("%j is English", (text) => {
     expect(isMostlyNonEnglish(text)).toBe(false);
@@ -125,6 +134,10 @@ describe("storing only English", () => {
     });
     // A Steam review keeps its English placeholder title; its body decides.
     expect(englishStorage({ title: "Crimson Desert player issue on Steam" }, "打开地图就闪退", ai)).toMatchObject({ nonEnglish: true, store: true });
+    // The AI keeps an error code as it is, and the title is still English.
+    expect(englishStorage({ title: "Erro E100 ao abrir o jogo" }, "", {
+      ...ai, issueTitle: "Error E100 crash", summary: "The game shows error E100 and closes.",
+    })).toEqual({ nonEnglish: true, store: true, storedTitle: "Error E100 crash" });
   });
 
   it("stores nothing when the AI did not read it or answered in another language", () => {

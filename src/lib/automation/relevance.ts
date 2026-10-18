@@ -71,8 +71,9 @@ const SYMPTOM_PATTERNS = [
   /\b(?:won'?t|will not|doesn'?t|does not|can'?t|cannot|not)\s+(?:launch|start|load|progress|complete)\b/i,
   // Blocked actions players report in their own words ("I cant craft the pet",
   // "can't equip the new sword"). The verb list is closed on purpose: "can't
-  // wait" and "can't stop playing" are praise, not reports.
-  /\b(?:can'?t|cannot|can not|unable to|won'?t let (?:me|you|us))\s+(?:even\s+|still\s+)?(?:craft|use|equip|unequip|open|interact|claim|unlock|buy|purchase|sell|accept|talk|enter|access|select|summon|mount|ride|loot|pick up|fast travel|travel|save|continue|finish|play|join|skip|move|aim|dodge|parry|hold|press|redeem|upgrade|repair|cook|tame|teleport|respawn)\b/i,
+  // wait" and "can't stop playing" are praise, not reports, and so are "can't
+  // play (it) enough" and "can't play anything else".
+  /\b(?:can'?t|cannot|can not|unable to|won'?t let (?:me|you|us))\s+(?:even\s+|still\s+)?(?:craft|use|equip|unequip|open|interact|claim|unlock|buy|purchase|sell|accept|talk|enter|access|select|summon|mount|ride|loot|pick up|fast travel|travel|save|continue|finish|play(?!(?:\s+(?:it|this(?:\s+(?:game|one))?|the\s+game))?\s+enough\b|\s+any(?:thing)?\s+(?:else|other)\b)|join|skip|move|aim|dodge|parry|hold|press|redeem|upgrade|repair|cook|tame|teleport|respawn)\b/i,
   // A bare "is (beyond|completely) broken/bugged" with no symptom noun — "The duel
   // with Muskan is beyond broken". Negated forms ("is not broken", "is no longer
   // bugged") are not complaints.

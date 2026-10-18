@@ -1,12 +1,14 @@
 // Function words that mark Latin-script text as another language, taken from
 // the game's largest Steam review languages after English (2026-10-18 counts:
 // Brazilian Portuguese, French, Spanish, German, Turkish, Polish, Italian).
-// Words English also uses ("as", "to", "do", "on", "per", "um", "die"...) are left out.
+// Words English also uses ("as", "to", "do", "on", "per", "um", "die"...) are left out,
+// and so are single letters ("y", "o", "e"), which English uses for keys and codes
+// ("Press E", "Error E100").
 const NON_ENGLISH_FUNCTION_WORDS = new Set([
   "der", "das", "und", "nicht", "ist", "ein", "eine", "ich", "mit", "auf", "sich", "auch", "dem", "den", "wenn", "aber", "noch", "spiel", "sehr", "schon", "kann",
   "le", "la", "les", "et", "est", "pas", "une", "des", "du", "je", "qui", "dans", "pour", "avec", "sur", "mais", "très", "plus", "jeu", "cette",
-  "el", "los", "las", "y", "es", "una", "que", "por", "para", "con", "pero", "muy", "más", "juego", "del", "al", "lo", "como", "está", "hay", "de",
-  "o", "os", "e", "é", "uma", "não", "nao", "com", "mas", "muito", "jogo", "mais", "isso", "eu",
+  "el", "los", "las", "es", "una", "que", "por", "para", "con", "pero", "muy", "más", "juego", "del", "al", "lo", "como", "está", "hay", "de",
+  "os", "é", "uma", "não", "nao", "com", "mas", "muito", "jogo", "mais", "isso", "eu",
   "bir", "ve", "bu", "çok", "için", "ama", "oyun", "daha", "gibi", "ile", "değil", "yok",
   "nie", "jest", "się", "że", "gra", "ale", "jak", "bardzo", "tak",
   "il", "di", "che", "non", "sono", "gioco", "ma", "molto", "più", "della", "è", "questo",
@@ -31,16 +33,24 @@ export function isMostlyNonEnglish(text: string | null | undefined): boolean {
   if (nonLatin / letters.length >= 1 / 3) return true;
   let foreign = 0;
   let english = 0;
-  const words = text?.toLowerCase().match(/\p{L}+/gu) ?? [];
-  for (const word of words) {
-    if (NON_ENGLISH_FUNCTION_WORDS.has(word)) foreign += 1;
-    else if (ENGLISH_FUNCTION_WORDS.has(word)) english += 1;
+  const raw = text ?? "";
+  const allCapitals = raw === raw.toUpperCase();
+  const words = raw.match(/\p{L}+/gu) ?? [];
+  for (const token of words) {
+    const word = token.toLowerCase();
+    if (ENGLISH_FUNCTION_WORDS.has(word)) english += 1;
+    else if (NON_ENGLISH_FUNCTION_WORDS.has(word)) {
+      // Short capitals in mixed-case text are English abbreviations
+      // ("EU servers", "Windows OS", "8pm ET"), not function words.
+      if (!allCapitals && token.length <= 3 && token === token.toUpperCase()) continue;
+      foreign += 1;
+    }
   }
   if (foreign >= 2 && foreign > english) return true;
   // A short report carries one marker at most ("Spiel stürzt ab", "Gra wywala",
   // "Oyun çöküyor"): a foreign function word, or letters English does not use,
   // with no English function word beside it.
-  return words.length <= 8 && english === 0 && (foreign >= 1 || FOREIGN_LATIN_LETTERS.test(text ?? ""));
+  return words.length <= 8 && english === 0 && (foreign >= 1 || FOREIGN_LATIN_LETTERS.test(raw));
 }
 
 /** Shown in place of a title or snippet in another language. */

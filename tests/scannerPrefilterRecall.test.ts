@@ -28,6 +28,8 @@ describe("real reports the pre-filter used to drop before the AI saw them", () =
     ["Tournament/Duel with Muskan is beyond broken", "The duel is beyond broken."],
     ["I cant craft the Pheonix pet", "It shows 0/1 despite having the feather."],
     ["I can’t craft the Pheonix pet", "Typed on a phone, with a curly apostrophe."],
+    ["I can't play since the last hotfix", "Every time."],
+    ["I can't play long enough to finish a quest", "Every time."],
     ["The 'Shadows Cast Over The River' quest is bugged", "The cutscene doesn't play."],
     ["PSA: The control mechanics in this game are EXTREMELY buggy", "Inputs get eaten."],
   ])("keeps %s", (title, snippet) => {
@@ -66,6 +68,9 @@ describe("praise and roundups stay out", () => {
     ["Smooth 4K, no artifacts, great game.", "Runs great on my 4080."],
     ["Zero crashes in 40 hours", "Best open world this year."],
     ["Never crashed once", "Controls never clunky, runs great."],
+    ["I can't play enough of this game", "Best open world this year."],
+    ["Can't play it enough", "Love it."],
+    ["Can't play anything else now", "Love it."],
   ])("rejects praise: %s", (title, snippet) => {
     expect(screen(title, snippet)).toMatchObject({ keep: false, reason: "source_not_issue_report" });
     expect(shouldKeepExtractedSignal(otherExtraction(title), `${title} ${snippet}`)).toEqual({ keep: false, reason: "category_other" });

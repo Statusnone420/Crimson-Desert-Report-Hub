@@ -9296,6 +9296,38 @@ describe("Steam forum intake", () => {
         expect(extractionsFor(canonical(topic))).toHaveLength(2);
       });
 
+      it("skips threads it already read before they take a language review from a new post", async () => {
+        // Chinese posts with no listed symptom word: each one needs a language review.
+        const seen = ["任务道具不见了", "坐骑叫不出来了", "商店里的东西买不了"].map((title, index) =>
+          forumTopic({ topicId: `58281000514000011${index}`, title, preview: `${title}，怎么办` }));
+        const searchHit = (thread: { title: string; url: string }, extra: Record<string, string> = {}) => ({
+          title: `${thread.title} :: Crimson Desert General Discussions`, url: thread.url,
+          snippet: `${thread.title}，更新以后一直这样，验证文件也没用。`,
+          sourceDomain: "steamcommunity.com", observedAt: NOW.toISOString(), ...extra,
+        });
+        const fresh = { title: "地图上的标记都没了", url: `${FORUM}582810005140000120/` };
+        mocks.fetchSteamForumTopics.mockResolvedValue(seen);
+        mocks.tavilySearch.mockResolvedValue(seen.map((thread) => searchHit(thread)));
+        const { runAutomationMonitor } = await importRunner();
+        const reviews = (skips: string[]) => skips.filter((skip) => skip === "language_review").length;
+
+        const first = await runAutomationMonitor({ mode: "manual", now: NOW });
+        expect(reviews(first.skips)).toBe(3);
+        for (const thread of seen) expect(extractionsFor(canonical(thread))).toHaveLength(1);
+
+        // The same three threads, unchanged, come back first; a new post follows.
+        mocks.tavilySearch.mockResolvedValue([
+          ...seen.map((thread) => searchHit(thread)),
+          searchHit(fresh, { sourcePublishedAt: "2026-07-05T12:30:00.000Z" }),
+        ]);
+        const second = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+        expect(second.skips.filter((skip) => skip === "steam_forum_unchanged")).toHaveLength(3);
+        expect(reviews(second.skips)).toBe(1);
+        for (const thread of seen) expect(extractionsFor(canonical(thread))).toHaveLength(1);
+        expect(extractionsFor(canonical(fresh))).toHaveLength(1);
+      });
+
       it("keeps a cached thread's malformed opening date authoritative over a dated search hit", async () => {
         const malformed = forumTopic({ postedAt: null, postedAtStatus: "malformed", postedText: "Foo 3 @ 1:00pm" });
         await seedProcessed({ topic: malformed });
