@@ -91,8 +91,6 @@ export function HomeNumbers({ steam, radar, steamUnavailable }: { steam: SteamPu
                         key={reviewPoint.snapshotDay}
                         aria-label={`${day(reviewPoint.snapshotDay)}: ${value > 0 ? "+" : ""}${value} net reviews`}
                         aria-describedby="home-review-readout"
-                        onMouseEnter={() => setActive(index)}
-                        onMouseLeave={(event) => { if (event.currentTarget !== document.activeElement) setActive(null); }}
                         onFocus={() => setActive(index)}
                         onBlur={() => setActive(null)}
                         onClick={() => setActive(index)}
