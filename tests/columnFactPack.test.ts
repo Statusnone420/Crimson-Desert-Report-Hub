@@ -76,6 +76,14 @@ describe("the fact pack", () => {
     expect(pack.facts.filter((fact) => fact.id.startsWith("C"))).toHaveLength(8);
   });
 
+  it("leaves out the players average when fewer than five of the seven days were recorded", () => {
+    const sparse = history();
+    sparse.days = sparse.days.map((day, index) => (index >= sparse.days.length - 8 && index % 2 === 0 ? day : { ...day, playersAvg: index >= sparse.days.length - 8 ? null : day.playersAvg }));
+    const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null, history: sparse });
+    expect(pack.metrics.playersAvg7d).toBeNull();
+    expect(pack.facts.some((fact) => fact.text.startsWith("Steam players online averaged"))).toBe(false);
+  });
+
   it("records unavailable data as gaps instead of inventing facts", () => {
     const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null,
       history: { ...history(), lanes: { players: "unavailable", twitch: "unavailable", reviews: "unavailable" } } });

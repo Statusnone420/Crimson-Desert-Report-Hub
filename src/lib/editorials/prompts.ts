@@ -104,7 +104,7 @@ export function writerRequest(input: WriterPromptParts & { model: WriterModel; e
   };
 }
 
-export const CHECKER_INSTRUCTION = `You are the fact checker for The Pywel Desk. The user message holds the fact pack and the edition split into numbered units: the title (t), the dek (d), body sentences (b1, b2, ...) and facts-box items (x1, x2, ...). Each unit lists the ids its paragraph or item cites.
+export const CHECKER_INSTRUCTION = `You are the fact checker for The Pywel Desk. The user message holds the fact pack and the edition split into numbered units: the title (t), the dek (d), section subheads (h1, h2, ...), body sentences (b1, b2, ...) and facts-box items (x1, x2, ...). Each unit lists the ids its paragraph or item cites.
 
 Return every unit id exactly once, with:
 - supported: true when the unit makes no factual claim, or every claim in it is backed by facts in the pack. Exaggerating a fact's tone is fine; changing its substance is not.

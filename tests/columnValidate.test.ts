@@ -60,7 +60,8 @@ describe("splitting and numbering", () => {
 
   it("numbers the title, dek, body sentences and facts box", () => {
     const ids = numberSentences(writer()).map((unit) => unit.id);
-    expect(ids.slice(0, 3)).toEqual(["t", "d", "b1"]);
+    expect(ids.slice(0, 4)).toEqual(["t", "d", "h1", "b1"]);
+    expect(ids).toContain("h3");
     expect(ids.at(-1)).toBe("x2");
   });
 });
@@ -149,6 +150,16 @@ describe("post-processing", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.factsBox.items).toEqual([{ text: "Patch 2.03.02 lists 2 fixes.", sourceIds: ["P1"] }]);
+  });
+
+  it("checks subheads too: a named person stops the edition, a rejected subhead drops its section", () => {
+    expect(process(writer(), { h2: { namesPerson: true } })).toMatchObject({ ok: false, reason: "person_named" });
+    const dropped = process(writer(), { h3: { slopRules: [11] } });
+    expect(dropped.ok).toBe(true);
+    if (!dropped.ok) return;
+    expect(dropped.sections.map((section) => section.subhead)).toEqual(["The forecast", "The patch desk"]);
+    expect(dropped.report.deleted).toContainEqual({ id: "h3", why: ["checklist"] });
+    expect(process(writer(), { h1: { supported: false }, h2: { supported: false } })).toMatchObject({ ok: false, reason: "missing_required_section" });
   });
 
   it("skips a title of 70 characters or more", () => {
