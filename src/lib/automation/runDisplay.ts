@@ -85,6 +85,17 @@ const SKIP_META: Record<string, MessageMeta> = {
       "A post in another language could not get an AI read this scan, or the AI did not answer in English, so nothing from it was stored. Only English reaches the console.",
     summaryLabel: "non-English posts not stored",
   },
+  steam_thread_reply_check: {
+    label: "Checked a Steam thread for new replies",
+    detail:
+      "A Steam thread from search showed only an opening date from before the current patch, so the scanner read the thread's pages for its latest reply. A reply after the patch keeps the thread as a private lead; it never publishes on that alone.",
+    summaryLabel: "checked thread replies",
+  },
+  steam_thread_reply_unavailable: {
+    label: "Steam thread replies unavailable",
+    detail: "The thread page could not be read or showed no reply times, so the thread was judged on its opening date.",
+    summaryLabel: "thread replies unavailable",
+  },
   candidate_recon_unavailable: {
     label: "Full page unavailable",
     detail:
