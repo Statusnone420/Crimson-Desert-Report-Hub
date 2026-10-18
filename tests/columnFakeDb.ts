@@ -52,6 +52,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
     let patch: Row = {};
     const orders: { column: string; ascending: boolean }[] = [];
     let limit: number | null = null;
+    let offset = 0;
     let returning = false;
 
     function run(): Result {
@@ -84,7 +85,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
         return { data: returning ? matched.map((row) => ({ ...row })) : null, error: null };
       }
       for (const order of [...orders].reverse()) matched = [...matched].sort((a, b) => compare(a[order.column], b[order.column]) * (order.ascending ? 1 : -1));
-      if (limit !== null) matched = matched.slice(0, limit);
+      if (limit !== null || offset) matched = matched.slice(offset, limit === null ? undefined : offset + limit);
       return { data: matched.map((row) => ({ ...row })), error: null };
     }
 
@@ -102,6 +103,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
       lte: (column: string, value: string) => { filters.push((row) => row[column] != null && Date.parse(String(row[column])) <= Date.parse(value)); return query; },
       order: (column: string, options?: { ascending?: boolean }) => { orders.push({ column, ascending: options?.ascending ?? true }); return query; },
       limit: (count: number) => { limit = count; return query; },
+      range: (from: number, to: number) => { offset = from; limit = to - from + 1; return query; },
       then: (resolve: (value: Result) => unknown, reject?: (reason: unknown) => unknown) => Promise.resolve().then(run).then(resolve, reject),
     };
     return query;

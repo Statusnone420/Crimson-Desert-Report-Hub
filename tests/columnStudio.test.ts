@@ -87,11 +87,22 @@ describe("voice examples", () => {
     expect((await approvedEditions(db.client)).map((edition) => edition.id)).toEqual(["a", "b"]);
     expect((await readColumnStudio(db.client, RUN_NOW)).rotation).toEqual([{ id: "a", title: "A" }, { id: "b", title: "B" }]);
   });
+
+  it("find the second approved edition behind many thumbs on the first", async () => {
+    const body = "## The forecast\n\nClear skies.";
+    db.tables.editorials.push(
+      { id: "a", slot_key: "2026-W40:mon", status: "published", title: "A", body_md: body, is_test: false },
+      { id: "b", slot_key: "2026-W41:mon", status: "published", title: "B", body_md: body, is_test: false },
+    );
+    for (let index = 0; index < 120; index++) db.tables.style_notes.push({ id: `n${index}`, editorial_id: "a", rating: "up", created_at: new Date(Date.UTC(2026, 9, 25, 0, index)).toISOString() });
+    db.tables.style_notes.push({ id: "old", editorial_id: "b", rating: "up", created_at: "2026-10-01T00:00:00Z" });
+    expect((await approvedEditions(db.client)).map((edition) => edition.id)).toEqual(["a", "b"]);
+  });
 });
 
 describe("A/B test drafts", () => {
   it("run the full pipeline on the same stored fact pack for every model and are never public", async () => {
-    db.tables.editorials.push({ id: "real", slot_key: "2026-W43:s0", status: "skipped", skip_reason: "below_threshold", is_test: false, fact_pack: pipelinePack(), created_at: "2026-10-19T14:00:00Z" });
+    db.tables.editorials.push({ id: "real", slot_key: "2026-W43:s0", status: "skipped", skip_reason: "below_threshold", is_test: false, fact_pack: pipelinePack(), created_at: "2026-10-19T14:00:00Z", updated_at: "2026-10-19T14:00:00Z" });
     const provider = providerFetch();
     expect(await draft("claude-sonnet-5-5", provider.impl)).toEqual({ status: "saved" });
     expect(await draft("claude-fable-5-1", provider.impl)).toEqual({ status: "saved" });
@@ -136,7 +147,7 @@ describe("A/B test drafts", () => {
     expect((db.tables.automation_settings.find((row) => row.key === "column")!.value as Record<string, unknown>).nextEditionModel).toBe("claude-fable-5-1");
     const provider = providerFetch();
     const outcome = await runColumn({ now: RUN_NOW, deadlineMs: RUN_NOW.getTime() + 280_000, client: db.client, guides: GUIDES, clock: () => RUN_NOW.getTime(), fetchImpl: provider.impl });
-    expect(outcome).toMatchObject({ status: "held", slot: "2026-W44:s0" });
+    expect(outcome).toMatchObject({ status: "held", slot: "2026-W44:mon" });
     expect(provider.messageCalls()[0].body.model).toBe("claude-fable-5-1");
   });
 });
