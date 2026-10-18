@@ -77,17 +77,33 @@ function distinguishingTerms(title: string): string {
 // Word pairs that turn a report into its opposite when one replaces the other
 // ("Subtitles keep turning on" / "turning off"). At least one word of each pair
 // is filler to retrievalTokens, so the word match alone cannot see the change.
-const OPPOSITES = [["on", "off"], ["up", "down"], ["in", "out"], ["over", "under"], ["before", "after"], ["more", "less"]] as const;
+const OPPOSITES = [["on", "off"], ["up", "down"], ["in", "out"], ["over", "under"], ["more", "less"]] as const;
+// Timing words, by the moment they name. "Crash after loading a save" is not
+// "Crash while loading a save", but "while" and "when" name the same moment.
+const MOMENTS = new Map([
+  ["before", "before"], ["until", "before"], ["till", "before"],
+  ["while", "during"], ["during", "during"], ["when", "during"], ["whenever", "during"], ["upon", "during"],
+  ["after", "after"], ["since", "after"],
+]);
+
+function moments(words: Set<string>): Set<string> {
+  return new Set([...words].flatMap((word) => MOMENTS.get(word) ?? []));
+}
 
 function titleWords(title: string): Set<string> {
   return new Set(title.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
 }
 
-// True when the titles differ in both words of a pair: one says "on" where the
-// other says "off". A word both titles share, or one only a single title has
-// ("Crash on PS5" / "PS5 crash"), changes nothing.
+// True when the titles differ in both words of a pair, one saying "on" where the
+// other says "off", or when each names a moment the other does not ("after" /
+// "while"). A word both titles share, or one only a single title has ("Crash on
+// PS5" / "PS5 crash", "Crash after 1.04 when opening the map" / "Crash when
+// opening map"), changes nothing.
 function opposed(left: Set<string>, right: Set<string>): boolean {
-  return OPPOSITES.some(([a, b]) => left.has(a) !== right.has(a) && left.has(b) !== right.has(b));
+  if (OPPOSITES.some(([a, b]) => left.has(a) !== right.has(a) && left.has(b) !== right.has(b))) return true;
+  const leftMoments = moments(left);
+  const rightMoments = moments(right);
+  return [...leftMoments].some((moment) => !rightMoments.has(moment)) && [...rightMoments].some((moment) => !leftMoments.has(moment));
 }
 
 /** Distinct comparable words of a text, accents removed ("Créchard" meets "Crechard"). */
@@ -113,13 +129,13 @@ export function retrievalTokens(text: string): string[] {
  * stay apart. One title's words must all appear in the other, so a swapped
  * word ("map screen" / "inventory screen") keeps them apart even at three
  * quarters, and so does a swapped pair of opposites ("turning on" / "turning
- * off", "after" / "before"). Both titles must also agree on negation and carry
- * the same numbers and short terms, versions aside, so "Shadows appear" /
- * "Shadows do not appear", "Error 15" / "Error 30" and "UI stutter" / "AI
- * stutter" stay apart too. A cluster whose signals were all moved elsewhere
- * (signal_count 0) is skipped, as the model's options skip it, so a relocation
- * is not undone; a cluster created earlier in the same batch carries no count
- * and is kept.
+ * off") or moment ("after" / "while"). Both titles must also agree on
+ * negation and carry the same numbers and short terms, versions aside, so
+ * "Shadows appear" / "Shadows do not appear", "Error 15" / "Error 30" and
+ * "UI stutter" / "AI stutter" stay apart too. A cluster whose signals were
+ * all moved elsewhere (signal_count 0) is skipped, as the model's options skip
+ * it, so a relocation is not undone; a cluster created earlier in the same
+ * batch carries no count and is kept.
  */
 export function nearDuplicateAutoCluster<T extends RetrievalCluster & { signal_count?: number | string | null }>(
   issueTitle: string,

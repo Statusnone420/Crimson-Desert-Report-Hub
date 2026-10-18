@@ -59,6 +59,15 @@ describe("joining a reworded lead to its automatic issue group", () => {
     expect(nearDuplicateAutoCluster("Game crashes before the final boss cutscene", "crash_startup", boss)).toBeNull();
   });
 
+  it("keeps titles apart when they name different moments, but joins words for the same moment", () => {
+    const save = [{ id: "15", slug: "auto-save-load", title: "Crash after loading a save", category: "crash_startup" }];
+    expect(nearDuplicateAutoCluster("Crash while loading a save", "crash_startup", save)).toBeNull();
+    expect(nearDuplicateAutoCluster("Crash before loading a save", "crash_startup", save)).toBeNull();
+    expect(nearDuplicateAutoCluster("Crash since loading a save", "crash_startup", save)?.id).toBe("15");
+    const during = [{ id: "16", slug: "auto-save-during", title: "Crash while loading a save", category: "crash_startup" }];
+    expect(nearDuplicateAutoCluster("Crash when loading a save", "crash_startup", during)?.id).toBe("16");
+  });
+
   it("keeps a title apart from its opposite", () => {
     const shadows = [{ id: "10", slug: "auto-shadows", title: "Shadows appear indoors", category: "graphics_visual" }];
     expect(nearDuplicateAutoCluster("Shadows do not appear indoors", "graphics_visual", shadows)).toBeNull();
