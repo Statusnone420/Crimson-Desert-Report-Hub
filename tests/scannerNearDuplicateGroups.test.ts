@@ -27,6 +27,15 @@ describe("joining a reworded lead to its automatic issue group", () => {
     expect(nearDuplicateAutoCluster(title, category, clusters)).toBeNull();
   });
 
+  it("keeps titles apart when their numbers differ, but not their versions", () => {
+    const save = [{ id: "7", slug: "auto-save", title: "Error 15 when loading a save", category: "crash_startup" }];
+    expect(nearDuplicateAutoCluster("Error 30 when loading a save", "crash_startup", save)).toBeNull();
+    expect(nearDuplicateAutoCluster("Error when loading a save", "crash_startup", save)).toBeNull();
+    expect(nearDuplicateAutoCluster("Error 15 while loading a save", "crash_startup", save)?.id).toBe("7");
+    expect(nearDuplicateAutoCluster("Crash after 1.04 when opening the map", "crash_startup", clusters)?.id).toBe("1");
+    expect(nearDuplicateAutoCluster("Crash after v2.03.02 when opening the map", "crash_startup", clusters)?.id).toBe("1");
+  });
+
   it("skips an emptied automatic group but keeps one created earlier in the batch", () => {
     const emptied = { id: "5", slug: "auto-emptied", title: "Crash when opening map", category: "crash_startup", signal_count: 0 };
     expect(nearDuplicateAutoCluster("Game crashes when opening the map", "crash_startup", [emptied])).toBeNull();
