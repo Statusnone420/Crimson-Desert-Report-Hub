@@ -19,6 +19,8 @@ export type PreviewEdition = {
   writer_effort: string | null;
   skip_reason: string | null;
   created_at: string;
+  /** Moves on approval, veto and save, so feed readers pick up a changed status. */
+  updated_at: string;
   publish_at: string | null;
   vetoed_at: string | null;
 };
@@ -63,13 +65,13 @@ function previewText(row: PreviewEdition, now: Date): string {
  */
 export function buildPreviewAtomXml(rows: readonly PreviewEdition[], now: Date): string {
   const operatorUrl = `${SITE_URL}/operator?view=column`;
-  const updated = rows.reduce<string | null>((latest, row) => (!latest || row.created_at > latest ? row.created_at : latest), null);
+  const updated = rows.reduce<string | null>((latest, row) => (!latest || row.updated_at > latest ? row.updated_at : latest), null);
   const entries = rows.map((row) => [
     "  <entry>",
     `    <id>urn:uuid:${escapeXml(row.id)}</id>`,
     `    <title>${escapeXml(previewTitle(row, now))}</title>`,
     `    <link rel="alternate" type="text/html" href="${escapeXml(`${operatorUrl}&edition=${row.id}`)}"/>`,
-    `    <updated>${escapeXml(row.created_at)}</updated>`,
+    `    <updated>${escapeXml(row.updated_at)}</updated>`,
     `    <content type="text">${escapeXml(previewText(row, now))}</content>`,
     "  </entry>",
   ].join("\n")).join("\n");

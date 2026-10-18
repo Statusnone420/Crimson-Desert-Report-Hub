@@ -94,7 +94,7 @@ export const getPublicEditions = cache(async (): Promise<{ editions: PublicEditi
 export const getPublicEditionBySlug = cache(async (slug: string): Promise<PublicEdition | null> => getCachedEditionBySlug(slug));
 
 /** Private columns for the operator and the token-gated preview feed. fact_pack and check_report stay out. */
-export const ADMIN_EDITORIAL_COLUMNS = "id, slot_key, is_test, slug, status, title, dek, body_md, facts_box, relevance_score, writer_model, writer_effort, skip_reason, hold_hours, created_at, publish_at, published_at, vetoed_at";
+export const ADMIN_EDITORIAL_COLUMNS = "id, slot_key, is_test, slug, status, title, dek, body_md, facts_box, relevance_score, writer_model, writer_effort, skip_reason, hold_hours, created_at, updated_at, publish_at, published_at, vetoed_at";
 
 export type AdminEditionRow = {
   id: string;
@@ -112,6 +112,7 @@ export type AdminEditionRow = {
   skip_reason: string | null;
   hold_hours: number | null;
   created_at: string;
+  updated_at: string;
   publish_at: string | null;
   published_at: string | null;
   vetoed_at: string | null;

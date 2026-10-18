@@ -89,24 +89,22 @@ describe("feeds and sitemap with editions", () => {
     expect(rssXml).not.toContain("<author>");
   });
 
-  it("still serves editions when patch data fails, and patches when editions fail", async () => {
+  it("is unavailable when either read fails, so a partial feed never looks complete", async () => {
     mocks.catalog.mockResolvedValue({ editions: [], articles: patchPublications([]), unavailable: true });
-    const onlyEditions = await atom();
-    expect(onlyEditions.status).toBe(200);
-    expect(await onlyEditions.text()).toContain(`/editorials/${edition.slug}`);
+    expect((await atom()).status).toBe(503);
+    expect((await rss()).status).toBe(503);
 
     mocks.catalog.mockResolvedValue({ editions: [patch], articles: patchPublications([patch]), unavailable: false });
     mocks.editions.mockResolvedValue({ editions: [], unavailable: true });
-    const onlyPatches = await rss();
-    expect(onlyPatches.status).toBe(200);
-    expect(await onlyPatches.text()).toContain("/articles/patch-2-03-01");
-  });
-
-  it("returns 503 only when both reads fail", async () => {
-    mocks.catalog.mockResolvedValue({ editions: [], articles: patchPublications([]), unavailable: true });
-    mocks.editions.mockResolvedValue({ editions: [], unavailable: true });
     expect((await atom()).status).toBe(503);
     expect((await rss()).status).toBe(503);
+  });
+
+  it("serves the patch feed unchanged before the column has any editions", async () => {
+    mocks.editions.mockResolvedValue({ editions: [], unavailable: false });
+    const response = await atom();
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("/articles/patch-2-03-01");
   });
 
   it("keeps FEED_ITEM_LIMIT across the merged list", async () => {

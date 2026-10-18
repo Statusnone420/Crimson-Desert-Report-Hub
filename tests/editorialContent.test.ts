@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatUtcTimestamp,
   isPublicSourceUrl,
+  sourceProvenance,
   markdownToSections,
   PUBLIC_EDITORIAL_COLUMNS,
   sectionsToMarkdown,
@@ -31,6 +32,12 @@ describe("edition content", () => {
     expect(isPublicSourceUrl("https://steamcommunity.com/app/3321460/discussions/0/1/")).toBe(false);
     expect(isPublicSourceUrl("http://crimsondesert.pearlabyss.com/")).toBe(false);
     expect(isPublicSourceUrl("javascript:alert(1)")).toBe(false);
+  });
+
+  it("names a source's publisher by its host, absolute Hub URLs included", () => {
+    expect(sourceProvenance("/observatory#updates")).toBe("Crimson Desert Report Hub");
+    expect(sourceProvenance("https://crimsonreporthub.com/issues")).toBe("Crimson Desert Report Hub");
+    expect(sourceProvenance("https://crimsondesert.pearlabyss.com/en-us/News/Notice/Detail?_boardNo=140")).toBe("Pearl Abyss");
   });
 
   it("builds a public edition only from well-formed public fields", () => {
