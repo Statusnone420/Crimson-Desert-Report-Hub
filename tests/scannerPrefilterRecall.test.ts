@@ -95,10 +95,18 @@ describe("rejects the owner confirmed as correct", () => {
 });
 
 describe("source dates on the same examples", () => {
-  it("drops a launch-week thread with no reply after the patch", () => {
-    // Opened 2026-03-20 on Steam, per the public thread page.
+  it("drops a thread when only an opening date before the patch is known", () => {
+    // Opened 2026-03-20; its replies run to 2026-10-18 on the thread's last page,
+    // which a search result never shows.
     expect(screen("Are the Graphics supposed to look this bad?", "The graphics look bad.", { publishedAt: "2026-03-20T01:23:00.000Z" }))
       .toEqual({ keep: false, reason: "stale_source" });
+  });
+
+  it("keeps the same graphics thread once a reply after the patch is known", () => {
+    expect(screen("Are the Graphics supposed to look this bad?", "The graphics look bad.", {
+      publishedAt: "2026-03-20T01:23:00.000Z",
+      activeAt: "2026-10-18T06:57:00.000Z",
+    })).toEqual({ keep: true });
   });
 
   it("drops an older thread when nothing shows a reply after the patch", () => {
