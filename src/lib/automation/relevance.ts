@@ -1,6 +1,7 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
 import { domainTier, isOfficialDomain } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
+import { isMostlyNonEnglish, LATIN_SCRIPT_SYMPTOM_TERMS } from "@/lib/language";
 
 export type RelevanceSkipReason =
   | "category_other"
@@ -19,7 +20,17 @@ export type ObservationKind = "patch_release" | "press_reception" | "fix_announc
 
 export type SignalRelevanceDecision =
   | { keep: true }
-  | { keep: false; reason: RelevanceSkipReason; observationKind?: ObservationKind };
+  | {
+      keep: false;
+      reason: RelevanceSkipReason;
+      observationKind?: ObservationKind;
+      /**
+       * A post in another language that names no symptom the word lists know.
+       * The scan may hand a few of these to the AI instead of dropping them;
+       * every other caller treats the decision as the rejection it is.
+       */
+      languageReview?: true;
+    };
 
 export type CandidatePreScreenInput = {
   title: string;
@@ -54,9 +65,23 @@ const SYMPTOM_PATTERNS = [
   /\b(?:black ?screen|infinite (?:load|loading)|stuck (?:on|at) (?:load|loading|boot))\b/i,
   /\b(?:lockup|lockups|locks up|input lock|input locks|unresponsive|controls? (?:stop|stops|stopped|lock|locks|locked|freeze|freezes))\b/i,
   /\b(?:artifact|artifacts|ghosting|flicker|flickering|texture shimmer|screen tearing)\b/i,
-  /\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b.{0,60}\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b/i,
-  /\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b.{0,60}\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
-  /\b(?:won't|will not|doesn't|does not|can't|cannot|not)\s+(?:launch|start|load|progress|complete)\b/i,
+  // "graphics" is how players say it: "Are the Graphics supposed to look this bad?"
+  /\b(?:graphics|graphical|rendering|lighting|shadows?|visuals?|pop.?in)\b.{0,60}\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b/i,
+  /\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b.{0,60}\b(?:graphics|graphical|rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
+  /\b(?:won'?t|will not|doesn'?t|does not|can'?t|cannot|not)\s+(?:launch|start|load|progress|complete)\b/i,
+  // Blocked actions players report in their own words ("I cant craft the pet",
+  // "can't equip the new sword"). The verb list is closed on purpose: "can't
+  // wait" and "can't stop playing" are praise, not reports, and so are "can't
+  // play (it) enough", "can't play anything else" and "can't play it without
+  // smiling". "Can't play without issues" is still a report.
+  /\b(?:can'?t|cannot|can not|unable to|won'?t let (?:me|you|us))\s+(?:even\s+|still\s+)?(?:craft|use|equip|unequip|open|interact|claim|unlock|buy|purchase|sell|accept|talk|enter|access|select|summon|mount|ride|loot|pick up|fast travel|travel|save|continue|finish|play(?!(?:\s+(?:it|this(?:\s+(?:game|one))?|the\s+game))?\s+(?:enough|without\s+\w+ing)\b|\s+any(?:thing)?\s+(?:else|other)\b)|join|skip|move|aim|dodge|parry|hold|press|redeem|upgrade|repair|cook|tame|teleport|respawn)\b/i,
+  // A bare "is (beyond|completely) broken/bugged" with no symptom noun — "The duel
+  // with Muskan is beyond broken". Negated forms ("is not broken", "is no longer
+  // bugged") are not complaints.
+  /\b(?:is|are|was|were|seems?|feels?|looks?|gets?|got)\s+(?!(?:not|no\s+longer|never)\b)(?:\w+\s+){0,2}?(?:broken|bugged|glitched|busted)\b/i,
+  // A negation up to two words back ("is no longer bugged", "not very buggy")
+  // makes it a fixed or praised state, not a report.
+  /(?<!\b(?:not|never|no\s+longer|isn'?t|aren'?t|wasn'?t|weren'?t|hardly|barely)\s+(?:\w+\s+){0,2})\bbugg(?:ed|y)\b/i,
   /\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
   /\b(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b.{0,50}\b(?:missing|gone|muted|silent|broken|cut(?:s|ting)? out|doesn'?t play|not playing|desync(?:ed)?|out of sync)\b/i,
   /\b(?:quests?|missions?|objectives?|npcs?|cutscenes?|dialogue)\b.{0,60}\b(?:stuck|blocked|frozen|missing|broken|bugged|softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete|not progressing|not spawning)\b/i,
@@ -71,14 +96,53 @@ const SYMPTOM_PATTERNS = [
   // "error(s)", bare "glitch(es)", "still broken/angry/unplayable", and the
   // question-form openers players actually use. Recall-biased on purpose — the
   // promotion guard, not this list, is the precision boundary.
-  /\b(?:won't|will not|doesn't|does not|can't|cannot|not|stopped)\s+work(?:ing)?\b/i,
+  /\b(?:won'?t|will not|doesn'?t|does not|can'?t|cannot|not|stopped)\s+work(?:ing)?\b/i,
   /\berrors?\b/i,
   /\bglitch(?:es|ed|y|ing)?\b/i,
   /\bstill\s+(?:broken|bugged|glitched|angry|happening|unplayable|not (?:working|fixed))\b/i,
   /\bunplayable\b/i,
   /\b(?:am i the only one|is it just me|anyone else)\b.{0,80}\b(?:problems?|issues?|bugs?|glitch(?:es)?|broken|crash(?:es|ing)?|errors?|not working)\b/i,
   /\b(?:graphical|graphics|visual|texture)\s+(?:problems?|issues?|bugs?)\b/i,
+  ...multilingualSymptomPatterns(),
 ] as const;
+
+/**
+ * Players report in their own language, and none of the English patterns above
+ * can see "进去背包会出现闪退" (it crashes opening the backpack). These are the
+ * common crash, freeze, stutter, bug, error and won't-start words in Chinese,
+ * Japanese, Korean, German, French, Spanish, Portuguese and Russian. CJK has no
+ * word spacing, so those terms match as substrings; the rest need letter
+ * boundaries, and `\p{L}*` marks a stem that takes any ending. The Latin-script
+ * words live in @/lib/language, which also uses them to tell a short report in
+ * another language from English. Save-loss words stay out: "Save game
+ * Gelöscht" is usually a support question, not a bug.
+ */
+function multilingualSymptomPatterns(): RegExp[] {
+  const cjk = [
+    // Chinese, simplified and traditional
+    "闪退", "閃退", "崩溃", "崩潰", "卡死", "卡顿", "卡頓", "掉帧", "掉幀", "黑屏", "花屏", "闪屏", "閃屏", "报错", "報錯",
+    "无法启动", "無法啟動", "进不去", "進不去", "打不开", "打不開", "任务卡住", "任務卡住", "没有声音", "沒有聲音",
+    // Japanese
+    "クラッシュ", "フリーズ", "強制終了", "ゲームが落ち", "進行不能", "起動しない", "起動できない", "カクつ", "カクカク", "ブラックスクリーン", "バグ", "エラー",
+    // Korean
+    "튕김", "튕겨", "튕기", "크래시", "버그", "멈춤", "멈춰", "프리징", "끊김", "진행 불가", "진행불가", "오류", "에러", "실행이 안", "검은 화면",
+  ];
+  const lettered = [
+    // German, French, Spanish, Portuguese, Turkish, Polish and Italian.
+    ...LATIN_SCRIPT_SYMPTOM_TERMS,
+    // German slang that English speakers use too, so it stays out of the shared
+    // list, which also marks a text as another language.
+    "kaputt",
+    // Russian. Closed endings where a bare stem is an everyday word: "зависит"
+    // means "depends", "лагерь" is a camp, "багаж" is luggage.
+    "вылет\\p{L}*", "краш\\p{L}*", "завис(?:ла|ло|ли|ает|ают|ание|ания)?", "фриз\\p{L}*", "лаг(?:и|ов|ает|ают|ал|ала|ало|ует|ать)?",
+    "баг(?:и|ов|а|ом|ами|нут\\p{L}*|ован\\p{L}*)?", "не запускается", "ч[её]рный экран", "ошибк\\p{L}*", "не работает",
+  ];
+  return [
+    new RegExp(cjk.join("|"), "u"),
+    new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${lettered.join("|")})(?![\p{L}\p{N}])`, "iu"),
+  ];
+}
 
 // The press subset of BROAD_CONTENT_PATTERNS: coverage worth keeping as an
 // observation. Guides/trailers/walkthroughs stay plain rejects — they are
@@ -106,6 +170,10 @@ const BROAD_CONTENT_PATTERNS = [
   /\btrailer\b/i,
   /\bwalkthrough\b/i,
   /\bfirst look\b/i,
+  // Wiki and guide roundups ("Added: Glitches & Exploits – 2.03.02 Bugs") list
+  // other people's findings; they are not one player's report. The roundup shape
+  // decides, not an "Updated:" prefix a player's own thread can carry.
+  /\bglitch(?:es)?\s*(?:&|and)\s*exploits?\b/i,
 ] as const;
 
 const PATCH_RELEASE_TITLE_PATTERNS = [
@@ -124,12 +192,62 @@ const UNSUPPORTED_SOURCE_CONTEXT_PATTERNS = [
 // Negation wrapper for the SAME bare nouns the symptom list recognizes — when a
 // noun joins SYMPTOM_PATTERNS as a standalone matcher, its negated form must be
 // recognized here or "runs with no <noun>" reads as a complaint.
-const NO_ISSUE_NOUN = String.raw`(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag)`;
+const NO_ISSUE_NOUN = String.raw`(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag|artifacts?|ghosting|flicker(?:ing)?|(?:frame|fps) ?drops?|hitch(?:es|ing)?|freez(?:es|ing)|screen tearing|pop.?in)`;
 const NO_ISSUE_NOUN_SERIES = String.raw`${NO_ISSUE_NOUN}(?:\s*(?:[,/]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${NO_ISSUE_NOUN})*`;
+// "Never crashed until 2.03.02" and "no crashes at all before this update" say
+// the problem started afterward, so an until/before/prior to up to two words
+// later undoes the praise.
+const UNTIL_THEN = String.raw`(?!(?:\s+\w+){0,2}\s+(?:until|till|before|prior\s+to)\b)`;
+// Praise in Steam reviews: "smooth 4K, no artifacts", "zero crashes", "not a
+// single stutter", "never crashed once".
 const NO_ISSUE_PATTERNS = [
-  new RegExp(String.raw`\bno (?:reported |known )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
-  new RegExp(String.raw`\bwithout (?:reported |known |any )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
+  new RegExp(String.raw`\bno (?:reported |known )?${NO_ISSUE_NOUN_SERIES}\b${UNTIL_THEN}`, "i"),
+  new RegExp(String.raw`\bwithout (?:reported |known |any )?${NO_ISSUE_NOUN_SERIES}\b${UNTIL_THEN}`, "i"),
+  new RegExp(String.raw`\bzero ${NO_ISSUE_NOUN_SERIES}\b${UNTIL_THEN}`, "i"),
+  new RegExp(String.raw`\bnot (?:a|one) single ${NO_ISSUE_NOUN}\b${UNTIL_THEN}`, "i"),
+  new RegExp(String.raw`\bnever (?:once )?(?:(?:had|got|saw|seen|noticed|experienced) (?:a |an |any |one )?)?(?:crash(?:ed)?|froze|stuttered|lagged|${NO_ISSUE_NOUN_SERIES})(?: once)?\b${UNTIL_THEN}`, "i"),
+  ...multilingualNoIssuePatterns(),
 ] as const;
+
+/**
+ * The same praise in the languages the symptom list reads, so "Keine
+ * Abstürze", "Aucun plantage" or "バグがない" is not mistaken for a report the
+ * moment its symptom word is recognized.
+ */
+function multilingualNoIssuePatterns(): RegExp[] {
+  const lettered = [
+    // German
+    String.raw`(?:kein|keine|keinen|keinerlei|ohne)\s+(?:\p{L}+\s+)?(?:abst(?:ü|ue)rz\p{L}*|absturz|ruckler|ruckeln|bugs?|fehler|probleme?)`,
+    // French
+    String.raw`(?:aucun|aucune|pas\s+de|pas\s+un\s+seul|sans)\s+(?:\p{L}+\s+)?(?:plantages?|bugs?|crash(?:es)?|saccades?|freezes?|probl[èe]mes?|erreurs?)`,
+    // Spanish
+    String.raw`(?:ning[úu]n|ninguna|sin|cero|no\s+hay)\s+(?:\p{L}+\s+)?(?:crash(?:es|eos)?|cierres?|congelamientos?|tirones|bugs?|errores?|problemas?)`,
+    // Portuguese
+    String.raw`(?:nenhum|nenhuma|sem|zero|n[ãa]o\s+tem)\s+(?:\p{L}+\s+)?(?:crash(?:es)?|travamentos?|bugs?|erros?|problemas?)`,
+    // Russian
+    String.raw`(?:нет|без|никаких|ни\s+одного|ни\s+одной|ноль)\s+(?:\p{L}+\s+)?(?:вылет\p{L}*|краш\p{L}*|баг\p{L}*|фриз\p{L}*|лаг\p{L}*|ошиб\p{L}*|проблем\p{L}*)`,
+    // Turkish puts the "none" after the noun: "hiç çökme yok", "hata yok".
+    String.raw`(?:hiç\s+)?(?:çökme|hata|bug|takılma|kasma|donma|sorun)\p{L}*\s+(?:yok|olmadı|yaşamadım)`,
+    String.raw`sorunsuz`,
+    // Polish
+    String.raw`(?:bez|zero|żadnych|żadnego)\s+(?:\p{L}+\s+)?(?:crash\p{L}*|błęd\p{L}*|bug\p{L}*|zacię\p{L}*|przycię\p{L}*|problem\p{L}*)`,
+    // Italian
+    String.raw`(?:nessun|nessuna|zero|senza)\s+(?:\p{L}+\s+)?(?:crash|bug|errori?|problem[ai]|scatti|blocchi)`,
+  ];
+  // As in English, "Keine Abstürze bis zum Patch" or "Aucun plantage du tout
+  // avant cette mise à jour" says the problem started afterward: an until/before
+  // word up to two words after the phrase undoes the praise.
+  const untilThen = String.raw`(?!(?:\s+\p{L}+){0,2}\s+(?:bis|vor|avant|jusqu|hasta|antes|até|ate|до|перед|przed|do|fino|prima|kadar|önce)(?![\p{L}\p{N}]))`;
+  return [
+    new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${lettered.join("|")})(?![\p{L}\p{N}])${untilThen}`, "iu"),
+    // Japanese, Chinese and Korean put the negation after or before the noun with
+    // no spacing, and the until/before word comes first ("更新之前没有闪退"), at
+    // most one "ever"/"at all" word away ("更新之前都没有闪退").
+    /(?<!(?:まで|前)(?:は)?(?:一度も|全然|まったく|全く)?)(?:バグ|クラッシュ|フリーズ|エラー|強制終了)(?:は|も|が)?(?:一切|一度も)?(?:ない|無い|なし|無し|ありません|なかった)/u,
+    /(?<!(?:之前|以前|前)(?:都|也|从来|從來|一直|根本)?)(?:没有|沒有|无|無|零)(?:任何)?(?:闪退|閃退|崩溃|崩潰|卡顿|卡頓|bug|BUG|报错|報錯|掉帧|掉幀)/u,
+    /(?<!(?:전에는|전엔|까지는)\s?(?:한\s?번도\s?|전혀\s?)?)(?:버그|튕김|크래시|렉|끊김|오류|에러)(?:가|이|는|도)?\s*(?:전혀\s*)?없/u,
+  ];
+}
 
 const CLAIMED_FIX_PATTERNS = [
   /\bfix(?:es|ed) an issue where\b/i,
@@ -234,7 +352,9 @@ function isFreshEnoughForAsk(sourcePublishedAt: string | null | undefined): bool
 }
 
 function compact(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  // Phone keyboards type "can’t" with a curly apostrophe, which none of the
+  // "can't / won't / doesn't" patterns would otherwise see.
+  return value.replace(/[‘’ʼ`´]/g, "'").replace(/\s+/g, " ").trim();
 }
 
 function matchesAny(text: string, patterns: readonly RegExp[]): boolean {
@@ -248,8 +368,8 @@ function hasSymptomLanguage(text: string): boolean {
 // Broad-query discovery (e.g. a generic Reddit result) drags in pages about
 // entirely different subjects. Source reputation and topic relevance are
 // deliberately separate: a trusted host can still carry an unrelated page.
-const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
-const EXPLICIT_GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|cdguides|红色沙漠|붉은사막/i;
+const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|紅色沙漠|붉은사막|クリムゾン\s?デザート/i;
+const EXPLICIT_GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|cdguides|红色沙漠|紅色沙漠|붉은사막|クリムゾン\s?デザート/i;
 const KNOWN_GAME_SOURCE_PATTERN = /(?:steamcommunity\.com\/(?:app|games)\/3321460|store\.steampowered\.com\/(?:app|appreviews)\/3321460)(?:[/?#]|$)/i;
 const KNOWN_REDDIT_COMMUNITIES = new Set(["crimsondesert", "crimsondesertlife", "cdguides"]);
 
@@ -291,8 +411,9 @@ export function hasCrimsonDesertContext(
 
 function saysNoIssue(text: string): boolean {
   if (!matchesAny(text, NO_ISSUE_PATTERNS)) return false;
+  // Keep each pattern's own flags: the multilingual ones need "u" for \p{L}.
   const withoutNoIssueCopy = NO_ISSUE_PATTERNS.reduce(
-    (value, pattern) => value.replace(new RegExp(pattern.source, "gi"), " "),
+    (value, pattern) => value.replace(new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`), " "),
     text,
   );
   return !hasComplaintSymptom(withoutNoIssueCopy);
@@ -446,7 +567,12 @@ export function preScreenCandidate(
     return { keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" };
   }
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {
-    return { keep: false, reason: "source_not_issue_report" };
+    const languageReview = !saysNoIssue(sourceText)
+      && !isOfficialDomain(input.sourceDomain)
+      // Title and snippet are judged apart: a foreign title can come with an
+      // English search summary, and a Steam review's placeholder title is English.
+      && (isMostlyNonEnglish(input.title) || isMostlyNonEnglish(input.snippet));
+    return { keep: false, reason: "source_not_issue_report", ...(languageReview ? { languageReview: true as const } : {}) };
   }
   // The publisher's own pages are provider context, never player evidence. A
   // known-issues list reaches this point carrying the same symptom nouns as a
@@ -465,7 +591,15 @@ export function preScreenCandidate(
 export function shouldKeepExtractedSignal(
   extraction: ExtractionResult,
   sourceText?: string,
+  options: { honorAiVerdict?: boolean } = {},
 ): SignalRelevanceDecision {
+  // For a post in another language the word lists read only some of its words,
+  // so the model's answer counts: when it read the source and said it reports
+  // no problem a player hit (praise, news, or a problem described as fixed, as
+  // in "Das Spiel stürzt nicht mehr ab"), the post is dropped even though a
+  // symptom word matched. English posts keep the word-list judgment, and
+  // deterministic extraction gives no answer.
+  if (options.honorAiVerdict && extraction.isReport === false) return { keep: false, reason: "source_not_issue_report" };
   if (extraction.category === "other") {
     // A real complaint with no category keyword (cross-save failures, boss-fight
     // bugs) still deserves tracking under "other" — this gate exists to drop

@@ -57,6 +57,34 @@ const SKIP_META: Record<string, MessageMeta> = {
       "A promising trusted source had too little text to judge, so the scanner tried to read the page itself. Whether the text arrived is reported separately.",
     summaryLabel: "tried the full page",
   },
+  language_review: {
+    label: "Sent a non-English post to the AI",
+    detail:
+      "A post in another language matched none of the scanner's words, so the AI read it instead of the word filter. At most 3 per scan; thumbs-up Steam reviews are skipped.",
+    summaryLabel: "non-English posts sent to the AI",
+  },
+  language_extra_call: {
+    label: "Used an extra AI call for a non-English post",
+    detail:
+      "The scan's regular AI calls were used up, so a non-English post used one of the 3 extra calls each scan has for posts in other languages. Its cost counts toward the monthly AI cap.",
+    summaryLabel: "extra AI calls for non-English posts",
+  },
+  non_english_ai: {
+    label: "AI read a non-English post",
+    detail: "The AI read a post in another language and wrote its title and summary in English. Only the English version is stored.",
+    summaryLabel: "non-English posts read by the AI",
+  },
+  non_english_kept: {
+    label: "Kept a non-English report",
+    detail: "A post in another language turned out to be a real report and was kept as a lead, in English.",
+    summaryLabel: "non-English reports kept",
+  },
+  language_needs_ai: {
+    label: "Non-English post not stored",
+    detail:
+      "A post in another language could not get an AI read this scan, or the AI did not answer in English, so nothing from it was stored. Only English reaches the console.",
+    summaryLabel: "non-English posts not stored",
+  },
   steam_thread_reply_check: {
     label: "Checked a Steam thread for new replies",
     detail:

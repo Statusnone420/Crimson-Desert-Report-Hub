@@ -33,6 +33,7 @@ import {
   type CurrentPatchEligibilityReason,
 } from "@/lib/automation/eligibility";
 import { extractSignalWithOpenRouter, type ClusterOption, type ExtractionResult } from "@/lib/automation/extract";
+import { isMostlyNonEnglish } from "@/lib/language";
 import {
   canonicalizeRuleScopes,
   matchScannerFeedbackRule,
@@ -49,6 +50,7 @@ import {
   shouldKeepExtractedSignal,
   type ObservationKind,
   type RelevanceSkipReason,
+  type SignalRelevanceDecision,
 } from "@/lib/automation/relevance";
 import { categoriesCompatible, routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
 import { compareClusterRecency, createClusterRetriever } from "@/lib/automation/clusterRetrieval";
@@ -169,8 +171,9 @@ export type RunProgress = {
   promoted: number;
 };
 
-function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): number {
-  if (aiRuntimeForBudget(budget)?.failed) return 0;
+/** True when no further AI call may be made this run, whatever allowance it would use. */
+function llmStopped(result: Pick<AutomationResult, "skips" | "llmCostUsd">, budget: AutomationBudget): boolean {
+  if (aiRuntimeForBudget(budget)?.failed) return true;
   if (
     [
       "openrouter_unexpected_charge",
@@ -181,11 +184,36 @@ function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): 
       "openrouter_context_limit",
     ].some((reason) => result.skips.includes(reason))
   ) {
-    return 0;
+    return true;
   }
-  return result.llmCostUsd >= budget.remainingLlmUsd
-    ? 0
-    : Math.max(0, budget.maxLlmCalls - result.llmCallsUsed);
+  return result.llmCostUsd >= budget.remainingLlmUsd;
+}
+
+/**
+ * The extra non-English calls ride on the run's paid AI lane: they are never
+ * granted when that lane was switched off (`maxLlmCalls` 0 after an accounting
+ * outage, a circuit pause or a spent budget), only when its calls ran out.
+ */
+export function paidAiEnabled(
+  result: Pick<AutomationResult, "skips" | "llmCostUsd">,
+  budget: AutomationBudget,
+): boolean {
+  return budget.maxLlmCalls > 0 && !llmStopped(result, budget);
+}
+
+/** Calls this run spent from the separate non-English allowance, one note each. */
+function extraLanguageCallsUsed(result: AutomationResult): number {
+  return result.skips.filter((skip) => skip === "language_extra_call").length;
+}
+
+/**
+ * The lanes' shared calls left this run. Calls from the non-English allowance
+ * do not use up shared calls; their cost still counts toward the monthly cap
+ * through `llmCostUsd`.
+ */
+function remainingLlmCalls(result: AutomationResult, budget: AutomationBudget): number {
+  if (llmStopped(result, budget)) return 0;
+  return Math.max(0, budget.maxLlmCalls - (result.llmCallsUsed - extraLanguageCallsUsed(result)));
 }
 
 /**
@@ -387,6 +415,8 @@ type PreparedSignal = SourceInput & {
   externalHash: string;
   semantic: string;
   extraction: ExtractionResult;
+  /** The English title stored in place of a title in another language (see englishStorage). */
+  storedTitle?: string;
 };
 
 export type RejectedCandidate = {
@@ -457,6 +487,59 @@ const MAX_RESCUE_LLM_CALLS = 1;
 // credit, so this bounds the extra cost of the "read the real thread before
 // rejecting" lane regardless of how many borderline candidates a run surfaces.
 const MAX_RECON_FETCHES_PER_RUN = 2;
+/**
+ * More than half of the game's Steam reviews are not in English. A post in
+ * another language is stored only with the AI's English title and summary, so
+ * nothing the owner cannot read reaches the console. Each scan has this many
+ * extra AI calls for such posts, on top of the lanes' shared calls: they serve
+ * a non-English post the shared calls did not reach, and admit up to this many
+ * posts the word lists could not read at all (`languageReview`). At about
+ * $0.0004 a call on the current model that is under $0.50 a month, and the
+ * monthly AI cap still bounds every call.
+ */
+export const MAX_LANGUAGE_CALLS_PER_RUN = 3;
+
+const VERSION_IN_TITLE = /\b\d+\.\d{1,2}(?:\.\d{1,2})?\b/g;
+
+/**
+ * The owner reads English only, so nothing in another language is stored or
+ * shown. A post in another language is stored only when the AI read it and
+ * answered in English, under the AI's title with version numbers removed: a
+ * stored title is read back as source evidence for patch freshness, and this
+ * title is the AI's wording, not the source's.
+ */
+export function englishStorage(
+  signal: Pick<SourceInput, "title">,
+  body: string,
+  extraction: Pick<ExtractionResult, "extractionProvider" | "issueTitle" | "summary">,
+): { nonEnglish: boolean; store: boolean; storedTitle?: string } {
+  const nonEnglish = isMostlyNonEnglish(signal.title) || isMostlyNonEnglish(body);
+  if (!nonEnglish) return { nonEnglish, store: true };
+  if (
+    extraction.extractionProvider !== "openrouter" ||
+    isMostlyNonEnglish(extraction.issueTitle) ||
+    isMostlyNonEnglish(extraction.summary)
+  ) {
+    return { nonEnglish, store: false };
+  }
+  const storedTitle = extraction.issueTitle.replace(VERSION_IN_TITLE, " ").replace(/\s+/g, " ").trim();
+  return { nonEnglish, store: true, storedTitle: storedTitle || "Player report" };
+}
+
+/**
+ * Whether a pre-screen rejection may become an AI language review. A thumbs-up
+ * Steam review in another language is almost always praise, so the scarce
+ * slots go to thumbs-down reviews and forum, Reddit or web posts.
+ */
+export function admitsLanguageReview(
+  signal: Pick<SourceInput, "source" | "steam">,
+  decision: SignalRelevanceDecision,
+): boolean {
+  return !decision.keep
+    && decision.languageReview === true
+    && (signal.source !== "steam_review" || signal.steam?.votedUp === false);
+}
+
 /** Free Steam page reads for stale-looking threads; each check reads at most two pages. */
 const MAX_STEAM_THREAD_REPLY_CHECKS_PER_RUN = 5;
 
@@ -1408,6 +1491,7 @@ async function prepareSignals(
   const seenUrls = new Set<string>();
   const seenExternalIds = new Set<string>();
   let reconFetchesUsed = 0;
+  let languageReviewsUsed = 0;
 
   /**
    * Every date decision in this function starts here. `asserted` is what the
@@ -1448,6 +1532,8 @@ async function prepareSignals(
     displayableDate: string | null,
   ) => {
     if (!decision.observationKind) return;
+    // The shelf shows source text as is, so only English items go on it.
+    if (isMostlyNonEnglish(signal.title) || isMostlyNonEnglish(snippet)) return;
     appendUniqueObservation(observations, {
       kind: decision.observationKind as ObservationKind,
       title: signal.title,
@@ -1513,6 +1599,8 @@ async function prepareSignals(
     if (rule?.action === "block") return false;
     if (isUnchangedForumWork(signal)) return false;
     if (rule?.action === "allow") return true;
+    // Language reviews are not reserved here: they run on their own extra
+    // allowance (MAX_LANGUAGE_CALLS_PER_RUN), never on the lanes' shared calls.
     return preScreenCandidate(
       {
         title: signal.title,
@@ -1667,7 +1755,7 @@ async function prepareSignals(
     // Cheap gate on raw source text, runs BEFORE any LLM call. Trade-off: a source
     // whose raw title+snippet has no symptom language is rejected without giving the
     // LLM a chance to rescue it. That rescue path was the waste this prefilter removes.
-    const preScreen = operatorAllowed ? { keep: true as const } : preScreenCandidate(
+    const screened: SignalRelevanceDecision = operatorAllowed ? { keep: true as const } : preScreenCandidate(
       {
         title: signal.title,
         snippet: signal.body,
@@ -1678,9 +1766,35 @@ async function prepareSignals(
       },
       { currentPatchVersion: currentPatch.version, currentPatchPublishedAt: currentPatch.publishedAt },
     );
+    // A post in another language that the word lists cannot read goes to the AI
+    // instead of being dropped, up to MAX_LANGUAGE_CALLS_PER_RUN per scan. The run
+    // log's "language_review", "non_english_ai" and "non_english_kept" notes show
+    // whether these calls find real reports.
+    const wantsLanguageReview = admitsLanguageReview(signal, screened);
+    // A thread already read on this patch with this same text is skipped here,
+    // before it can take a language review from a post that is new.
+    if (wantsLanguageReview && isUnchangedForumWork(signal)) {
+      result.skips.push("steam_forum_unchanged");
+      result.signalsDeduped += 1;
+      await report?.();
+      continue;
+    }
+    const languageReview =
+      wantsLanguageReview &&
+      languageReviewsUsed < MAX_LANGUAGE_CALLS_PER_RUN &&
+      paidAiEnabled(result, budget);
+    if (languageReview) {
+      languageReviewsUsed += 1;
+      result.skips.push("language_review");
+    }
+    const preScreen: SignalRelevanceDecision = languageReview ? { keep: true } : screened;
     if (!preScreen.keep) {
       if (
         preScreen.reason === "source_not_issue_report" &&
+        // A post in another language reaches the AI through a language review
+        // only, so MAX_LANGUAGE_CALLS_PER_RUN holds: the rescue's English context
+        // words ("bug", "thread") say little about such a post.
+        !preScreen.languageReview &&
         isBorderlineRescueCandidate(signal, snippetDates.asserted, currentPatch)
       ) {
         // Recon lane: read the real page ONCE before rejecting a promising
@@ -1828,12 +1942,17 @@ async function prepareSignals(
         if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
         recordOpenRouterRunSkip(result, extraction.fallbackReason);
 
-        const relevance = shouldKeepExtractedSignal(extraction, `${signal.title} ${effectiveBody}`);
+        // The same English-only rule as the main path (see englishStorage).
+        const rescueStorage = englishStorage(signal, effectiveBody, extraction);
+        const relevance = rescueStorage.store
+          ? shouldKeepExtractedSignal(extraction, `${signal.title} ${effectiveBody}`, { honorAiVerdict: rescueStorage.nonEnglish })
+          : { keep: false as const, reason: "language_needs_ai" as const };
         if (relevance.keep) {
           result.skips.push("candidate_rescued");
           result.candidatesRescued += 1;
           prepared.push({
             ...rescued,
+            ...(rescueStorage.storedTitle ? { storedTitle: rescueStorage.storedTitle } : {}),
             body: effectiveBody,
             sourcePublishedAt: effectiveDates.asserted,
             canonicalUrl,
@@ -1885,6 +2004,16 @@ async function prepareSignals(
       continue;
     }
     stopPaidWorkIfGuardStopped(result, budget);
+    // A post in another language needs the AI to be stored at all (see
+    // englishStorage). When the lanes' shared calls are spent, it may use the
+    // separate non-English allowance instead, one call each.
+    const nonEnglishInput = isMostlyNonEnglish(signal.title) || isMostlyNonEnglish(signal.body);
+    const laneCalls = allocation.callsFor(lane);
+    const extraLanguageCall =
+      nonEnglishInput &&
+      laneCalls <= 0 &&
+      extraLanguageCallsUsed(result) < MAX_LANGUAGE_CALLS_PER_RUN &&
+      paidAiEnabled(result, budget);
     const extraction = await extractSignalWithOpenRouter(
       { title: signal.title, snippet: signal.body, url: canonicalUrl },
       applyAiRuntimeOptions(budget, {
@@ -1893,22 +2022,56 @@ async function prepareSignals(
         paidGuard: budget.paidGuard,
         modelPreset: budget.modelPreset,
         llmDeadlineAtMs: budget.llmDeadlineAtMs,
-        llmCallsRemaining: allocation.callsFor(lane),
+        llmCallsRemaining: extraLanguageCall ? 1 : laneCalls,
         llmBudgetRemainingUsd: Math.max(0, budget.remainingLlmUsd - result.llmCostUsd),
         clusterOptions: clusterOptionsFor(`${signal.title} ${signal.body}`),
       }),
     );
     result.llmCallsUsed += extraction.llmCallsUsed;
-    allocation.used(lane, extraction.llmCallsUsed);
+    if (extraLanguageCall) {
+      for (let call = 0; call < extraction.llmCallsUsed; call += 1) result.skips.push("language_extra_call");
+    } else {
+      allocation.used(lane, extraction.llmCallsUsed);
+    }
     if (extraction.extractionProvider === "openrouter") result.llmSucceeded = (result.llmSucceeded ?? 0) + 1;
     result.llmCostUsd += extraction.llmCostUsd ?? 0;
     result.estimatedCostUsd += extraction.llmCostUsd ?? 0;
     if (extraction.fallbackReason) result.skips.push(extraction.fallbackReason);
     recordOpenRouterRunSkip(result, extraction.fallbackReason);
 
-    const relevance = operatorAllowed
+    const storage = englishStorage(signal, signal.body, extraction);
+    if (!storage.store) {
+      result.skips.push("language_needs_ai");
+      rejected.push({
+        source: signal.source,
+        title: signal.title,
+        url: canonicalUrl,
+        sourceDomain: signal.sourceDomain,
+        sourcePublishedAt: snippetDates.asserted,
+        snippet: signal.body.slice(0, 500),
+        reason: "language_needs_ai",
+        steamRecommendationHash: signal.steam?.recommendationHash ?? null,
+      });
+      await report?.();
+      continue;
+    }
+    if (storage.nonEnglish) result.skips.push("non_english_ai");
+    // A post in another language is judged on what the AI wrote too: the
+    // source's own words may be ones the lists cannot read. A post that only a
+    // language review let in matched no symptom word at all, so it is kept only
+    // when the AI itself says it reports a problem: praise must not become a lead.
+    const relevance: SignalRelevanceDecision = operatorAllowed
       ? { keep: true as const }
-      : shouldKeepExtractedSignal(extraction, `${signal.title} ${signal.body}`);
+      : languageReview && extraction.isReport !== true
+        ? { keep: false as const, reason: "source_not_issue_report" as const }
+        : shouldKeepExtractedSignal(
+            extraction,
+            storage.nonEnglish
+              ? `${signal.title} ${signal.body} ${extraction.issueTitle} ${extraction.summary}`
+              : `${signal.title} ${signal.body}`,
+            { honorAiVerdict: storage.nonEnglish },
+          );
+    if (storage.nonEnglish && relevance.keep) result.skips.push("non_english_kept");
     if (!relevance.keep) {
       result.skips.push(relevance.reason);
       rejected.push({
@@ -1927,6 +2090,7 @@ async function prepareSignals(
 
     prepared.push({
       ...signal,
+      ...(storage.storedTitle ? { storedTitle: storage.storedTitle } : {}),
       sourcePublishedAt: snippetDates.asserted,
       canonicalUrl,
       externalHash,
@@ -2527,7 +2691,7 @@ async function upsertSignal(
     source_url: signal.canonicalUrl,
     canonical_url: signal.canonicalUrl,
     external_id_hash: signal.externalHash,
-    title: signal.title.slice(0, 240),
+    title: (signal.storedTitle ?? signal.title).slice(0, 240),
     source_domain: signal.sourceDomain,
     source_published_at: signal.sourcePublishedAt ?? null,
     semantic_fingerprint: signal.semantic,
@@ -4002,9 +4166,17 @@ async function rescueCandidateSignalInner(
     }
     recordOpenRouterRunSkip(result, extraction.fallbackReason);
 
+    // English only (see englishStorage): a rescue may not store text in another
+    // language either.
+    const storage = englishStorage(source, source.body, extraction);
+    if (!storage.store) {
+      result.skips.push("language_needs_ai");
+      throw new Error("This post is not in English and the AI could not put it into English, so nothing was stored. Try again when the AI is available.");
+    }
     const externalHash = externalIdHash(source.source, source.id);
     const prepared: PreparedSignal = {
       ...source,
+      ...(storage.storedTitle ? { storedTitle: storage.storedTitle } : {}),
       canonicalUrl,
       externalHash,
       semantic: semanticFingerprint(extraction.issueTitle, extraction.category),

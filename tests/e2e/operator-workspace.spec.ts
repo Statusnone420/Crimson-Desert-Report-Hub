@@ -78,7 +78,7 @@ test.describe("operator workspace flows", () => {
       await signInAsAdmin(page);
       await page.goto("/operator?view=scanner");
       await waitForHydration(page);
-      await expect(page.locator(".op-rail__sentence").filter({ hasText: /Found 8, kept 2.*AI unavailable/ })).toBeVisible();
+      await expect(page.locator(".op-rail__sentence").filter({ hasText: /Found 8, new leads 2.*AI unavailable/ })).toBeVisible();
       const details = page.locator("details").filter({ has: page.locator("summary", { hasText: "AI request evidence" }) }).first();
       await details.locator("summary").click();
       await expect(details).toContainText("1 attempted; 0 validated");
