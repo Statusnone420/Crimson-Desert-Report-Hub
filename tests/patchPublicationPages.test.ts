@@ -24,7 +24,10 @@ const edition: PatchEdition = { version: "2.03.01", officialUrl: "https://crimso
 const articleProps = { params: Promise.resolve({ slug: "patch-2-03-01" }) };
 
 describe("rundown and archived patch routes", () => {
-  beforeEach(() => mocks.catalog.mockResolvedValue({ editions: [edition], articles: patchPublications([edition]), unavailable: false }));
+  beforeEach(() => {
+    mocks.catalog.mockResolvedValue({ editions: [edition], articles: patchPublications([edition]), unavailable: false });
+    mocks.column.mockResolvedValue({ editions: [], unavailable: false });
+  });
 
   it("renders the official bullet and permanent claim-record link", async () => {
     const html = renderToStaticMarkup(await RundownPage(articleProps));
@@ -57,7 +60,9 @@ describe("rundown and archived patch routes", () => {
   it("uses 404 only for unknown or malformed versions, not failed database reads", async () => {
     await expect(RundownPage({ params: Promise.resolve({ slug: "patch-9-99-99" }) })).rejects.toThrow("404");
     await expect(EditionPage({ params: Promise.resolve({ version: "invalid" }) })).rejects.toThrow("404");
+    // A database outage fails both reads, so the feeds have nothing to serve.
     mocks.catalog.mockResolvedValue({ editions: [], articles: [], unavailable: true });
+    mocks.column.mockResolvedValue({ editions: [], unavailable: true });
     await expect(RundownPage(articleProps)).rejects.toThrow("temporarily unavailable");
     await expect(EditionPage({ params: Promise.resolve({ version: "2-03-01" }) })).rejects.toThrow("temporarily unavailable");
     expect((await rss()).status).toBe(503);

@@ -13,7 +13,9 @@ export const dynamic = "force-dynamic";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const [{ articles, editions, unavailable }, column] = await Promise.all([getPatchPublications(), getPublicEditions()]);
   if (unavailable) throw new Error("Patch sitemap temporarily unavailable");
-  if (column.unavailable) throw new Error("Editorial sitemap temporarily unavailable");
+  // A column database problem never breaks the sitemap for the rest of the site
+  // (owner decision, 2026-10-18). The gap is logged; editions return on the next read.
+  if (column.unavailable) console.warn(JSON.stringify({ event: "feed_partial", feed: "sitemap", unavailable: "editorials" }));
   return [
     { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
     { url: `${SITE_URL}/news`, changeFrequency: "weekly", priority: 0.9 },
