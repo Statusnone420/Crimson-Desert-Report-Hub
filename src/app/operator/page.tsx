@@ -39,8 +39,11 @@ import { ColumnWorkspace } from "@/components/operator/ColumnWorkspace";
 import { readAdminEdition, readColumnDashboard } from "@/lib/editorials/store.server";
 import { columnNotice } from "@/lib/editorials/notices";
 import { providerKey } from "@/lib/editorials/config";
+import { editionNotes, readColumnStudio } from "@/lib/editorials/feedback.server";
 
 export const dynamic = "force-dynamic";
+// A column test draft runs its writer and checker inside one server action.
+export const maxDuration = 300;
 export const metadata = { robots: { index: false, follow: false } };
 
 function unavailableExecution(detail: string): ScannerExecutionRead {
@@ -88,12 +91,14 @@ export default async function OperatorPage({
     const client = createServiceClient();
     const now = new Date();
     const edition = typeof rawParams?.edition === "string" ? rawParams.edition : null;
-    const [dashboard, draft] = await Promise.all([
+    const [dashboard, draft, studio, draftNotes] = await Promise.all([
       readColumnDashboard(client, now).catch(() => null),
       edition ? readAdminEdition(client, edition).catch(() => "unavailable" as const) : Promise.resolve(null),
+      readColumnStudio(client, now).catch(() => null),
+      edition ? editionNotes(client, edition).catch(() => null) : Promise.resolve(null),
     ]);
     const keys = { anthropic: providerKey("anthropic") !== null, openrouter: providerKey("openrouter") !== null };
-    return <OperatorShell active="column"><ColumnWorkspace dashboard={dashboard} draft={draft} notice={columnNotice(rawParams?.notice)} now={now} writesDisabled={isVercelPreview()} keys={keys} /></OperatorShell>;
+    return <OperatorShell active="column"><ColumnWorkspace dashboard={dashboard} draft={draft} draftNotes={draftNotes} studio={studio} notice={columnNotice(rawParams?.notice)} now={now} writesDisabled={isVercelPreview()} keys={keys} /></OperatorShell>;
   }
   if (view === "reports" || view === "claims" || view === "settings")
     return <AdminPage searchParams={Promise.resolve({ ...params, view })} />;

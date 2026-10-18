@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/app/operator/column-actions", () => ({
   approveEdition: vi.fn(), setColumnPaused: vi.fn(), vetoEdition: vi.fn(),
   saveColumnCadence: vi.fn(), saveColumnBurst: vi.fn(), deleteColumnBurst: vi.fn(),
+  saveStyleNote: vi.fn(), saveVoiceExampleAction: vi.fn(), deleteVoiceExampleAction: vi.fn(), moveVoiceExampleAction: vi.fn(), generateTestDraftAction: vi.fn(),
 }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: ComponentProps<"a">) => createElement("a", { ...props, href }, children) }));
 
@@ -68,5 +69,28 @@ describe("the Column card", () => {
     expect(html).toContain("Resume the column");
     expect(html).toContain("column changes are disabled here");
     expect(html.match(/<button[^>]*disabled/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("shows voice examples, the rotation and the test drafts left today", () => {
+    const studio = {
+      examples: [{ id: "v1", body: "Deadpan weather.", label: "Weather", position: 0 }],
+      rotation: [{ id: "a", title: "Clear skies" }],
+      tests: [row({ id: "t1", is_test: true, writer_model: "claude-fable-5-1", title: "Try" })],
+      testsToday: 3,
+    };
+    const html = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft: null, studio, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
+    expect(html).toContain("Weather");
+    expect(html).toContain("Approved editions rotating in: Clear skies.");
+    expect(html).toContain("7 of 10 left today (UTC)");
+    expect(html).toContain("TEST · Try");
+    expect(html).toContain("Fable 5.1");
+  });
+
+  it("offers thumbs and a note under a draft, with its earlier notes", () => {
+    const notes = [{ id: "n1", rating: "down" as const, note: "Less weather.", created_at: "2026-10-26T12:00:00Z" }];
+    const html = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft: row({}), draftNotes: notes, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
+    expect(html).toContain("Rate this edition");
+    expect(html).toContain("Thumbs down</strong> · Oct 26, 12:00 UTC");
+    expect(html).toContain("0 of 500 characters");
   });
 });

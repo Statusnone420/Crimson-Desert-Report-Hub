@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ledgerMonth } from "@/lib/editorials/budget";
 import { markdownToSections } from "@/lib/editorials/content";
 import type { FactPack, FactPackMetrics } from "@/lib/editorials/factPack";
-import type { Opener, StyleNote, VoiceExample } from "@/lib/editorials/prompts";
+import type { ApprovedEdition, Opener, StyleNote, VoiceExample } from "@/lib/editorials/prompts";
 import { ColumnNotSetUpError } from "@/lib/editorials/settings.server";
 import { isColumnTableMissing } from "@/lib/editorials/store.server";
 import { splitSentences, type SkipReason } from "@/lib/editorials/validate";
@@ -80,6 +80,35 @@ export async function recentOpeners(client: SupabaseClient): Promise<Opener[]> {
   return ((data ?? []) as WrittenRow[]).filter((row) => row.title).map((row) => ({ title: row.title!, firstSentence: firstSentence(row) }));
 }
 
+function bodyText(row: WrittenRow): string {
+  return (row.body_md ? markdownToSections(row.body_md) ?? [] : []).flatMap((section) => section.paragraphs).join("\n\n");
+}
+
+/** Up to two editions the editor rated thumbs up, most recently rated first, rotating into block [B]. */
+export async function approvedEditions(client: SupabaseClient): Promise<(ApprovedEdition & { id: string })[]> {
+  const { data, error } = await client.from("style_notes").select("editorial_id, created_at")
+    .eq("rating", "up").not("editorial_id", "is", null).order("created_at", { ascending: false }).limit(20);
+  check(error, "Approved editions read");
+  const ids = [...new Set(((data ?? []) as { editorial_id: string }[]).map((row) => row.editorial_id))];
+  if (!ids.length) return [];
+  const editions = await client.from("editorials").select("id, title, body_md").in("id", ids).neq("status", "skipped");
+  check(editions.error, "Approved editions read");
+  const byId = new Map(((editions.data ?? []) as (WrittenRow & { id: string })[]).map((row) => [row.id, row]));
+  return ids.flatMap((id) => {
+    const row = byId.get(id);
+    return row?.title && row.body_md ? [{ id, title: row.title, body: bodyText(row) }] : [];
+  }).slice(0, 2);
+}
+
+/** The newest stored fact pack, real or test, so every test draft sees the same facts. */
+export async function latestFactPack(client: SupabaseClient): Promise<FactPack | null> {
+  const { data, error } = await client.from("editorials").select("fact_pack")
+    .not("fact_pack", "is", null).order("created_at", { ascending: false }).limit(1);
+  check(error, "Fact pack read");
+  const pack = (data?.[0] as { fact_pack?: FactPack } | undefined)?.fact_pack;
+  return pack && pack.version === 1 && Array.isArray(pack.facts) ? pack : null;
+}
+
 export type SkipFields = { relevance_score?: number | null; fact_pack?: FactPack | null; writer_model?: string | null; writer_effort?: string | null; hold_hours?: number | null };
 
 /** A silent skip: one row so the slot is not retried, and nothing else. A slot already written is left alone. */
@@ -131,4 +160,27 @@ export async function saveEdition(client: SupabaseClient, id: string, edition: S
   if (result.error?.code === UNIQUE_VIOLATION) result = await update(`${edition.slug}-${dateSuffix}`.slice(0, 120));
   check(result.error, "Edition save");
   if (!(result.data ?? []).length) throw new Error("Edition save failed.");
+}
+
+export type TestDraft = {
+  slotKey: string;
+  writerModel: string;
+  writerEffort: string;
+  pack: FactPack;
+  relevanceScore: number;
+} & ({ ok: true; edition: Omit<SavedEdition, "publish_at" | "hold_hours"> } | { ok: false; reason: SkipReason; checkReport: unknown });
+
+/** Saves a test draft: held and never scheduled, or skipped with its reason. It never takes a slot. */
+export async function saveTestDraft(client: SupabaseClient, draft: TestDraft): Promise<void> {
+  const base = { slot_key: draft.slotKey, is_test: true, publish_at: null, writer_model: draft.writerModel, writer_effort: draft.writerEffort, fact_pack: draft.pack, relevance_score: draft.relevanceScore };
+  if (!draft.ok) {
+    const { error } = await client.from("editorials").insert({ ...base, status: "skipped", skip_reason: draft.reason, check_report: draft.checkReport ?? null });
+    check(error, "Test draft save");
+    return;
+  }
+  const edition = draft.edition;
+  const insert = (slug: string) => client.from("editorials").insert({ ...base, ...edition, slug, status: "held" });
+  let result = await insert(edition.slug);
+  if (result.error?.code === UNIQUE_VIOLATION) result = await insert(`${edition.slug}-test-${crypto.randomUUID().slice(0, 8)}`.slice(0, 120));
+  check(result.error, "Test draft save");
 }

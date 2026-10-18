@@ -47,7 +47,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
   function builder(table: string) {
     touched.add(table);
     const filters: Filter[] = [];
-    let mode: "select" | "insert" | "update" = "select";
+    let mode: "select" | "insert" | "update" | "delete" = "select";
     let payload: Row[] = [];
     let patch: Row = {};
     const orders: { column: string; ascending: boolean }[] = [];
@@ -67,12 +67,17 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
             ...raw,
           };
           if (uniqueViolation(table, row)) return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } };
+          if (table === "voice_examples" && rows.length + inserted.length >= 5) return { data: null, error: { code: "23514", message: "voice_examples_limit" } };
           inserted.push(row);
         }
         rows.push(...inserted);
         return { data: returning ? inserted.map((row) => ({ ...row })) : null, error: null };
       }
       let matched = rows.filter((row) => filters.every((filter) => filter(row)));
+      if (mode === "delete") {
+        tables[table] = rows.filter((row) => !matched.includes(row));
+        return { data: returning ? matched.map((row) => ({ ...row })) : null, error: null };
+      }
       if (mode === "update") {
         for (const row of matched) if (uniqueViolation(table, { ...row, ...patch }, row.id)) return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } };
         for (const row of matched) Object.assign(row, patch);
@@ -87,6 +92,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
       select: () => { if (mode !== "select") returning = true; return query; },
       insert: (rows: Row | Row[]) => { mode = "insert"; payload = Array.isArray(rows) ? rows : [rows]; return query; },
       update: (values: Row) => { mode = "update"; patch = values; return query; },
+      delete: () => { mode = "delete"; return query; },
       eq: (column: string, value: unknown) => { filters.push((row) => row[column] === value); return query; },
       neq: (column: string, value: unknown) => { filters.push((row) => row[column] !== value); return query; },
       in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(row[column])); return query; },

@@ -13,7 +13,7 @@ import { providerCarries, type ProviderTarget } from "@/lib/editorials/provider.
 import { worstCaseCost } from "@/lib/editorials/pricing";
 import { meetsThreshold, relevanceScore } from "@/lib/editorials/relevance";
 import {
-  baselineMetrics, claimSlot, finishClaimAsSkip, lastEditionAt, monthSpendUsd, recentOpeners, recordSkip,
+  approvedEditions, baselineMetrics, claimSlot, finishClaimAsSkip, lastEditionAt, monthSpendUsd, recentOpeners, recordSkip,
   saveEdition, slotTaken, styleNotes, voiceExamples,
 } from "@/lib/editorials/runStore.server";
 import { ColumnNotSetUpError, readColumnSettings } from "@/lib/editorials/settings.server";
@@ -108,14 +108,14 @@ export async function runColumn(input: ColumnRunInput): Promise<ColumnRunOutcome
   }
 
   const guides = (input.guides ?? readColumnGuides)();
-  const [examples, notes, openers] = await Promise.all([voiceExamples(client), styleNotes(client), recentOpeners(client)]);
+  const [examples, notes, openers, approved] = await Promise.all([voiceExamples(client), styleNotes(client), recentOpeners(client), approvedEditions(client)]);
   const claimId = await claimSlot(client, slot.key, fields);
   if (!claimId) return { status: "idle", reason: "slot_taken" };
 
   const target: ProviderTarget = { provider, apiKey, fetchImpl: input.fetchImpl };
   const result = await generateEdition({
     client, target, writerModel: writerChoice.model, effort, checkerModel: checkerChoice.model, guides,
-    parts: { guides, examples, approved: [], notes, openers }, pack, monthlyCapSetting: settings.monthlyCapUsd,
+    parts: { guides, examples, approved, notes, openers }, pack, monthlyCapSetting: settings.monthlyCapUsd,
     test: false, deadlineMs: input.deadlineMs, clock,
   });
   if (!result.ok) {

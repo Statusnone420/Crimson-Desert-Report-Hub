@@ -12,6 +12,18 @@ export const COLUMN_NOTICES = {
   burst_saved: "Burst saved.",
   burst_deleted: "Burst deleted.",
   burst_missing: "That burst no longer exists. Nothing changed.",
+  note_saved: "Note saved. The writer reads the last ten notes.",
+  note_invalid: "Pick a thumb or write a note of up to 500 characters. Nothing was saved.",
+  example_saved: "Voice example saved.",
+  example_invalid: "An example needs text, up to 1,500 characters, and a label of up to 80. Nothing was saved.",
+  examples_full: "There are already five voice examples. Remove one first.",
+  example_missing: "That voice example no longer exists. Nothing changed.",
+  example_deleted: "Voice example removed.",
+  example_moved: "Voice example moved.",
+  test_saved: "Test draft saved. It's listed below and in the preview feed, never on the site.",
+  test_skipped: "The test draft didn't pass. The reason is in the test draft list.",
+  test_cap: "Ten test drafts already ran today (UTC). Try again tomorrow.",
+  test_invalid: "Pick a writer and an effort. Nothing ran.",
 } as const;
 
 export type ColumnNotice = keyof typeof COLUMN_NOTICES;
