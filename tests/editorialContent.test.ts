@@ -49,6 +49,8 @@ describe("edition content", () => {
     expect(toPublicEdition(publicRow({ facts_box: unlisted }))).toBeNull();
     const offsite = { items: [{ text: "A fact.", sourceIds: ["P1"] }], sources: [{ id: "P1", label: "A forum post", url: "https://forum.example/post/1" }] };
     expect(toPublicEdition(publicRow({ facts_box: offsite }))).toBeNull();
+    const duplicate = { items: [{ text: "A fact.", sourceIds: ["P1"] }], sources: [{ id: "P1", label: "Notes", url: "/patches" }, { id: "P1", label: "Other", url: "/issues" }] };
+    expect(toPublicEdition(publicRow({ facts_box: duplicate }))).toBeNull();
   });
 
   it("never selects private columns for public reads", () => {

@@ -40,6 +40,15 @@ export function previewStatusLabel(row: PreviewEdition, now: Date): string {
   return "Published";
 }
 
+/**
+ * When an entry last changed for a reader: its last write, or the moment its hold
+ * ended and it went public, whichever is later. A hold ending writes nothing.
+ */
+export function previewUpdatedAt(row: PreviewEdition, now: Date): string {
+  const published = row.publish_at && row.status !== "skipped" && row.status !== "vetoed" && Date.parse(row.publish_at) <= now.getTime() ? row.publish_at : null;
+  return published && Date.parse(published) > Date.parse(row.updated_at) ? published : row.updated_at;
+}
+
 export function previewTitle(row: PreviewEdition, now: Date): string {
   if (row.is_test) return `TEST · ${modelLabel(row.writer_model)} · ${row.title ?? "Untitled"}`;
   return `[${previewStatusLabel(row, now)}] ${row.title ?? `Slot ${row.slot_key}`}`;
@@ -65,13 +74,13 @@ function previewText(row: PreviewEdition, now: Date): string {
  */
 export function buildPreviewAtomXml(rows: readonly PreviewEdition[], now: Date): string {
   const operatorUrl = `${SITE_URL}/operator?view=column`;
-  const updated = rows.reduce<string | null>((latest, row) => (!latest || row.updated_at > latest ? row.updated_at : latest), null);
+  const updated = rows.map((row) => previewUpdatedAt(row, now)).reduce<string | null>((latest, value) => (!latest || Date.parse(value) > Date.parse(latest) ? value : latest), null);
   const entries = rows.map((row) => [
     "  <entry>",
     `    <id>urn:uuid:${escapeXml(row.id)}</id>`,
     `    <title>${escapeXml(previewTitle(row, now))}</title>`,
     `    <link rel="alternate" type="text/html" href="${escapeXml(`${operatorUrl}&edition=${row.id}`)}"/>`,
-    `    <updated>${escapeXml(row.updated_at)}</updated>`,
+    `    <updated>${escapeXml(previewUpdatedAt(row, now))}</updated>`,
     `    <content type="text">${escapeXml(previewText(row, now))}</content>`,
     "  </entry>",
   ].join("\n")).join("\n");

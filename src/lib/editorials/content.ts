@@ -85,6 +85,8 @@ export const factsBoxSchema = z.object({
   sources: z.array(sourceSchema).min(1).max(40),
 }).refine((box) => box.items.every((item) => item.sourceIds.every((id) => box.sources.some((source) => source.id === id))), {
   message: "Every fact cites a listed source.",
+}).refine((box) => new Set(box.sources.map((source) => source.id)).size === box.sources.length, {
+  message: "Each source id is listed once, so every citation has one clear source.",
 });
 
 function oneLine(value: string): string {
