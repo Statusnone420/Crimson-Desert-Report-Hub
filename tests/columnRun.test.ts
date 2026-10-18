@@ -39,9 +39,9 @@ afterEach(() => vi.unstubAllEnvs());
 describe("one wake of the column", () => {
   it("writes an approve-first edition: held with no publish time, both calls settled in the column ledger", async () => {
     const provider = providerFetch();
-    expect(await run(provider.impl)).toEqual({ status: "held", slot: "2026-W44:s0", awaitingApproval: true });
+    expect(await run(provider.impl)).toEqual({ status: "held", slot: "2026-W44:mon", awaitingApproval: true });
     expect(editorials()).toHaveLength(1);
-    expect(editorials()[0]).toMatchObject({ slot_key: "2026-W44:s0", status: "held", publish_at: null, slug: "clear-skies-over-the-inventory-screen", writer_model: "claude-opus-5-5", writer_effort: "high", relevance_score: 2, hold_hours: 24, skip_reason: null });
+    expect(editorials()[0]).toMatchObject({ slot_key: "2026-W44:mon", status: "held", publish_at: null, slug: "clear-skies-over-the-inventory-screen", writer_model: "claude-opus-5-5", writer_effort: "high", relevance_score: 2, hold_hours: 24, skip_reason: null });
     expect(db.tables.editorial_ai_spend.map((row) => [row.operation, row.provider, row.cost_state])).toEqual([["writer", "anthropic", "settled"], ["checker", "anthropic", "settled"]]);
     expect(provider.messageCalls().map((call) => call.body.model)).toEqual(["claude-opus-5-5", "claude-haiku-5-5"]);
     // The checker reuses block [A] byte for byte.
@@ -70,7 +70,7 @@ describe("one wake of the column", () => {
 
   it.each([
     ["paused", () => settings({ paused: true })],
-    ["min_gap", () => { db.tables.editorials.push({ id: "old", slot_key: "2026-W43:s0", status: "held", is_test: false, slug: "old", title: "Old", body_md: "## The forecast\n\nOld.", created_at: new Date(RUN_NOW.getTime() - 10 * HOUR).toISOString(), publish_at: null }); }],
+    ["min_gap", () => { db.tables.editorials.push({ id: "old", slot_key: "2026-W43:mon", status: "held", is_test: false, slug: "old", title: "Old", body_md: "## The forecast\n\nOld.", created_at: new Date(RUN_NOW.getTime() - 10 * HOUR).toISOString(), publish_at: null }); }],
     ["budget", () => { db.tables.editorial_ai_spend.push({ id: "spent", month: "2026-10", operation: "writer", provider: "anthropic", model: "claude-opus-5-5", reserved_usd: 14.9, settled_usd: 14.9, cost_state: "settled", created_at: RUN_NOW.toISOString() }); }],
     ["below_threshold", () => mocks.pack.mockResolvedValue(pipelinePack(false))],
     ["provider_unavailable", () => vi.stubEnv("ANTHROPIC_API_KEY", "")],
@@ -78,9 +78,9 @@ describe("one wake of the column", () => {
   ])("skips silently with %s before any paid call", async (reason, arrange) => {
     arrange();
     const provider = providerFetch();
-    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:s0", reason });
+    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:mon", reason });
     expect(provider.impl).not.toHaveBeenCalled();
-    expect(editorials().filter((row) => row.slot_key === "2026-W44:s0")).toEqual([expect.objectContaining({ status: "skipped", skip_reason: reason })]);
+    expect(editorials().filter((row) => row.slot_key === "2026-W44:mon")).toEqual([expect.objectContaining({ status: "skipped", skip_reason: reason })]);
     expect(db.tables.editorial_ai_spend.filter((row) => row.id !== "spent")).toEqual([]);
   });
 
@@ -114,7 +114,7 @@ describe("one wake of the column", () => {
     ["a malformed reply", () => json(200, { content: [{ type: "text", text: "not json" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }), "writer_failed"],
   ])("records %s from the writer as %s", async (_label, writer, reason) => {
     const provider = providerFetch({ writer });
-    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:s0", reason });
+    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:mon", reason });
     expect(editorials()).toEqual([expect.objectContaining({ status: "skipped", skip_reason: reason })]);
     expect(provider.messageCalls()).toHaveLength(1);
   });
@@ -152,7 +152,7 @@ describe("one wake of the column", () => {
   it("does nothing outside a slot, on a slot already written, or on a preview deployment", async () => {
     const provider = providerFetch();
     expect(await run(provider.impl, { now: new Date("2026-10-27T14:05:00Z") })).toEqual({ status: "idle", reason: "no_slot" });
-    db.tables.editorials.push({ id: "taken", slot_key: "2026-W44:s0", status: "skipped", skip_reason: "paused", is_test: false, created_at: RUN_NOW.toISOString() });
+    db.tables.editorials.push({ id: "taken", slot_key: "2026-W44:mon", status: "skipped", skip_reason: "paused", is_test: false, created_at: RUN_NOW.toISOString() });
     expect(await run(provider.impl)).toEqual({ status: "idle", reason: "slot_taken" });
     vi.stubEnv("VERCEL_ENV", "preview");
     expect(await run(provider.impl)).toEqual({ status: "idle", reason: "preview" });
@@ -180,7 +180,7 @@ describe("one wake of the column", () => {
     vi.stubEnv("OPENROUTER_API_KEY", "scanner-key-must-not-be-used");
     vi.stubEnv("COLUMN_OPENROUTER_API_KEY", "");
     const provider = providerFetch();
-    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:s0", reason: "provider_unavailable" });
+    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:mon", reason: "provider_unavailable" });
     expect(provider.impl).not.toHaveBeenCalled();
     expect(db.tables.editorial_ai_spend).toEqual([]);
   });

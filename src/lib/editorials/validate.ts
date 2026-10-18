@@ -114,15 +114,18 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
   // Any named person or handle, anywhere, stops the edition.
   if (refs.some((ref) => verdicts.get(ref.id)?.namesPerson || HANDLE.test(ref.text))) return fail("person_named");
 
-  // The title and dek can't be deleted, so slop there can't be cleaned.
+  // The title and dek can't be deleted, so any rejection there stops the edition.
   for (const ref of refs.filter((item) => item.kind === "title" || item.kind === "dek")) {
-    if (hardSlop(ref.text).length || (verdicts.get(ref.id)?.bannedWords.length ?? 0) > 0) return fail("slop_check_failed");
+    const verdict = verdicts.get(ref.id);
+    if (!verdict || !verdict.supported || verdict.quotesPlayer) return fail("check_failed");
+    if (hardSlop(ref.text).length || verdict.bannedWords.length || verdict.slopRules.length) return fail("slop_check_failed");
   }
 
   const effectiveIds = new Map<string, string[]>();
   for (const ref of refs.filter((item) => item.kind === "body" || item.kind === "fact")) {
     const verdict = verdicts.get(ref.id);
-    const ids = [...new Set([...(verdict?.citedIds ?? []), ...ref.writerIds])];
+    // The checker's citations win; the writer's stand only where the checker cites none.
+    const ids = verdict?.citedIds.length ? [...new Set(verdict.citedIds)] : ref.writerIds;
     effectiveIds.set(ref.id, ids);
     const why: string[] = [];
     if (!verdict) why.push("not_checked");
@@ -138,7 +141,7 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
       const tokens = factTokens(ids.map((id) => factsById.get(id)!));
       if (numberTokens(ref.text).some((token) => !tokens.has(token))) why.push("unsourced_number");
     }
-    if (ref.kind === "fact" && !ref.writerIds.length) why.push("unsourced_fact");
+    if (ref.kind === "fact" && !ids.length) why.push("unsourced_fact");
     if (ref.kind === "fact" && ref.text.length > MAX_FACT_CHARACTERS) why.push("too_long");
     if (why.length) deleted.set(ref.id, why);
   }
@@ -171,7 +174,7 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
   }
   if (words < MIN_WORDS) return fail("too_short", words);
 
-  const items = kept().filter((ref) => ref.kind === "fact").slice(0, MAX_FACTS_BOX_ITEMS).map((ref) => ({ text: ref.text, sourceIds: ref.writerIds }));
+  const items = kept().filter((ref) => ref.kind === "fact").slice(0, MAX_FACTS_BOX_ITEMS).map((ref) => ({ text: ref.text, sourceIds: effectiveIds.get(ref.id) ?? [] }));
   if (!items.length || output.factsBox.some((item) => !item.sourceIds.length)) return fail("check_failed", words);
 
   const keptFacts = new Set(items.map((item) => item.text));

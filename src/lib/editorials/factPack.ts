@@ -253,10 +253,16 @@ export function buildFactPack(input: FactPackInput): FactPack {
 
   // Known issues: public aggregates and the labels the issue page supports.
   let patternIssueIds: string[] = [];
+  let newPatternIssueIds: string[] = [];
   if (input.board.available) {
     const board = input.board;
-    const issues = [...board.issues].sort((a, b) => b.strength - a.strength).slice(0, MAX_ISSUES);
-    patternIssueIds = board.issues.filter((issue) => evidenceLabel(issue) === "Reported" || evidenceLabel(issue) === "Confirmed").map((issue) => issue.id);
+    const previousPatterns = input.previous?.patternIssueIds ?? [];
+    const isPattern = (issue: IssueAggregate) => evidenceLabel(issue) === "Reported" || evidenceLabel(issue) === "Confirmed";
+    const isNewPattern = (issue: IssueAggregate) => isPattern(issue) && !previousPatterns.includes(issue.id);
+    // Newly Reported or Confirmed issues come first, so any news that raises the score is in the pack.
+    const issues = [...board.issues].sort((a, b) => Number(isNewPattern(b)) - Number(isNewPattern(a)) || b.strength - a.strength).slice(0, MAX_ISSUES);
+    patternIssueIds = board.issues.filter(isPattern).map((issue) => issue.id);
+    newPatternIssueIds = issues.filter(isNewPattern).map((issue) => issue.id);
     for (const issue of issues) {
       const label = evidenceLabel(issue);
       const status = statusLabel(issue);
@@ -286,7 +292,6 @@ export function buildFactPack(input: FactPackInput): FactPack {
     });
   } else gaps.push("issues_unavailable");
 
-  const previousPatterns = input.previous?.patternIssueIds ?? [];
   return {
     version: 1,
     builtAt: input.now.toISOString(),
@@ -299,7 +304,7 @@ export function buildFactPack(input: FactPackInput): FactPack {
       playersChangePct: percentChange(playersAvg7d, playersBaseline),
       reviewShareChangePoints: reviewShare7d !== null && reviewBaseline !== null ? reviewShare7d - reviewBaseline : null,
       twitchChangePct: percentChange(twitchAvg7d, twitchBaseline),
-      newPatternIssueIds: patternIssueIds.filter((id) => !previousPatterns.includes(id)),
+      newPatternIssueIds,
     },
   };
 }

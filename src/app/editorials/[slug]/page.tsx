@@ -2,7 +2,7 @@ import type { ResolvingMetadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { ReadingLink } from "@/components/newspaper/ReadingLink";
-import { COLUMN_EDITOR, COLUMN_NAME, editionDescription, editorialPath, formatUtcTimestamp } from "@/lib/editorials/content";
+import { COLUMN_EDITOR, COLUMN_NAME, editionDescription, editorialPath, formatUtcTimestamp, sourceProvenance } from "@/lib/editorials/content";
 import { getPublicEditionBySlug } from "@/lib/editorials/store.server";
 import { routeMetadata } from "@/lib/site";
 import { editionJsonLd, serializeJsonLd } from "@/lib/structuredData";
@@ -20,10 +20,6 @@ async function resolveEdition({ params }: Props) {
 export async function generateMetadata(props: Props, parent: ResolvingMetadata) {
   const edition = await resolveEdition(props);
   return routeMetadata(edition.title, editorialPath(edition.slug), editionDescription(edition), parent);
-}
-
-function sourceHost(url: string): string {
-  return url.startsWith("/") ? "Crimson Desert Report Hub" : "Pearl Abyss";
 }
 
 export default async function EditionPage(props: Props) {
@@ -60,7 +56,7 @@ export default async function EditionPage(props: Props) {
         <section className="article-sources" aria-labelledby="column-sources-heading">
           <h2 id="column-sources-heading">Sources</h2>
           <ol>{edition.factsBox.sources.map((source) => (
-            <li key={source.id}><ReadingLink variant="source" source={sourceHost(source.url)} href={source.url}>{source.label}</ReadingLink></li>
+            <li key={source.id}><ReadingLink variant="source" source={sourceProvenance(source.url)} href={source.url}>{source.label}</ReadingLink></li>
           ))}</ol>
         </section>
       </div>
