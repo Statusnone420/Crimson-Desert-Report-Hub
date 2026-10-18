@@ -1590,6 +1590,39 @@ describe("runAutomationMonitor", () => {
     expect(result.skips).not.toContain("openrouter_cost_unverified");
   });
 
+  it("puts two rewordings of one new issue from the same scan into one issue group", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    mocks.tavilySearch.mockResolvedValue([
+      { title: "Game crashes when opening the map", url: "https://steamcommunity.com/app/3321460/discussions/0/800001/", snippet: "Crashes every time after patch 1.13.00.", ...dated },
+      { title: "Crash when opening map", url: "https://steamcommunity.com/app/3321460/discussions/0/800002/", snippet: "Crash on the map screen since 1.13.00.", ...dated },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => ({
+      issueTitle: candidate.title,
+      category: "crash_startup",
+      platform: "pc_steam",
+      confidence: "high",
+      summary: candidate.snippet,
+      clusterAssignment: "unsure",
+      clusterSlug: null,
+      extractionProvider: "openrouter",
+      extractionModel: "deepseek/deepseek-v4.1-flash",
+      llmCallsUsed: 1,
+      llmCostUsd: 0.0004,
+    }));
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const autoClusters = tables.issue_clusters.filter((row) => String(row.slug).startsWith("auto-"));
+    expect(autoClusters).toHaveLength(1);
+    const clusterIds = tables.source_signals.map((row) => row.cluster_id);
+    expect(clusterIds).toHaveLength(2);
+    expect(new Set(clusterIds)).toEqual(new Set([autoClusters[0].id]));
+  });
+
   it("stops asking OpenRouter for the rest of the run once no provider matches", async () => {
     resetDb({});
     configureProviders();

@@ -2462,8 +2462,19 @@ async function resolveClusterId(
     preferredCluster || reportCluster
       ? null
       : await findAutoClusterBySlug(supabase, clusterSlug(signal.semantic));
-  const clusterId =
-    preferredCluster ?? reportCluster ?? existingAutoCluster ?? nearDuplicate ?? (await createCluster(supabase, signal));
+  let clusterId = preferredCluster ?? reportCluster ?? existingAutoCluster ?? nearDuplicate;
+  if (!clusterId) {
+    clusterId = await createCluster(supabase, signal);
+    // The routing list was read before this batch. A cluster created here joins
+    // it, so a rewording later in the same batch can join this cluster instead
+    // of starting another (nearDuplicateAutoCluster).
+    routableClusters.push({
+      id: clusterId,
+      slug: clusterSlug(signal.semantic),
+      title: signal.extraction.issueTitle,
+      category: signal.extraction.category,
+    });
+  }
   clusterBySemantic.set(signal.semantic, clusterId);
   return clusterId;
 }
