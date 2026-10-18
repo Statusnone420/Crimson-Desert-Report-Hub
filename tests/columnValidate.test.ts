@@ -1,0 +1,163 @@
+import { describe, expect, it } from "vitest";
+import type { FactPack } from "@/lib/editorials/factPack";
+import type { CheckerOutput, WriterOutput } from "@/lib/editorials/schemas";
+import { numberSentences, processEdition, splitSentences } from "@/lib/editorials/validate";
+
+const pack: FactPack = {
+  version: 1,
+  builtAt: "2026-10-26T14:05:00.000Z",
+  gaps: [],
+  metrics: { patchVersions: ["2.03.02"], latestPatch: null, playersAvg7d: null, reviewShare7d: null, twitchAvg7d: null, patternIssueIds: [] },
+  deltas: { newPatchVersions: [], newUpdate: false, playersChangePct: null, reviewShareChangePoints: null, twitchChangePct: null, newPatternIssueIds: [] },
+  facts: [
+    { id: "P1", text: "Patch 2.03.02 (hotfix) official notes published Oct 24, 09:00 UTC. The notes list 2 fixes.", period: "Oct 24, 09:00 UTC", value: "2.03.02", source: { label: "Pearl Abyss patch notes 2.03.02", url: "https://crimsondesert.pearlabyss.com/en-us/News/Notice/Detail?_boardNo=140" } },
+    { id: "S1", text: "18,166 players were online on Steam at Oct 26, 14:00 UTC, 26% below the usual for a Sunday at that time.", period: "Oct 26, 14:00 UTC", value: 18166, source: { label: "Steam players online, Report Hub Observatory", url: "/observatory#updates" } },
+  ],
+};
+
+// Plain filler with no numbers, banned words or AI vocabulary: enough words to clear the minimum.
+const FILLER = [
+  "The inventory screen held its ground all week.", "Horses kept their opinions to themselves.", "The menus opened when asked, which the Desk appreciated.",
+  "Quest markers pointed in roughly the right direction.", "The weather over the northern hills stayed dramatic, as advertised.", "Nobody reported a fence winning a fight this time.",
+  "The Desk checked the patch notes twice and found them tidy.", "Combat felt the same, which is a kind of news.", "The map behaved itself on most evenings.",
+  "Fast travel took players where they asked to go.", "The Desk has notes, but they are short ones.", "Camp chores went on without incident.",
+  "Rivers flowed downhill, which the Desk confirms is still the rule.", "Bandits remained easy to find and hard to like.",
+  "The cooking pot kept its secrets for another week.", "Night fell on schedule over every camp in the region.",
+];
+const paragraph = (lead: string, ids: string[]) => ({ text: [lead, ...FILLER].join(" "), sourceIds: ids });
+
+function writer(overrides: Partial<WriterOutput> = {}): WriterOutput {
+  return {
+    title: "Clear skies over the inventory screen",
+    dek: "Player numbers dipped and a hotfix tidied up two problems.",
+    sections: [
+      { subhead: "The forecast", paragraphs: [paragraph("18,166 players were online on Sunday at 14:00 UTC, 26% below the usual.", ["S1"])] },
+      { subhead: "The patch desk", paragraphs: [paragraph("Patch 2.03.02 listed 2 fixes on Oct 24.", ["P1"])] },
+      { subhead: "Outlook", paragraphs: [{ text: "Play tonight if the map is your thing.", sourceIds: [] }] },
+    ],
+    factsBox: [{ text: "Patch 2.03.02 lists 2 fixes.", sourceIds: ["P1"] }, { text: "18,166 players were online on Oct 26, 14:00 UTC.", sourceIds: ["S1"] }],
+    ...overrides,
+  };
+}
+
+/** A checker that supports every unit, with optional overrides by id. */
+function checker(output: WriterOutput, overrides: Record<string, Partial<CheckerOutput["sentences"][number]>> = {}, drop: string[] = []): CheckerOutput {
+  return {
+    sentences: numberSentences(output).filter((unit) => !drop.includes(unit.id)).map((unit) => ({
+      id: unit.id, supported: true, citedIds: unit.writerIds, namesPerson: false, quotesPlayer: false, bannedWords: [], slopRules: [], ...overrides[unit.id],
+    })),
+  };
+}
+
+function process(output: WriterOutput, overrides: Record<string, Partial<CheckerOutput["sentences"][number]>> = {}, drop: string[] = []) {
+  return processEdition(output, checker(output, overrides, drop), pack);
+}
+
+describe("splitting and numbering", () => {
+  it("splits sentences without breaking patch versions or times", () => {
+    expect(splitSentences("Patch 2.03.02 landed. It fixed 2 things at 09:00 UTC! Good? Yes.")).toEqual(["Patch 2.03.02 landed.", "It fixed 2 things at 09:00 UTC!", "Good?", "Yes."]);
+  });
+
+  it("numbers the title, dek, body sentences and facts box", () => {
+    const ids = numberSentences(writer()).map((unit) => unit.id);
+    expect(ids.slice(0, 3)).toEqual(["t", "d", "b1"]);
+    expect(ids.at(-1)).toBe("x2");
+  });
+});
+
+describe("post-processing", () => {
+  it("keeps a clean, sourced edition and lists only the facts it cites", () => {
+    const result = process(writer());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.sections.map((section) => section.subhead)).toEqual(["The forecast", "The patch desk", "Outlook"]);
+    expect(result.factsBox.sources.map((source) => source.id)).toEqual(["P1", "S1"]);
+    expect(result.report.wordsKept).toBeGreaterThanOrEqual(250);
+  });
+
+  it("deletes unsupported, unchecked, unsourced and off-pack sentences", () => {
+    const output = writer();
+    const result = process(output, { b2: { supported: false }, b3: { citedIds: ["Z9"] } }, ["b4"]);
+    expect(result.ok).toBe(true);
+    expect(result.report.deleted).toEqual(expect.arrayContaining([
+      { id: "b2", why: ["unsupported"] }, { id: "b3", why: ["unknown_source"] }, { id: "b4", why: ["not_checked"] },
+    ]));
+  });
+
+  it("deletes a sentence carrying a number no cited fact contains", () => {
+    const output = writer({ sections: [
+      { subhead: "The forecast", paragraphs: [paragraph("Exactly 19,000 players were online on Sunday.", ["S1"])] },
+      { subhead: "The patch desk", paragraphs: [paragraph("Patch 2.03.02 listed 2 fixes on Oct 24.", ["P1"])] },
+    ] });
+    const result = process(output);
+    expect(result.report.deleted).toContainEqual({ id: "b1", why: ["unsourced_number"] });
+  });
+
+  it("skips when a person or handle is named anywhere", () => {
+    expect(process(writer(), { b5: { namesPerson: true } })).toMatchObject({ ok: false, reason: "person_named" });
+    const handle = writer({ dek: "A week the Desk owes to @somebody, apparently." });
+    expect(process(handle)).toMatchObject({ ok: false, reason: "person_named" });
+  });
+
+  it("deletes player quotes and banned words in the body, and skips when the title or dek can't be cleaned", () => {
+    const result = process(writer(), { b6: { quotesPlayer: true }, b7: { bannedWords: ["pivotal"] }, b8: { slopRules: [12] } });
+    expect(result.report.deleted).toEqual(expect.arrayContaining([{ id: "b6", why: ["player_quote"] }, { id: "b7", why: ["banned_word"] }, { id: "b8", why: ["checklist"] }]));
+    expect(process(writer({ title: "An insane week in Pywel" }))).toMatchObject({ ok: false, reason: "slop_check_failed" });
+    expect(process(writer(), { d: { bannedWords: ["testament"] } })).toMatchObject({ ok: false, reason: "slop_check_failed" });
+  });
+
+  it("removes tool artifacts and sentences with banned words found deterministically", () => {
+    const output = writer({ sections: [
+      { subhead: "The forecast", paragraphs: [paragraph("18,166 players were online on Sunday at 14:00 UTC [cite: S1].", ["S1"])] },
+      { subhead: "The patch desk", paragraphs: [paragraph("Patch 2.03.02 was a game-changer on Oct 24.", ["P1"])] },
+    ] });
+    const result = process(output);
+    expect(result.report.deleted).toEqual(expect.arrayContaining([
+      { id: "b1", why: expect.arrayContaining(["tool_artifact"]) },
+      { id: expect.stringMatching(/^b/), why: ["banned_word"] },
+    ]));
+  });
+
+  it("deletes every AI-vocabulary sentence once three appear", () => {
+    const output = writer({ sections: [
+      { subhead: "The forecast", paragraphs: [paragraph("The weather was steady and robust.", [])] },
+      { subhead: "The patch desk", paragraphs: [paragraph("The fix list matters, quietly.", ["P1"])] },
+    ] });
+    const result = process(output);
+    const why = result.report.deleted.filter((entry) => entry.why.includes("ai_vocabulary")).map((entry) => entry.id);
+    expect(why.length).toBe(2);
+  });
+
+  it("drops a rhetorical question opener", () => {
+    const output = writer({ sections: [
+      { subhead: "The forecast", paragraphs: [paragraph("Is anyone still riding horses?", [])] },
+      { subhead: "The patch desk", paragraphs: [paragraph("Patch 2.03.02 listed 2 fixes on Oct 24.", ["P1"])] },
+    ] });
+    expect(process(output).report.deleted).toContainEqual({ id: "b1", why: ["question_opener"] });
+  });
+
+  it("skips a title of 70 characters or more", () => {
+    expect(process(writer({ title: "x".repeat(69) })).ok).toBe(true);
+    expect(process(writer({ title: "x".repeat(70) }))).toMatchObject({ ok: false, reason: "check_failed" });
+  });
+
+  it("skips when neither the forecast nor the patch desk survives", () => {
+    const output = writer();
+    const forecastAndPatch = numberSentences(output).filter((unit) => unit.kind === "body" && unit.section !== 2).map((unit) => unit.id);
+    const result = process(output, Object.fromEntries(forecastAndPatch.map((id) => [id, { supported: false }])));
+    expect(result).toMatchObject({ ok: false, reason: "missing_required_section" });
+  });
+
+  it("skips when fewer than 250 words remain", () => {
+    const output = writer({ sections: [
+      { subhead: "The forecast", paragraphs: [{ text: "18,166 players were online on Sunday at 14:00 UTC.", sourceIds: ["S1"] }] },
+      { subhead: "The patch desk", paragraphs: [{ text: "Patch 2.03.02 listed 2 fixes on Oct 24.", sourceIds: ["P1"] }] },
+    ] });
+    expect(process(output)).toMatchObject({ ok: false, reason: "too_short" });
+  });
+
+  it("skips when the facts box is missing or unsourced", () => {
+    expect(process(writer({ factsBox: [] }))).toMatchObject({ ok: false, reason: "check_failed" });
+    expect(process(writer({ factsBox: [{ text: "Patch 2.03.02 lists 2 fixes.", sourceIds: [] }] }))).toMatchObject({ ok: false, reason: "check_failed" });
+  });
+});

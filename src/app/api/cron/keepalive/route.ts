@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { currentScannerExecution, withScannerEssential, withScannerExecution } from "@/lib/automation/executionContext.server";
 import { captureMissedContextSnapshots } from "@/lib/automation/contextSnapshots.server";
 import { hasCronAuthorization } from "@/lib/cronAuth";
+import { scheduleColumnAfterKeepalive } from "@/lib/editorials/hook.server";
 import { insertSkippedScheduledRun, runAutomationMonitor } from "@/lib/automation/run";
 import { nextEligibleScheduledScanAt, nextScheduledScanAt, scheduledScanDecision } from "@/lib/automation/schedule";
 import { getAutomationControlState } from "@/lib/automation/settings";
@@ -18,7 +19,11 @@ import {
 export const maxDuration = 300;
 
 export async function GET(req: Request) {
-  return withScannerExecution(() => keepalive(req));
+  const startedAtMs = Date.now();
+  const response = await withScannerExecution(() => keepalive(req));
+  // State of the Game: runs after this response is sent and never changes it.
+  scheduleColumnAfterKeepalive(req, startedAtMs);
+  return response;
 }
 async function keepalive(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
