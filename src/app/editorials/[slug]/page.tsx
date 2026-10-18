@@ -2,7 +2,7 @@ import type { ResolvingMetadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicShell } from "@/components/dispatch/Chrome";
 import { ReadingLink } from "@/components/newspaper/ReadingLink";
-import { COLUMN_EDITOR, COLUMN_NAME, editionDescription, editorialPath, formatUtcTimestamp, sourceProvenance } from "@/lib/editorials/content";
+import { COLUMN_NAME, COLUMN_SECTION, editionDescription, editorialPath, formatUtcTimestamp, sourceProvenance } from "@/lib/editorials/content";
 import { getPublicEditionBySlug } from "@/lib/editorials/store.server";
 import { routeMetadata } from "@/lib/site";
 import { editionJsonLd, serializeJsonLd } from "@/lib/structuredData";
@@ -30,12 +30,11 @@ export default async function EditionPage(props: Props) {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(editionJsonLd(edition)) }} />
       <header className="article-heading">
         <ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink>
-        <p className="kicker">{COLUMN_NAME}</p>
+        <p className="kicker">{COLUMN_SECTION} · {COLUMN_NAME}</p>
         <h1>{edition.title}</h1>
         {edition.dek ? <p className="article-deck">{edition.dek}</p> : null}
         <div className="article-meta">
           <span className="column-byline">By {edition.author}</span>
-          <span>Edited by {COLUMN_EDITOR}</span>
           <time dateTime={edition.publishAt}>{formatUtcTimestamp(edition.publishAt)}</time>
         </div>
       </header>

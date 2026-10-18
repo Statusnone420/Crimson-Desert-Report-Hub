@@ -65,7 +65,7 @@ select throws_ok(
 );
 select throws_ok(
   $$insert into public.editorials (slot_key, status, slug, title, body_md, author) values ('2026-W43:s7', 'held', 'other-author', 'Title', 'Body.', 'Someone')$$,
-  '23514', null, 'the byline is always The Pywel Desk'
+  '23514', null, 'the byline is always Statusnone'
 );
 select throws_ok(
   $$insert into public.editorials (slot_key, is_test, status, slug, title, body_md, publish_at) values ('test:2026-10-18', true, 'held', 'test-scheduled', 'Title', 'Body.', now())$$,
@@ -75,7 +75,7 @@ select throws_ok(
   $$insert into public.editorials (slot_key, status, slug, title, body_md) values ('2026-W43:s8', 'held', 'Bad Slug', 'Title', 'Body.')$$,
   '23514', null, 'slugs are lowercase words joined by hyphens'
 );
-select is((select author from public.editorials where id = 'e0000000-0000-4000-8000-000000000001'), 'The Pywel Desk', 'the byline defaults to The Pywel Desk');
+select is((select author from public.editorials where id = 'e0000000-0000-4000-8000-000000000001'), 'Statusnone', 'the byline defaults to Statusnone');
 
 -- Approve-first.
 insert into public.editorials (id, slot_key, status, slug, title, body_md, hold_hours)

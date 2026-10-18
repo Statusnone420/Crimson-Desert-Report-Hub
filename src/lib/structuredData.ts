@@ -1,6 +1,6 @@
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import type { EditorialArticle } from "@/lib/editorialArticles";
-import { absoluteSourceUrl, COLUMN_EDITOR, editionDescription, editorialPath, type PublicEdition } from "@/lib/editorials/content";
+import { absoluteSourceUrl, editionDescription, editorialPath, type PublicEdition } from "@/lib/editorials/content";
 
 /** Homepage WebSite structured data (schema.org). */
 export function webSiteJsonLd() {
@@ -35,7 +35,7 @@ export function newsArticleJsonLd(article: EditorialArticle) {
   } as const;
 }
 
-/** A State of the Game edition: authored by the house byline, with its named editor. */
+/** A State of the Game edition. Its author is the column's byline, a plain Person with no url or sameAs. */
 export function editionJsonLd(edition: PublicEdition) {
   const editionUrl = `${SITE_URL}${editorialPath(edition.slug)}`;
   return {
@@ -45,8 +45,7 @@ export function editionJsonLd(edition: PublicEdition) {
     description: editionDescription(edition),
     datePublished: edition.publishAt,
     mainEntityOfPage: editionUrl,
-    author: { "@type": "Organization", name: edition.author },
-    editor: { "@type": "Person", name: COLUMN_EDITOR },
+    author: { "@type": "Person", name: edition.author },
     isPartOf: {
       "@type": "WebSite",
       name: SITE_NAME,

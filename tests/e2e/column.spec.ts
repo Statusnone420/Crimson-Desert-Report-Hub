@@ -14,11 +14,13 @@ test("a published edition reads cleanly on desktop and at 320px, and a waiting o
   const problems = collectConsoleProblems(page);
   await page.goto(PUBLISHED);
   await expect(page.getByRole("heading", { level: 1, name: "Clear skies over the inventory screen" })).toBeVisible();
-  await expect(page.getByText("By The Pywel Desk")).toBeVisible();
-  await expect(page.getByText("Edited by Statusnone")).toBeVisible();
+  await expect(page.getByText("The Pywel Desk · State of the Game")).toBeVisible();
+  await expect(page.getByText("By Statusnone")).toBeVisible();
+  await expect(page.getByText("Edited by")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "What's actually true" })).toBeVisible();
   const schema = JSON.parse(await page.locator('script[type="application/ld+json"]').innerText());
-  expect(schema).toMatchObject({ "@type": "NewsArticle", author: { "@type": "Organization", name: "The Pywel Desk" } });
+  expect(schema).toMatchObject({ "@type": "NewsArticle", author: { "@type": "Person", name: "Statusnone" } });
+  expect(schema).not.toHaveProperty("editor");
   await expectHealthyPage(page, problems);
   await page.setViewportSize({ width: 320, height: 800 });
   await page.reload();

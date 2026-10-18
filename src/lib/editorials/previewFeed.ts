@@ -1,5 +1,5 @@
 import { escapeXml } from "@/lib/editorialFeed";
-import { COLUMN_NAME, formatUtcTimestamp, markdownToSections } from "@/lib/editorials/content";
+import { COLUMN_AUTHOR, COLUMN_NAME, formatUtcTimestamp, markdownToSections } from "@/lib/editorials/content";
 import { WRITER_MODEL_LABELS, isWriterModel } from "@/lib/editorials/models";
 import { SITE_URL } from "@/lib/site";
 
@@ -91,7 +91,7 @@ export function buildPreviewAtomXml(rows: readonly PreviewEdition[], now: Date):
   <id>${escapeXml(`${SITE_URL}${PREVIEW_FEED_PATH}`)}</id>
   <updated>${escapeXml(updated ?? now.toISOString())}</updated>
   <author>
-    <name>The Pywel Desk</name>
+    <name>${escapeXml(COLUMN_AUTHOR)}</name>
   </author>
 ${entries}
 </feed>

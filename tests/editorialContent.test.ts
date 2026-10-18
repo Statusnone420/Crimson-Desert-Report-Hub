@@ -41,7 +41,7 @@ describe("edition content", () => {
   });
 
   it("builds a public edition only from well-formed public fields", () => {
-    expect(toPublicEdition(publicRow())).toMatchObject({ slug: "clear-skies-over-the-inventory-screen", author: "The Pywel Desk", sections: editionSections });
+    expect(toPublicEdition(publicRow())).toMatchObject({ slug: "clear-skies-over-the-inventory-screen", author: "Statusnone", sections: editionSections });
     expect(toPublicEdition(publicRow({ facts_box: { items: [], sources: [] } }))).toBeNull();
     expect(toPublicEdition(publicRow({ body_md: "No subhead." }))).toBeNull();
     expect(toPublicEdition(publicRow({ author: "Someone else" }))).toBeNull();

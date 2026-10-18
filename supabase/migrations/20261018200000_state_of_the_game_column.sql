@@ -29,7 +29,7 @@ create table public.editorials (
   published_at timestamptz,
   vetoed_at timestamptz,
   updated_at timestamptz not null default now(),
-  author text not null default 'The Pywel Desk' check (author = 'The Pywel Desk'),
+  author text not null default 'Statusnone' check (author = 'Statusnone'),
   constraint editorials_skip_reason check ((status = 'skipped') = (skip_reason is not null)),
   constraint editorials_written check (status = 'skipped' or (slug is not null and title is not null and body_md is not null)),
   constraint editorials_vetoed check ((status = 'vetoed') = (vetoed_at is not null)),

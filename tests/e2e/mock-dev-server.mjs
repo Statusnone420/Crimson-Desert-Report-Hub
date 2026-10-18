@@ -875,20 +875,20 @@ const editorials = [
     status: "published", title: "Clear skies over the inventory screen", dek: "Players held steady and a hotfix fixed crashes in certain situations.",
     body_md: editorialBody, facts_box: editorialFacts, fact_pack: { private: true }, check_report: { private: true }, relevance_score: 4,
     writer_model: "claude-opus-5-5", writer_effort: "high", skip_reason: null, hold_hours: 24, created_at: isoDaysAgo(2),
-    publish_at: isoDaysAgo(1), published_at: isoDaysAgo(1), vetoed_at: null, updated_at: isoDaysAgo(1), author: "The Pywel Desk",
+    publish_at: isoDaysAgo(1), published_at: isoDaysAgo(1), vetoed_at: null, updated_at: isoDaysAgo(1), author: "Statusnone",
   },
   {
     id: "c0000000-0000-4000-8000-000000000002", slot_key: "2026-W30:s0", is_test: false, slug: "scattered-softlocks-in-the-north",
     status: "held", title: "Scattered softlocks in the north", dek: "A quiet week with one stubborn quest.",
     body_md: editorialBody, facts_box: editorialFacts, fact_pack: { private: true }, check_report: { private: true }, relevance_score: 3,
     writer_model: "claude-sonnet-5-5", writer_effort: "high", skip_reason: null, hold_hours: 24, created_at: isoMinutesAgo(30),
-    publish_at: null, published_at: null, vetoed_at: null, updated_at: isoMinutesAgo(30), author: "The Pywel Desk",
+    publish_at: null, published_at: null, vetoed_at: null, updated_at: isoMinutesAgo(30), author: "Statusnone",
   },
   {
     id: "c0000000-0000-4000-8000-000000000003", slot_key: "2026-W28:s0", is_test: false, slug: null, status: "skipped", title: null, dek: null,
     body_md: null, facts_box: null, fact_pack: null, check_report: null, relevance_score: 1, writer_model: null, writer_effort: null,
     skip_reason: "below_threshold", hold_hours: null, created_at: isoDaysAgo(9), publish_at: null, published_at: null, vetoed_at: null,
-    updated_at: isoDaysAgo(9), author: "The Pywel Desk",
+    updated_at: isoDaysAgo(9), author: "Statusnone",
   },
 ];
 const editorialAiSpend = [];
