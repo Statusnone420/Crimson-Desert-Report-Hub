@@ -2,6 +2,24 @@ import { SITE_URL } from "@/lib/site";
 
 export type CaptchaResult = { ok: boolean; skipped: boolean };
 
+type SiteverifyReply = { success?: unknown; action?: unknown; hostname?: unknown; "error-codes"?: unknown };
+
+/**
+ * Logs why a token was refused, so a failure on the live site can be traced. It keeps
+ * only Cloudflare's reason codes and the action and hostname Cloudflare reports, never
+ * the token, the secret or the visitor's IP.
+ */
+function logRefusal(form: "check_in" | "problem_report", detail: { status?: number; reply?: SiteverifyReply; error?: unknown }) {
+  const text = (value: unknown) => typeof value === "string" ? value.slice(0, 100) : typeof value;
+  const codes = detail.reply?.["error-codes"];
+  console.warn(JSON.stringify({
+    event: "turnstile_refused", form,
+    ...(detail.status === undefined ? {} : { status: detail.status }),
+    ...(detail.reply ? { codes: Array.isArray(codes) ? codes.slice(0, 5).map(text) : [], action: text(detail.reply.action), hostname: text(detail.reply.hostname) } : {}),
+    ...(detail.error === undefined ? {} : { error: detail.error instanceof Error ? detail.error.name : typeof detail.error }),
+  }));
+}
+
 /**
  * Hosts whose pages may show the check-in widget: the public domain, its www alias
  * and Vercel's production domain. They come from configuration, never from the request.
@@ -30,10 +48,12 @@ export async function verifyTurnstile(token: string | undefined, ip: string | nu
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ secret, response: token, ...(ip ? { remoteip: ip } : {}) }),
     });
-    const data = (await res.json()) as { success?: boolean; hostname?: unknown };
+    const data = (await res.json()) as SiteverifyReply;
     const ok = data.success === true && typeof data.hostname === "string" && turnstileHostnames().has(data.hostname);
+    if (!ok) logRefusal("check_in", { status: res.status, reply: data });
     return { ok, skipped: false };
-  } catch {
+  } catch (error) {
+    logRefusal("check_in", { error });
     return { ok: false, skipped: false };
   }
 }
@@ -55,9 +75,17 @@ export async function verifyProblemReportTurnstile(token: string, requestUrl: st
       body: new URLSearchParams({ secret, response: token }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return false;
+    if (!response.ok) {
+      logRefusal("problem_report", { status: response.status });
+      return false;
+    }
     const data = await response.json();
-    return data?.success === true && data.action === "problem_report"
+    const ok = data?.success === true && data.action === "problem_report"
       && typeof data.hostname === "string" && hostnames.has(data.hostname);
-  } catch { return false; }
+    if (!ok) logRefusal("problem_report", { status: response.status, reply: data ?? undefined });
+    return ok;
+  } catch (error) {
+    logRefusal("problem_report", { error });
+    return false;
+  }
 }
