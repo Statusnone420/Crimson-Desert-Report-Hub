@@ -27,6 +27,7 @@ import { isBriefRenderableObservation } from "@/lib/observationDisplay";
 import { isVercelPreview } from "@/lib/previewGuard";
 import { getScannerAttention } from "@/lib/scannerAttention";
 import { isCurrentPatchVerified } from "@/lib/patchWatch";
+import { englishOnly, isMostlyNonEnglish } from "@/lib/language";
 import { scannerAiHealthWithResult as scannerAiHealth, type ScannerAiHealth } from "@/lib/automation/health";
 import { getScannerExecutionHealth } from "@/lib/automation/executionHealth";
 import type { ScannerExecutionRead } from "@/lib/automation/diagnostics";
@@ -60,7 +61,9 @@ function funnelSummary(funnel: Record<string, number> | null): string | null {
     return null;
   }
   const results = searchResultsSeen === undefined ? "" : `${searchResultsSeen} results -> `;
-  return `${results}${candidatesSeen} screened -> ${deduped} deduped -> ${prefilterRejected} pre-filtered -> ${llmEligible} LLM-eligible -> ${llmCalls} LLM -> ${kept} kept -> ${promoted} promoted`;
+  // "ready to save" counts every source that passed extraction, including ones
+  // that only re-observe a stored lead; the run line's "new leads" counts inserts.
+  return `${results}${candidatesSeen} screened -> ${deduped} deduped -> ${prefilterRejected} pre-filtered -> ${llmEligible} LLM-eligible -> ${llmCalls} LLM -> ${kept} ready to save -> ${promoted} promoted`;
 }
 
 function plainRunLine(run: AutomationRunRow): string {
@@ -79,7 +82,7 @@ function plainRunLine(run: AutomationRunRow): string {
       : `Ran, nothing new${aiDetail}`;
   }
   const kept = run.signals_inserted;
-  const parts = [`Found ${found}, kept ${kept}`];
+  const parts = [`Found ${found}, new leads ${kept}`];
   if (run.signals_reobserved > 0) parts.push(`re-observed ${run.signals_reobserved}`);
   if (run.candidates_rescued > 0) parts.push(`kept for review ${run.candidates_rescued}`);
   if (run.clusters_promoted > 0) parts.push(`published ${run.clusters_promoted}`);
@@ -141,8 +144,8 @@ function signalRow(signal: AdminSignalRow, nowMs: number, feedbackLearningAvaila
         <span className={confidenceTone(signal.confidence)}>{signal.confidence.toUpperCase()} CONFIDENCE</span> · SEEN{" "}
         {signal.seen_count ?? 1}×
       </div>
-      <h3 className="lead-item__title">{leadTitle(signal)}</h3>
-      <p className="lead-item__summary">{signal.summary}</p>
+      <h3 className="lead-item__title">{englishOnly(leadTitle(signal))}</h3>
+      {isMostlyNonEnglish(signal.summary) ? null : <p className="lead-item__summary">{signal.summary}</p>}
       <dl className="provenance provenance--compact" aria-label="Lead provenance">
         <div className="provenance__row">
           <dt className="provenance__key">Source</dt>
@@ -257,8 +260,8 @@ function observationRow(
         {observationDateLabel(observation, patch, nowMs)}
         {observation.seen_count > 1 ? ` · SEEN ${observation.seen_count}×` : ""}
       </div>
-      <h3 className="lead-item__title">{observation.title}</h3>
-      {observation.snippet ? <p className="lead-item__summary">{observation.snippet}</p> : null}
+      <h3 className="lead-item__title">{englishOnly(observation.title)}</h3>
+      {observation.snippet && !isMostlyNonEnglish(observation.snippet) ? <p className="lead-item__summary">{observation.snippet}</p> : null}
       <p className="decision-form__scope">
         {observation.source_domain ?? "unknown domain"} ·{" "}
         <a href={observation.url} target="_blank" rel="noreferrer noopener" className="dispatch-link">
