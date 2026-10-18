@@ -7,7 +7,7 @@ describe("column settings", () => {
     expect(normalizeColumnSettings(undefined)).toEqual(DEFAULT_COLUMN_SETTINGS);
     expect(DEFAULT_COLUMN_SETTINGS).toMatchObject({
       paused: false, mode: "weekly", days: ["mon"], hourUtc: 14, holdHours: 24, relevance: "normal", minGapHours: 20,
-      defaultWriterModel: "claude-opus-5-5", nextEditionModel: null, monthlyCapUsd: null, provider: "anthropic", approveFirstRemaining: 3,
+      defaultWriterModel: null, nextEditionModel: null, monthlyCapUsd: null, provider: "anthropic", approveFirstRemaining: 3,
     });
   });
 

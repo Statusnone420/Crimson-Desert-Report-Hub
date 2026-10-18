@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { DEFAULT_WRITER_MODEL } from "@/lib/editorials/models";
 
 export const COLUMN_SETTINGS_KEY = "column";
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -36,7 +35,8 @@ export type ColumnSettings = {
   holdHours: number;
   relevance: RelevanceLevel;
   minGapHours: number;
-  defaultWriterModel: string;
+  /** null means not chosen: COLUMN_WRITER_MODEL if set, else Opus 5.5. */
+  defaultWriterModel: string | null;
   nextEditionModel: string | null;
   monthlyCapUsd: number | null;
   provider: string;
@@ -73,7 +73,7 @@ export const DEFAULT_COLUMN_SETTINGS: ColumnSettings = {
   holdHours: 24,
   relevance: "normal",
   minGapHours: 20,
-  defaultWriterModel: DEFAULT_WRITER_MODEL,
+  defaultWriterModel: null,
   nextEditionModel: null,
   monthlyCapUsd: null,
   provider: "anthropic",
@@ -154,7 +154,7 @@ export function normalizeColumnSettings(value: unknown): ColumnSettings {
     holdHours: field(holdHours, settings.holdHours, DEFAULT_COLUMN_SETTINGS.holdHours),
     relevance: field(z.enum(RELEVANCE_LEVELS), settings.relevance, DEFAULT_COLUMN_SETTINGS.relevance),
     minGapHours: field(z.number().int().min(0).max(MAX_MIN_GAP_HOURS), settings.minGapHours, DEFAULT_COLUMN_SETTINGS.minGapHours),
-    defaultWriterModel: field(modelName, settings.defaultWriterModel, DEFAULT_COLUMN_SETTINGS.defaultWriterModel),
+    defaultWriterModel: field(modelName.nullable(), settings.defaultWriterModel, null),
     nextEditionModel: field(modelName.nullable(), settings.nextEditionModel, null),
     monthlyCapUsd: field(z.number().min(0).max(50).nullable(), settings.monthlyCapUsd, null),
     provider: field(z.string().trim().min(1).max(40), settings.provider, DEFAULT_COLUMN_SETTINGS.provider),
