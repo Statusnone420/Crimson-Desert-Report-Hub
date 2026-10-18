@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { readColumnGuides } from "@/lib/editorials/guides.server";
 import {
+  CHECKER_INSTRUCTION,
   checkerRequest,
   NOTES_INTRO,
   OPENERS_INTRO,
@@ -34,6 +35,13 @@ describe("the column's guides", () => {
     expect(guides.style.startsWith("# The Pywel Desk: voice, style guide and comedy guardrails (v1)\n")).toBe(true);
     expect(guides.slop.startsWith("## Pre-publish checklist\n")).toBe(true);
     expect(guides.slop.match(/^\d+\. /gm)).toHaveLength(15);
+  });
+
+  it("has Statusnone write in first person, with cursing allowed and the old persona gone", () => {
+    expect(guides.style).toContain("Statusnone writes this column.");
+    expect(guides.style).toContain('- Byline is exactly "Statusnone."');
+    expect(guides.style).toContain("- No sexual content, no slurs, ever.\n");
+    expect(guides.style).not.toMatch(/\bthe Desk\b|profanity|first person singular|weather bureau/i);
   });
 });
 
@@ -69,6 +77,15 @@ describe("the writer and checker prompts", () => {
     expect(checker.system[1].cache).toBe(false);
     expect(checker.effort).toBe("high");
     expect(checker.maxTokens).toBe(4000);
+  });
+
+  it("tells the checker that first person and cursing are fine, and slurs, sexual terms and politics are not", () => {
+    const checker = checkerRequest({ guides, model: "claude-haiku-5-5", pack: pipelinePack(), units: numberSentences(writerOutput()), timeoutMs: 1000 });
+    expect(checker.system[1].text).toBe(CHECKER_INSTRUCTION);
+    expect(CHECKER_INSTRUCTION).toContain('The writer\'s own "I", "me" and "we" never count.');
+    expect(CHECKER_INSTRUCTION).toContain("any slur, sexual term or reference to real-world politics");
+    expect(CHECKER_INSTRUCTION).toContain("Cursing on its own is allowed; don't list it.");
+    expect(CHECKER_INSTRUCTION).not.toContain("Pywel Desk");
   });
 
   it("trims the oldest notes and openers first, then the rotating examples", () => {

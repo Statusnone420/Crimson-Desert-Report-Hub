@@ -62,7 +62,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
         for (const raw of payload) {
           const row: Row = {
             id: raw.id ?? `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`,
-            ...(table === "editorials" ? { is_test: false, author: "The Pywel Desk", created_at: now().toISOString(), updated_at: now().toISOString(), publish_at: null, vetoed_at: null, published_at: null, slug: null } : {}),
+            ...(table === "editorials" ? { is_test: false, author: "Statusnone", created_at: now().toISOString(), updated_at: now().toISOString(), publish_at: null, vetoed_at: null, published_at: null, slug: null } : {}),
             ...(table === "style_notes" || table === "voice_examples" ? { created_at: now().toISOString() } : {}),
             ...raw,
           };
