@@ -97,7 +97,7 @@ import {
   type SteamReviewBatch,
   type SteamReviewCandidate,
 } from "@/lib/automation/steam";
-import { fetchSteamForumTopics } from "@/lib/automation/steamForum";
+import { fetchSteamForumTopics, fetchSteamThreadLatestReply, steamForumTopicId } from "@/lib/automation/steamForum";
 import { createServiceClient } from "@/lib/supabase";
 import { persistRunProgress, progressCheckpointEvidence } from "@/lib/automation/runProgress.server";
 import { appendOpenRouterDiagnostics, type OpenRouterDiagnostic } from "@/lib/automation/openRouterDiagnostics";
@@ -457,6 +457,62 @@ const MAX_RESCUE_LLM_CALLS = 1;
 // credit, so this bounds the extra cost of the "read the real thread before
 // rejecting" lane regardless of how many borderline candidates a run surfaces.
 const MAX_RECON_FETCHES_PER_RUN = 2;
+/** Free Steam page reads for stale-looking threads; each check reads at most two pages. */
+const MAX_STEAM_THREAD_REPLY_CHECKS_PER_RUN = 5;
+
+/**
+ * A search result carries a Steam thread's opening date but never its latest
+ * reply, so a thread players are still answering after the patch looked stale
+ * and was dropped unread. Before screening, read a few such threads once for
+ * their latest reply. The date gate then treats a reply after the patch the way
+ * it treats the forum reader's: the thread can be stored as a private lead
+ * (`active_after_patch`), never published on that alone. This runs before call
+ * planning, so reservations and the loop judge the same dates.
+ */
+export async function withSteamThreadReplies(
+  candidates: SourceInput[],
+  {
+    looksStale,
+    readLatestReply,
+    maxChecks = MAX_STEAM_THREAD_REPLY_CHECKS_PER_RUN,
+    onCheck,
+  }: {
+    looksStale: (signal: SourceInput, canonicalUrl: string) => boolean;
+    readLatestReply: (canonicalUrl: string) => Promise<string | null>;
+    maxChecks?: number;
+    onCheck?: (found: boolean) => void;
+  },
+): Promise<SourceInput[]> {
+  // Keyed by topic id: a thread's base URL and its `?ctp=N` comment pages are
+  // one thread, read once, and every copy gets the reply that read found.
+  const latestByTopic = new Map<string, string | null>();
+  const out: SourceInput[] = [];
+  for (const signal of candidates) {
+    let canonicalUrl: string | null = null;
+    try {
+      canonicalUrl = canonicalizeUrl(signal.url);
+    } catch {
+      // The main loop reports an invalid URL.
+    }
+    const topic = canonicalUrl ? steamForumTopicId(canonicalUrl) : null;
+    if (!canonicalUrl || !topic || signal.source !== "web_search" || signal.sourceActiveAt || !looksStale(signal, canonicalUrl)) {
+      out.push(signal);
+      continue;
+    }
+    if (!latestByTopic.has(topic)) {
+      if (latestByTopic.size >= maxChecks) {
+        out.push(signal);
+        continue;
+      }
+      const read = await readLatestReply(canonicalUrl).catch(() => null);
+      latestByTopic.set(topic, read);
+      onCheck?.(read !== null);
+    }
+    const latest = latestByTopic.get(topic) ?? null;
+    out.push(latest ? { ...signal, sourceActiveAt: latest } : signal);
+  }
+  return out;
+}
 
 function searchResultToInput(result: SearchResult): SourceInput {
   return {
@@ -1408,10 +1464,26 @@ async function prepareSignals(
   // phantom credits into the monthly ledger. Computed once per run.
   const webSearchEnabled = features().webSearch;
   const limit = Math.max(25, budget.maxSearchResults + 25);
-  const candidates = [
+  const intake = [
     ...inputs.filter((signal) => signal.source === "steam_review").slice(0, 100),
     ...inputs.filter((signal) => signal.source !== "steam_review").slice(0, limit),
   ];
+  const candidates = steamForumEnabled()
+    ? await withSteamThreadReplies(intake, {
+        looksStale: (signal, canonicalUrl) => {
+          const dates = resolveDates(signal, canonicalUrl, signal.body);
+          return dates.providerDateStatus !== "invalid" && evaluateCurrentPatchEligibility(
+            { title: signal.title, snippet: signal.body, sourcePublishedAt: dates.asserted, sourceActiveAt: null },
+            currentPatch,
+          ).reason === "stale_source";
+        },
+        readLatestReply: (url) => fetchSteamThreadLatestReply(url, { now, fetchImpl: scannerSourceFetch() }),
+        onCheck: (found) => {
+          result.skips.push("steam_thread_reply_check");
+          if (!found) result.skips.push("steam_thread_reply_unavailable");
+        },
+      })
+    : intake;
   result.candidatesSeen += candidates.length;
 
   // Replays the loop's gates up to extraction, in the same order and with the

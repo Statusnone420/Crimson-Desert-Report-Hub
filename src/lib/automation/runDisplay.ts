@@ -57,6 +57,17 @@ const SKIP_META: Record<string, MessageMeta> = {
       "A promising trusted source had too little text to judge, so the scanner tried to read the page itself. Whether the text arrived is reported separately.",
     summaryLabel: "tried the full page",
   },
+  steam_thread_reply_check: {
+    label: "Checked a Steam thread for new replies",
+    detail:
+      "A Steam thread from search showed only an opening date from before the current patch, so the scanner read the thread's pages for its latest reply. A reply after the patch keeps the thread as a private lead; it never publishes on that alone.",
+    summaryLabel: "checked thread replies",
+  },
+  steam_thread_reply_unavailable: {
+    label: "Steam thread replies unavailable",
+    detail: "The thread page could not be read or showed no reply times, so the thread was judged on its opening date.",
+    summaryLabel: "thread replies unavailable",
+  },
   candidate_recon_unavailable: {
     label: "Full page unavailable",
     detail:
