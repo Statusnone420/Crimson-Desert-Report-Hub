@@ -74,11 +74,11 @@ test("original reports keep their hierarchy across screen sizes and themes", asy
           viewportHeight: window.innerHeight,
         };
       });
-      // The recorded readings open the page on the first screen; the two newest reports follow.
-      expect(geometry.readings.top).toBeLessThan(geometry.viewportHeight);
-      expect(geometry.lead.top).toBeGreaterThanOrEqual(geometry.readings.bottom);
+      // The lead report opens the page on the first screen; the recorded readings follow the official record.
+      expect(geometry.lead.top).toBeLessThan(geometry.viewportHeight);
       expect(geometry.secondary.top).toBeGreaterThanOrEqual(geometry.lead.bottom);
       expect(geometry.record.top).toBeGreaterThanOrEqual(geometry.secondary.bottom);
+      expect(geometry.readings.top).toBeGreaterThanOrEqual(geometry.record.bottom);
       if (geometry.coverage) expect(geometry.coverage.top).toBeGreaterThanOrEqual(geometry.secondary.bottom);
       expect(geometry.headings[0]).toBeGreaterThan(geometry.headings[1]);
       if (width <= 900) {
