@@ -1590,6 +1590,68 @@ describe("runAutomationMonitor", () => {
     expect(result.skips).not.toContain("openrouter_cost_unverified");
   });
 
+  it("reads non-English posts with the extra AI calls and stores them in English only", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${900000 + id}/`;
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    // One English post whose extraction spends every shared call (retries and
+    // backups can), so the Chinese posts after it meet spent lanes.
+    const english = [{
+      title: "Crimson Desert patch 1.13 combat stutter",
+      url: thread(1),
+      snippet: "Players report combat stutter and FPS drops after patch 1.13.00.",
+      ...dated,
+    }];
+    const chinese = [
+      { title: "进去背包或者技能里面会出现闪退", url: thread(101), snippet: "进去背包或者技能里面会出现闪退，每次都这样" },
+      { title: "打开地图就闪退", url: thread(102), snippet: "打开地图就闪退，重启也没用" },
+      { title: "背包里的物品消失了", url: thread(103), snippet: "背包里的物品消失了，找不回来" },
+      { title: "过场动画后闪退", url: thread(104), snippet: "过场动画后闪退，每次都这样" },
+    ].map((item) => ({ ...item, ...dated }));
+    mocks.tavilySearch.mockResolvedValue([...english, ...chinese]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate, options) => {
+      const ai = options.llmCallsRemaining > 0;
+      const isChinese = /[一-鿿]/.test(candidate.title);
+      return {
+        issueTitle: isChinese ? (ai ? "Crash after the 1.13 update in the backpack menu" : candidate.title) : candidate.title,
+        category: isChinese ? "crash_startup" : "performance",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: isChinese ? (ai ? "Players report the game crashes when opening a menu." : candidate.snippet) : candidate.snippet,
+        clusterSlug: null,
+        extractionProvider: ai ? "openrouter" : "deterministic",
+        extractionModel: ai ? "deepseek/deepseek-v4.1-flash" : null,
+        llmCallsUsed: ai ? (isChinese ? 1 : options.llmCallsRemaining) : 0,
+        llmCostUsd: ai ? 0.0004 : 0,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const callsFor = (url: string) => mocks.extractSignalWithOpenRouter.mock.calls.find(([candidate]) => candidate.url === url.replace(/\/$/, ""))?.[1];
+    // The first three Chinese posts run on the extra allowance; the fourth finds it spent.
+    expect([101, 102, 103].map((id) => callsFor(thread(id))?.llmCallsRemaining)).toEqual([1, 1, 1]);
+    expect(callsFor(thread(104))?.llmCallsRemaining).toBe(0);
+    const count = (skip: string) => result.skips.filter((value) => value === skip).length;
+    expect(count("language_extra_call")).toBe(3);
+    expect(count("language_review")).toBe(1);
+    expect(count("non_english_ai")).toBe(3);
+    expect(count("non_english_kept")).toBe(3);
+    expect(count("language_needs_ai")).toBe(1);
+
+    const stored = (id: number) => tables.source_signals.find((row) => row.canonical_url === thread(id).replace(/\/$/, ""));
+    for (const id of [101, 102, 103]) {
+      expect(stored(id)).toMatchObject({ title: "Crash after the update in the backpack menu" });
+    }
+    expect(stored(104)).toBeUndefined();
+    for (const row of tables.source_signals) {
+      expect(`${row.title} ${row.summary}`).not.toMatch(/[一-鿿]/);
+    }
+  });
+
   it("stops asking OpenRouter for the rest of the run once no provider matches", async () => {
     resetDb({});
     configureProviders();

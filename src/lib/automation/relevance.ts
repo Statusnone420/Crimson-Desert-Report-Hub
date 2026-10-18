@@ -1,6 +1,7 @@
 import type { ExtractionResult } from "@/lib/automation/extract";
 import { domainTier, isOfficialDomain } from "@/lib/automation/domains";
 import { evaluateCurrentPatchEligibility, mentionsOnlyOtherPatch } from "@/lib/automation/eligibility";
+import { isMostlyNonEnglish } from "@/lib/language";
 
 export type RelevanceSkipReason =
   | "category_other"
@@ -19,7 +20,17 @@ export type ObservationKind = "patch_release" | "press_reception" | "fix_announc
 
 export type SignalRelevanceDecision =
   | { keep: true }
-  | { keep: false; reason: RelevanceSkipReason; observationKind?: ObservationKind };
+  | {
+      keep: false;
+      reason: RelevanceSkipReason;
+      observationKind?: ObservationKind;
+      /**
+       * A post in another language that names no symptom the word lists know.
+       * The scan may hand a few of these to the AI instead of dropping them;
+       * every other caller treats the decision as the rejection it is.
+       */
+      languageReview?: true;
+    };
 
 export type CandidatePreScreenInput = {
   title: string;
@@ -116,7 +127,7 @@ function multilingualSymptomPatterns(): RegExp[] {
     // German
     // Separable verbs split around other words: "Das Spiel stürzt ständig ab".
     "absturz\\p{L}*", "abstürz\\p{L}*", "st(?:ü|ue)rzt(?:\\s+\\p{L}+){0,4}\\s+ab", "friert(?:\\s+\\p{L}+){0,4}\\s+ein", "eingefroren",
-    "ruckel\\p{L}*", "ruckler", "startet nicht", "funktioniert nicht", "schwarzer bildschirm", "verbuggt",
+    "ruckel\\p{L}*", "ruckler", "startet nicht", "funktioniert nicht", "schwarzer bildschirm", "verbuggt", "kaputt",
     "h(?:ä|ae)ngt sich(?:\\s+\\p{L}+){0,3}\\s+auf",
     // French
     "plantage\\p{L}*", "(?:jeu|il|ça|ca)\\s+plante", "écran noir", "ecran noir", "ne se lance pas", "ne démarre pas", "ne fonctionne pas",
@@ -132,6 +143,14 @@ function multilingualSymptomPatterns(): RegExp[] {
     // means "depends", "лагерь" is a camp, "багаж" is luggage.
     "вылет\\p{L}*", "краш\\p{L}*", "завис(?:ла|ло|ли|ает|ают|ание|ания)?", "фриз\\p{L}*", "лаг(?:и|ов|ает|ают|ал|ала|ало|ует|ать)?",
     "баг(?:и|ов|а|ом|ами|нут\\p{L}*|ован\\p{L}*)?", "не запускается", "ч[её]рный экран", "ошибк\\p{L}*", "не работает",
+    // Turkish
+    "çök(?:üyor|tü|me|üyo)\\p{L}*", "donuyor", "dondu", "takılıyor", "kasıyor", "kasma\\p{L}*", "açılmıyor", "çalışmıyor",
+    "siyah ekran", "masaüstüne atıyor",
+    // Polish
+    "crashuje", "wywala\\p{L}*", "zawiesza się", "zacina się", "przycina", "błąd", "błędy", "błędów", "nie działa",
+    "nie uruchamia się", "czarny ekran", "zbugowan\\p{L}*",
+    // Italian
+    "crasha\\p{L}*", "si blocca", "si chiude", "scatti", "errore", "buggat\\p{L}*", "non funziona", "non si avvia", "schermo nero",
   ];
   return [
     new RegExp(cjk.join("|"), "u"),
@@ -217,6 +236,13 @@ function multilingualNoIssuePatterns(): RegExp[] {
     String.raw`(?:nenhum|nenhuma|sem|zero|n[ãa]o\s+tem)\s+(?:\p{L}+\s+)?(?:crash(?:es)?|travamentos?|bugs?|erros?|problemas?)`,
     // Russian
     String.raw`(?:нет|без|никаких|ни\s+одного|ни\s+одной|ноль)\s+(?:\p{L}+\s+)?(?:вылет\p{L}*|краш\p{L}*|баг\p{L}*|фриз\p{L}*|лаг\p{L}*|ошиб\p{L}*|проблем\p{L}*)`,
+    // Turkish puts the "none" after the noun: "hiç çökme yok", "hata yok".
+    String.raw`(?:hiç\s+)?(?:çökme|hata|bug|takılma|kasma|donma|sorun)\p{L}*\s+(?:yok|olmadı|yaşamadım)`,
+    String.raw`sorunsuz`,
+    // Polish
+    String.raw`(?:bez|zero|żadnych|żadnego)\s+(?:\p{L}+\s+)?(?:crash\p{L}*|błęd\p{L}*|bug\p{L}*|zacię\p{L}*|przycię\p{L}*|problem\p{L}*)`,
+    // Italian
+    String.raw`(?:nessun|nessuna|zero|senza)\s+(?:\p{L}+\s+)?(?:crash|bug|errori?|problem[ai]|scatti|blocchi)`,
   ];
   return [
     new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${lettered.join("|")})(?![\p{L}\p{N}])`, "iu"),
@@ -545,7 +571,10 @@ export function preScreenCandidate(
     return { keep: false, reason: "source_not_issue_report", observationKind: "fix_announcement" };
   }
   if (!hasSymptomLanguage(sourceText) || saysNoIssue(sourceText)) {
-    return { keep: false, reason: "source_not_issue_report" };
+    const languageReview = !saysNoIssue(sourceText)
+      && !isOfficialDomain(input.sourceDomain)
+      && isMostlyNonEnglish(input.snippet.trim() ? input.snippet : input.title);
+    return { keep: false, reason: "source_not_issue_report", ...(languageReview ? { languageReview: true as const } : {}) };
   }
   // The publisher's own pages are provider context, never player evidence. A
   // known-issues list reaches this point carrying the same symptom nouns as a
