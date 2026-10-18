@@ -591,12 +591,15 @@ export function preScreenCandidate(
 export function shouldKeepExtractedSignal(
   extraction: ExtractionResult,
   sourceText?: string,
+  options: { honorAiVerdict?: boolean } = {},
 ): SignalRelevanceDecision {
-  // The model read the whole source and said it reports no problem a player hit:
-  // praise, news, or a problem described as fixed ("Das Spiel stürzt nicht mehr
-  // ab"), even though a symptom word matched. Deterministic extraction gives no
-  // answer and is judged as before.
-  if (extraction.isReport === false) return { keep: false, reason: "source_not_issue_report" };
+  // For a post in another language the word lists read only some of its words,
+  // so the model's answer counts: when it read the source and said it reports
+  // no problem a player hit (praise, news, or a problem described as fixed, as
+  // in "Das Spiel stürzt nicht mehr ab"), the post is dropped even though a
+  // symptom word matched. English posts keep the word-list judgment, and
+  // deterministic extraction gives no answer.
+  if (options.honorAiVerdict && extraction.isReport === false) return { keep: false, reason: "source_not_issue_report" };
   if (extraction.category === "other") {
     // A real complaint with no category keyword (cross-save failures, boss-fight
     // bugs) still deserves tracking under "other" — this gate exists to drop

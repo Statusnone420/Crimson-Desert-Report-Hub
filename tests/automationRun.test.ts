@@ -1654,27 +1654,30 @@ describe("runAutomationMonitor", () => {
     }
   });
 
-  it("keeps a post only a language review let in when the AI says it reports a problem, and never praise", async () => {
+  it("keeps a post only a language review let in when the AI says it reports a problem, and nothing else", async () => {
     resetDb({});
     configureProviders();
     mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
     const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${910000 + id}/`;
     const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
-    // Neither post has a symptom word, so each one needs a language review.
+    // No post has a symptom word, so each one needs a language review.
     mocks.tavilySearch.mockResolvedValue([
       { title: "Excellent jeu, très beau", url: thread(1), snippet: "Le monde est magnifique et les combats sont superbes.", ...dated },
       { title: "背包里的物品消失了", url: thread(2), snippet: "背包里的物品消失了，找不回来", ...dated },
+      { title: "坐骑叫不出来了", url: thread(3), snippet: "坐骑叫不出来了，怎么办", ...dated },
     ]);
     mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
       const praise = candidate.title.startsWith("Excellent");
+      const unanswered = candidate.title.startsWith("坐骑");
       return {
-        issueTitle: praise ? "Players praise the graphics" : "Items vanish from the backpack",
+        issueTitle: praise ? "Players praise the graphics" : unanswered ? "Mount cannot be summoned" : "Items vanish from the backpack",
         // A category alone proves nothing: the praise still gets one.
         category: praise ? "graphics_visual" : "controls_gameplay",
         platform: "pc_steam",
         confidence: "high",
         summary: praise ? "The player says the game is excellent and very beautiful." : "Items disappear from the backpack for good.",
-        isReport: !praise,
+        // The third reply leaves isReport out, which counts as unconfirmed.
+        ...(unanswered ? {} : { isReport: !praise }),
         clusterAssignment: "unsure",
         clusterReason: "Test extractor.",
         clusterSlug: null,
@@ -1689,14 +1692,59 @@ describe("runAutomationMonitor", () => {
     const result = await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
 
     const count = (skip: string) => result.skips.filter((value) => value === skip).length;
-    expect(count("language_review")).toBe(2);
-    expect(count("non_english_ai")).toBe(2);
+    expect(count("language_review")).toBe(3);
+    expect(count("non_english_ai")).toBe(3);
     expect(count("non_english_kept")).toBe(1);
     const stored = (id: number) => tables.source_signals.find((row) => row.canonical_url === thread(id).replace(/\/$/, ""));
     expect(stored(1)).toBeUndefined();
     expect(stored(2)).toMatchObject({ title: "Items vanish from the backpack" });
+    expect(stored(3)).toBeUndefined();
+    for (const id of [1, 3]) {
+      expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({
+        url: thread(id).replace(/\/$/, ""), reason: "source_not_issue_report",
+      }));
+    }
+  });
+
+  it("follows the AI's no-report answer for posts in other languages only", async () => {
+    resetDb({});
+    configureProviders();
+    mocks.getClaimedFixesForCurrentPatch.mockResolvedValue([]);
+    const thread = (id: number) => `https://steamcommunity.com/app/3321460/discussions/0/${920000 + id}/`;
+    const dated = { sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T12:00:00.000Z", sourcePublishedAt: "2026-07-05T11:00:00.000Z" };
+    // Both posts match a symptom word, so neither needs a language review.
+    mocks.tavilySearch.mockResolvedValue([
+      { title: "Crimson Desert crashes when opening the map", url: thread(1), snippet: "The game crashes to desktop every time I open the map.", ...dated },
+      { title: "Das Spiel stürzt nicht mehr ab", url: thread(2), snippet: "Seit dem Patch läuft alles stabil.", ...dated },
+    ]);
+    mocks.extractSignalWithOpenRouter.mockImplementation(async (candidate) => {
+      const german = candidate.title.startsWith("Das");
+      return {
+        issueTitle: german ? "Crashes fixed since the patch" : "Map crash on PC",
+        category: "crash_startup",
+        platform: "pc_steam",
+        confidence: "high",
+        summary: german ? "The player says the game no longer crashes." : "The game crashes when opening the map.",
+        // The AI answers "no report" for both; only the German post follows it.
+        isReport: false,
+        clusterAssignment: "unsure",
+        clusterReason: "Test extractor.",
+        clusterSlug: null,
+        extractionProvider: "openrouter",
+        extractionModel: "deepseek/deepseek-v4.1-flash",
+        llmCallsUsed: 1,
+        llmCostUsd: 0.0004,
+      };
+    });
+    const { runAutomationMonitor } = await importRunner();
+
+    await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T12:00:00.000Z") });
+
+    const stored = (id: number) => tables.source_signals.find((row) => row.canonical_url === thread(id).replace(/\/$/, ""));
+    expect(stored(1)).toMatchObject({ title: "Crimson Desert crashes when opening the map" });
+    expect(stored(2)).toBeUndefined();
     expect(rejectedCandidateRows()).toContainEqual(expect.objectContaining({
-      url: thread(1).replace(/\/$/, ""), reason: "source_not_issue_report",
+      url: thread(2).replace(/\/$/, ""), reason: "source_not_issue_report",
     }));
   });
 

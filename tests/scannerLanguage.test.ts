@@ -116,15 +116,22 @@ describe("posts the word lists cannot read", () => {
 describe("the AI's own answer on whether a post reports a problem", () => {
   const read = { category: "crash_startup", issueTitle: "Game no longer crashes", summary: "The player says the crash is fixed." };
 
-  it("drops a post the AI read as no report, even when a symptom word matched", () => {
-    expect(screen("Das Spiel stürzt nicht mehr ab", "")).toEqual({ keep: true });
-    expect(shouldKeepExtractedSignal({ ...read, isReport: false } as ExtractionResult, "Das Spiel stürzt nicht mehr ab"))
+  it("drops a post in another language the AI read as no report, even when a symptom word matched", () => {
+    const german = "Das Spiel stürzt nicht mehr ab";
+    expect(screen(german, "")).toEqual({ keep: true });
+    expect(shouldKeepExtractedSignal({ ...read, isReport: false } as ExtractionResult, german, { honorAiVerdict: true }))
       .toEqual({ keep: false, reason: "source_not_issue_report" });
-    expect(shouldKeepExtractedSignal({ ...read, isReport: true } as ExtractionResult, "Das Spiel stürzt nicht mehr ab")).toEqual({ keep: true });
+    expect(shouldKeepExtractedSignal({ ...read, isReport: true } as ExtractionResult, german, { honorAiVerdict: true })).toEqual({ keep: true });
+  });
+
+  it("keeps judging English posts by the word lists, whatever the AI answers", () => {
+    const english = "Game crashes when opening the map";
+    expect(shouldKeepExtractedSignal({ ...read, isReport: false } as ExtractionResult, english)).toEqual({ keep: true });
+    expect(shouldKeepExtractedSignal({ ...read, isReport: false } as ExtractionResult, english, { honorAiVerdict: false })).toEqual({ keep: true });
   });
 
   it("judges deterministic extraction, which gives no answer, as before", () => {
-    expect(shouldKeepExtractedSignal(read as ExtractionResult, "Das Spiel stürzt ständig ab")).toEqual({ keep: true });
+    expect(shouldKeepExtractedSignal(read as ExtractionResult, "Das Spiel stürzt ständig ab", { honorAiVerdict: true })).toEqual({ keep: true });
   });
 });
 

@@ -42,8 +42,9 @@ export type ExtractedSignal = {
   summary: string;
   /**
    * The model's answer to "does this source describe a problem a player hit?".
-   * Unset for deterministic extraction. A false answer drops the source; a post
-   * that only a language review let in also needs a true one.
+   * Unset for deterministic extraction. A false answer drops a post in another
+   * language, and a post that only a language review let in needs a true one.
+   * English posts keep the word-list judgment.
    */
   isReport?: boolean;
   /** Application-validated semantic cluster decision; never evidence. */

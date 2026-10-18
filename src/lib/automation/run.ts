@@ -1941,7 +1941,7 @@ async function prepareSignals(
         // The same English-only rule as the main path (see englishStorage).
         const rescueStorage = englishStorage(signal, effectiveBody, extraction);
         const relevance = rescueStorage.store
-          ? shouldKeepExtractedSignal(extraction, `${signal.title} ${effectiveBody}`)
+          ? shouldKeepExtractedSignal(extraction, `${signal.title} ${effectiveBody}`, { honorAiVerdict: rescueStorage.nonEnglish })
           : { keep: false as const, reason: "language_needs_ai" as const };
         if (relevance.keep) {
           result.skips.push("candidate_rescued");
@@ -2065,6 +2065,7 @@ async function prepareSignals(
             storage.nonEnglish
               ? `${signal.title} ${signal.body} ${extraction.issueTitle} ${extraction.summary}`
               : `${signal.title} ${signal.body}`,
+            { honorAiVerdict: storage.nonEnglish },
           );
     if (storage.nonEnglish && relevance.keep) result.skips.push("non_english_kept");
     if (!relevance.keep) {
