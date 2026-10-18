@@ -4,8 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { patch20300, type EditorialArticle } from "@/lib/editorialArticles";
 import type { PatchEdition } from "@/lib/patchPublications";
 
-const mocks = vi.hoisted(() => ({ catalog: vi.fn<() => Promise<{ editions: PatchEdition[]; articles: EditorialArticle[]; unavailable: boolean }>>() }));
+const mocks = vi.hoisted(() => ({
+  catalog: vi.fn<() => Promise<{ editions: PatchEdition[]; articles: EditorialArticle[]; unavailable: boolean }>>(),
+  column: vi.fn(async () => ({ editions: [], unavailable: false })),
+}));
 vi.mock("@/lib/patchPublications.server", () => ({ getPatchPublications: mocks.catalog }));
+vi.mock("@/lib/editorials/store.server", () => ({ getPublicEditions: mocks.column }));
 vi.mock("@/components/dispatch/Chrome", () => ({ PublicShell: ({ children }: { children: ReactNode }) => createElement("div", null, children) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: ComponentProps<"a">) => createElement("a", { ...props, href }, children) }));
 
@@ -53,7 +57,9 @@ describe("rundown and archived patch routes", () => {
   it("uses 404 only for unknown or malformed versions, not failed database reads", async () => {
     await expect(RundownPage({ params: Promise.resolve({ slug: "patch-9-99-99" }) })).rejects.toThrow("404");
     await expect(EditionPage({ params: Promise.resolve({ version: "invalid" }) })).rejects.toThrow("404");
+    // A database outage fails both reads, so the feeds have nothing to serve.
     mocks.catalog.mockResolvedValue({ editions: [], articles: [], unavailable: true });
+    mocks.column.mockResolvedValueOnce({ editions: [], unavailable: true }).mockResolvedValueOnce({ editions: [], unavailable: true });
     await expect(RundownPage(articleProps)).rejects.toThrow("temporarily unavailable");
     await expect(EditionPage({ params: Promise.resolve({ version: "2-03-01" }) })).rejects.toThrow("temporarily unavailable");
     expect((await rss()).status).toBe(503);

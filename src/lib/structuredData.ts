@@ -1,5 +1,6 @@
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import type { EditorialArticle } from "@/lib/editorialArticles";
+import { absoluteSourceUrl, COLUMN_EDITOR, editionDescription, editorialPath, type PublicEdition } from "@/lib/editorials/content";
 
 /** Homepage WebSite structured data (schema.org). */
 export function webSiteJsonLd() {
@@ -31,6 +32,27 @@ export function newsArticleJsonLd(article: EditorialArticle) {
       url: `${SITE_URL}/`,
     },
     citation: article.sources.map((source) => source.url),
+  } as const;
+}
+
+/** A State of the Game edition: authored by the house byline, with its named editor. */
+export function editionJsonLd(edition: PublicEdition) {
+  const editionUrl = `${SITE_URL}${editorialPath(edition.slug)}`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    headline: edition.title,
+    description: editionDescription(edition),
+    datePublished: edition.publishAt,
+    mainEntityOfPage: editionUrl,
+    author: { "@type": "Organization", name: edition.author },
+    editor: { "@type": "Person", name: COLUMN_EDITOR },
+    isPartOf: {
+      "@type": "WebSite",
+      name: SITE_NAME,
+      url: `${SITE_URL}/`,
+    },
+    citation: edition.factsBox.sources.map((source) => absoluteSourceUrl(source.url)),
   } as const;
 }
 

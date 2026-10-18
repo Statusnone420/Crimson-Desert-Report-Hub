@@ -24,6 +24,8 @@ type EditorialArticleBase = {
   publishedAt: string;
   // Last editorial revision; feeds use it so readers see edits without moving publishedAt.
   updatedAt?: string;
+  // A named byline. Feeds fall back to the site name when it is absent.
+  author?: string;
   sourceNote: string;
   heroImage: {
     src: `/${string}`;
