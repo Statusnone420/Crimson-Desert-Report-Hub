@@ -36,11 +36,19 @@ To use your own development database, copy `.env.local.example` to `.env.local`,
 
 ## Verification before a pull request
 
-GitHub runs the full gate on every pull request to `main`, on GitHub-hosted runners:
+GitHub runs the gate on every pull request to `main`, on GitHub-hosted runners:
 
-- `verify`: lint, unit tests, type checks and the production build (`npm run verify:core`).
-- `browser`: the desktop, mobile and operator browser tests, the patch publication tests, the Twitch-history fixtures, the empty and unavailable states, and the Turnstile tests (`npm run verify:browser`). It runs on Windows because the screenshot baselines are drawn there; on macOS or Linux, the screenshot test can fail locally from font rendering alone.
+- `verify`: lint, unit tests, type checks and the production build (`npm run verify:core`). It always runs.
+- `browser`: the desktop, mobile and operator browser tests, the patch publication tests, the Twitch-history fixtures, the empty and unavailable states, and the Turnstile tests (`npm run verify:browser`). It runs on Windows because the screenshot baselines are drawn there; on macOS or Linux, the screenshot test can fail locally from font rendering alone. GitHub splits the main browser suite into 4 parallel jobs and runs the other suites in a fifth.
 - `migrations`: every migration in `supabase/migrations/`, applied in order on a throwaway local database, then the database tests in `supabase/tests/`.
+
+A pull request that changes only documentation skips `browser` and `migrations`, and both still count as passed. Documentation here means:
+
+- files under `docs/`, except `docs/share-card/`, which a browser test reads
+- `.md` files anywhere else
+- the issue templates in `.github/ISSUE_TEMPLATE/` and `.github/PULL_REQUEST_TEMPLATE.md`
+
+A change to any other file runs the whole gate. A change under `supabase/` always runs `migrations`. Every push to `main` and every manual run of the CI workflow runs the whole gate.
 
 Before you push, run the checks that cover your change, such as `npm test` or one Playwright spec. To run the whole gate on your own machine, stage your changes and run:
 
@@ -56,7 +64,7 @@ Other useful commands:
 - `npm run test:e2e:ui` opens Playwright's test explorer on an isolated copy with invented data.
 - `npm test` runs the unit tests only.
 
-GitHub Actions calls the same script, so a local pass and a GitHub pass check the same things. The database tests run only on GitHub unless you start a local stack yourself.
+GitHub Actions calls the same script, so a local pass checks the same things as a full GitHub run. A documentation-only pull request skips the browser and database checks on GitHub, as described above. The database tests run only on GitHub unless you start a local stack yourself.
 
 ## Pull requests from forks
 
