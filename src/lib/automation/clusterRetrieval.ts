@@ -53,6 +53,39 @@ export function retrievalTokens(text: string): string[] {
   return [...tokens];
 }
 
+/**
+ * The automatic cluster whose title says the same thing as `issueTitle`, or
+ * null. Consulted only where a source would otherwise start a new automatic
+ * cluster, or stay unclustered: without it, every rewording ("Game crashes when
+ * opening the map" / "Crash when opening map") started its own cluster, because
+ * the exact fingerprint is the only other match a source the model never saw
+ * can make. Deliberately strict: same category, at least two shared
+ * distinctive words, and those cover three quarters of both titles, so titles
+ * that share only a symptom ("crash opening map" / "crash opening inventory")
+ * stay apart.
+ */
+export function nearDuplicateAutoCluster<T extends RetrievalCluster>(
+  issueTitle: string,
+  category: string,
+  clusters: readonly T[],
+): T | null {
+  const wanted = new Set(retrievalTokens(issueTitle));
+  if (wanted.size < 2) return null;
+  let best: { cluster: T; score: number } | null = null;
+  for (const cluster of clusters) {
+    if (!cluster.slug.startsWith("auto-") || String(cluster.category) !== category) continue;
+    const tokens = new Set(retrievalTokens(cluster.title));
+    let shared = 0;
+    for (const token of wanted) if (tokens.has(token)) shared += 1;
+    const score = shared / Math.max(wanted.size, tokens.size);
+    if (shared < 2 || score < 0.75) continue;
+    if (!best || score > best.score || (score === best.score && compareClusterRecency(cluster, best.cluster) < 0)) {
+      best = { cluster, score };
+    }
+  }
+  return best?.cluster ?? null;
+}
+
 /** Newest activity first, then creation, then slug: bounded and reproducible. */
 export function compareClusterRecency(left: RetrievalCluster, right: RetrievalCluster): number {
   for (const field of ["last_signal_at", "created_at"] as const) {

@@ -51,7 +51,7 @@ import {
   type RelevanceSkipReason,
 } from "@/lib/automation/relevance";
 import { categoriesCompatible, routeToWatchlistCluster, type RoutableCluster } from "@/lib/automation/route";
-import { compareClusterRecency, createClusterRetriever } from "@/lib/automation/clusterRetrieval";
+import { compareClusterRecency, createClusterRetriever, nearDuplicateAutoCluster } from "@/lib/automation/clusterRetrieval";
 import {
   buildWireNewsQuery,
   tavilyExtract,
@@ -2368,6 +2368,11 @@ async function resolveClusterId(
     ? null
     : await findStoredSignalCluster(supabase, signal, routableClusters);
   const preferredCluster = existingSignalCluster ?? sureRoute?.id ?? storedCluster ?? routedCluster?.id ?? null;
+  // A reworded duplicate of an automatic cluster joins it instead of starting a
+  // new one (or, for provider context, staying unclustered).
+  const nearDuplicate = preferredCluster || reportCluster
+    ? null
+    : nearDuplicateAutoCluster(signal.extraction.issueTitle, signal.extraction.category, routableClusters)?.id ?? null;
   if (isProviderContextSource({ source: signal.source, domain: signal.sourceDomain, url: signal.canonicalUrl })) {
     // Steam reviews and the publisher's own pages are private provider context,
     // never player evidence. Either may support a cluster whose public-safe
@@ -2377,7 +2382,7 @@ async function resolveClusterId(
     // rejection Relevant stores the signal, and it must still never mint a
     // cluster. The canonical url rides along because the domain column is
     // nullable, and a candidate stored without one must not slip the guard.
-    const clusterId = preferredCluster ?? reportCluster;
+    const clusterId = preferredCluster ?? reportCluster ?? nearDuplicate;
     if (clusterId) clusterBySemantic.set(signal.semantic, clusterId);
     return clusterId ?? null;
   }
@@ -2386,7 +2391,7 @@ async function resolveClusterId(
       ? null
       : await findAutoClusterBySlug(supabase, clusterSlug(signal.semantic));
   const clusterId =
-    preferredCluster ?? reportCluster ?? existingAutoCluster ?? (await createCluster(supabase, signal));
+    preferredCluster ?? reportCluster ?? existingAutoCluster ?? nearDuplicate ?? (await createCluster(supabase, signal));
   clusterBySemantic.set(signal.semantic, clusterId);
   return clusterId;
 }

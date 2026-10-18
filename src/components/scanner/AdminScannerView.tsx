@@ -87,6 +87,20 @@ function plainRunLine(run: AutomationRunRow): string {
   return `${run.errors.length > 0 ? `${line} (with errors)` : line}${aiDetail}`;
 }
 
+/**
+ * Every Steam review enters under one shared placeholder title, so this
+ * private list shows the issue title extraction wrote for each review, the
+ * same source as the summary beneath it.
+ */
+export function leadTitle(signal: AdminSignalRow): string {
+  const facts = signal.extracted_facts;
+  const issueTitle = facts && typeof facts === "object" && "issueTitle" in facts && typeof facts.issueTitle === "string"
+    ? facts.issueTitle.trim()
+    : "";
+  if (signal.source === "steam_review" && issueTitle) return issueTitle;
+  return signal.title ?? "Untitled source lead";
+}
+
 function sourceHost(signal: AdminSignalRow): string {
   if (signal.source_domain) return signal.source_domain;
   try {
@@ -127,7 +141,7 @@ function signalRow(signal: AdminSignalRow, nowMs: number, feedbackLearningAvaila
         <span className={confidenceTone(signal.confidence)}>{signal.confidence.toUpperCase()} CONFIDENCE</span> · SEEN{" "}
         {signal.seen_count ?? 1}×
       </div>
-      <h3 className="lead-item__title">{signal.title ?? "Untitled source lead"}</h3>
+      <h3 className="lead-item__title">{leadTitle(signal)}</h3>
       <p className="lead-item__summary">{signal.summary}</p>
       <dl className="provenance provenance--compact" aria-label="Lead provenance">
         <div className="provenance__row">
