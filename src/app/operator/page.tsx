@@ -5,7 +5,7 @@ import { AiSettings } from "@/components/operator/ai/AiSettings";
 import { ScannerScheduleSettings } from "@/components/operator/ai/ScannerScheduleSettings";
 import { readScannerSettings } from "@/lib/scannerSettings.server";
 import { readAiDashboard } from "@/lib/aiSettings/store.server";
-import { isAiSettingsLiveAllowed, isAiSettingsPreviewAllowed } from "@/lib/previewGuard";
+import { isAiSettingsLiveAllowed, isAiSettingsPreviewAllowed, isVercelPreview } from "@/lib/previewGuard";
 import ScannerPage from "@/app/scanner/page";
 import VideoReviewPage from "@/app/admin/videos/page";
 import ProblemReportsPage from "@/app/admin/problem-reports/page";
@@ -35,6 +35,9 @@ import { getScannerExecution } from "@/lib/automation/execution.server";
 import { getScannerExecutionHealth } from "@/lib/automation/executionHealth";
 import type { ScannerExecutionRead } from "@/lib/automation/diagnostics";
 import { SCANNER_READ_REGISTERS } from "@/lib/scannerRegisters";
+import { ColumnWorkspace } from "@/components/operator/ColumnWorkspace";
+import { readAdminEdition, readColumnDashboard } from "@/lib/editorials/store.server";
+import { columnNotice } from "@/lib/editorials/notices";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
@@ -52,7 +55,7 @@ function unavailableExecution(detail: string): ScannerExecutionRead {
 export default async function OperatorPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ view?: string; item?: string; run?: string; section?: string }>;
+  searchParams?: Promise<{ view?: string; item?: string; run?: string; section?: string; edition?: string; notice?: string }>;
 } = {}) {
   const rawParams = await searchParams;
   const params = {
@@ -78,6 +81,17 @@ export default async function OperatorPage({
       readScannerSettings().catch(() => ({ control: null, tavilyUsage: { state: "unavailable" as const } })),
     ]);
     return <OperatorShell active="ai"><AiSettings initial={initial} scannerSettings={<ScannerScheduleSettings {...scannerSettings} />} /></OperatorShell>;
+  }
+  if (view === "column") {
+    // A failed read stays visible on the card; it never becomes an empty column.
+    const client = createServiceClient();
+    const now = new Date();
+    const edition = typeof rawParams?.edition === "string" ? rawParams.edition : null;
+    const [dashboard, draft] = await Promise.all([
+      readColumnDashboard(client, now).catch(() => null),
+      edition ? readAdminEdition(client, edition).catch(() => "unavailable" as const) : Promise.resolve(null),
+    ]);
+    return <OperatorShell active="column"><ColumnWorkspace dashboard={dashboard} draft={draft} notice={columnNotice(rawParams?.notice)} now={now} writesDisabled={isVercelPreview()} /></OperatorShell>;
   }
   if (view === "reports" || view === "claims" || view === "settings")
     return <AdminPage searchParams={Promise.resolve({ ...params, view })} />;
