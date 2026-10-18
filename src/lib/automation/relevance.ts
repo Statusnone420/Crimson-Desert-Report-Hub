@@ -56,7 +56,16 @@ const SYMPTOM_PATTERNS = [
   /\b(?:artifact|artifacts|ghosting|flicker|flickering|texture shimmer|screen tearing)\b/i,
   /\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b.{0,60}\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b/i,
   /\b(?:broken|bugged|glitch(?:y|es|ing)?|missing|flicker|flickering|wrong|bad|worse|washed out)\b.{0,60}\b(?:rendering|lighting|shadows?|visuals?|pop.?in)\b/i,
-  /\b(?:won't|will not|doesn't|does not|can't|cannot|not)\s+(?:launch|start|load|progress|complete)\b/i,
+  /\b(?:won'?t|will not|doesn'?t|does not|can'?t|cannot|not)\s+(?:launch|start|load|progress|complete)\b/i,
+  // Blocked actions players report in their own words ("I cant craft the pet",
+  // "can't equip the new sword"). The verb list is closed on purpose: "can't
+  // wait" and "can't stop playing" are praise, not reports.
+  /\b(?:can'?t|cannot|can not|unable to|won'?t let (?:me|you|us))\s+(?:even\s+|still\s+)?(?:craft|use|equip|unequip|open|interact|claim|unlock|buy|purchase|sell|accept|talk|enter|access|select|summon|mount|ride|loot|pick up|fast travel|travel|save|continue|finish|play|join|skip|move|aim|dodge|parry|hold|press|redeem|upgrade|repair|cook|tame|teleport|respawn)\b/i,
+  // A bare "is (beyond|completely) broken/bugged" with no symptom noun — "The duel
+  // with Muskan is beyond broken". Negated forms ("is not broken", "is no longer
+  // bugged") are not complaints.
+  /\b(?:is|are|was|were|seems?|feels?|looks?|gets?|got)\s+(?!(?:not|no\s+longer|never)\b)(?:\w+\s+){0,2}?(?:broken|bugged|glitched|busted)\b/i,
+  /(?<!\bnot\s)(?<!\bnever\s)\bbugg(?:ed|y)\b/i,
   /\b(?:no|missing|lost|muted|silent|broken)\s+(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b/i,
   /\b(?:audio|sound|music|voice(?:s| lines?)?|sfx)\b.{0,50}\b(?:missing|gone|muted|silent|broken|cut(?:s|ting)? out|doesn'?t play|not playing|desync(?:ed)?|out of sync)\b/i,
   /\b(?:quests?|missions?|objectives?|npcs?|cutscenes?|dialogue)\b.{0,60}\b(?:stuck|blocked|frozen|missing|broken|bugged|softlock(?:ed)?|cannot progress|can'?t progress|won't complete|will not complete|not progressing|not spawning)\b/i,
@@ -71,14 +80,61 @@ const SYMPTOM_PATTERNS = [
   // "error(s)", bare "glitch(es)", "still broken/angry/unplayable", and the
   // question-form openers players actually use. Recall-biased on purpose — the
   // promotion guard, not this list, is the precision boundary.
-  /\b(?:won't|will not|doesn't|does not|can't|cannot|not|stopped)\s+work(?:ing)?\b/i,
+  /\b(?:won'?t|will not|doesn'?t|does not|can'?t|cannot|not|stopped)\s+work(?:ing)?\b/i,
   /\berrors?\b/i,
   /\bglitch(?:es|ed|y|ing)?\b/i,
   /\bstill\s+(?:broken|bugged|glitched|angry|happening|unplayable|not (?:working|fixed))\b/i,
   /\bunplayable\b/i,
   /\b(?:am i the only one|is it just me|anyone else)\b.{0,80}\b(?:problems?|issues?|bugs?|glitch(?:es)?|broken|crash(?:es|ing)?|errors?|not working)\b/i,
   /\b(?:graphical|graphics|visual|texture)\s+(?:problems?|issues?|bugs?)\b/i,
+  ...multilingualSymptomPatterns(),
 ] as const;
+
+/**
+ * Players report in their own language, and none of the English patterns above
+ * can see "进去背包会出现闪退" (it crashes opening the backpack). These are the
+ * common crash, freeze, stutter, bug, error and won't-start words in Chinese,
+ * Japanese, Korean, German, French, Spanish, Portuguese and Russian. CJK has no
+ * word spacing, so those terms match as substrings; the rest need letter
+ * boundaries, and `\p{L}*` marks a stem that takes any ending. Save-loss words
+ * stay out: "Save game Gelöscht" is usually a support question, not a bug.
+ */
+function multilingualSymptomPatterns(): RegExp[] {
+  const cjk = [
+    // Chinese, simplified and traditional
+    "闪退", "閃退", "崩溃", "崩潰", "卡死", "卡顿", "卡頓", "掉帧", "掉幀", "黑屏", "花屏", "闪屏", "閃屏", "报错", "報錯",
+    "无法启动", "無法啟動", "进不去", "進不去", "打不开", "打不開", "任务卡住", "任務卡住", "没有声音", "沒有聲音",
+    // Japanese
+    "クラッシュ", "フリーズ", "強制終了", "ゲームが落ち", "進行不能", "起動しない", "起動できない", "カクつ", "カクカク", "ブラックスクリーン", "バグ", "エラー",
+    // Korean
+    "튕김", "튕겨", "튕기", "크래시", "버그", "멈춤", "멈춰", "프리징", "끊김", "진행 불가", "진행불가", "오류", "에러", "실행이 안", "검은 화면",
+  ];
+  const lettered = [
+    // German
+    // Separable verbs split around other words: "Das Spiel stürzt ständig ab".
+    "absturz\\p{L}*", "abstürz\\p{L}*", "st(?:ü|ue)rzt(?:\\s+\\p{L}+){0,4}\\s+ab", "friert(?:\\s+\\p{L}+){0,4}\\s+ein", "eingefroren",
+    "ruckel\\p{L}*", "ruckler", "startet nicht", "funktioniert nicht", "schwarzer bildschirm", "verbuggt",
+    "h(?:ä|ae)ngt sich(?:\\s+\\p{L}+){0,3}\\s+auf",
+    // French
+    "plantage\\p{L}*", "(?:jeu|il|ça|ca)\\s+plante", "écran noir", "ecran noir", "ne se lance pas", "ne démarre pas", "ne fonctionne pas",
+    // Past participles only: "bloquer" is the combat verb "to block".
+    "bugu[ée]\\p{L}*", "saccade\\p{L}*", "bloqu(?:é|ée|és|ées)",
+    // Spanish
+    "se cierra", "crashea\\p{L}*", "se congela\\p{L}*", "pantalla negra", "no funciona", "no inicia", "no arranca", "tirones",
+    "buguead\\p{L}*", "bugead\\p{L}*", "se traba\\p{L}*",
+    // Portuguese
+    "(?:jogo|game)\\s+trava\\p{L}*", "travamento\\p{L}*", "crashand\\p{L}*", "fecha sozinho", "tela preta", "não funciona", "nao funciona",
+    "não abre", "nao abre", "bugad\\p{L}*", "bugou",
+    // Russian. Closed endings where a bare stem is an everyday word: "зависит"
+    // means "depends", "лагерь" is a camp, "багаж" is luggage.
+    "вылет\\p{L}*", "краш\\p{L}*", "завис(?:ла|ло|ли|ает|ают|ание|ания)?", "фриз\\p{L}*", "лаг(?:и|ов|ает|ают|ал|ала|ало|ует|ать)?",
+    "баг(?:и|ов|а|ом|ами|нут\\p{L}*|ован\\p{L}*)?", "не запускается", "ч[её]рный экран", "ошибк\\p{L}*", "не работает",
+  ];
+  return [
+    new RegExp(cjk.join("|"), "u"),
+    new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${lettered.join("|")})(?![\p{L}\p{N}])`, "iu"),
+  ];
+}
 
 // The press subset of BROAD_CONTENT_PATTERNS: coverage worth keeping as an
 // observation. Guides/trailers/walkthroughs stay plain rejects — they are
@@ -106,6 +162,10 @@ const BROAD_CONTENT_PATTERNS = [
   /\btrailer\b/i,
   /\bwalkthrough\b/i,
   /\bfirst look\b/i,
+  // Wiki and guide roundups ("Added: Glitches & Exploits – 2.03.02 Bugs") list
+  // other people's findings; they are not one player's report.
+  /^\s*(?:added|updated)\s*:/i,
+  /\bglitch(?:es)?\s*(?:&|and)\s*exploits?\b/i,
 ] as const;
 
 const PATCH_RELEASE_TITLE_PATTERNS = [
@@ -124,11 +184,16 @@ const UNSUPPORTED_SOURCE_CONTEXT_PATTERNS = [
 // Negation wrapper for the SAME bare nouns the symptom list recognizes — when a
 // noun joins SYMPTOM_PATTERNS as a standalone matcher, its negated form must be
 // recognized here or "runs with no <noun>" reads as a complaint.
-const NO_ISSUE_NOUN = String.raw`(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag)`;
+const NO_ISSUE_NOUN = String.raw`(?:issues?|bugs?|crashes?|problems?|errors?|glitch(?:es)?|stutters?(?:ing)?|lag|artifacts?|ghosting|flicker(?:ing)?|(?:frame|fps) ?drops?|hitch(?:es|ing)?|freez(?:es|ing)|screen tearing|pop.?in)`;
 const NO_ISSUE_NOUN_SERIES = String.raw`${NO_ISSUE_NOUN}(?:\s*(?:[,/]\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)${NO_ISSUE_NOUN})*`;
+// Praise in Steam reviews: "smooth 4K, no artifacts", "zero crashes", "not a
+// single stutter", "never crashed once".
 const NO_ISSUE_PATTERNS = [
   new RegExp(String.raw`\bno (?:reported |known )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
   new RegExp(String.raw`\bwithout (?:reported |known |any )?${NO_ISSUE_NOUN_SERIES}\b`, "i"),
+  new RegExp(String.raw`\bzero ${NO_ISSUE_NOUN_SERIES}\b`, "i"),
+  new RegExp(String.raw`\bnot (?:a|one) single ${NO_ISSUE_NOUN}\b`, "i"),
+  new RegExp(String.raw`\bnever (?:once )?(?:(?:had|got|saw|seen|noticed|experienced) (?:a |an |any |one )?)?(?:crash(?:ed)?|froze|stuttered|lagged|${NO_ISSUE_NOUN_SERIES})(?: once)?\b`, "i"),
 ] as const;
 
 const CLAIMED_FIX_PATTERNS = [
@@ -234,7 +299,9 @@ function isFreshEnoughForAsk(sourcePublishedAt: string | null | undefined): bool
 }
 
 function compact(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  // Phone keyboards type "can’t" with a curly apostrophe, which none of the
+  // "can't / won't / doesn't" patterns would otherwise see.
+  return value.replace(/[‘’ʼ`´]/g, "'").replace(/\s+/g, " ").trim();
 }
 
 function matchesAny(text: string, patterns: readonly RegExp[]): boolean {
@@ -248,8 +315,8 @@ function hasSymptomLanguage(text: string): boolean {
 // Broad-query discovery (e.g. a generic Reddit result) drags in pages about
 // entirely different subjects. Source reputation and topic relevance are
 // deliberately separate: a trusted host can still carry an unrelated page.
-const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|붉은사막/i;
-const EXPLICIT_GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|cdguides|红色沙漠|붉은사막/i;
+const GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|pearl\s?abyss|cdguides|红色沙漠|紅色沙漠|붉은사막|クリムゾン\s?デザート/i;
+const EXPLICIT_GAME_CONTEXT_PATTERN = /crimson(?:[\s_-])?desert|cdguides|红色沙漠|紅色沙漠|붉은사막|クリムゾン\s?デザート/i;
 const KNOWN_GAME_SOURCE_PATTERN = /(?:steamcommunity\.com\/(?:app|games)\/3321460|store\.steampowered\.com\/(?:app|appreviews)\/3321460)(?:[/?#]|$)/i;
 const KNOWN_REDDIT_COMMUNITIES = new Set(["crimsondesert", "crimsondesertlife", "cdguides"]);
 

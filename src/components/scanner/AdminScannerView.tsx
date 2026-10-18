@@ -60,7 +60,9 @@ function funnelSummary(funnel: Record<string, number> | null): string | null {
     return null;
   }
   const results = searchResultsSeen === undefined ? "" : `${searchResultsSeen} results -> `;
-  return `${results}${candidatesSeen} screened -> ${deduped} deduped -> ${prefilterRejected} pre-filtered -> ${llmEligible} LLM-eligible -> ${llmCalls} LLM -> ${kept} kept -> ${promoted} promoted`;
+  // "ready to save" counts every source that passed extraction, including ones
+  // that only re-observe a stored lead; the run line's "new leads" counts inserts.
+  return `${results}${candidatesSeen} screened -> ${deduped} deduped -> ${prefilterRejected} pre-filtered -> ${llmEligible} LLM-eligible -> ${llmCalls} LLM -> ${kept} ready to save -> ${promoted} promoted`;
 }
 
 function plainRunLine(run: AutomationRunRow): string {
@@ -79,7 +81,7 @@ function plainRunLine(run: AutomationRunRow): string {
       : `Ran, nothing new${aiDetail}`;
   }
   const kept = run.signals_inserted;
-  const parts = [`Found ${found}, kept ${kept}`];
+  const parts = [`Found ${found}, new leads ${kept}`];
   if (run.signals_reobserved > 0) parts.push(`re-observed ${run.signals_reobserved}`);
   if (run.candidates_rescued > 0) parts.push(`kept for review ${run.candidates_rescued}`);
   if (run.clusters_promoted > 0) parts.push(`published ${run.clusters_promoted}`);
