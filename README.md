@@ -85,7 +85,7 @@ npm run dev:preview
 
 Open `http://127.0.0.1:3130`. The preview uses invented data and never writes to a hosted database. To run against your own Supabase project, copy `.env.local.example` to `.env.local`, fill it in, and run `npm run dev`.
 
-GitHub runs the full gate on every pull request: lint, unit tests, type checks, a production build, the desktop, mobile and operator browser suites, and every database migration with its tests on a throwaway database. To run the same checks except the database tests on your own machine, stage your changes and run:
+GitHub checks every pull request with lint, unit tests, type checks, a production build, the desktop, mobile and operator browser suites, and every database migration with its tests on a throwaway database. A pull request that changes only documentation skips the browser suites, and also the database tests unless it touches `supabase/`. To run the same checks except the database tests on your own machine, stage your changes and run:
 
 ```bash
 npm run verify
