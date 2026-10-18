@@ -8,16 +8,21 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const options = process.argv.slice(2);
 const headed = options.includes("--headed");
-const phases = options.filter((option) => option !== "--headed");
+const shards = options.filter((option) => option.startsWith("--shard="));
+const phases = options.filter((option) => option !== "--headed" && !option.startsWith("--shard="));
 const mode = phases[0] ?? "--all";
 const nodeVersion = readFileSync(path.join(root, ".node-version"), "utf8").trim();
 const npmVersion = "11.12.1";
 const npmCli = process.env.npm_execpath;
 
-if (!["--all", "--core", "--browser", "--ui"].includes(mode) || phases.length > 1 ||
+// GitHub splits the browser gate across runners: --browser-main runs the main
+// suite (optionally one --shard=N/M of it), and --browser-other runs the rest.
+const shardMatch = shards.length === 1 ? /^--shard=([1-9]\d*)\/([1-9]\d*)$/.exec(shards[0]) : null;
+if (!["--all", "--core", "--browser", "--browser-main", "--browser-other", "--ui"].includes(mode) || phases.length > 1 ||
     options.filter((option) => option === "--headed").length > 1 ||
-    (headed && ["--core", "--ui"].includes(mode))) {
-  console.error("Usage: npm run verify [-- --core|--browser|--ui] [--headed]");
+    (headed && ["--core", "--ui"].includes(mode)) ||
+    (shards.length > 0 && (mode !== "--browser-main" || !shardMatch || Number(shardMatch[1]) > Number(shardMatch[2])))) {
+  console.error("Usage: npm run verify [-- --core|--browser|--browser-main [--shard=N/M]|--browser-other|--ui] [--headed]");
   process.exit(1);
 }
 // npm_config_user_agent can survive from an older outer npm launcher.
@@ -49,6 +54,14 @@ if (headed) {
     if (args[0] === "run") args.push("--");
     args.push("--headed");
   }
+}
+if (shardMatch) {
+  // A shard without the operator-writes tests would otherwise rerun that whole
+  // project as a dependency. One CI worker still runs the projects in config
+  // order, so the fixture writes never overlap a screenshot.
+  const args = browser[1][1];
+  if (!args.includes("--")) args.push("--");
+  args.push("--no-deps", shards[0]);
 }
 
 // Require the working files to match the staged commit before copying them.
@@ -125,6 +138,8 @@ const steps = [
   ["Clean dependency install", ["ci"]],
   ...(["--all", "--core"].includes(mode) ? core : []),
   ...(["--all", "--browser"].includes(mode) ? browser : []),
+  ...(mode === "--browser-main" ? browser.slice(0, 2) : []),
+  ...(mode === "--browser-other" ? [browser[0], ...browser.slice(2)] : []),
   ...(mode === "--ui" ? [
     browser[0],
     ["Visual test explorer", ["exec", "playwright", "--", "test", "--ui", "--ui-host=127.0.0.1", "--ui-port=3171"], {
