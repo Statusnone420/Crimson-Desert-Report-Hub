@@ -1,9 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+// The desk date replaces its server placeholder only once the page has hydrated.
+// A slow runner paints the charts well before then, and a hover before it is lost.
+const hydrated = (page: Page) =>
+  expect(page.getByTitle("Desk date · America/New_York", { exact: true })).toHaveText(/\d{4}$/, { timeout: 30_000 });
 
 test("scrolling under a stationary pointer preserves the selected review reading", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "mobile-chromium", "Hover is a desktop interaction.");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/observatory");
+  await hydrated(page);
   const selectedDate = page.locator(".obs-chart-readout p > span").first();
   const latest = await selectedDate.innerText();
   const firstBar = page.locator(".obs-review-hit").first();
@@ -69,6 +75,7 @@ test("recorded Twitch history stays usable with an explicit capture timestamp", 
 test("a Twitch collection gap reports itself on hover and leaves its end captures selectable", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "mobile-chromium", "Hover is a desktop interaction.");
   await page.goto("/observatory#platform-activity");
+  await hydrated(page);
   const activity = page.locator("#platform-activity");
   const readout = activity.locator(".obs-twitch-readout");
   const chart = activity.locator(".obs-twitch-chart");
