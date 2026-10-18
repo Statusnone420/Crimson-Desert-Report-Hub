@@ -27,6 +27,13 @@ describe("joining a reworded lead to its automatic issue group", () => {
     expect(nearDuplicateAutoCluster(title, category, clusters)).toBeNull();
   });
 
+  it("skips an emptied automatic group but keeps one created earlier in the batch", () => {
+    const emptied = { id: "5", slug: "auto-emptied", title: "Crash when opening map", category: "crash_startup", signal_count: 0 };
+    expect(nearDuplicateAutoCluster("Game crashes when opening the map", "crash_startup", [emptied])).toBeNull();
+    const createdThisBatch = { id: "6", slug: "auto-new", title: "Crash when opening map", category: "crash_startup" };
+    expect(nearDuplicateAutoCluster("Game crashes when opening the map", "crash_startup", [emptied, createdThisBatch])?.id).toBe("6");
+  });
+
   it("never picks a named watchlist cluster, and prefers the most recent of equal matches", () => {
     expect(nearDuplicateAutoCluster("Crash when opening map", "crash_startup", clusters)?.id).toBe("1");
     expect(nearDuplicateAutoCluster("Crash when opening map", "crash_startup", [clusters[3]])).toBeNull();

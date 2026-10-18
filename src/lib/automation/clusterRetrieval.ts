@@ -62,9 +62,11 @@ export function retrievalTokens(text: string): string[] {
  * can make. Deliberately strict: same category, at least two shared
  * distinctive words, and those cover three quarters of both titles, so titles
  * that share only a symptom ("crash opening map" / "crash opening inventory")
- * stay apart.
+ * stay apart. A cluster whose signals were all moved elsewhere (signal_count 0)
+ * is skipped, as the model's options skip it, so a relocation is not undone; a
+ * cluster created earlier in the same batch carries no count and is kept.
  */
-export function nearDuplicateAutoCluster<T extends RetrievalCluster>(
+export function nearDuplicateAutoCluster<T extends RetrievalCluster & { signal_count?: number | string | null }>(
   issueTitle: string,
   category: string,
   clusters: readonly T[],
@@ -74,6 +76,7 @@ export function nearDuplicateAutoCluster<T extends RetrievalCluster>(
   let best: { cluster: T; score: number } | null = null;
   for (const cluster of clusters) {
     if (!cluster.slug.startsWith("auto-") || String(cluster.category) !== category) continue;
+    if (cluster.signal_count !== null && cluster.signal_count !== undefined && Number(cluster.signal_count) === 0) continue;
     const tokens = new Set(retrievalTokens(cluster.title));
     let shared = 0;
     for (const token of wanted) if (tokens.has(token)) shared += 1;
