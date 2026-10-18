@@ -94,7 +94,9 @@ export function retrievalTokens(text: string): string[] {
  * can make. Deliberately strict: same category, at least two shared
  * distinctive words, and those cover three quarters of both titles, so titles
  * that share only a symptom ("crash opening map" / "crash opening inventory")
- * stay apart. Both titles must also agree on negation and carry the same
+ * stay apart. One title's words must all appear in the other, so a swapped
+ * word ("map screen" / "inventory screen") keeps them apart even at three
+ * quarters. Both titles must also agree on negation and carry the same
  * numbers and short terms, versions aside, so "Shadows appear" / "Shadows do
  * not appear", "Error 15" / "Error 30" and "UI stutter" / "AI stutter" stay
  * apart too. A cluster whose signals were all moved elsewhere
@@ -120,6 +122,10 @@ export function nearDuplicateAutoCluster<T extends RetrievalCluster & { signal_c
     for (const token of wanted) if (tokens.has(token)) shared += 1;
     const score = shared / Math.max(wanted.size, tokens.size);
     if (shared < 2 || score < 0.75) continue;
+    // A rewording adds or drops words. When each title has a word the other
+    // lacks, one was swapped for another and names a different target ("map
+    // screen" / "inventory screen").
+    if (shared < wanted.size && shared < tokens.size) continue;
     if (!best || score > best.score || (score === best.score && compareClusterRecency(cluster, best.cluster) < 0)) {
       best = { cluster, score };
     }

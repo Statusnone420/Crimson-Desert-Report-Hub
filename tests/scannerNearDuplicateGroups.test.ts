@@ -45,6 +45,12 @@ describe("joining a reworded lead to its automatic issue group", () => {
     expect(nearDuplicateAutoCluster("FPS drops in 8K", "performance", fps)).toBeNull();
   });
 
+  it("keeps titles apart when a word is swapped for another, but joins one that adds a word", () => {
+    const screens = [{ id: "12", slug: "auto-map-screen", title: "Crash when opening the map screen", category: "crash_startup" }];
+    expect(nearDuplicateAutoCluster("Crash when opening the inventory screen", "crash_startup", screens)).toBeNull();
+    expect(nearDuplicateAutoCluster("Crash when opening the map", "crash_startup", screens)?.id).toBe("12");
+  });
+
   it("keeps a title apart from its opposite", () => {
     const shadows = [{ id: "10", slug: "auto-shadows", title: "Shadows appear indoors", category: "graphics_visual" }];
     expect(nearDuplicateAutoCluster("Shadows do not appear indoors", "graphics_visual", shadows)).toBeNull();
