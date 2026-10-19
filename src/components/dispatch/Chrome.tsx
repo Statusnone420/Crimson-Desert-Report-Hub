@@ -15,7 +15,7 @@ import { buildCatchUpMilestones } from "@/lib/catchUpContent";
 import { CatchUpMilestones } from "@/components/catchup/CatchUpMilestones";
 
 export type PublicNavKey = "brief" | "news" | "watch" | "issues" | "patches" | "observatory" | "method" | "report";
-export type OperatorNavKey = "overview" | "review" | "problem-reports" | "claims" | "videos" | "scanner" | "ai" | "compile" | "settings";
+export type OperatorNavKey = "overview" | "review" | "problem-reports" | "claims" | "videos" | "scanner" | "ai" | "column" | "compile" | "settings";
 
 /** Deterministic dateline: UTC so server rendering never depends on host locale. */
 export function dispatchDateline(date: Date = new Date()): string {
