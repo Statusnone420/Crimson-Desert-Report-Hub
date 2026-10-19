@@ -130,6 +130,9 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
   });
   const fail = (reason: SkipReason, wordsKept = 0): ProcessedEdition => ({ ok: false, reason, report: report(reason, wordsKept) });
 
+  // A reply that judges any unit twice is malformed: which verdict counts would be a guess.
+  if (verdicts.size !== checker.sentences.length) return fail("check_failed");
+
   // Any named person or handle, anywhere, stops the edition.
   if (refs.some((ref) => verdicts.get(ref.id)?.namesPerson || HANDLE.test(ref.text))) return fail("person_named");
 

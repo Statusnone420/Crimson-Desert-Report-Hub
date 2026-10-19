@@ -116,6 +116,19 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
       not: (column: string, operator: string, value: null) => { if (operator === "is" && value === null) filters.push((row) => row[column] != null); return query; },
       gte: (column: string, value: string) => { filters.push((row) => row[column] != null && Date.parse(String(row[column])) >= Date.parse(value)); return query; },
       lte: (column: string, value: string) => { filters.push((row) => row[column] != null && Date.parse(String(row[column])) <= Date.parse(value)); return query; },
+      // PostgREST's or filter, for the terms the column uses: `column.is.null` and `column.gt.<time>`.
+      or: (expression: string) => {
+        const terms = expression.split(",").map((term) => {
+          const [column, operator] = term.split(".", 2);
+          return { column, operator, value: term.slice(column.length + operator.length + 2) };
+        });
+        filters.push((row) => terms.some(({ column, operator, value }) => {
+          if (operator === "is" && value === "null") return row[column] == null;
+          if (operator === "gt") return row[column] != null && Date.parse(String(row[column])) > Date.parse(value);
+          throw new Error(`The fake database can't read the or term ${column}.${operator}.${value}`);
+        }));
+        return query;
+      },
       order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => { orders.push({ column, ascending: options?.ascending ?? true, nullsFirst: options?.nullsFirst }); return query; },
       limit: (count: number) => { limit = count; return query; },
       range: (from: number, to: number) => { offset = from; limit = to - from + 1; return query; },
