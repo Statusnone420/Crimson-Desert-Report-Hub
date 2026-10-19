@@ -52,6 +52,7 @@ export type ClusterRow = {
   lifecycle_reason?: string | null;
   confidence: string;
   is_public: boolean;
+  created_at?: string | null;
 };
 
 type DashboardReportRow = {
@@ -1118,7 +1119,7 @@ async function getIssuesDataUncached() {
   // `published` register — can tell "no public clusters" from "could not read".
   const { data: clusterData, error: clusterError } = await supabase
     .from("issue_clusters")
-    .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public")
+    .select("id, slug, title, category, description, fix_status, fix_claimed_at, fix_claimed_patch_version, admin_override, lifecycle_reason, confidence, is_public, created_at")
     .eq("is_public", true);
 
   const { data: reports, error: reportsError } = await supabase
