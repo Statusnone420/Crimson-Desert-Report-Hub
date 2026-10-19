@@ -1,5 +1,5 @@
 import type { ActivityDay, ActivityHistory } from "@/lib/activityHistory";
-import { buildFactPack, type FactPack, type IssueAggregate } from "@/lib/editorials/factPack";
+import { buildFactPack, type FactPack, type IssueAggregate, type OfficialNotice } from "@/lib/editorials/factPack";
 import type { PatchEdition } from "@/lib/patchPublications";
 
 export const PACK_NOW = new Date("2026-10-26T14:05:00Z");
@@ -33,6 +33,15 @@ export const patch = (version: string, publishedAt: string, fixes: string[] = ["
   fixes: fixes.map((fixText) => ({ fixText, category: null, section: null })),
 });
 
+export const NOTICE_URL = "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=134";
+
+export function notice(overrides: Partial<OfficialNotice>): OfficialNotice {
+  return {
+    id: "announcement-test", publishedAt: "2026-10-25T10:00:00Z", says: ["Pearl Abyss shares a schedule update."],
+    source: { label: "Pearl Abyss — schedule update", url: NOTICE_URL }, ...overrides,
+  };
+}
+
 export function issue(overrides: Partial<IssueAggregate>): IssueAggregate {
   return {
     id: "00000000-0000-4000-8000-0000000000aa", title: "Crash when opening the map", approvedReports: 0, checkins: 0, checkinNetworks: 0,
@@ -42,7 +51,7 @@ export function issue(overrides: Partial<IssueAggregate>): IssueAggregate {
 
 export function samplePack(): FactPack {
   return buildFactPack({
-    now: PACK_NOW,
+    now: PACK_NOW, notices: [],
     patches: { available: true, editions: [patch("2.03.02", "2026-10-24T09:00:00Z", ["Fixed an issue where the map could crash.", "Fixed horses stuck in fences."])] },
     history: history(),
     board: { available: true, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, checkins: 5, checkinNetworks: 5, publicPosts: 3, postsBySite: { "Steam Community": 3 } })] },

@@ -90,7 +90,7 @@ describe("slot keys", () => {
   });
 });
 
-const quiet: FactPackDeltas = { newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [] };
+const quiet: FactPackDeltas = { newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [], newNoticeIds: [], upcomingReleaseIds: [] };
 
 describe("relevance", () => {
   it("scores new notes, new multi-signal issues and new verdicts on listed fixes", () => {

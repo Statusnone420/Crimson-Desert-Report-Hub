@@ -1,4 +1,4 @@
-import type { FactPack } from "@/lib/editorials/factPack";
+import { editionLead, type FactPack } from "@/lib/editorials/factPack";
 import type { MessagesRequest, SystemBlock } from "@/lib/editorials/messages";
 import type { CheckerModel, WriterEffort, WriterModel } from "@/lib/editorials/models";
 import { CHECKER_OUTPUT_SCHEMA, WRITER_OUTPUT_SCHEMA } from "@/lib/editorials/schemas";
@@ -44,23 +44,27 @@ function noteLine(note: StyleNote): string {
   return `- ${rating}${note.note ? `: ${note.note.replace(/\s+/g, " ").trim()}` : ""}`;
 }
 
-export const WRITER_INSTRUCTION = `Write this State of the Game edition from the fact pack in the user message. It's a patch-and-evidence brief for people who already play: what the latest official notes claim, then what the Hub's own data backs up.
+export const WRITER_INSTRUCTION = `Write this State of the Game edition from the fact pack in the user message. It's a patch-and-evidence brief for people who already play: what the latest official notes claim, what the Hub's own data backs up, and what Pearl Abyss's official notices say is coming.
 
 - Use only facts from the pack. In sourceIds, list the ids of every fact a paragraph uses; a paragraph with no factual claim has an empty list.
 - Every number, date, time and patch version you write must appear in a fact you cite. Don't round, convert or add years.
 - First person is for your reactions to the facts. Never invent things you did, saw or played.
-- Use these subheads word for word, in this order. Leave out any section with nothing real to say, but include "What the notes claim" or "What we can corroborate".
+- Use these subheads word for word. Leave out any section with nothing real to say.
   - "What the notes claim": the patch version and its date, then the listed fixes in plain English. Call out vague wording such as "certain situations".
   - "What we can corroborate": one short line per listed fix, each its own paragraph citing that fix's fact, in the form "Grimnir: nothing on the Hub yet." Give the fix's short name, then what its fact says the Hub has, never more than the fact's check. One thing per line: never say in the same sentence that the Hub has nothing and that no known issue is linked. A fix whose fact has no check gets no line.
   - "What players are still hitting": only known issues labeled Reported, or whose check is Still reported. Leave the section out when none qualify.
+  - "What Pearl Abyss says is coming": only with an official notice fact (an N id). Say only what the notice says, with the date it was published, and cite its fact so its link appears in the sources. Anything the notice doesn't say is unconfirmed: leave it out. No hype, no predictions and no advice on whether to play.
   - "The numbers": optional, one short beat of Steam or Twitch context.
+- The pack's "lead" sets the order.
+  - "patch": a new patch leads. Open with "What the notes claim" or "What we can corroborate", include at least one of them, and put any "What Pearl Abyss says is coming" after them.
+  - "notice": there's no new patch, so open with "What Pearl Abyss says is coming". Don't retell the latest patch: give it one sentence at most under "What the notes claim", and corroboration lines only for fixes whose check is Still reported or Confirmed by players.
 - Describe each known issue no more strongly than its fact's evidence and status allow. One report means a single source, which can send several check-ins, so never turn it into a count. An issue with forum links only has no label: attribute it by count ("4 public posts mention it") and never call it a pattern.
 - Write for readers, in plain words. Never write "Hub check", "fact pack" or "label", and never use a check's name as a noun ("three No Hub signal yet").
 - Name the patch version once per section. After that, say "the patch", "this fix" or the fix's short name, such as "the Grimnir fix".
 - The fact check can cut any sentence, so every sentence has to make sense without the one before it. No rhetorical questions, and no fragments that lean on the line before, like "Also not listed." or "Credit where it's due."
 - Never write about an empty issue board, zero check-ins or how many people use the Hub. Never tell readers whether to play, and write no outlook section.
-- Lead the title with the patch or the corroboration story, not a Steam or Twitch swing. The title is under 70 characters. The dek is one sentence.
-- The sections hold 300 to 500 words; in a thin week, at least 250.
+- Lead the title with what leads the edition: the patch or the corroboration story, or the official notice when "lead" is "notice". Never lead with a Steam or Twitch swing. The title is under 70 characters. The dek is one sentence.
+- The sections hold 300 to 500 words; in a thin week, at least 250, or at least 150 when "lead" is "notice".
 - factsBox holds 3 to 6 plain, joke-free statements, each with the ids it rests on.
 - Write every time in UTC, like "Oct 18, 16:00 UTC".
 - Before you answer, run the style guide's self-check and the pre-publish checklist.`;
@@ -74,10 +78,14 @@ export function writerContextBlock(notes: readonly StyleNote[], openers: readonl
   return parts.join("\n\n");
 }
 
-/** The pack as the models see it: ids, statements, periods and labels. Source URLs stay with the Hub. */
+/**
+ * The pack as the models see it: what leads the edition, then ids, statements, periods and labels.
+ * Source URLs stay with the Hub, which links each cited fact in the edition's sources.
+ */
 export function factPackMessage(pack: FactPack): string {
   return JSON.stringify({
     builtAt: pack.builtAt,
+    lead: editionLead(pack),
     facts: pack.facts.map((fact) => ({
       id: fact.id,
       text: fact.text,
@@ -118,11 +126,11 @@ export function writerRequest(input: WriterPromptParts & { model: WriterModel; e
 export const CHECKER_INSTRUCTION = `You are the fact checker for the State of the Game column. The user message holds the fact pack and the edition split into numbered units: the title (t), the dek (d), section subheads (h1, h2, ...), body sentences (b1, b2, ...) and facts-box items (x1, x2, ...). Each unit lists the ids its paragraph or item cites.
 
 Return every unit id exactly once, with:
-- supported: true when the unit makes no factual claim, or every claim in it is backed by facts in the pack. Exaggerating a fact's tone is fine; changing its substance is not. A claim about what the Hub can corroborate for a listed fix is backed only when a fact it cites carries that same Hub check.
+- supported: true when the unit makes no factual claim, or every claim in it is backed by facts in the pack. Exaggerating a fact's tone is fine; changing its substance is not. A claim about what the Hub can corroborate for a listed fix is backed only when a fact it cites carries that same Hub check. A claim about what Pearl Abyss has announced, including any date or time, is backed only by an official notice fact (an N id) that states it.
 - citedIds: the ids of the facts that back it; empty when it makes no factual claim.
 - namesPerson: true when it names or identifies any real person, player, poster, creator, streamer, journalist, reviewer or staff member, or any username or handle. The writer's own "I", "me" and "we" never count.
 - quotesPlayer: true when it quotes a player directly.
-- bannedWords: words or phrases from the style guide's banned lists or the checklist that appear in it, and any slur, sexual term or reference to real-world politics. Also list any phrase that tells readers whether to play, or that points out an empty issue board, zero check-ins or how many people use the Hub. Cursing on its own is allowed; don't list it.
+- bannedWords: words or phrases from the style guide's banned lists or the checklist that appear in it, and any slur, sexual term or reference to real-world politics. Also list any phrase that tells readers whether to play, or that points out an empty issue board, zero check-ins or how many people use the Hub, and any hype or prediction about what an official notice announces. Cursing on its own is allowed; don't list it.
 - slopRules: the numbers of the pre-publish checklist rules it breaks.
 
 Judge every unit against the style guide and the checklist above.`;

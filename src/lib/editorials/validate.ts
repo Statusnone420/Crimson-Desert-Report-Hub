@@ -1,5 +1,5 @@
 import { sectionsToMarkdown, type EditionSection, type EditionSource, type FactsBox } from "@/lib/editorials/content";
-import type { Fact, FactPack } from "@/lib/editorials/factPack";
+import { editionLead, type Fact, type FactPack } from "@/lib/editorials/factPack";
 import type { CheckerOutput, CheckerVerdict, WriterOutput } from "@/lib/editorials/schemas";
 
 export type SkipReason =
@@ -8,13 +8,16 @@ export type SkipReason =
   | "missing_required_section" | "slop_check_failed" | "no_time" | "too_long";
 
 export const MIN_WORDS = 250;
+/** A week led by an official notice has no new patch to walk through, so it may run shorter. */
+export const MIN_NOTICE_WORDS = 150;
 /** The database's limit on editorials.body_md: a longer edition can't be saved. */
 export const MAX_BODY_CHARACTERS = 20_000;
 export const MAX_TITLE_CHARACTERS = 69;
 export const MAX_FACTS_BOX_ITEMS = 6;
 const MAX_FACT_CHARACTERS = 400;
-/** The column is a patch-and-evidence brief: one of these sections has to survive the check. */
-const REQUIRED_SECTIONS = ["what the notes claim", "what we can corroborate"];
+/** A patch-led edition keeps one of its patch sections through the check; a notice-led one keeps its notice section. */
+const PATCH_SECTIONS = ["what the notes claim", "what we can corroborate"];
+const NOTICE_SECTION = "what pearl abyss says is coming";
 
 /** One numbered unit the checker judges: the title, the dek, a subhead, a body sentence or a facts-box item. */
 export type SentenceRef = {
@@ -62,6 +65,8 @@ const HARD_BANNED = new RegExp([
   // The Oct 19 rework: no play-tonight advice, no exaggerate parenthetical, no narrated empty board.
   "\\bplay(ing)? tonight\\b", "\\bshould (you|i|we) (still )?play\\b", "numbers don[’']t lie", "but they do exaggerate",
   "\\b(zero|0) check-ins?\\b", "\\bempty (issue )?board\\b",
+  // Official notices get no hype.
+  "\\bhyped?\\b", "can[’']t wait", "mark your calendars?", "\\bget ready\\b",
   // Pipeline words never reach readers, and a check's name is never a noun ("three No Hub signal yet").
   "\\bhub checks?\\b", "\\bfact[- ]packs?\\b", "\\b(confirmed|evidence|status) label(s|l?ed)?\\b",
   "\\b(\\d+|two|three|four|five|six|seven|eight|nine|ten) (no hub signal yet|still reported|too little to call|confirmed by players)\\b",
@@ -133,8 +138,9 @@ export type ProcessedEdition =
  * pack, or carry a number no cited fact contains, plus every body question and a short line
  * left right after a cut sentence, and drops an outlook section. Then skips when
  * a person is named, the title or dek can't be cleaned, the title runs 70 characters or more,
- * neither "What the notes claim" nor "What we can corroborate" survives, fewer than 250 words
- * remain, the body is too long to store, or the facts box is missing or unsourced.
+ * the lead's section doesn't survive ("What the notes claim" or "What we can corroborate" for a
+ * patch, "What Pearl Abyss says is coming" for a notice), fewer than 250 words remain (150 when
+ * a notice leads), the body is too long to store, or the facts box is missing or unsourced.
  */
 export function processEdition(output: WriterOutput, checker: CheckerOutput, pack: FactPack): ProcessedEdition {
   const refs = numberSentences(output);
@@ -233,10 +239,12 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
     if (paragraphs.length) sections.push({ subhead: section.subhead.trim(), paragraphs });
   });
   const words = sections.reduce((total, section) => total + section.paragraphs.reduce((sum, paragraph) => sum + wordCount(paragraph), 0), 0);
-  if (!sections.some((section) => REQUIRED_SECTIONS.some((required) => section.subhead.toLowerCase().startsWith(required)))) {
+  const noticeLed = editionLead(pack) === "notice";
+  const required = noticeLed ? [NOTICE_SECTION] : PATCH_SECTIONS;
+  if (!sections.some((section) => required.some((name) => section.subhead.toLowerCase().startsWith(name)))) {
     return fail("missing_required_section", words);
   }
-  if (words < MIN_WORDS) return fail("too_short", words);
+  if (words < (noticeLed ? MIN_NOTICE_WORDS : MIN_WORDS)) return fail("too_short", words);
   if (sectionsToMarkdown(sections).length > MAX_BODY_CHARACTERS) return fail("too_long", words);
 
   // Each kept item carries its effective ids, so the checker's citations count here too.

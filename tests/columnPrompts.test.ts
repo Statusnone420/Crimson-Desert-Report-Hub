@@ -16,8 +16,9 @@ import {
   writerRequest,
   type WriterPromptParts,
 } from "@/lib/editorials/prompts";
+import { buildFactPack } from "@/lib/editorials/factPack";
 import { numberSentences } from "@/lib/editorials/validate";
-import { samplePack } from "./columnPackFixtures";
+import { history, notice, NOTICE_URL, PACK_NOW, samplePack } from "./columnPackFixtures";
 import { pipelinePack, writerOutput } from "./columnPipelineFixtures";
 
 const guides = readColumnGuides();
@@ -35,7 +36,7 @@ describe("the column's guides", () => {
     const file = (name: string) => readFileSync(path.join(directory, name), "utf8").replace(/\r\n/g, "\n");
     expect(guides.style).toBe(file("hubDeskStyle.md"));
     expect(guides.slop).toBe(file("avoidAiSlop.md"));
-    expect(guides.style.startsWith("# State of the Game, by Statusnone: voice, style guide and guardrails (v3, 2026-10-19)\n")).toBe(true);
+    expect(guides.style.startsWith("# State of the Game, by Statusnone: voice, style guide and guardrails (v3.1, 2026-10-19)\n")).toBe(true);
     expect(guides.slop.startsWith("## Pre-publish checklist\n")).toBe(true);
     expect(guides.slop.match(/^\d+\. /gm)).toHaveLength(15);
   });
@@ -95,7 +96,7 @@ describe("the writer and checker prompts", () => {
 
   it("asks the writer for the v3 sections, with no forecast, outlook or empty-board line", () => {
     for (const subhead of ["What the notes claim", "What we can corroborate", "What players are still hitting", "The numbers"]) expect(WRITER_INSTRUCTION).toContain(`- "${subhead}": `);
-    expect(WRITER_INSTRUCTION).toContain('include "What the notes claim" or "What we can corroborate"');
+    expect(WRITER_INSTRUCTION).toContain('Open with "What the notes claim" or "What we can corroborate", include at least one of them');
     expect(WRITER_INSTRUCTION).toContain(`one short line per listed fix, each its own paragraph citing that fix's fact, in the form "Grimnir: nothing on the Hub yet."`);
     expect(WRITER_INSTRUCTION).toContain("never say in the same sentence that the Hub has nothing and that no known issue is linked. A fix whose fact has no check gets no line.");
     expect(WRITER_INSTRUCTION).toContain(`Name the patch version once per section. After that, say "the patch", "this fix" or the fix's short name`);
@@ -111,7 +112,18 @@ describe("the writer and checker prompts", () => {
 
   it("has the checker hold corroboration to the fact's Hub check, and flag play advice and empty-board lines", () => {
     expect(CHECKER_INSTRUCTION).toContain("A claim about what the Hub can corroborate for a listed fix is backed only when a fact it cites carries that same Hub check.");
-    expect(CHECKER_INSTRUCTION).toContain("Also list any phrase that tells readers whether to play, or that points out an empty issue board, zero check-ins or how many people use the Hub.");
+    expect(CHECKER_INSTRUCTION).toContain("Also list any phrase that tells readers whether to play, or that points out an empty issue board, zero check-ins or how many people use the Hub, and any hype or prediction about what an official notice announces.");
+  });
+
+  it("adds what Pearl Abyss says is coming only from an official notice, after the patch when a patch leads", () => {
+    expect(WRITER_INSTRUCTION).toContain('- "What Pearl Abyss says is coming": only with an official notice fact (an N id). Say only what the notice says, with the date it was published');
+    expect(WRITER_INSTRUCTION).toContain("Anything the notice doesn't say is unconfirmed: leave it out. No hype, no predictions and no advice on whether to play.");
+    expect(WRITER_INSTRUCTION).toContain('put any "What Pearl Abyss says is coming" after them.');
+    expect(WRITER_INSTRUCTION).toContain(`"notice": there's no new patch, so open with "What Pearl Abyss says is coming". Don't retell the latest patch`);
+    expect(WRITER_INSTRUCTION).toContain('at least 150 when "lead" is "notice"');
+    expect(CHECKER_INSTRUCTION).toContain("A claim about what Pearl Abyss has announced, including any date or time, is backed only by an official notice fact (an N id) that states it.");
+    expect(guides.style).toContain("   - **What Pearl Abyss says is coming (optional):** only when there's an official notice.");
+    expect(guides.style).toContain("An announced date or feature is only what an official Pearl Abyss notice says. No rumors, Reddit, or X.");
   });
 
   it("passes each fact's labels and Hub check to the models, never its URL", () => {
@@ -121,6 +133,13 @@ describe("the writer and checker prompts", () => {
     expect(facts.find((fact) => fact.id === "C1")).toMatchObject({ label: "Reported" });
     expect(facts.find((fact) => fact.id === "S1")).not.toHaveProperty("check");
     expect(factPackMessage(samplePack())).not.toContain("https://");
+  });
+
+  it("tells the models whether a new patch or an official notice leads, and keeps the notice's URL with the Hub", () => {
+    expect(JSON.parse(factPackMessage(samplePack())).lead).toBe("patch");
+    const quiet = buildFactPack({ now: PACK_NOW, notices: [notice({})], patches: { available: false }, history: history(), board: { available: false }, previous: null });
+    expect(JSON.parse(factPackMessage(quiet))).toMatchObject({ lead: "notice", facts: expect.arrayContaining([expect.objectContaining({ id: "N1", source: "Pearl Abyss — schedule update" })]) });
+    expect(factPackMessage(quiet)).not.toContain(NOTICE_URL);
   });
 
   it("trims the oldest notes and openers first, then the rotating examples", () => {

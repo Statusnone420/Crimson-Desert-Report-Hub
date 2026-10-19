@@ -1,4 +1,4 @@
-import { editorialArticles, type EditorialArticle } from "./editorialArticles";
+import { editorialArticles, type EditorialArticle, type NoticeSays, type ReleaseDate } from "./editorialArticles";
 
 export type CatchUpMilestone = {
   id: string;
@@ -13,6 +13,8 @@ export type CatchUpMilestone = {
   image?: { src: string; alt: string; width: number; height: number };
   source: { label: string; url: string };
   related?: { label: string; url: string }[];
+  release?: ReleaseDate;
+  noticeSays?: NoticeSays;
 };
 
 // Patch history begins at 1.13.00. publishedAt uses official notice times in UTC.
@@ -290,6 +292,7 @@ const HISTORICAL_MILESTONES: readonly CatchUpMilestone[] = [
     kind: "announcement",
     title: "Charting the Unknown is scheduled for October 15",
     summary: "Pearl Abyss publishes the expansion’s launch schedule and pre-order details. The official overview describes ship travel, underwater exploration and expanded housing.",
+    release: { id: "charting-the-unknown", at: "2026-10-15T22:00:00Z" },
     highlights: [
       "The announced launch is October 15, 2026 at 10 pm UTC, or 6 pm Eastern.",
       "The expansion overview includes offshore islands and facilities to rent and manage.",

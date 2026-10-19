@@ -12,7 +12,7 @@ export function pipelinePack(newsworthy = true): FactPack {
     builtAt: RUN_NOW.toISOString(),
     gaps: [],
     metrics: { patchVersions: ["2.03.02"], latestPatch: { version: "2.03.02", kind: "hotfix", publishedAt: "2026-10-24T09:00:00Z" }, playersAvg7d: 18000, reviewShare7d: 72, twitchAvg7d: 3000, patternIssueIds: [] },
-    deltas: { newPatchVersions: newsworthy ? ["2.03.02"] : [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [] },
+    deltas: { newPatchVersions: newsworthy ? ["2.03.02"] : [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [], newNoticeIds: [], upcomingReleaseIds: [] },
     facts: [
       { id: "P1", text: "Patch 2.03.02 (hotfix) official notes published Oct 24, 09:00 UTC. The notes list 2 fixes.", period: "Oct 24, 09:00 UTC", value: "2.03.02", source: { label: "Pearl Abyss patch notes 2.03.02", url: "https://crimsondesert.pearlabyss.com/en-us/News/Notice/Detail?_boardNo=140" } },
       { id: "S1", text: "18,166 players were online on Steam at Oct 26, 14:00 UTC, 26% below the usual for a Sunday at that time.", period: "Oct 26, 14:00 UTC", value: 18166, source: { label: "Steam players online, Report Hub Observatory", url: "/observatory#updates" } },

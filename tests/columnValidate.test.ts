@@ -8,7 +8,7 @@ const pack: FactPack = {
   builtAt: "2026-10-26T14:05:00.000Z",
   gaps: [],
   metrics: { patchVersions: ["2.03.02"], latestPatch: null, playersAvg7d: null, reviewShare7d: null, twitchAvg7d: null, patternIssueIds: [] },
-  deltas: { newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [] },
+  deltas: { newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [], newNoticeIds: [], upcomingReleaseIds: [] },
   facts: [
     { id: "P1", text: "Patch 2.03.02 (hotfix) official notes published Oct 24, 09:00 UTC. The notes list 2 fixes.", period: "Oct 24, 09:00 UTC", value: "2.03.02", source: { label: "Pearl Abyss patch notes 2.03.02", url: "https://crimsondesert.pearlabyss.com/en-us/News/Notice/Detail?_boardNo=140" } },
     { id: "S1", text: "18,166 players were online on Steam at Oct 26, 14:00 UTC, 26% below the usual for a Sunday at that time.", period: "Oct 26, 14:00 UTC", value: 18166, source: { label: "Steam players online, Report Hub Observatory", url: "/observatory#updates" } },
@@ -288,6 +288,11 @@ describe("post-processing", () => {
     "The Confirmed label on these fixes means the notes list them.",
     "The fact pack lists 3 fixes.",
     "Three claims, three No Hub signal yet.",
+    // No hype about what an official notice announces.
+    "I can't wait for Oct 29.",
+    "Mark your calendars for the launch.",
+    "Get ready for ships and diving.",
+    "The hype is real this week.",
   ])("deletes play-tonight advice, the exaggerate line, a narrated empty board, hype and pipeline words: %s", (line) => {
     expect(hardSlop(line)).toEqual(["banned_word"]);
   });
@@ -343,5 +348,58 @@ describe("post-processing", () => {
   it("skips when the facts box is missing or unsourced", () => {
     expect(process(writer({ factsBox: [] }))).toMatchObject({ ok: false, reason: "check_failed" });
     expect(process(writer({ factsBox: [{ text: "Patch 2.03.02 lists 2 fixes.", sourceIds: [] }] }))).toMatchObject({ ok: false, reason: "check_failed" });
+  });
+});
+
+describe("an edition led by an official notice", () => {
+  const notice = {
+    id: "N1",
+    text: "Pearl Abyss official notice published Sep 30, 10:20 UTC. Charting the Unknown moves to October 29. The notice sets the release for Oct 29, 22:00 UTC.",
+    period: "Sep 30, 10:20 UTC",
+    value: "2026-10-29T22:00:00Z",
+    source: { label: "Pearl Abyss — September 30 release-date update", url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=134" },
+  };
+  // No new patch, and an official notice in the pack: the notice leads.
+  const noticePack: FactPack = { ...pack, facts: [notice, ...pack.facts] };
+  const COMING = "Pearl Abyss set the release for Oct 29, 22:00 UTC in a notice published Sep 30, 10:20 UTC.";
+  const noticeLed = (sections: WriterOutput["sections"]) => writer({
+    title: "Charting the Unknown is set for Oct 29",
+    dek: "Pearl Abyss's latest notice sets the expansion's launch.",
+    sections,
+    factsBox: [{ text: "Pearl Abyss set the release for Oct 29, 22:00 UTC.", sourceIds: ["N1"] }],
+  });
+  const run = (output: WriterOutput, against: FactPack = noticePack) => processEdition(output, checker(output), against);
+
+  it("publishes a quiet patch week led by the notice from 150 words, with the notice linked in its sources", () => {
+    const result = run(noticeLed([{ subhead: "What Pearl Abyss says is coming", paragraphs: [paragraph(COMING, ["N1"])] }]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.report.wordsKept).toBeGreaterThanOrEqual(150);
+    expect(result.report.wordsKept).toBeLessThan(250);
+    expect(result.factsBox.sources).toEqual([{ id: "N1", label: notice.source.label, url: notice.source.url }]);
+  });
+
+  it("skips a notice-led week that only retells the old patch", () => {
+    const rerun = noticeLed([
+      { subhead: "What the notes claim", paragraphs: [paragraph(NOTES, ["P1"])] },
+      { subhead: "The numbers", paragraphs: [paragraph(NUMBERS, ["S1"])] },
+    ]);
+    expect(run(rerun)).toMatchObject({ ok: false, reason: "missing_required_section" });
+  });
+
+  it("skips a notice-led week under 150 words", () => {
+    const short = noticeLed([{ subhead: "What Pearl Abyss says is coming", paragraphs: [{ text: COMING, sourceIds: ["N1"] }] }]);
+    expect(run(short)).toMatchObject({ ok: false, reason: "too_short" });
+  });
+
+  it("still needs a patch section and 250 words when a new patch leads, notice or not", () => {
+    const newPatch: FactPack = { ...noticePack, deltas: { ...noticePack.deltas, newPatchVersions: ["2.03.02"] } };
+    const noticeOnly = noticeLed([{ subhead: "What Pearl Abyss says is coming", paragraphs: [paragraph(COMING, ["N1"]), paragraph(COMING, ["N1"])] }]);
+    expect(run(noticeOnly, newPatch)).toMatchObject({ ok: false, reason: "missing_required_section" });
+    const both = noticeLed([
+      { subhead: "What the notes claim", paragraphs: [paragraph(NOTES, ["P1"])] },
+      { subhead: "What Pearl Abyss says is coming", paragraphs: [{ text: COMING, sourceIds: ["N1"] }] },
+    ]);
+    expect(run(both, newPatch)).toMatchObject({ ok: false, reason: "too_short" });
   });
 });

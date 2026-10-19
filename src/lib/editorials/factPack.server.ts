@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getActivityHistory } from "@/lib/activityHistory.server";
+import { CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
 import { buildFactPack, type FactPack, type FactPackMetrics, type IssueAggregate, type IssueBoard } from "@/lib/editorials/factPack";
 import { needsFullIssueCard } from "@/lib/evidence";
 import { getPatchPublications } from "@/lib/patchPublications.server";
@@ -81,6 +82,10 @@ export async function readFactPack(now: Date, previous: FactPackMetrics | null):
   return buildFactPack({
     now,
     patches: patches.unavailable ? { available: false } : { available: true, editions: patches.editions },
+    // The reviewed official notices on the catch-up page; patch notes reach the pack as patches.
+    // Their highlights can draw on several sources, so only the lines tied to each notice go in.
+    notices: CATCH_UP_MILESTONES.filter((milestone) => milestone.kind === "announcement")
+      .map(({ id, publishedAt, noticeSays, source, release }) => ({ id, publishedAt, says: noticeSays, source, release })),
     history,
     board: issues ? issueBoard(issues) : { available: false },
     previous,

@@ -1,8 +1,8 @@
-# State of the Game, by Statusnone: voice, style guide and guardrails (v3, 2026-10-19)
-Replaces v2. Never call the column the Pywel Desk. Statusnone rejected the "Steam/Twitch weather report + play tonight" shape on the first test draft (Oct 19).
+# State of the Game, by Statusnone: voice, style guide and guardrails (v3.1, 2026-10-19)
+Replaces v2. v3.1 adds official Pearl Abyss notices. Never call the column the Pywel Desk. Statusnone rejected the "Steam/Twitch weather report + play tonight" shape on the first test draft (Oct 19).
 
 ## What this column is
-A patch-and-evidence brief for people who already play Crimson Desert. Core job: take the latest official notes, say what they claim, and say what the Hub can corroborate from its own data (scanner, issue board when there is signal, Steam/Twitch only as supporting context). Jokes and cursing are optional seasoning, not the point.
+A patch-and-evidence brief for people who already play Crimson Desert. Core job: take the latest official notes, say what they claim, and say what the Hub can corroborate from its own data (scanner, issue board when there is signal, Steam/Twitch only as supporting context). When Pearl Abyss posts an official notice, such as a release date, say what it says is coming. Jokes and cursing are optional seasoning, not the point.
 
 Not a comedy bit. Not a "should you play tonight?" pitch. Not a callout of the Hub's empty queues.
 
@@ -15,13 +15,15 @@ Statusnone, in first person ("I" / "we"). No persona, mascot, or "the Desk." Cas
 - Cut filler. No "same as me," no "lobby isn't packed," no throat-clearing.
 - Plain English, short sentences, US spelling. Banned: hype ("insane," "game-changer"), "let's dive in," rhetorical openers, "rollercoaster."
 
-## Format (aim 300–500 words; under is OK if the week is thin)
-1. Headline: specific, under 70 characters. Prefer the patch or the corroboration story over raw Steam/Twitch % swings.
+## Format (aim 300–500 words; under is OK if the week is thin, and a week led by an official notice can run 150)
+1. Headline: specific, under 70 characters. Prefer the patch or the corroboration story over raw Steam/Twitch % swings. With no new patch, lead with the official notice.
 2. Dek: one sentence on what this edition covers.
 3. Suggested sections (skip any with nothing real to say):
    - **What the notes claim:** name the patch/version and date; list the official fix claims in plain English. Call out vague wording ("certain situations," "certain regions").
    - **What we can corroborate:** for each claim, say confirmed / still reported / one sighting / no Hub signal yet — using Hub data only. Never invent corroboration.
    - **What players are still hitting:** only when there are 2+ independent signals. A single signal is "one sighting." If the issue board is empty, omit this section entirely — do not write about zero check-ins or an empty board.
+   - **What Pearl Abyss says is coming (optional):** only when there's an official notice. Say only what the notice says, with the date it was published; its link goes in the sources. Anything the notice doesn't say is unconfirmed: leave it out. No hype, no predictions, no play-tonight advice.
+   - Order: when there's a new patch, its claims and the Hub's corroboration come first. When there isn't, "What Pearl Abyss says is coming" leads and the old patch gets one line at most.
    - **Numbers (optional, supporting):** Steam concurrent, review mood, Twitch — one short beat if it adds context. Section title is plain (e.g. "The numbers"). Never "The numbers don't lie (but they do exaggerate)."
 4. **"What's actually true"** box, always last: 3–6 plain sourced bullets. This is the part Statusnone likes; protect it.
 5. **No Outlook / "play tonight" section.** Readers are already fans. Don't tell them whether to play.
@@ -36,6 +38,7 @@ Statusnone, in first person ("I" / "we"). No persona, mascot, or "the Desk." Cas
 - Every factual sentence cites a fact-pack source ID. Untraceable lines get cut.
 - Hedge to match the data: confirmed = official notice or Hub-confirmed fix; reported = repeated player signals; one sighting = single signal; no Hub signal yet = say that plainly for a claim we couldn't check.
 - Never invent numbers, quotes, patch lines, dates, features, or announcements.
+- An announced date or feature is only what an official Pearl Abyss notice says. No rumors, Reddit, or X.
 - No speculation about unannounced content, release dates, studio internals, or sales.
 
 ## Comedy guardrails
@@ -46,6 +49,7 @@ Never: named people, identity/platform digs, drama, politics, slurs, sexual cont
 - Facts box present, joke-free, sourced.
 - Patch named before "it lists…" style pronouns.
 - No empty-board section, no play-tonight outlook, no exaggerate parenthetical.
+- Notice section says only what the notice says, with its date. No hype or predictions.
 - Headline under 70 characters. Byline "State of the Game, by Statusnone" only (pseudonym, never legal name).
 
 ## Feedback tuning
@@ -54,6 +58,6 @@ Never: named people, identity/platform digs, drama, politics, slurs, sexual cont
 - After 3 thumbs-down on the same bit, retire it.
 
 ## Skip conditions (silent)
-- Nothing new since last edition (no patch, no corroboration movement, no multi-signal topics).
+- Nothing new since last edition (no patch, no corroboration movement, no multi-signal topics, no new official notice, no official release date in the next two weeks).
 - Fact check fails, or a person is named.
 - Pause is on.
