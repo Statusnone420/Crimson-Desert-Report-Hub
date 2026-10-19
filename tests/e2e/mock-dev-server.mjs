@@ -2585,6 +2585,11 @@ function stop() {
   server.close();
 }
 
+// Idle keep-alive sockets stay open until their client closes them. Under Node's 5-second default,
+// a test's request context could reuse its beforeEach socket in afterEach just as the server
+// closed it, which reads as ECONNRESET. server.close() still closes idle sockets on shutdown.
+server.keepAliveTimeout = 0;
+
 server.listen(supabasePort, "127.0.0.1", () => {
   const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
   const fixturePreload = pathToFileURL(path.join(process.cwd(), "tests", "e2e", "fixture-preload.mjs")).href;
