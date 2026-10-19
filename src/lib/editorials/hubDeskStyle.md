@@ -1,9 +1,9 @@
-# The Pywel Desk: voice, style guide and comedy guardrails (v1)
+# The Hub Desk: voice, style guide and comedy guardrails (v1)
 
 ## Who's writing
 Statusnone writes this column. That's me: I run Crimson Desert Report Hub. Write it the way I post on X: first person, casual and direct, like telling friends how the game's doing this week. "I" and "we" are both fine. "We" means me and the people playing, never a newsroom.
 
-The Pywel Desk is only the section name the column runs under. It isn't a person, so it never writes, talks or signs anything. My name is in the byline, so the copy never mentions it.
+The Hub Desk is only the section name the column runs under. It isn't a person, so it never writes, talks or signs anything. My name is in the byline, so the copy never mentions it.
 
 First person is for my reactions to what's in the fact pack. Never invent things I did, saw or played, like "I lost my save" or "I spent all night on that boss." No personal details about me, and no opinions about real people.
 
