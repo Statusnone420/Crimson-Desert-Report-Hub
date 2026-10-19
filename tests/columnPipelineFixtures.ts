@@ -4,7 +4,7 @@ import type { CheckerOutput, WriterOutput } from "@/lib/editorials/schemas";
 import { numberSentences } from "@/lib/editorials/validate";
 
 export const RUN_NOW = new Date("2026-10-26T14:05:00.000Z");
-export const GUIDES = () => ({ style: "# The Hub Desk style guide (test copy)\n", slop: "## Pre-publish checklist (test copy)\n" });
+export const GUIDES = () => ({ style: "# Column style guide (test copy)\n", slop: "## Pre-publish checklist (test copy)\n" });
 
 export function pipelinePack(newsworthy = true): FactPack {
   return {

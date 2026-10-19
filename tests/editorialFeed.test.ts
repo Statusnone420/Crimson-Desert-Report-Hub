@@ -71,7 +71,7 @@ describe("editorial Atom/RSS of original Hub reports", () => {
     expect(xml).not.toContain("<islands>");
   });
 
-  it("emits Atom 1.0 for each editorial article with Hub Desk fields", () => {
+  it("emits Atom 1.0 with each editorial article's fields", () => {
     const xml = buildAtomXml();
     const link = `${SITE_URL}${chartingTheUnknown.path}`;
     expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);

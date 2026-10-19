@@ -1,5 +1,5 @@
 import { editorialArticles, type EditorialArticle } from "@/lib/editorialArticles";
-import { COLUMN_SECTION, editionDescription, editorialPath, type PublicEdition } from "@/lib/editorials/content";
+import { COLUMN_NAME, editionDescription, editorialPath, type PublicEdition } from "@/lib/editorials/content";
 import { SITE_FEED_PATH, SITE_FEED_SUBTITLE, SITE_NAME, SITE_RSS_PATH, SITE_URL } from "@/lib/site";
 
 export const ATOM_CONTENT_TYPE = "application/atom+xml; charset=utf-8";
@@ -20,14 +20,14 @@ export type FeedEntry = Pick<EditorialArticle, "searchTitle" | "description" | "
   path: `/${string}`;
 };
 
-/** A visible edition as a feed entry, filed under the column's section and signed with its byline. */
+/** A visible edition as a feed entry, filed under the column's name and signed with its byline. */
 export function editionFeedEntry(edition: PublicEdition): FeedEntry {
   return {
     path: editorialPath(edition.slug),
     searchTitle: edition.title,
     description: editionDescription(edition),
     publishedAt: edition.publishAt,
-    section: COLUMN_SECTION,
+    section: COLUMN_NAME,
     author: edition.author,
   };
 }
