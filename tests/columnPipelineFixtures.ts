@@ -8,7 +8,7 @@ export const GUIDES = () => ({ style: "# Column style guide (test copy)\n", slop
 
 export function pipelinePack(newsworthy = true): FactPack {
   return {
-    version: 1,
+    version: 2,
     builtAt: RUN_NOW.toISOString(),
     gaps: [],
     metrics: { patchVersions: ["2.03.02"], latestPatch: { version: "2.03.02", kind: "hotfix", publishedAt: "2026-10-24T09:00:00Z" }, playersAvg7d: 18000, reviewShare7d: 72, twitchAvg7d: 3000, patternIssueIds: [] },

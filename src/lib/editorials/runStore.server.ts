@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ledgerMonth } from "@/lib/editorials/budget";
 import { markdownToSections } from "@/lib/editorials/content";
-import type { FactPack, FactPackMetrics } from "@/lib/editorials/factPack";
+import { FACT_PACK_VERSION, type FactPack, type FactPackMetrics } from "@/lib/editorials/factPack";
 import type { ApprovedEdition, Opener, StyleNote, VoiceExample } from "@/lib/editorials/prompts";
 import { ColumnNotSetUpError } from "@/lib/editorials/settings.server";
 import { isColumnTableMissing } from "@/lib/editorials/store.server";
@@ -128,7 +128,8 @@ export async function approvedEditions(client: SupabaseClient): Promise<(Approve
 /**
  * The freshest stored fact pack, real or test, so every test draft sees the same facts.
  * Ordered by when each pack was built, not when its row was written: a slow test draft
- * that saves an older pack after a newer one never brings the older pack back.
+ * that saves an older pack after a newer one never brings the older pack back. A pack
+ * from an older format returns null, so the next test draft builds a fresh one.
  */
 export async function latestFactPack(client: SupabaseClient): Promise<FactPack | null> {
   const { data, error } = await client.from("editorials").select("fact_pack")
@@ -137,7 +138,7 @@ export async function latestFactPack(client: SupabaseClient): Promise<FactPack |
     .order("created_at", { ascending: false }).limit(1);
   check(error, "Fact pack read");
   const pack = (data?.[0] as { fact_pack?: FactPack } | undefined)?.fact_pack;
-  return pack && pack.version === 1 && Array.isArray(pack.facts) ? pack : null;
+  return pack && pack.version === FACT_PACK_VERSION && Array.isArray(pack.facts) ? pack : null;
 }
 
 export type SkipFields = { relevance_score?: number | null; fact_pack?: FactPack | null; writer_model?: string | null; writer_effort?: string | null; hold_hours?: number | null };

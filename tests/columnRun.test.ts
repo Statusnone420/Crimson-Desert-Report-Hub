@@ -94,7 +94,7 @@ describe("one wake of the column", () => {
   it("stores the fact pack and score on a below-threshold skip", async () => {
     mocks.pack.mockResolvedValue(pipelinePack(false));
     await run(providerFetch().impl);
-    expect(editorials()[0]).toMatchObject({ skip_reason: "below_threshold", relevance_score: 0, fact_pack: expect.objectContaining({ version: 1 }) });
+    expect(editorials()[0]).toMatchObject({ skip_reason: "below_threshold", relevance_score: 0, fact_pack: expect.objectContaining({ version: 2 }) });
   });
 
   it("uses only the column's OpenRouter key when OpenRouter is selected", async () => {

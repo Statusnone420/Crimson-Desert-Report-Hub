@@ -185,6 +185,19 @@ describe("A/B test drafts", () => {
     expect((await latestFactPack(db.client))?.builtAt).toBe(newer.builtAt);
   });
 
+  it("never reuse a pack stored before Hub checks: the first draft builds a fresh one for the rest to share", async () => {
+    // A pack from before version 2: no Hub checks, and deltas without newVerdictIssueIds.
+    const beforeChecks = {
+      ...pipelinePack(), version: 1, builtAt: "2026-10-19T14:00:00.000Z",
+      deltas: { newPatchVersions: [], newUpdate: false, playersChangePct: null, reviewShareChangePoints: null, twitchChangePct: null, newPatternIssueIds: [] },
+    };
+    db.tables.editorials.push({ id: "real", slot_key: "2026-W43:mon", status: "skipped", skip_reason: "check_failed", is_test: false, fact_pack: beforeChecks, created_at: "2026-10-19T14:00:00Z", updated_at: "2026-10-19T14:00:00Z" });
+    expect(await latestFactPack(db.client)).toBeNull();
+    expect(await draft("claude-opus-5-5", providerFetch().impl)).toEqual({ status: "saved" });
+    expect(mocks.pack).toHaveBeenCalledTimes(1);
+    expect((await latestFactPack(db.client))?.builtAt).toBe(pipelinePack().builtAt);
+  });
+
   it("skip before any paid call when the budget can't cover both the writer and the checker", async () => {
     db.tables.editorials.push({ id: "real", slot_key: "2026-W43:s0", status: "skipped", skip_reason: "below_threshold", is_test: false, fact_pack: pipelinePack(), created_at: "2026-10-19T14:00:00Z", updated_at: "2026-10-19T14:00:00Z" });
     db.tables.editorial_ai_spend.push({ id: "spent", month: "2026-10", operation: "writer", provider: "anthropic", model: "claude-opus-5-5", reserved_usd: 14.9, settled_usd: 14.9, cost_state: "settled", created_at: RUN_NOW.toISOString() });

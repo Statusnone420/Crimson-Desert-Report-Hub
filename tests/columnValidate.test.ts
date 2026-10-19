@@ -4,7 +4,7 @@ import type { CheckerOutput, WriterOutput } from "@/lib/editorials/schemas";
 import { hardSlop, numberSentences, processEdition, splitSentences } from "@/lib/editorials/validate";
 
 const pack: FactPack = {
-  version: 1,
+  version: 2,
   builtAt: "2026-10-26T14:05:00.000Z",
   gaps: [],
   metrics: { patchVersions: ["2.03.02"], latestPatch: null, playersAvg7d: null, reviewShare7d: null, twitchAvg7d: null, patternIssueIds: [] },
