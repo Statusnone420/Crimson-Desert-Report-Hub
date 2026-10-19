@@ -28,7 +28,8 @@ export async function editionNotes(client: SupabaseClient, editorialId: string):
 }
 
 export async function listVoiceExamples(client: SupabaseClient): Promise<VoiceExampleRow[]> {
-  const { data, error } = await client.from("voice_examples").select("id, body, label, position").order("position").order("created_at").limit(MAX_VOICE_EXAMPLES);
+  // The same order voice_examples_reorder compares with, ties broken by id.
+  const { data, error } = await client.from("voice_examples").select("id, body, label, position").order("position").order("created_at").order("id").limit(MAX_VOICE_EXAMPLES);
   check(error, "Voice examples read");
   return (data ?? []) as VoiceExampleRow[];
 }
@@ -57,7 +58,8 @@ export async function deleteVoiceExample(client: SupabaseClient, id: string): Pr
 
 /**
  * Swaps an example with its neighbour, so the list order is the order the writer reads
- * them. The database writes the whole new order in one transaction, or nothing.
+ * them. The database writes the whole new order in one transaction, or nothing, and
+ * refuses it when the list changed after this read, so a concurrent move is never lost.
  */
 export async function moveVoiceExample(client: SupabaseClient, id: string, direction: "up" | "down"): Promise<"moved" | "missing" | "changed"> {
   const examples = await listVoiceExamples(client);
@@ -65,9 +67,10 @@ export async function moveVoiceExample(client: SupabaseClient, id: string, direc
   const other = examples[direction === "up" ? index - 1 : index + 1];
   if (index < 0) return "missing";
   if (!other) return "moved";
-  const order = examples.map((example) => example.id);
+  const expected = examples.map((example) => example.id);
+  const order = [...expected];
   [order[index], order[index + (direction === "up" ? -1 : 1)]] = [other.id, id];
-  const { error } = await client.rpc("voice_examples_reorder", { p_ids: order });
+  const { error } = await client.rpc("voice_examples_reorder", { p_ids: order, p_expected: expected });
   if (isMissingSupabaseRpc(error, "voice_examples_reorder")) throw new ColumnNotSetUpError();
   if (error?.code === "22023") return "changed";
   check(error, "Voice example move");

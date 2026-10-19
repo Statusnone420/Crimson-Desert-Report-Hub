@@ -152,11 +152,13 @@ export async function moveVoiceExampleAction(formData: FormData) {
 
 /** One A/B test draft on the newest fact pack, charged to the column budget, ten per UTC day. */
 export async function generateTestDraftAction(formData: FormData) {
+  // The page's maxDuration counts from here, so the draft's deadline does too.
+  const startedAtMs = Date.now();
   await requireAdmin();
   assertProductionWriteAllowed();
   const model = formData.get("model");
   const effort = formData.get("effort");
   if (!isWriterModel(model) || !isWriterEffort(effort)) backToColumn("test_invalid");
-  const outcome = await generateTestDraft({ client: createServiceClient(), now: new Date(), model, effort });
+  const outcome = await generateTestDraft({ client: createServiceClient(), now: new Date(), model, effort, startedAtMs });
   backToColumn(outcome.status === "saved" ? "test_saved" : outcome.status === "daily_cap" ? "test_cap" : "test_skipped");
 }

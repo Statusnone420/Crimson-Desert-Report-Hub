@@ -179,6 +179,10 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
     voice_examples_reorder: (args) => {
       const ids = args.p_ids as string[];
       const rows = tables.voice_examples;
+      const current = [...rows].sort((a, b) => compare(a.position, b.position) || compare(a.created_at, b.created_at) || compare(a.id, b.id)).map((row) => row.id);
+      if (JSON.stringify(current) !== JSON.stringify(args.p_expected ?? null)) {
+        return { data: null, error: { code: "22023", message: "voice_examples_reorder_stale" } };
+      }
       if (ids.length !== rows.length || new Set(ids).size !== ids.length || ids.some((id) => !rows.some((row) => row.id === id))) {
         return { data: null, error: { code: "22023", message: "voice_examples_reorder_mismatch" } };
       }

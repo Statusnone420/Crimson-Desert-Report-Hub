@@ -29,6 +29,7 @@ function draft(model: "claude-opus-5-5" | "claude-sonnet-5-5" | "claude-fable-5-
 
 beforeEach(() => {
   db = createFakeDb({}, () => RUN_NOW);
+  mocks.pack.mockClear();
   mocks.pack.mockResolvedValue(pipelinePack());
   vi.stubEnv("VERCEL_ENV", "production");
   vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-column");
@@ -80,6 +81,15 @@ describe("voice examples", () => {
     }) as unknown as typeof db.client.rpc;
     expect(await moveVoiceExample(db.client, second.id, "up")).toBe("changed");
     expect(db.tables.voice_examples.map((example) => [example.body, example.position])).toEqual([["one", 0], ["two", 1], ["three", 2]]);
+  });
+
+  it("refuse a move built on an order another tab just changed, so no move is silently lost", async () => {
+    for (const body of ["one", "two", "three"]) await saveVoiceExample(db.client, { id: null, body, label: null });
+    const [, second, third] = await listVoiceExamples(db.client);
+    // Both tabs read one, two, three before either move lands.
+    const results = await Promise.all([moveVoiceExample(db.client, second.id, "up"), moveVoiceExample(db.client, third.id, "up")]);
+    expect([...results].sort()).toEqual(["changed", "moved"]);
+    expect((await listVoiceExamples(db.client)).map((example) => example.body)).toEqual(["two", "one", "three"]);
   });
 
   it("rotate in at most two thumbs-up editions, newest rating first, never a skip", async () => {
@@ -165,6 +175,17 @@ describe("A/B test drafts", () => {
     expect(await draft("claude-sonnet-5-5", provider.impl)).toEqual({ status: "skipped", reason: "budget" });
     expect(provider.messageCalls()).toEqual([]);
     expect(db.tables.editorials.filter((row) => row.is_test).map((row) => [row.status, row.skip_reason])).toEqual([["skipped", "budget"]]);
+  });
+
+  it("count the deadline from when the action began, and skip before any provider call when reads ran long", async () => {
+    let clockMs = RUN_NOW.getTime();
+    // Building the fact pack takes 200 of the action's 270 seconds.
+    mocks.pack.mockImplementationOnce(async () => { clockMs += 200_000; return pipelinePack(); });
+    const provider = providerFetch();
+    const outcome = await generateTestDraft({ client: db.client, now: RUN_NOW, model: "claude-sonnet-5-5", effort: "medium", guides: GUIDES, clock: () => clockMs, startedAtMs: RUN_NOW.getTime(), fetchImpl: provider.impl });
+    expect(outcome).toEqual({ status: "skipped", reason: "no_time" });
+    expect(provider.calls).toEqual([]);
+    expect(db.tables.editorial_ai_spend).toEqual([]);
   });
 
   it("build a pack without saving an edition when none is stored", async () => {

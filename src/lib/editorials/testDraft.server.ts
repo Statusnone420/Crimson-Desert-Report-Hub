@@ -17,7 +17,7 @@ import {
 import { readColumnSettings } from "@/lib/editorials/settings.server";
 import type { SkipReason } from "@/lib/editorials/validate";
 
-/** A server action has the operator page's 300 seconds; the draft keeps a margin. */
+/** A server action has the operator page's 300 seconds from when it starts; the draft keeps a margin. */
 const TEST_DRAFT_BUDGET_MS = 270_000;
 
 export type TestDraftOutcome = { status: "saved" } | { status: "skipped"; reason: SkipReason } | { status: "daily_cap" };
@@ -35,9 +35,14 @@ export async function generateTestDraft(input: {
   guides?: () => ColumnGuides;
   clock?: () => number;
   fetchImpl?: typeof fetch;
+  /** Epoch milliseconds when the server action began; defaults to now. */
+  startedAtMs?: number;
 }): Promise<TestDraftOutcome> {
   const { client, now, model, effort } = input;
   const clock = input.clock ?? Date.now;
+  // One absolute deadline from the action's start covers the reads below too, so slow
+  // reads shorten the time left for the paid calls instead of pushing past the limit.
+  const deadlineMs = (input.startedAtMs ?? clock()) + TEST_DRAFT_BUDGET_MS;
   const { settings } = await readColumnSettings(client);
   const pack = await latestFactPack(client) ?? await readFactPack(now, await baselineMetrics(client));
   const draft = { slotKey: `test:${now.toISOString().slice(0, 10)}`, writerModel: model, writerEffort: effort, pack, relevanceScore: relevanceScore(pack.deltas) };
@@ -59,7 +64,7 @@ export async function generateTestDraft(input: {
   const result = await generateEdition({
     client, target: { provider, apiKey, fetchImpl: input.fetchImpl }, writerModel: model, effort, checkerModel: checker.model, guides,
     parts: { guides, examples, approved, notes, openers }, pack, monthlyCapSetting: settings.monthlyCapUsd, test: true,
-    deadlineMs: clock() + TEST_DRAFT_BUDGET_MS, clock,
+    deadlineMs, clock,
   });
   if (!result.ok && result.report.note === "test_daily_cap") return { status: "daily_cap" };
   if (!result.ok) return skip(result.reason, result.report);
