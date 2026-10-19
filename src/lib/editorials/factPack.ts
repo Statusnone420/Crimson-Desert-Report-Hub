@@ -13,7 +13,7 @@ import { patchPath } from "@/lib/patchPublications";
 export type EvidenceLabel = "Confirmed" | "Reported" | "One report";
 export type StatusLabel = "Fixed (per patch notes)" | "Still happening";
 /** What the Hub's own data says about a fix the notes list. */
-export type HubCheck = "Confirmed by players" | "Still reported" | "One sighting" | "No Hub signal yet";
+export type HubCheck = "Confirmed by players" | "Still reported" | "Too little to call" | "No Hub signal yet";
 
 export type Fact = {
   id: string;
@@ -137,25 +137,26 @@ export function statusLabel(issue: IssueAggregate): StatusLabel | null {
 
 /**
  * The Hub's check on a listed fix, never stronger than the issue page. Still reported takes two
- * or more independent signals (exact-patch reports since the fix, or check-in networks); a single
- * one is One sighting, and so are early check-ins from too few networks to weigh.
+ * or more independent signals (exact-patch reports since the fix, or check-in networks). Anything
+ * thinner, or early check-ins from too few networks to weigh, is Too little to call. That name and
+ * its sentence carry no count, because one network can send several check-ins.
  */
 export function hubCheck(after: AfterFix): HubCheck {
   if (after.readout === "players_say_fixed") return "Confirmed by players";
-  if (after.readout === "still_happening") return after.reportsSince + after.stillNetworks >= 2 ? "Still reported" : "One sighting";
-  return after.fixedCheckins + after.stillCheckins > 0 ? "One sighting" : "No Hub signal yet";
+  if (after.readout === "still_happening") return after.reportsSince + after.stillNetworks >= 2 ? "Still reported" : "Too little to call";
+  return after.fixedCheckins + after.stillCheckins > 0 ? "Too little to call" : "No Hub signal yet";
 }
 
 /** Each check as the plain sentence a fact states, so the writer has no check name to copy as a label. */
 const CHECK_SENTENCES: Record<HubCheck, string> = {
   "Confirmed by players": "Players on the Hub say the fix worked.",
   "Still reported": "Players still report it on the Hub after the fix.",
-  "One sighting": "The Hub has only one sighting since the fix, too few to call.",
+  "Too little to call": "Since the fix, the Hub has too little evidence to call it either way.",
   "No Hub signal yet": "The Hub has no signal on it yet.",
 };
 
 /** Most cautious first: a fix line paired with several issues gets the weakest check among them. */
-const CAUTION: HubCheck[] = ["Still reported", "One sighting", "No Hub signal yet", "Confirmed by players"];
+const CAUTION: HubCheck[] = ["Still reported", "Too little to call", "No Hub signal yet", "Confirmed by players"];
 const VERDICTS: HubCheck[] = ["Still reported", "Confirmed by players"];
 
 function sameFixLine(a: string, b: string): boolean {

@@ -99,7 +99,8 @@ describe("the writer and checker prompts", () => {
     expect(WRITER_INSTRUCTION).toContain("Never claim more than the fact's check. A fix whose fact has no check gets no corroboration line.");
     expect(WRITER_INSTRUCTION).toContain('Never write "Hub check", "fact pack" or "label", and never use a check\'s name as a noun ("three No Hub signal yet").');
     expect(WRITER_INSTRUCTION).toContain("every sentence has to make sense without the one before it. No rhetorical questions");
-    expect(WRITER_INSTRUCTION).not.toMatch(/Confirmed label/);
+    expect(WRITER_INSTRUCTION).not.toMatch(/Confirmed label|one sighting/i);
+    expect(WRITER_INSTRUCTION).toContain("One report means a single source, which can send several check-ins, so never turn it into a count.");
     expect(WRITER_INSTRUCTION).toContain("Never write about an empty issue board, zero check-ins or how many people use the Hub.");
     expect(WRITER_INSTRUCTION).toContain("Never tell readers whether to play, and write no outlook section.");
     expect(WRITER_INSTRUCTION).toContain("First person is for your reactions to the facts. Never invent things you did, saw or played.");

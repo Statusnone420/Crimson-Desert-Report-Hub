@@ -64,7 +64,7 @@ const HARD_BANNED = new RegExp([
   "\\b(zero|0) check-ins?\\b", "\\bempty (issue )?board\\b",
   // Pipeline words never reach readers, and a check's name is never a noun ("three No Hub signal yet").
   "\\bhub checks?\\b", "\\bfact[- ]packs?\\b", "\\b(confirmed|reported|evidence|status) labels?\\b",
-  "\\b(\\d+|two|three|four|five|six|seven|eight|nine|ten) (no hub signal yet|still reported|one sightings?|confirmed by players)\\b",
+  "\\b(\\d+|two|three|four|five|six|seven|eight|nine|ten) (no hub signal yet|still reported|too little to call|confirmed by players)\\b",
 ].join("|"), "i");
 /** A line this short, right after a cut sentence, usually leaned on it ("Which regions?" cut leaves "Also not listed."). */
 const MAX_ORPHAN_WORDS = 5;
