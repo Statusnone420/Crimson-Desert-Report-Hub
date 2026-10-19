@@ -38,26 +38,47 @@ function hash(text: string) {
  * Picks an image for every topic. A topic starts at the slot its id hashes to
  * in its category's set and takes the next free one if that is taken, so two
  * topics in one category never share an image. A category with more topics
- * than images borrows unused images from the other categories before any repeat.
+ * than images borrows images that no topic on the board uses; an image repeats
+ * only once all of them are in use, and never within a category while that
+ * category has an image left.
  */
 export function assignIssueArt(topics: readonly { id: string; category: string }[], pools: Record<string, readonly IssueArt[]> = ISSUE_ART) {
   const assigned = new Map<string, IssueArt>();
   const everyImage = [...new Set(Object.values(pools).flat())];
-  const categories = [...new Set(topics.map((topic) => topic.category))];
-  for (const category of categories) {
-    const own = pools[category] ?? pools.other ?? [];
-    const borrowed = everyImage.filter((image) => !own.includes(image));
+  // A category without a set shares the "other" set, and the rule against repeats with it.
+  const groups = new Map<string, Set<string>>();
+  for (const { id, category } of topics) {
+    const key = Object.prototype.hasOwnProperty.call(pools, category) ? category : "other";
+    groups.set(key, (groups.get(key) ?? new Set()).add(id));
+  }
+  const takenIn = new Map<string, Set<IssueArt>>();
+  const overflow: { id: string; key: string; fallback: IssueArt }[] = [];
+  // Sorting makes the result independent of the order the board lists topics in.
+  for (const key of [...groups.keys()].sort()) {
+    const own = pools[key] ?? [];
     const taken = new Set<IssueArt>();
-    // Sorting makes the result independent of the order the board lists topics in.
-    const members = [...new Set(topics.filter((topic) => topic.category === category).map((topic) => topic.id))].sort();
-    for (const id of members) {
-      if (own.length === 0) break;
+    takenIn.set(key, taken);
+    for (const id of [...groups.get(key)!].sort()) {
+      if (own.length === 0) continue;
       const start = hash(id) % own.length;
       const preferred = own.map((_, offset) => own[(start + offset) % own.length]);
-      const image = [...preferred, ...borrowed].find((candidate) => !taken.has(candidate)) ?? preferred[0];
+      const image = preferred.find((candidate) => !taken.has(candidate));
+      if (!image) {
+        overflow.push({ id, key, fallback: preferred[0] });
+        continue;
+      }
       taken.add(image);
       assigned.set(id, image);
     }
+  }
+  // Each set fills first, so a borrowed image never takes a slot its own category needs.
+  const inUse = new Set(assigned.values());
+  for (const { id, key, fallback } of overflow) {
+    const taken = takenIn.get(key)!;
+    const image = everyImage.find((candidate) => !inUse.has(candidate)) ?? everyImage.find((candidate) => !taken.has(candidate)) ?? fallback;
+    inUse.add(image);
+    taken.add(image);
+    assigned.set(id, image);
   }
   return assigned;
 }

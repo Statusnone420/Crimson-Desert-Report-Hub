@@ -66,6 +66,16 @@ describe("assignIssueArt", () => {
     expect(images.filter((picked) => pools.performance.includes(picked))).toHaveLength(2);
   });
 
+  it("borrows only images that no other topic on the board shows while any are left", () => {
+    const topics = [
+      ...["c1", "c2", "c3"].map((id) => topic(id, "crash_startup")),
+      ...["p1", "p2", "p3"].map((id) => topic(id, "performance")),
+    ];
+    const assigned = assignIssueArt(topics, pools);
+    expect(new Set(topics.map(({ id }) => assigned.get(id))).size).toBe(6);
+    expect(assigned.get("p3")).toBe(pools.other[0]);
+  });
+
   it("repeats only once every image is in use, and still gives every topic one", () => {
     const topics = Array.from({ length: 8 }, (_, index) => topic(`t${index}`, "other"));
     const assigned = assignIssueArt(topics, pools);
@@ -73,7 +83,9 @@ describe("assignIssueArt", () => {
     expect(new Set(assigned.values()).size).toBe(6);
   });
 
-  it("uses the other set for a category it does not know", () => {
+  it("uses the other set for a category it does not know, without repeating an other topic's image", () => {
     expect(assignIssueArt([topic("x", "new_category")], pools).get("x")).toBe(pools.other[0]);
+    const assigned = assignIssueArt([topic("x", "new_category"), topic("y", "other")], pools);
+    expect(assigned.get("x")).not.toBe(assigned.get("y"));
   });
 });
