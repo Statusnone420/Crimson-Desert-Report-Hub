@@ -168,6 +168,14 @@ describe("post-processing", () => {
     expect(process(output).report.deleted).toContainEqual({ id: "b1", why: ["question_opener"] });
   });
 
+  it("skips a checker reply that judges any unit twice", () => {
+    const output = writer();
+    const verdicts = checker(output);
+    // An unsupported title followed by a supported one: neither verdict can be trusted.
+    const twice = { sentences: [{ ...verdicts.sentences[0], supported: false }, ...verdicts.sentences] };
+    expect(processEdition(output, twice, pack)).toMatchObject({ ok: false, reason: "check_failed" });
+  });
+
   it("skips when the checker rejects or skips the title or dek", () => {
     expect(process(writer(), { t: { supported: false } })).toMatchObject({ ok: false, reason: "check_failed" });
     expect(process(writer(), { d: { quotesPlayer: true } })).toMatchObject({ ok: false, reason: "check_failed" });
