@@ -42,42 +42,76 @@ export const metadata: Metadata = {
     : { index: true, follow: true, googleBot: { index: true, follow: true } },
 };
 
-// Keep Latin last within each face, matching the existing subset precedence.
-const instrumentSans = localFont({
+// Each family is split into two calls that declare the same font-family, so the
+// browser still sees one family. Only the Latin files are preloaded; the other
+// subsets load when a page uses a character the Latin file lacks. The declared
+// name matches the Latin call's const name, which the CSS variable uses. The
+// non-Latin call comes first so Latin stays last within each face, matching the
+// existing subset precedence. tests/e2e/font-preloads.spec.ts checks all three.
+const instrumentSansExtended = localFont({
   src: [
     { path: "./fonts/instrument-sans-latin-ext.woff2", weight: "400 700", style: "normal" },
+  ],
+  declarations: [{ prop: "font-family", value: "instrumentSans" }],
+  adjustFontFallback: false,
+  preload: false,
+  display: "swap",
+});
+const instrumentSans = localFont({
+  src: [
     { path: "./fonts/instrument-sans-latin.woff2", weight: "400 700", style: "normal" },
   ],
+  declarations: [{ prop: "font-family", value: "instrumentSans" }],
   variable: "--font-instrument-sans",
+  display: "swap",
+});
+const instrumentSerifExtended = localFont({
+  src: [
+    { path: "./fonts/instrument-serif-400-italic-latin-ext.woff2", weight: "400", style: "italic" },
+    { path: "./fonts/instrument-serif-400-latin-ext.woff2", weight: "400", style: "normal" },
+  ],
+  declarations: [{ prop: "font-family", value: "instrumentSerif" }],
+  adjustFontFallback: false,
+  preload: false,
   display: "swap",
 });
 const instrumentSerif = localFont({
   src: [
-    { path: "./fonts/instrument-serif-400-italic-latin-ext.woff2", weight: "400", style: "italic" },
     { path: "./fonts/instrument-serif-400-italic-latin.woff2", weight: "400", style: "italic" },
-    { path: "./fonts/instrument-serif-400-latin-ext.woff2", weight: "400", style: "normal" },
     { path: "./fonts/instrument-serif-400-latin.woff2", weight: "400", style: "normal" },
   ],
+  declarations: [{ prop: "font-family", value: "instrumentSerif" }],
   adjustFontFallback: "Times New Roman",
   variable: "--font-instrument-serif",
   display: "swap",
 });
-const plexMono = localFont({
+const plexMonoExtended = localFont({
   src: [
     { path: "./fonts/ibm-plex-mono-400-cyrillic-ext.woff2", weight: "400", style: "normal" },
     { path: "./fonts/ibm-plex-mono-400-cyrillic.woff2", weight: "400", style: "normal" },
     { path: "./fonts/ibm-plex-mono-400-vietnamese.woff2", weight: "400", style: "normal" },
     { path: "./fonts/ibm-plex-mono-400-latin-ext.woff2", weight: "400", style: "normal" },
-    { path: "./fonts/ibm-plex-mono-400-latin.woff2", weight: "400", style: "normal" },
     { path: "./fonts/ibm-plex-mono-500-cyrillic-ext.woff2", weight: "500", style: "normal" },
     { path: "./fonts/ibm-plex-mono-500-cyrillic.woff2", weight: "500", style: "normal" },
     { path: "./fonts/ibm-plex-mono-500-vietnamese.woff2", weight: "500", style: "normal" },
     { path: "./fonts/ibm-plex-mono-500-latin-ext.woff2", weight: "500", style: "normal" },
+  ],
+  declarations: [{ prop: "font-family", value: "plexMono" }],
+  adjustFontFallback: false,
+  preload: false,
+  display: "swap",
+});
+const plexMono = localFont({
+  src: [
+    { path: "./fonts/ibm-plex-mono-400-latin.woff2", weight: "400", style: "normal" },
     { path: "./fonts/ibm-plex-mono-500-latin.woff2", weight: "500", style: "normal" },
   ],
+  declarations: [{ prop: "font-family", value: "plexMono" }],
   variable: "--font-plex-mono",
   display: "swap",
 });
+// The extended calls add only @font-face rules; no element uses their classes.
+void [instrumentSansExtended, instrumentSerifExtended, plexMonoExtended];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
