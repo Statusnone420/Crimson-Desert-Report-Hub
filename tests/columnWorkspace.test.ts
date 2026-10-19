@@ -113,8 +113,13 @@ describe("the Column card", () => {
     };
     const html = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft: null, studio, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
     expect(html).toContain("Weather");
-    expect(html).toContain("Approved editions rotating in: Clear skies.");
+    expect(html).toContain("The writer also reads your thumbs-up drafts and editions as voice examples, two at most: Clear skies.");
+    // Test drafts can now go live, but only through the publish panel on an approved draft's page.
+    expect(html).toContain("Test drafts stay private unless you publish an approved one as this week&#x27;s edition from its page.");
+    expect(html).not.toContain("never take a slot");
     expect(html).toContain("7 of 10 left today (UTC)");
+    const none = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft: null, studio: { ...studio, rotation: [] }, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
+    expect(none).toContain("No thumbs-up drafts or editions yet. Give one a thumbs up and the writer reads it as a voice example, two at most.");
     expect(html).toContain("TEST · Try");
     expect(html).toContain("Fable 5.1");
     // A skipped test draft reads its kept text but can't be rated, and says why it skipped in words.
