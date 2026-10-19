@@ -53,7 +53,7 @@ export function numberSentences(output: WriterOutput): SentenceRef[] {
 const HANDLE = /(^|[\s(])@[A-Za-z0-9_]{2,}|\bu\/[A-Za-z0-9_-]{3,}/;
 const TOOL_ARTIFACT = /oaicite|\[cite:|utm_source=|grok_card|\bXX\b|[[\]{}]|\*\*|__|`|^#|\bTODO\b|\bTBD\b|lorem ipsum|as an ai\b|language model/i;
 const HARD_BANNED = new RegExp([
-  "\\binsane\\b", "game[- ]changer", "let[’']s dive in", "\\bdive in\\b", "roller ?coaster", "\\blol\\b", "\\bdelv(e|es|ed|ing)\\b",
+  "game[- ]changer", "let[’']s dive in", "\\bdive in\\b", "roller ?coaster", "\\blol\\b", "\\bdelv(e|es|ed|ing)\\b",
   "\\btestament\\b", "\\bpivotal\\b", "\\btapestry\\b", "marks a shift", "\\bvibrant\\b", "\\bgroundbreaking\\b", "\\bboasts?\\b",
   "\\brenowned\\b", "\\bnestled\\b", "\\bin conclusion\\b", "\\bin summary\\b", "despite these challenges", "only time will tell",
   "it[’']s worth noting", "it is worth noting", "here[’']s what you need to know", "based on available information",

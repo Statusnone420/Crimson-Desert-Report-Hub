@@ -134,7 +134,9 @@ describe("post-processing", () => {
   it("deletes player quotes and banned words in the body, and skips when the title or dek can't be cleaned", () => {
     const result = process(writer(), { b6: { quotesPlayer: true }, b7: { bannedWords: ["pivotal"] }, b8: { slopRules: [12] } });
     expect(result.report.deleted).toEqual(expect.arrayContaining([{ id: "b6", why: ["player_quote"] }, { id: "b7", why: ["banned_word"] }, { id: "b8", why: ["checklist"] }]));
-    expect(process(writer({ title: "An insane week in Pywel" }))).toMatchObject({ ok: false, reason: "slop_check_failed" });
+    // "Insane" is allowed now (owner decision); the other hype words still stop a title.
+    expect(process(writer({ title: "An insane week in Pywel" })).ok).toBe(true);
+    expect(process(writer({ title: "A game-changer week in Pywel" }))).toMatchObject({ ok: false, reason: "slop_check_failed" });
     expect(process(writer(), { d: { bannedWords: ["testament"] } })).toMatchObject({ ok: false, reason: "slop_check_failed" });
   });
 

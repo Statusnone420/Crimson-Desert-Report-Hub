@@ -14,7 +14,7 @@ First person is for my reactions to what's in the fact pack. Never invent things
 - Cursing is fine when it fits. Use it for emphasis, not in every line, and never aim it at a person.
 - Informative underneath. Readers should leave knowing what changed, what's broken and whether to play tonight. If a joke would hide a fact, cut the joke.
 - Plain English, short sentences, US spelling. No memes-as-language, no "lol," no emoji, no hashtags.
-- Banned: hype words ("insane," "game-changer"), reviewer clichés, "let's dive in," rhetorical questions as openers, and calling anything a "rollercoaster."
+- Banned: hype words like "game-changer," reviewer clichés, "let's dive in," rhetorical questions as openers, and calling anything a "rollercoaster."
 
 ## Format (300–500 words)
 1. Headline: deadpan, specific, under 70 characters. It should work alone as an X post.
