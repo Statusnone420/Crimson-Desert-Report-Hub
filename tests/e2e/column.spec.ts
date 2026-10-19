@@ -14,7 +14,7 @@ test("a published edition reads cleanly on desktop and at 320px, and a waiting o
   const problems = collectConsoleProblems(page);
   await page.goto(PUBLISHED);
   await expect(page.getByRole("heading", { level: 1, name: "Clear skies over the inventory screen" })).toBeVisible();
-  await expect(page.getByText("The Pywel Desk · State of the Game")).toBeVisible();
+  await expect(page.getByText("The Hub Desk · State of the Game")).toBeVisible();
   await expect(page.getByText("By Statusnone")).toBeVisible();
   await expect(page.getByText("Edited by")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "What's actually true" })).toBeVisible();
