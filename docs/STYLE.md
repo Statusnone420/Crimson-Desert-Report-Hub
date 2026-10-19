@@ -224,7 +224,7 @@ The planned home page is a data-led "check before you play" page: players online
 
 ### Bylines and the human element
 
-- The column stays "The Pywel Desk", with an "Edited by Statusnone" line.
+- The column runs under the section name "The Hub Desk" and is signed Statusnone.
 - Opinion pieces are signed Statusnone.
 - A short "Who runs this" note in your own words, signed Statusnone and linked from the footer.
 - Pseudonym only. The note, and everything else on the site, carry no legal name and no personal details.
@@ -232,7 +232,7 @@ The planned home page is a data-led "check before you play" page: players online
 
 ### The State of the Game column
 
-Build it after the audit, with this standard as its style guide.
+Build it with this standard as its style guide.
 
 - The 15-point checklist goes into both the writer prompt and the checker prompt.
 - The first three editions run approve-first. Each one waits in /operator until you approve it, so you can tune the voice. After the third approved edition, the column switches automatically to the 24-hour hold, with auto-publish and your veto.

@@ -162,3 +162,11 @@
   .newspaper .section-nav a:hover .reading-link__icon svg,
   .newspaper .watch-still:hover img { transform: none; }
 }
+
+/* State of the Game: the plain facts box closes every edition, above its sources. */
+.newspaper .column-byline { font-weight: 600; }
+.newspaper .column-facts { border-block: 2px solid var(--ink); margin: 40px 0 0; padding: 6px 0 18px; font: 16px/1.7 var(--sans), sans-serif; }
+.newspaper .column-facts h2 { font-size: 32px; margin-top: 18px; }
+.newspaper .column-facts ul { padding-left: 20px; margin: 0; }
+.newspaper .column-facts li { margin: 10px 0; }
+.newspaper .column-facts .inline-source + .inline-source { margin-left: 10px; }

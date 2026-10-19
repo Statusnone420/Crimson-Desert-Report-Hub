@@ -12,7 +12,8 @@ const routes = [
   "/", "/news", "/watch", "/patches", "/patches/1-13-01", "/issues",
   "/observatory", "/catch-up", "/about", "/privacy", "/contact",
   "/articles/charting-the-unknown", "/articles/charting-the-unknown-delay", "/articles/patch-2-02-00",
-  "/articles/patch-2-03-00", "/articles/patch-1-13-01", "/admin/login", "/missing-public-page",
+  "/articles/patch-2-03-00", "/articles/patch-1-13-01", "/editorials/clear-skies-over-the-inventory-screen",
+  "/admin/login", "/missing-public-page",
 ];
 
 // A new public route must get a fixture in this sweep or an explicit redirect
@@ -58,7 +59,7 @@ test("every public page template is included in the quality sweep", async () => 
   // Read extension overrides without invoking production-only service checks.
   const { pageExtensions } = await nextConfig(PHASE_DEVELOPMENT_SERVER);
   const templates = publicPageTemplates(readdirSync(root, { recursive: true, encoding: "utf8" }), pageExtensions);
-  const covered = new Set([...routes, ...Object.keys(redirects), "/articles/[slug]", "/patches/[version]"]);
+  const covered = new Set([...routes, ...Object.keys(redirects), "/articles/[slug]", "/patches/[version]", "/editorials/[slug]"]);
   expect(templates.filter((route) => !covered.has(route))).toEqual([]);
 });
 
