@@ -126,7 +126,7 @@ export async function runColumn(input: ColumnRunInput): Promise<ColumnRunOutcome
     test: false, deadlineMs: input.deadlineMs, clock,
   });
   if (!result.ok) {
-    await finishClaimAsSkip(client, claimId, result.reason, result.report);
+    await finishClaimAsSkip(client, claimId, result.reason, result.report, result.unchecked);
     return skipped(slot, result.reason);
   }
 

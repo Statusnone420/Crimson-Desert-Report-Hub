@@ -164,9 +164,10 @@ export async function claimSlot(client: SupabaseClient, slotKey: string, fields:
   return (data?.[0] as { id?: string } | undefined)?.id ?? null;
 }
 
-export async function finishClaimAsSkip(client: SupabaseClient, id: string, reason: SkipReason, checkReport: unknown): Promise<void> {
+/** Records why the claimed slot skipped. A draft the checker never judged goes with it, still skipped. */
+export async function finishClaimAsSkip(client: SupabaseClient, id: string, reason: SkipReason, checkReport: unknown, unchecked?: UncheckedDraft): Promise<void> {
   const { error } = await client.from("editorials")
-    .update({ skip_reason: reason, check_report: checkReport ?? null, updated_at: new Date().toISOString() })
+    .update({ skip_reason: reason, check_report: checkReport ?? null, ...unchecked, updated_at: new Date().toISOString() })
     .eq("id", id).eq("status", "skipped");
   check(error, "Skip update");
 }
@@ -181,6 +182,9 @@ export type SavedEdition = {
   publish_at: string | null;
   hold_hours: number;
 };
+
+/** The writer's text on a skipped row, kept for the operator when the checker never judged it. */
+export type UncheckedDraft = Pick<SavedEdition, "title" | "dek" | "body_md">;
 
 /** Turns the claim into a held edition. A taken slug gets the slot's date added once. */
 export async function saveEdition(client: SupabaseClient, id: string, edition: SavedEdition, dateSuffix: string): Promise<void> {
@@ -199,13 +203,13 @@ export type TestDraft = {
   writerEffort: string;
   pack: FactPack;
   relevanceScore: number;
-} & ({ ok: true; edition: Omit<SavedEdition, "publish_at" | "hold_hours"> } | { ok: false; reason: SkipReason; checkReport: unknown });
+} & ({ ok: true; edition: Omit<SavedEdition, "publish_at" | "hold_hours"> } | { ok: false; reason: SkipReason; checkReport: unknown; unchecked?: UncheckedDraft });
 
 /** Saves a test draft: held and never scheduled, or skipped with its reason. It never takes a slot. */
 export async function saveTestDraft(client: SupabaseClient, draft: TestDraft): Promise<void> {
   const base = { slot_key: draft.slotKey, is_test: true, publish_at: null, writer_model: draft.writerModel, writer_effort: draft.writerEffort, fact_pack: draft.pack, relevance_score: draft.relevanceScore };
   if (!draft.ok) {
-    const { error } = await client.from("editorials").insert({ ...base, status: "skipped", skip_reason: draft.reason, check_report: draft.checkReport ?? null });
+    const { error } = await client.from("editorials").insert({ ...base, status: "skipped", skip_reason: draft.reason, check_report: draft.checkReport ?? null, ...draft.unchecked });
     check(error, "Test draft save");
     return;
   }

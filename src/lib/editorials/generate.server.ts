@@ -2,13 +2,14 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { budgetCoversBothCalls } from "@/lib/editorials/budgetGate.server";
-import { factsBoxSchema, type EditionSection, type FactsBox } from "@/lib/editorials/content";
+import { factsBoxSchema, sectionsToMarkdown, type EditionSection, type FactsBox } from "@/lib/editorials/content";
 import type { FactPack } from "@/lib/editorials/factPack";
 import type { CheckerModel, WriterEffort, WriterModel } from "@/lib/editorials/models";
 import { checkerRequest, trimmedParts, writerRequest, type ColumnGuides, type WriterPromptParts } from "@/lib/editorials/prompts";
 import { meteredCall, promptSize, type MeteredResult, type ProviderTarget } from "@/lib/editorials/provider.server";
-import { checkerOutputSchema, parseStructured, writerOutputSchema } from "@/lib/editorials/schemas";
-import { numberSentences, processEdition, type CheckReport, type SkipReason } from "@/lib/editorials/validate";
+import type { UncheckedDraft } from "@/lib/editorials/runStore.server";
+import { checkerOutputSchema, parseStructured, writerOutputSchema, type WriterOutput } from "@/lib/editorials/schemas";
+import { MAX_BODY_CHARACTERS, numberSentences, processEdition, type CheckReport, type SkipReason } from "@/lib/editorials/validate";
 
 /** Prompts stay under 90k tokens, well clear of the 100k line where Haiku bills a whole request at 5x. */
 export const PROMPT_TOKEN_LIMIT = 90_000;
@@ -46,7 +47,13 @@ export type GenerationReport = {
 
 export type GenerationResult =
   | { ok: true; title: string; dek: string; sections: EditionSection[]; factsBox: FactsBox; report: GenerationReport }
-  | { ok: false; reason: SkipReason; report: GenerationReport };
+  | { ok: false; reason: SkipReason; report: GenerationReport; unchecked?: UncheckedDraft };
+
+/** The writer's draft as stored Markdown, or nothing when its body wouldn't fit the row. */
+function uncheckedDraft(output: WriterOutput): UncheckedDraft | undefined {
+  const body_md = sectionsToMarkdown(output.sections.map((section) => ({ subhead: section.subhead, paragraphs: section.paragraphs.map((paragraph) => paragraph.text) })));
+  return body_md.length <= MAX_BODY_CHARACTERS ? { title: output.title, dek: output.dek, body_md } : undefined;
+}
 
 function callFailure(result: Exclude<MeteredResult, { kind: "ok" }>, otherwise: SkipReason): SkipReason {
   if (result.kind === "blocked") return "budget";
@@ -68,7 +75,9 @@ export function slugify(title: string): string {
 export async function generateEdition(input: GenerationInput): Promise<GenerationResult> {
   const clock = input.clock ?? Date.now;
   const report: GenerationReport = { provider: input.target.provider, writer: { model: input.writerModel, costUsd: null }, checker: null, post: null };
-  const fail = (reason: SkipReason, note?: string): GenerationResult => ({ ok: false, reason, report: note ? { ...report, note } : report });
+  const fail = (reason: SkipReason, note?: string, unchecked?: UncheckedDraft): GenerationResult => ({
+    ok: false, reason, report: note ? { ...report, note } : report, ...(unchecked ? { unchecked } : {}),
+  });
 
   const writerTimeout = Math.min(WRITER_TIMEOUT_MAX_MS, input.deadlineMs - clock() - CHECKER_RESERVE_MS);
   if (writerTimeout < MIN_WRITER_MS) return fail("no_time");
@@ -118,7 +127,9 @@ export async function generateEdition(input: GenerationInput): Promise<Generatio
   report.checker = { model: input.checkerModel, costUsd: checker.kind === "ok" ? checker.costUsd : null };
   if (checker.kind !== "ok") return fail(callFailure(checker, "check_failed"), checker.kind === "blocked" ? checker.reason : undefined);
   const verdicts = checker.stopReason === "end_turn" ? parseStructured(checker.text, checkerOutputSchema) : null;
-  if (!verdicts) return fail("check_failed", checker.stopReason ?? "no_stop_reason");
+  // A checker cut off at its token limit judged nothing, so the skip keeps the writer's
+  // draft for the operator to read. A skipped row is never published.
+  if (!verdicts) return fail("check_failed", checker.stopReason ?? "no_stop_reason", checker.stopReason === "max_tokens" ? uncheckedDraft(output) : undefined);
 
   const processed = processEdition(output, verdicts, input.pack);
   report.post = processed.report;

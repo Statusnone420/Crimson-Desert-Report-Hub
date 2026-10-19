@@ -18,6 +18,8 @@ export type PreviewEdition = {
   writer_model: string | null;
   writer_effort: string | null;
   skip_reason: string | null;
+  /** The check report's note, such as what stopped a checker that never finished. */
+  check_note: string | null;
   created_at: string;
   /** Moves on approval, veto and save, so feed readers pick up a changed status. */
   updated_at: string;
@@ -32,7 +34,7 @@ function modelLabel(model: string | null): string {
 
 /** Where an edition stands right now, in the operator's words. */
 export function previewStatusLabel(row: PreviewEdition, now: Date): string {
-  if (row.status === "skipped") return `Skipped: ${row.skip_reason ?? "no reason recorded"}`;
+  if (row.status === "skipped") return `Skipped: ${row.skip_reason ?? "no reason recorded"}${row.check_note ? ` (${row.check_note})` : ""}`;
   if (row.status === "vetoed") return "Vetoed";
   if (row.is_test) return "Test draft";
   if (row.publish_at === null) return "Waiting for approval";
@@ -50,8 +52,10 @@ export function previewUpdatedAt(row: PreviewEdition, now: Date): string {
 }
 
 export function previewTitle(row: PreviewEdition, now: Date): string {
-  if (row.is_test) return `TEST · ${modelLabel(row.writer_model)} · ${row.title ?? "Untitled"}`;
-  return `[${previewStatusLabel(row, now)}] ${row.title ?? `Slot ${row.slot_key}`}`;
+  // A skipped row's kept draft was never fact-checked, so the feed names only its slot.
+  const title = row.status === "skipped" ? null : row.title;
+  if (row.is_test) return `TEST · ${modelLabel(row.writer_model)} · ${title ?? "Untitled"}`;
+  return `[${previewStatusLabel(row, now)}] ${title ?? `Slot ${row.slot_key}`}`;
 }
 
 function previewText(row: PreviewEdition, now: Date): string {
@@ -61,6 +65,7 @@ function previewText(row: PreviewEdition, now: Date): string {
     `Writer: ${modelLabel(row.writer_model)}${row.writer_effort ? ` (${row.writer_effort} effort)` : ""}`,
     `Relevance score: ${row.relevance_score ?? "not scored"}`,
   ];
+  if (row.status === "skipped") return lines.join("\n");
   if (row.dek) lines.push("", row.dek);
   for (const section of row.body_md ? markdownToSections(row.body_md) ?? [] : []) {
     lines.push("", section.subhead.toUpperCase(), ...section.paragraphs);

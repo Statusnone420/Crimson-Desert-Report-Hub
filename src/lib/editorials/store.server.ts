@@ -136,8 +136,11 @@ export const getSitemapEditions = cache(async (): Promise<{ editions: SitemapEdi
 /** The edition page: null means not found; a failed read throws so the page shows its error state. */
 export const getPublicEditionBySlug = cache(async (slug: string): Promise<PublicEdition | null> => getCachedEditionBySlug(slug));
 
-/** Private columns for the operator and the token-gated preview feed. fact_pack and check_report stay out. */
-export const ADMIN_EDITORIAL_COLUMNS = "id, slot_key, is_test, slug, status, title, dek, body_md, facts_box, relevance_score, writer_model, writer_effort, skip_reason, hold_hours, created_at, updated_at, publish_at, published_at, vetoed_at";
+/**
+ * Private columns for the operator and the token-gated preview feed. fact_pack and
+ * check_report stay out; only the report's short note comes along, to explain a skip.
+ */
+export const ADMIN_EDITORIAL_COLUMNS = "id, slot_key, is_test, slug, status, title, dek, body_md, facts_box, relevance_score, writer_model, writer_effort, skip_reason, check_note:check_report->>note, hold_hours, created_at, updated_at, publish_at, published_at, vetoed_at";
 
 export type AdminEditionRow = {
   id: string;
@@ -153,6 +156,8 @@ export type AdminEditionRow = {
   writer_model: string | null;
   writer_effort: string | null;
   skip_reason: string | null;
+  /** The check report's note, such as the checker's stop reason. */
+  check_note: string | null;
   hold_hours: number | null;
   created_at: string;
   updated_at: string;

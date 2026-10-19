@@ -24,7 +24,11 @@ export function writerEffort(env: NodeJS.ProcessEnv = process.env): WriterEffort
 
 export const CHECKER_EFFORT: WriterEffort = "high";
 export const WRITER_MAX_TOKENS = 8000;
-export const CHECKER_MAX_TOKENS = 4000;
+/**
+ * Adaptive thinking spends from the same allowance as the verdicts. At 4,000 the checker
+ * ran out before its verdicts on a 10-fact pack. Its worst case stays far under the $1 request cap.
+ */
+export const CHECKER_MAX_TOKENS = 16000;
 
 export type ModelChoice<T extends string> = { ok: true; model: T } | { ok: false; requested: string };
 

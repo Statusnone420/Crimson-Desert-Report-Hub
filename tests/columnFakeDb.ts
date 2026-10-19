@@ -62,6 +62,9 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
     let limit: number | null = null;
     let offset = 0;
     let returning = false;
+    // PostgREST's `alias:column->>key` columns, added to each row read.
+    let aliases: [string, string][] = [];
+    const withAliases = (row: Row): Row => ({ ...row, ...Object.fromEntries(aliases.map(([alias, path]) => [alias, field(row, path)])) });
 
     function run(): Result {
       if (missing.has(table)) return missingError(table);
@@ -101,11 +104,15 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
         });
       }
       if (limit !== null || offset) matched = matched.slice(offset, limit === null ? undefined : offset + limit);
-      return { data: matched.map((row) => ({ ...row })), error: null };
+      return { data: matched.map(withAliases), error: null };
     }
 
     const query = {
-      select: () => { if (mode !== "select") returning = true; return query; },
+      select: (columns = "*") => {
+        if (mode !== "select") returning = true;
+        aliases = columns.split(",").map((column) => column.trim().split(":")).filter((pair): pair is [string, string] => pair.length === 2 && pair[1].includes("->>"));
+        return query;
+      },
       insert: (rows: Row | Row[]) => { mode = "insert"; payload = Array.isArray(rows) ? rows : [rows]; return query; },
       update: (values: Row) => { mode = "update"; patch = values; return query; },
       delete: () => { mode = "delete"; return query; },
