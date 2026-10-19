@@ -48,3 +48,22 @@ test("the browser fixture never forwards OpenRouter requests and preserves local
   expect(result.error).toBeUndefined();
   expect(result.status, result.stderr).toBe(0);
 });
+
+test("the browser fixture's dev process keeps idle sockets open until their client closes them", () => {
+  // Without this, a test client can reuse a keep-alive socket just as the server times it out.
+  const preload = pathToFileURL(path.resolve("tests/e2e/fixture-preload.mjs")).href;
+  const script = `
+    import assert from "node:assert/strict";
+    import { createRequire } from "node:module";
+    await import(${JSON.stringify(preload)});
+    // Next creates its server through CommonJS require("http").
+    const http = createRequire(import.meta.url)("http");
+    assert.equal(http.createServer().keepAliveTimeout, 0);
+    assert.equal(http.createServer(() => {}).keepAliveTimeout, 0);
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8", timeout: 10_000,
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.status, result.stderr).toBe(0);
+});
