@@ -38,6 +38,7 @@ import { SCANNER_READ_REGISTERS } from "@/lib/scannerRegisters";
 import { ColumnWorkspace } from "@/components/operator/ColumnWorkspace";
 import { readAdminEdition, readColumnDashboard } from "@/lib/editorials/store.server";
 import { columnNotice } from "@/lib/editorials/notices";
+import { providerKey } from "@/lib/editorials/config";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
@@ -91,7 +92,8 @@ export default async function OperatorPage({
       readColumnDashboard(client, now).catch(() => null),
       edition ? readAdminEdition(client, edition).catch(() => "unavailable" as const) : Promise.resolve(null),
     ]);
-    return <OperatorShell active="column"><ColumnWorkspace dashboard={dashboard} draft={draft} notice={columnNotice(rawParams?.notice)} now={now} writesDisabled={isVercelPreview()} /></OperatorShell>;
+    const keys = { anthropic: providerKey("anthropic") !== null, openrouter: providerKey("openrouter") !== null };
+    return <OperatorShell active="column"><ColumnWorkspace dashboard={dashboard} draft={draft} notice={columnNotice(rawParams?.notice)} now={now} writesDisabled={isVercelPreview()} keys={keys} /></OperatorShell>;
   }
   if (view === "reports" || view === "claims" || view === "settings")
     return <AdminPage searchParams={Promise.resolve({ ...params, view })} />;

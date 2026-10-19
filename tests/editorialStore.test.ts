@@ -13,7 +13,7 @@ function client(results: Record<string, Result>) {
   const calls: { table: string; method: string; args: unknown[] }[] = [];
   const from = (table: string) => {
     const builder: Record<string, unknown> = {};
-    for (const method of ["select", "eq", "in", "lte", "gte", "is", "order", "limit", "range"]) {
+    for (const method of ["select", "eq", "in", "lte", "gte", "is", "or", "order", "limit", "range"]) {
       builder[method] = (...args: unknown[]) => { calls.push({ table, method, args }); return builder; };
     }
     builder.then = (resolve: (value: Result) => unknown) => resolve(results[table] ?? { data: [], error: null });
@@ -112,5 +112,17 @@ describe("the Column card's record", () => {
     expect(dashboard.spend.capUsd).toBe(10);
     expect(dashboard.spend.month).toBe("2026-10");
     expect(dashboard.pending).toHaveLength(1);
+  });
+
+  it("lists every edition still waiting, with no cap, so each keeps its approve or veto button", async () => {
+    const waiting = Array.from({ length: 15 }, (_, index) => ({ ...publicRow({ id: `w${index}`, slug: `waiting-${index}`, publish_at: null }), slot_key: `2026-W44:w${index}`, created_at: "2026-10-26T14:00:00Z" }));
+    const { client: db, calls } = client({ automation_settings: settingsRow, editorials: { data: waiting, error: null }, editorial_ai_spend: { data: [], error: null } });
+    const dashboard = await readColumnDashboard(db, NOW);
+    expect(dashboard.state).toBe("ready");
+    if (dashboard.state !== "ready") return;
+    expect(dashboard.pending).toHaveLength(15);
+    // The database returns only editions not yet public, and nothing caps the list.
+    expect(calls).toContainEqual({ table: "editorials", method: "or", args: [`publish_at.is.null,publish_at.gt.${NOW.toISOString()}`] });
+    expect(calls.filter((call) => call.table === "editorials" && call.method === "limit").map((call) => call.args[0])).toEqual([5]);
   });
 });

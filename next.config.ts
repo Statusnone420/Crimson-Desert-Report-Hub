@@ -47,6 +47,11 @@ const nextConfig: NextConfig = {
     turbopackMemoryEviction: process.env.CI && process.platform !== "win32" ? "full" : "auto",
   },
   poweredByHeader: false,
+  // The column reads its style guide and checklist from these committed files at run time.
+  outputFileTracingIncludes: {
+    "/api/cron/keepalive": ["./src/lib/editorials/*.md"],
+    "/operator": ["./src/lib/editorials/*.md"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

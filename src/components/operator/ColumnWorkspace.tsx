@@ -1,9 +1,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { approveEdition, setColumnPaused, vetoEdition } from "@/app/operator/column-actions";
+import { ColumnCadence } from "@/components/operator/ColumnCadence";
 import { SubmitButton } from "@/components/SubmitButton";
 import { COLUMN_AUTHOR, factsBoxSchema, formatUtcTimestamp, markdownToSections } from "@/lib/editorials/content";
-import { WRITER_MODEL_LABELS, isWriterModel } from "@/lib/editorials/models";
+import { WRITER_MODEL_LABELS, isWriterModel, type ColumnProvider } from "@/lib/editorials/models";
 import { previewStatusLabel } from "@/lib/editorials/previewFeed";
 import type { AdminEditionRow, ColumnDashboard } from "@/lib/editorials/store.server";
 
@@ -88,12 +89,20 @@ function EditionDraft({ row, now }: { row: AdminEditionRow; now: Date }) {
   </section>;
 }
 
-export function ColumnWorkspace({ dashboard, draft, notice, now, writesDisabled }: {
+/** A claim is a writer_failed skip until the edition is saved; a fresh one is still being written. */
+function statusText(row: AdminEditionRow, now: Date): string {
+  if (row.status === "skipped" && row.skip_reason === "writer_failed" && now.getTime() - Date.parse(row.created_at) < 5 * 60_000) return "Writing now";
+  if (row.status === "skipped") return `Skipped: ${SKIP_REASON_LABELS[row.skip_reason ?? ""] ?? row.skip_reason}`;
+  return previewStatusLabel(row, now);
+}
+
+export function ColumnWorkspace({ dashboard, draft, notice, now, writesDisabled, keys }: {
   dashboard: ColumnDashboard | null;
   draft: AdminEditionRow | "unavailable" | null;
   notice: string | null;
   now: Date;
   writesDisabled: boolean;
+  keys: Record<ColumnProvider, boolean>;
 }) {
   return <div className="workspace-page column-workspace">
     <header className="workspace-heading">
@@ -158,13 +167,14 @@ export function ColumnWorkspace({ dashboard, draft, notice, now, writesDisabled 
           <thead><tr><th scope="col">Edition</th><th scope="col">Status</th><th scope="col">Relevance</th><th scope="col">Writer</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{dashboard.recent.map((row) => <tr key={row.id}>
             <td><strong>{row.title ?? `Slot ${row.slot_key}`}</strong><small>{formatUtcTimestamp(row.created_at)}{row.status === "skipped" ? null : <> · <Link href={`/operator?view=column&edition=${row.id}`}>Read</Link></>}</small></td>
-            <td>{row.status === "skipped" ? `Skipped: ${SKIP_REASON_LABELS[row.skip_reason ?? ""] ?? row.skip_reason}` : previewStatusLabel(row, now)}</td>
+            <td>{statusText(row, now)}</td>
             <td>{row.relevance_score ?? "—"}</td>
             <td>{modelLabel(row.writer_model)}</td>
             <td><VetoButton row={row} now={now} disabled={writesDisabled} /></td>
           </tr>)}</tbody>
         </table> : <p className="workspace-panel-body workspace-note">No editions yet.</p>}
       </section>
+      <ColumnCadence settings={dashboard.settings} keys={keys} now={now} writesDisabled={writesDisabled} />
     </>}
   </div>;
 }

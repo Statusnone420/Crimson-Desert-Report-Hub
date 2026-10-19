@@ -196,8 +196,11 @@ export async function readColumnDashboard(client: SupabaseClient, now: Date): Pr
   const [recent, held, spend] = await Promise.all([
     client.from("editorials").select(ADMIN_EDITORIAL_COLUMNS).eq("is_test", false)
       .order("created_at", { ascending: false }).limit(5),
+    // Every edition still waiting, for approval or for its hold, with no cap: an edition the
+    // card doesn't list would have no approve or veto button.
     client.from("editorials").select(ADMIN_EDITORIAL_COLUMNS).eq("status", "held").eq("is_test", false).is("vetoed_at", null)
-      .order("created_at", { ascending: false }).limit(10),
+      .or(`publish_at.is.null,publish_at.gt.${now.toISOString()}`)
+      .order("created_at", { ascending: false }),
     client.from("editorial_ai_spend").select("reserved_usd, settled_usd").eq("month", month),
   ]);
   const errors = [recent.error, held.error, spend.error].filter((error) => error !== null);

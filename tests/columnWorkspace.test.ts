@@ -2,7 +2,10 @@ import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/app/operator/column-actions", () => ({ approveEdition: vi.fn(), setColumnPaused: vi.fn(), vetoEdition: vi.fn() }));
+vi.mock("@/app/operator/column-actions", () => ({
+  approveEdition: vi.fn(), setColumnPaused: vi.fn(), vetoEdition: vi.fn(),
+  saveColumnCadence: vi.fn(), saveColumnBurst: vi.fn(), deleteColumnBurst: vi.fn(),
+}));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: ComponentProps<"a">) => createElement("a", { ...props, href }, children) }));
 
 import { ColumnWorkspace } from "@/components/operator/ColumnWorkspace";
@@ -19,8 +22,8 @@ function row(overrides: Partial<AdminEditionRow>): AdminEditionRow {
   };
 }
 
-function render(dashboard: ColumnDashboard | null, writesDisabled = false) {
-  return renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard, draft: null, notice: null, now: NOW, writesDisabled }));
+function render(dashboard: ColumnDashboard | null, writesDisabled = false, keys = { anthropic: true, openrouter: false }) {
+  return renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard, draft: null, notice: null, now: NOW, writesDisabled, keys }));
 }
 
 const ready = (overrides: Partial<Extract<ColumnDashboard, { state: "ready" }>> = {}): ColumnDashboard => ({
@@ -65,5 +68,11 @@ describe("the Column card", () => {
     expect(html).toContain("Resume the column");
     expect(html).toContain("column changes are disabled here");
     expect(html.match(/<button[^>]*disabled/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps an off-list model or provider selected as Keep, so saving the schedule never unlocks it", () => {
+    const html = render(ready({ settings: { ...DEFAULT_COLUMN_SETTINGS, defaultWriterModel: "gpt-5", provider: "elsewhere" } }));
+    expect(html).toContain('<option value="keep" selected="">Keep gpt-5 (not allowed: slots skip)</option>');
+    expect(html).toContain('<option value="keep" selected="">Keep &quot;elsewhere&quot; (not recognized: slots skip)</option>');
   });
 });
