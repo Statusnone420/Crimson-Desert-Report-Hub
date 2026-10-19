@@ -14,6 +14,7 @@ const OPERATOR_PAGES: Array<{ key: OperatorNavKey; view: OperatorView; label: st
   { key: "claims", view: "claims", label: "Claim review" },
   { key: "scanner", view: "scanner", label: "Scanner" },
   { key: "ai", view: "ai", label: "AI settings" },
+  { key: "column", view: "column", label: "Column" },
   { key: "videos", view: "videos", label: "Videos" },
   { key: "compile", view: "dossiers", label: "Dossiers" },
   { key: "settings", view: "settings", label: "Settings & tools" },

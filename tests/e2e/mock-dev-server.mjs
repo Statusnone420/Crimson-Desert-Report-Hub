@@ -857,6 +857,43 @@ if (previewSeedFile) {
 }
 
 /**
+ * State of the Game column. One published edition, one waiting for approval
+ * (approve-first, so no publish time) and one skipped slot. The 'column'
+ * settings key is left out on purpose: the app must run on its defaults.
+ */
+const editorialBody = "## The forecast\n\nClear skies over the inventory screen. 18,166 players were online on Sunday afternoon.\n\n## The patch desk\n\nPatch 1.13.01 fixed crashes in certain situations, which narrows it down to all of them.";
+const editorialFacts = {
+  items: [{ text: "Patch 1.13.01 lists a crash fix.", sourceIds: ["P1"] }, { text: "18,166 players were online.", sourceIds: ["S1"] }],
+  sources: [
+    { id: "P1", label: "Pearl Abyss patch notes 1.13.01", url: "https://crimsondesert.pearlabyss.com/en-us/News/Notice/Detail?_boardNo=118" },
+    { id: "S1", label: "Players online, Report Hub", url: "/observatory#updates" },
+  ],
+};
+const editorials = [
+  {
+    id: "c0000000-0000-4000-8000-000000000001", slot_key: "2026-W29:s0", is_test: false, slug: "clear-skies-over-the-inventory-screen",
+    status: "published", title: "Clear skies over the inventory screen", dek: "Players held steady and a hotfix fixed crashes in certain situations.",
+    body_md: editorialBody, facts_box: editorialFacts, fact_pack: { private: true }, check_report: { private: true }, relevance_score: 4,
+    writer_model: "claude-opus-5-5", writer_effort: "high", skip_reason: null, hold_hours: 24, created_at: isoDaysAgo(2),
+    publish_at: isoDaysAgo(1), published_at: isoDaysAgo(1), vetoed_at: null, updated_at: isoDaysAgo(1), author: "Statusnone",
+  },
+  {
+    id: "c0000000-0000-4000-8000-000000000002", slot_key: "2026-W30:s0", is_test: false, slug: "scattered-softlocks-in-the-north",
+    status: "held", title: "Scattered softlocks in the north", dek: "A quiet week with one stubborn quest.",
+    body_md: editorialBody, facts_box: editorialFacts, fact_pack: { private: true }, check_report: { private: true }, relevance_score: 3,
+    writer_model: "claude-sonnet-5-5", writer_effort: "high", skip_reason: null, hold_hours: 24, created_at: isoMinutesAgo(30),
+    publish_at: null, published_at: null, vetoed_at: null, updated_at: isoMinutesAgo(30), author: "Statusnone",
+  },
+  {
+    id: "c0000000-0000-4000-8000-000000000003", slot_key: "2026-W28:s0", is_test: false, slug: null, status: "skipped", title: null, dek: null,
+    body_md: null, facts_box: null, fact_pack: null, check_report: null, relevance_score: 1, writer_model: null, writer_effort: null,
+    skip_reason: "below_threshold", hold_hours: null, created_at: isoDaysAgo(9), publish_at: null, published_at: null, vetoed_at: null,
+    updated_at: isoDaysAgo(9), author: "Statusnone",
+  },
+];
+const editorialAiSpend = [];
+
+/**
  * Test-only fixture reset. Every table above is a module-level array that the
  * write handlers mutate in place, and one server process serves the whole run —
  * both Playwright projects included. Without a reset, an admin write test hands
@@ -887,6 +924,8 @@ const resettableTables = [
   claimReviewPairings,
   claimReviewAuditEvents,
   claimReviewSyncState,
+  editorials,
+  editorialAiSpend,
 ];
 
 const pristineTables = resettableTables.map((table) => structuredClone(table));
@@ -2344,6 +2383,72 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // PostgREST filters the column's reads use, applied as the database would: filter
+  // and sort first, then page. The shared helper pages before these filters, so it
+  // gets the request without its offset and limit.
+  if (url.pathname === "/rest/v1/editorials" && req.method === "GET") {
+    const unpaged = new URL(url);
+    unpaged.searchParams.delete("offset");
+    unpaged.searchParams.delete("limit");
+    let rows = filterRows(editorials, unpaged);
+    for (const [column, value] of url.searchParams.entries()) {
+      if (value.startsWith("in.(")) { const allowed = value.slice(4, -1).split(","); rows = rows.filter((row) => allowed.includes(String(row[column]))); }
+      if (value.startsWith("lte.")) rows = rows.filter((row) => row[column] != null && Date.parse(row[column]) <= Date.parse(value.slice(4)));
+      if (value.startsWith("gte.")) rows = rows.filter((row) => row[column] != null && Date.parse(row[column]) >= Date.parse(value.slice(4)));
+      if (["is_test", "slug", "status"].includes(column) && value.startsWith("eq.")) rows = rows.filter((row) => String(row[column]) === value.slice(3));
+    }
+    const order = url.searchParams.get("order");
+    if (order) {
+      const [column, direction] = order.split(",")[0].split(".");
+      rows.sort((a, b) => (Date.parse(a[column] ?? 0) - Date.parse(b[column] ?? 0)) * (direction === "desc" ? -1 : 1));
+    }
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? rows.length);
+    const columns = (url.searchParams.get("select") ?? "*").split(",").map((column) => column.trim());
+    rows = rows.slice(offset, offset + limit).map((row) => (columns.includes("*") ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))));
+    sendJson(res, req.method, 200, rows);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/editorials" && req.method === "PATCH") {
+    const patch = JSON.parse(await readBody(req));
+    const id = url.searchParams.get("id")?.slice(3);
+    const allowed = url.searchParams.get("status")?.slice(4, -1).split(",") ?? [];
+    const rows = editorials.filter((row) => row.id === id && allowed.includes(row.status));
+    for (const row of rows) Object.assign(row, patch);
+    sendJson(res, req.method, 200, rows.map((row) => ({ id: row.id })));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/rpc/editorial_approve" && req.method === "POST") {
+    const { p_id: id } = JSON.parse(await readBody(req));
+    const row = editorials.find((item) => item.id === id && item.status === "held" && !item.is_test && item.publish_at === null && item.vetoed_at === null);
+    if (!row) { sendJson(res, req.method, 200, "not_pending"); return; }
+    const timestamp = new Date(now()).toISOString();
+    Object.assign(row, { status: "published", publish_at: timestamp, published_at: timestamp, updated_at: timestamp });
+    const setting = automationSettings.find((item) => item.key === "column");
+    if (setting) setting.value = { ...setting.value, approveFirstRemaining: Math.max((Number.isInteger(setting.value.approveFirstRemaining) ? setting.value.approveFirstRemaining : 3) - 1, 0) };
+    else automationSettings.push({ key: "column", value: { approveFirstRemaining: 2 }, updated_at: timestamp });
+    sendJson(res, req.method, 200, "approved");
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/rpc/editorial_settings_merge" && req.method === "POST") {
+    const { p_patch: patch } = JSON.parse(await readBody(req));
+    const timestamp = new Date(now()).toISOString();
+    const setting = automationSettings.find((item) => item.key === "column");
+    if (setting) Object.assign(setting, { value: { ...setting.value, ...patch }, updated_at: timestamp });
+    else automationSettings.push({ key: "column", value: { ...patch }, updated_at: timestamp });
+    sendJson(res, req.method, 200, automationSettings.find((item) => item.key === "column").value);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/editorial_ai_spend" && req.method === "GET") {
+    const month = url.searchParams.get("month")?.slice(3);
+    sendJson(res, req.method, 200, editorialAiSpend.filter((row) => !month || row.month === month));
+    return;
+  }
+
   // This fixture models the pre-migration deployment, not a corrupt empty row.
   if (url.pathname === "/rest/v1/ai_settings_state" && req.method === "GET") {
     sendJson(res, req.method, 404, { code: "42P01", message: 'relation "ai_settings_state" does not exist' });
@@ -2490,6 +2595,10 @@ server.listen(supabasePort, "127.0.0.1", () => {
       CLOUDFLARE_SCANNER_KV_NAMESPACE_ID: "",
       CLOUDFLARE_SCANNER_STATUS_TOKEN: "",
       XAI_API_KEY: "",
+      // The column never calls a provider in fixture runs, whatever a developer's .env.local holds.
+      ANTHROPIC_API_KEY: "",
+      COLUMN_OPENROUTER_API_KEY: "",
+      COLUMN_PREVIEW_TOKEN: "",
       PLAYWRIGHT_NOW: fixtureNowIso,
       NODE_OPTIONS: nodeOptions,
     },
