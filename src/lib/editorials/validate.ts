@@ -1,13 +1,15 @@
-import type { EditionSection, EditionSource, FactsBox } from "@/lib/editorials/content";
+import { sectionsToMarkdown, type EditionSection, type EditionSource, type FactsBox } from "@/lib/editorials/content";
 import type { Fact, FactPack } from "@/lib/editorials/factPack";
 import type { CheckerOutput, CheckerVerdict, WriterOutput } from "@/lib/editorials/schemas";
 
 export type SkipReason =
   | "paused" | "below_threshold" | "min_gap" | "budget" | "prompt_too_large" | "provider_unavailable"
   | "model_not_allowed" | "writer_failed" | "check_failed" | "person_named" | "too_short"
-  | "missing_required_section" | "slop_check_failed" | "no_time";
+  | "missing_required_section" | "slop_check_failed" | "no_time" | "too_long";
 
 export const MIN_WORDS = 250;
+/** The database's limit on editorials.body_md: a longer edition can't be saved. */
+export const MAX_BODY_CHARACTERS = 20_000;
 export const MAX_TITLE_CHARACTERS = 69;
 export const MAX_FACTS_BOX_ITEMS = 6;
 const MAX_FACT_CHARACTERS = 400;
@@ -112,7 +114,8 @@ export type ProcessedEdition =
  * quote a player, hit a banned word, guardrail or checklist rule, cite an id outside the
  * pack, or carry a number no cited fact contains. Then skips when a person is named, the title or
  * dek can't be cleaned, the title runs 70 characters or more, both required sections are
- * gone, fewer than 250 words remain, or the facts box is missing or unsourced.
+ * gone, fewer than 250 words remain, the body is too long to store, or the facts box is
+ * missing or unsourced.
  */
 export function processEdition(output: WriterOutput, checker: CheckerOutput, pack: FactPack): ProcessedEdition {
   const refs = numberSentences(output);
@@ -203,9 +206,11 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
     return fail("missing_required_section", words);
   }
   if (words < MIN_WORDS) return fail("too_short", words);
+  if (sectionsToMarkdown(sections).length > MAX_BODY_CHARACTERS) return fail("too_long", words);
 
+  // Each kept item carries its effective ids, so the checker's citations count here too.
   const items = kept().filter((ref) => ref.kind === "fact").slice(0, MAX_FACTS_BOX_ITEMS).map((ref) => ({ text: ref.text, sourceIds: effectiveIds.get(ref.id) ?? [] }));
-  if (!items.length || output.factsBox.some((item) => !item.sourceIds.length)) return fail("check_failed", words);
+  if (!items.length || items.some((item) => !item.sourceIds.length)) return fail("check_failed", words);
 
   const keptFacts = new Set(items.map((item) => item.text));
   const citedIds = new Set(kept().filter((ref) => ref.kind === "body" || keptFacts.has(ref.text)).flatMap((ref) => effectiveIds.get(ref.id) ?? []));

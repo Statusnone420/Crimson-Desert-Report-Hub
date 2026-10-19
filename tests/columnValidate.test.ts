@@ -193,6 +193,25 @@ describe("post-processing", () => {
     expect(process(writer(), { h1: { supported: false }, h2: { supported: false } })).toMatchObject({ ok: false, reason: "missing_required_section" });
   });
 
+  it("keeps a facts-box item the writer left unsourced when the checker cites it", () => {
+    const unsourced = () => writer({ factsBox: [{ text: "Patch 2.03.02 lists 2 fixes.", sourceIds: [] }] });
+    const result = process(unsourced(), { x1: { citedIds: ["P1"] } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.factsBox.items).toEqual([{ text: "Patch 2.03.02 lists 2 fixes.", sourceIds: ["P1"] }]);
+    // With no citation from either, the item goes, and an empty facts box stops the edition.
+    expect(process(unsourced())).toMatchObject({ ok: false, reason: "check_failed" });
+  });
+
+  it("skips an edition too long for the page to store", () => {
+    const long = (lead: string, ids: string[]) => ({ text: [lead, ...FILLER, ...FILLER, ...FILLER].join(" "), sourceIds: ids });
+    const output = writer({ sections: [
+      { subhead: "The forecast", paragraphs: Array.from({ length: 6 }, () => long("18,166 players were online on Sunday at 14:00 UTC, 26% below the usual.", ["S1"])) },
+      { subhead: "The patch desk", paragraphs: Array.from({ length: 6 }, () => long("Patch 2.03.02 listed 2 fixes on Oct 24.", ["P1"])) },
+    ] });
+    expect(process(output)).toMatchObject({ ok: false, reason: "too_long" });
+  });
+
   it("skips a title of 70 characters or more", () => {
     expect(process(writer({ title: "x".repeat(69) })).ok).toBe(true);
     expect(process(writer({ title: "x".repeat(70) }))).toMatchObject({ ok: false, reason: "check_failed" });

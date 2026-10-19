@@ -69,4 +69,10 @@ describe("the Column card", () => {
     expect(html).toContain("column changes are disabled here");
     expect(html.match(/<button[^>]*disabled/g)?.length).toBeGreaterThanOrEqual(3);
   });
+
+  it("keeps an off-list model or provider selected as Keep, so saving the schedule never unlocks it", () => {
+    const html = render(ready({ settings: { ...DEFAULT_COLUMN_SETTINGS, defaultWriterModel: "gpt-5", provider: "elsewhere" } }));
+    expect(html).toContain('<option value="keep" selected="">Keep gpt-5 (not allowed: slots skip)</option>');
+    expect(html).toContain('<option value="keep" selected="">Keep &quot;elsewhere&quot; (not recognized: slots skip)</option>');
+  });
 });

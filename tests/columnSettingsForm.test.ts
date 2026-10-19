@@ -21,6 +21,12 @@ describe("the cadence form", () => {
     expect(cadenceFromForm(form({ ...cadence, days: ["mon"] }))).toEqual({ ok: false, error: "days_mismatch" });
   });
 
+  it("leaves out a kept provider or model, so the stored value stays and keeps skipping", () => {
+    expect(cadenceFromForm(form({ ...cadence, provider: "keep", defaultWriterModel: "keep", nextEditionModel: "keep" }))).toEqual({ ok: true, value: {
+      mode: "2x", days: ["mon", "thu"], hourUtc: 14, holdHours: 24, relevance: "normal", minGapHours: 20, monthlyCapUsd: null,
+    } });
+  });
+
   it.each([
     ["an hour past 23", { hourUtc: "24" }],
     ["a cap over $50", { monthlyCapUsd: "60" }],
@@ -47,5 +53,11 @@ describe("the burst form", () => {
   it("refuses a burst that ends before it starts or names an off-list model", () => {
     expect(burstFromForm(form({ ...burst, endDate: "2026-10-28" }))).toEqual({ ok: false, error: "invalid_value" });
     expect(burstFromForm(form({ ...burst, model: "gpt-5" }))).toEqual({ ok: false, error: "invalid_value" });
+  });
+
+  it("keeps an edited burst's stored model, even one off the allowlist, and only for a burst that exists", () => {
+    const stored = [{ id: "expansion-launch", label: "Expansion launch", enabled: true, startDate: "2026-10-29", endDate: "2026-11-04", cadence: "daily" as const, hourUtc: 14, model: "gpt-5", holdHours: 8 }];
+    expect(burstFromForm(form({ ...burst, id: "expansion-launch", model: "keep" }), stored)).toMatchObject({ ok: true, value: { id: "expansion-launch", model: "gpt-5" } });
+    expect(burstFromForm(form({ ...burst, model: "keep" }), stored)).toEqual({ ok: false, error: "invalid_value" });
   });
 });

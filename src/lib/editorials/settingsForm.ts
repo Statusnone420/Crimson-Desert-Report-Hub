@@ -32,7 +32,14 @@ function oneOf<T extends string>(value: string, allowed: readonly T[]): T | null
   return (allowed as readonly string[]).includes(value) ? value as T : null;
 }
 
-/** The cadence dials. Model fields accept only the writer allowlist or "not set". */
+/**
+ * The form value for "keep what's stored". The card offers it only for a stored provider
+ * or model the allowlist no longer knows, so saving other fields never swaps that value
+ * for one that runs: the slot keeps skipping until the editor picks a new one.
+ */
+export const KEEP_STORED = "keep";
+
+/** The cadence dials. Model fields accept only the writer allowlist, "not set" or "keep". */
 export function cadenceFromForm(formData: FormData): FormResult<Partial<ColumnSettings>> {
   const mode = oneOf(text(formData, "mode"), CADENCE_MODES);
   const days = WEEKDAYS.filter((day) => formData.getAll("days").includes(day)) as Weekday[];
@@ -45,16 +52,20 @@ export function cadenceFromForm(formData: FormData): FormResult<Partial<ColumnSe
   const cap = text(formData, "monthlyCapUsd");
   const capValue = cap === "" ? null : Number(cap);
   const provider = text(formData, "provider");
-  if (!mode || hourUtc === null || holdHours === null || !relevance || minGapHours === null || !isColumnProvider(provider)) return { ok: false, error: "invalid_value" };
-  if ((defaultWriter && !isWriterModel(defaultWriter)) || (nextEdition && !isWriterModel(nextEdition))) return { ok: false, error: "invalid_value" };
+  const keep = (value: string) => value === KEEP_STORED;
+  const model = (value: string) => !value || keep(value) || isWriterModel(value);
+  if (!mode || hourUtc === null || holdHours === null || !relevance || minGapHours === null || !(keep(provider) || isColumnProvider(provider))) return { ok: false, error: "invalid_value" };
+  if (!model(defaultWriter) || !model(nextEdition)) return { ok: false, error: "invalid_value" };
   if (capValue !== null && !(Number.isFinite(capValue) && capValue >= 0 && capValue <= 50)) return { ok: false, error: "invalid_value" };
   if (days.length !== DAYS_PER_MODE[mode]) return { ok: false, error: "days_mismatch" };
   return {
     ok: true,
     value: {
-      mode, days, hourUtc, holdHours, relevance, minGapHours, provider,
-      defaultWriterModel: defaultWriter || null,
-      nextEditionModel: nextEdition || null,
+      mode, days, hourUtc, holdHours, relevance, minGapHours,
+      // A kept field is left out, so the merge leaves the stored value as it is.
+      ...(isColumnProvider(provider) ? { provider } : {}),
+      ...(keep(defaultWriter) ? {} : { defaultWriterModel: defaultWriter || null }),
+      ...(keep(nextEdition) ? {} : { nextEditionModel: nextEdition || null }),
       monthlyCapUsd: capValue,
     },
   };
@@ -65,14 +76,19 @@ function burstId(label: string): string {
   return `${base}-${crypto.randomUUID().slice(0, 6)}`;
 }
 
-/** One burst from its form. A new burst gets an id; an edit keeps its own. */
-export function burstFromForm(formData: FormData): FormResult<ColumnBurst> {
-  const model = text(formData, "model");
+/**
+ * One burst from its form. A new burst gets an id; an edit keeps its own, and "keep"
+ * keeps the edited burst's stored model, even one off the allowlist.
+ */
+export function burstFromForm(formData: FormData, stored: readonly ColumnBurst[] = []): FormResult<ColumnBurst> {
+  const id = text(formData, "id");
+  const requested = text(formData, "model");
+  const model = requested === KEEP_STORED ? stored.find((burst) => burst.id === id)?.model : requested;
   const relevance = text(formData, "relevance");
-  if (!isWriterModel(model) || (relevance && !oneOf(relevance, RELEVANCE_LEVELS))) return { ok: false, error: "invalid_value" };
+  if (!model || (requested !== KEEP_STORED && !isWriterModel(model)) || (relevance && !oneOf(relevance, RELEVANCE_LEVELS))) return { ok: false, error: "invalid_value" };
   const label = text(formData, "label");
   const parsed = columnBurstSchema.safeParse({
-    id: text(formData, "id") || burstId(label),
+    id: id || burstId(label),
     label,
     enabled: formData.get("enabled") === "on",
     startDate: text(formData, "startDate"),

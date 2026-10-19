@@ -79,10 +79,11 @@ export async function saveColumnCadence(formData: FormData) {
 export async function saveColumnBurst(formData: FormData) {
   await requireAdmin();
   assertProductionWriteAllowed();
-  const parsed = burstFromForm(formData);
-  if (!parsed.ok) backToColumn(parsed.error);
   const client = createServiceClient();
   const { settings } = await readColumnSettings(client);
+  // The stored bursts let "keep" hold on to a model the allowlist no longer knows.
+  const parsed = burstFromForm(formData, settings.bursts);
+  if (!parsed.ok) backToColumn(parsed.error);
   const exists = settings.bursts.some((burst) => burst.id === parsed.value.id);
   if (!exists && settings.bursts.length >= MAX_BURSTS) backToColumn("invalid_value");
   const bursts = exists

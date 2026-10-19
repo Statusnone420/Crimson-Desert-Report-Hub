@@ -113,10 +113,13 @@ function average(values: number[]): number | null {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
+function dayLabel(day: string): string {
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
 function dayRange(days: ActivityDay[]): string {
   if (!days.length) return "";
-  const label = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-  return `${label(days[0].day)} to ${label(days[days.length - 1].day)} (UTC)`;
+  return `${dayLabel(days[0].day)} to ${dayLabel(days[days.length - 1].day)} (UTC)`;
 }
 
 function windows(history: ActivityHistory) {
@@ -230,11 +233,13 @@ export function buildFactPack(input: FactPackInput): FactPack {
         source: { label: "Daily Steam reviews, Report Hub Observatory", url: "/observatory#daily-reviews" },
       });
     }
-    const lifetime = input.history.days.findLast((day) => day.lifetimePositive !== null)?.lifetimePositive ?? null;
-    if (lifetime !== null) {
+    // Dated by the day the score was recorded, which can be older than the last full day.
+    const lifetimeDay = input.history.days.findLast((day) => day.lifetimePositive !== null);
+    const lifetime = lifetimeDay?.lifetimePositive ?? null;
+    if (lifetimeDay && lifetime !== null) {
       add("S", {
         text: `Crimson Desert's all-time Steam review score was ${NUMBER.format(lifetime)}% positive.`,
-        period: dayRange(recent.slice(-1)),
+        period: `${dayLabel(lifetimeDay.day)} (UTC)`,
         value: Math.round(lifetime),
         source: { label: "Steam review record, Report Hub Observatory", url: "/observatory#review-record" },
       });
