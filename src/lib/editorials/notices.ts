@@ -33,6 +33,7 @@ export const COLUMN_NOTICES = {
   publish_not_promotable: "Only a test draft that passed its fact check can be published. Nothing changed.",
   publish_not_approved: "The test draft's newest rating isn't a thumbs up. Nothing changed.",
   publish_slot_taken: "This week's slot already has an edition. Nothing changed.",
+  publish_slot_busy: "A scheduled run took this week's slot less than 30 minutes ago and may still be writing it. Try again after that. Nothing changed.",
 } as const;
 
 export type ColumnNotice = keyof typeof COLUMN_NOTICES;

@@ -39,6 +39,7 @@ const PUBLISH_REFUSALS: Partial<Record<string, ColumnNotice>> = {
   not_promotable: "publish_not_promotable",
   not_approved: "publish_not_approved",
   slot_taken: "publish_slot_taken",
+  slot_busy: "publish_slot_busy",
 };
 
 /** Pause is the column's off switch. It never touches the scanner's settings. */

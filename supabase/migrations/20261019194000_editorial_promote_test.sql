@@ -11,7 +11,7 @@ security invoker
 set search_path = ''
 as $$
 declare
-  v_slot_status text;
+  v_slot record;
 begin
   if p_slot_key is null or p_slot_key !~ '^([0-9]{4}-W[0-9]{2}:(mon|tue|wed|thu|fri|sat|sun)|burst:[A-Za-z0-9_-]+:[0-9]{4}-[0-9]{2}-[0-9]{2})$' then
     return 'bad_slot';
@@ -33,10 +33,16 @@ begin
 
   -- The slot is empty or holds only a skip, which the draft replaces. The unique slot
   -- index stops a run that writes the slot at the same moment.
-  select status into v_slot_status from public.editorials
+  select status, skip_reason, updated_at into v_slot from public.editorials
     where slot_key = p_slot_key and not is_test
     for update;
-  if found and v_slot_status <> 'skipped' then return 'slot_taken'; end if;
+  if found and v_slot.status <> 'skipped' then return 'slot_taken'; end if;
+  -- A scheduled run claims its slot as a writer_failed skip and fills that row minutes
+  -- later. A claim this fresh may still be writing, so it is never replaced; an older one
+  -- is a run that died.
+  if found and v_slot.skip_reason = 'writer_failed' and v_slot.updated_at > now() - interval '30 minutes' then
+    return 'slot_busy';
+  end if;
   update public.editorials
     set slot_key = p_slot_key || ':replaced', updated_at = now()
     where slot_key = p_slot_key and not is_test and status = 'skipped';

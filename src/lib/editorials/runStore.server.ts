@@ -165,11 +165,14 @@ export async function claimSlot(client: SupabaseClient, slotKey: string, fields:
   return (data?.[0] as { id?: string } | undefined)?.id ?? null;
 }
 
-/** Records why the claimed slot skipped. A draft the checker never judged goes with it, still skipped. */
-export async function finishClaimAsSkip(client: SupabaseClient, id: string, reason: SkipReason, checkReport: unknown, unchecked?: UncheckedDraft): Promise<void> {
+/**
+ * Records why the claimed slot skipped. A draft the checker never judged goes with it, still
+ * skipped. A claim a published test draft replaced has a new slot key and keeps its record.
+ */
+export async function finishClaimAsSkip(client: SupabaseClient, id: string, slotKey: string, reason: SkipReason, checkReport: unknown, unchecked?: UncheckedDraft): Promise<void> {
   const { error } = await client.from("editorials")
     .update({ skip_reason: reason, check_report: checkReport ?? null, ...unchecked, updated_at: new Date().toISOString() })
-    .eq("id", id).eq("status", "skipped");
+    .eq("id", id).eq("slot_key", slotKey).eq("status", "skipped");
   check(error, "Skip update");
 }
 
@@ -187,11 +190,14 @@ export type SavedEdition = {
 /** The writer's text on a skipped row, kept for the operator when the checker never judged it. */
 export type UncheckedDraft = Pick<SavedEdition, "title" | "dek" | "body_md">;
 
-/** Turns the claim into a held edition. A taken slug gets the slot's date added once. */
-export async function saveEdition(client: SupabaseClient, id: string, edition: SavedEdition, dateSuffix: string): Promise<void> {
+/**
+ * Turns the claim into a held edition. A taken slug gets the slot's date added once. A claim
+ * a published test draft replaced has a new slot key, so it never becomes a second edition.
+ */
+export async function saveEdition(client: SupabaseClient, id: string, slotKey: string, edition: SavedEdition, dateSuffix: string): Promise<void> {
   const update = (slug: string) => client.from("editorials")
     .update({ ...edition, slug, status: "held", skip_reason: null, updated_at: new Date().toISOString() })
-    .eq("id", id).eq("status", "skipped").select("id");
+    .eq("id", id).eq("slot_key", slotKey).eq("status", "skipped").select("id");
   let result = await update(edition.slug);
   if (result.error?.code === UNIQUE_VIOLATION) result = await update(`${edition.slug}-${dateSuffix}`.slice(0, 120));
   check(result.error, "Edition save");

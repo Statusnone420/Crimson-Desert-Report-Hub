@@ -185,6 +185,31 @@ describe("one wake of the column", () => {
     expect([editorials()[0].title, editorials()[0].body_md].map((value) => value ?? null)).toEqual([null, null]);
   });
 
+  describe("when a test draft is published over the claim mid-run", () => {
+    // What editorial_promote_test does: the claim moves to "<slot>:replaced" and the draft takes the slot.
+    function publishTestDraftOverClaim() {
+      const claim = editorials().find((row) => row.slot_key === "2026-W44:mon")!;
+      claim.slot_key = "2026-W44:mon:replaced";
+      editorials().push({ id: "promoted", slot_key: "2026-W44:mon", status: "published", is_test: false, slug: "approved-draft", title: "Approved draft", body_md: "## What the notes claim\n\nApproved.", created_at: RUN_NOW.toISOString(), publish_at: RUN_NOW.toISOString() });
+    }
+    const writer = () => { publishTestDraftOverClaim(); return messageReply(writerOutput()); };
+
+    it("fails to save rather than make the renamed claim a second edition", async () => {
+      await expect(run(providerFetch({ writer }).impl)).rejects.toThrow("Edition save failed.");
+      expect(editorials().map((row) => [row.slot_key, row.status, row.skip_reason ?? null, row.title ?? null])).toEqual([
+        ["2026-W44:mon:replaced", "skipped", "writer_failed", null],
+        ["2026-W44:mon", "published", null, "Approved draft"],
+      ]);
+    });
+
+    it("leaves the renamed claim's record alone when the run skips", async () => {
+      const truncated = () => json(200, { content: [{ type: "thinking", thinking: "" }, { type: "text", text: '{"sentences":[{"id":"t","supported":tr' }], stop_reason: "max_tokens", usage: { input_tokens: 6000, output_tokens: 16000 } });
+      expect(await run(providerFetch({ writer, checker: truncated }).impl)).toMatchObject({ status: "skipped", reason: "check_failed" });
+      expect(editorials()[0]).toMatchObject({ slot_key: "2026-W44:mon:replaced", status: "skipped", skip_reason: "writer_failed" });
+      expect(editorials()[0].title ?? null).toBeNull();
+    });
+  });
+
   it("refuses a prompt that stays over 90k tokens after trimming, without a paid call", async () => {
     const provider = providerFetch({ countTokens: 95_000 });
     expect(await run(provider.impl)).toMatchObject({ status: "skipped", reason: "prompt_too_large" });

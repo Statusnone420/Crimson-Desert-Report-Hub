@@ -193,6 +193,7 @@ describe("publishing a test draft", () => {
   it.each([
     ["not_approved", "publish_not_approved"],
     ["slot_taken", "publish_slot_taken"],
+    ["slot_busy", "publish_slot_busy"],
     ["not_promotable", "publish_not_promotable"],
   ])("says why the database refused (%s) and changes nothing", async (result, notice) => {
     mocks.rpc.mockResolvedValue({ data: result, error: null });
