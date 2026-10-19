@@ -76,7 +76,7 @@ describe("the writer and checker prompts", () => {
     expect(checker.system[0]).toEqual(writer.system[0]);
     expect(checker.system[1].cache).toBe(false);
     expect(checker.effort).toBe("high");
-    expect(checker.maxTokens).toBe(4000);
+    expect(checker.maxTokens).toBe(16000);
   });
 
   it("tells the checker that first person and cursing are fine, and slurs, sexual terms and politics are not", () => {

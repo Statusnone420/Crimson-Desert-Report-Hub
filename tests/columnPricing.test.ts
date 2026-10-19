@@ -28,7 +28,7 @@ describe("the column's pinned price table", () => {
 
   it("reserves the worst case: every prompt token at the dearer of input and cache write, plus every output token", () => {
     expect(worstCaseCost("claude-opus-5-5", 10_000, 8000)).toBeCloseTo((10_000 * 5 + 8000 * 20) / 1e6);
-    expect(worstCaseCost("claude-haiku-5-5", 10_000, 4000)).toBeCloseTo((10_000 * 0.125 + 4000 * 0.5) / 1e6);
+    expect(worstCaseCost("claude-haiku-5-5", 10_000, 16_000)).toBeCloseTo((10_000 * 0.125 + 16_000 * 0.5) / 1e6);
     expect(worstCaseCost("claude-fable-5-1", 30_000, 8000)).toBeLessThan(1);
   });
 });

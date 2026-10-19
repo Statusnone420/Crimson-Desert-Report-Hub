@@ -2409,7 +2409,13 @@ const server = createServer(async (req, res) => {
     const offset = Number(url.searchParams.get("offset") ?? 0);
     const limit = Number(url.searchParams.get("limit") ?? rows.length);
     const columns = (url.searchParams.get("select") ?? "*").split(",").map((column) => column.trim());
-    rows = rows.slice(offset, offset + limit).map((row) => (columns.includes("*") ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))));
+    // A column is a name, or `alias:column->>key` for one text value inside a JSON column.
+    const value = (row, column) => {
+      const [name, path] = column.includes(":") ? column.split(":") : [column, column];
+      const [base, key] = path.split("->>");
+      return [name, key === undefined ? row[base] ?? null : row[base]?.[key] ?? null];
+    };
+    rows = rows.slice(offset, offset + limit).map((row) => (columns.includes("*") ? row : Object.fromEntries(columns.map((column) => value(row, column)))));
     sendJson(res, req.method, 200, rows);
     return;
   }

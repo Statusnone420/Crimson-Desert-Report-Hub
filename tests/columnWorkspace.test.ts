@@ -18,7 +18,7 @@ function row(overrides: Partial<AdminEditionRow>): AdminEditionRow {
   return {
     id: "e0000000-0000-4000-8000-000000000001", slot_key: "2026-W44:s0", is_test: false, slug: "an-edition", status: "held",
     title: "An edition", dek: null, body_md: "## The forecast\n\nClear skies.", facts_box: null, relevance_score: 3,
-    writer_model: "claude-opus-5-5", writer_effort: "high", skip_reason: null, hold_hours: 24,
+    writer_model: "claude-opus-5-5", writer_effort: "high", skip_reason: null, check_note: null, hold_hours: 24,
     created_at: "2026-10-26T14:00:00Z", updated_at: "2026-10-26T14:00:00Z", publish_at: null, published_at: null, vetoed_at: null, ...overrides,
   };
 }
@@ -54,6 +54,34 @@ describe("the Column card", () => {
     expect(html).toContain("Pause the column");
   });
 
+  it("says what stopped a checker that never judged the draft, instead of a failed fact check", () => {
+    const skip = (id: string, skip_reason: string, check_note: string | null, body_md: string | null = null) =>
+      row({ id, status: "skipped", title: null, slug: null, body_md, skip_reason, check_note, slot_key: `2026-W43:${id}` });
+    const html = render(ready({ recent: [
+      skip("cut", "check_failed", "max_tokens", "## The forecast\n\nUnchecked."),
+      skip("late", "check_failed", "checker_out_of_time"),
+      skip("facts", "check_failed", null),
+      skip("writer", "writer_failed", "max_tokens"),
+    ] }));
+    expect(html).toContain("Skipped: Checker hit its token limit");
+    expect(html).toContain("Skipped: No time left for the fact check");
+    expect(html.match(/Skipped: Fact check failed/g)).toHaveLength(1);
+    expect(html).toContain("Skipped: Writer failed");
+    // Only the skip that kept a draft links to it.
+    expect(html).toContain('href="/operator?view=column&amp;edition=cut"');
+    for (const id of ["late", "facts", "writer"]) expect(html).not.toContain(`edition=${id}"`);
+  });
+
+  it("shows a kept draft as skipped and unchecked, with no rating form", () => {
+    const draft = row({ status: "skipped", slug: null, skip_reason: "check_failed", check_note: "max_tokens", title: "Unchecked title", dek: "Unchecked dek." });
+    const html = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
+    expect(html).toContain('<span class="workspace-badge">Skipped</span>');
+    expect(html).toContain("Skipped: Checker hit its token limit. This is the writer&#x27;s draft. Nothing in it was fact-checked, and a skipped edition never publishes.");
+    expect(html).toContain("Clear skies.");
+    expect(html).not.toContain("Rate this edition");
+    expect(html).not.toContain("check_failed");
+  });
+
   it("offers veto, not approval, for an edition on the 24-hour hold, with its countdown", () => {
     const settings = { ...DEFAULT_COLUMN_SETTINGS, approveFirstRemaining: 0 };
     const html = render(ready({ settings, pending: [row({ publish_at: "2026-10-27T14:00:00Z" })] }));
@@ -75,7 +103,11 @@ describe("the Column card", () => {
     const studio = {
       examples: [{ id: "v1", body: "Deadpan weather.", label: "Weather", position: 0 }],
       rotation: [{ id: "a", title: "Clear skies" }],
-      tests: [row({ id: "t1", is_test: true, writer_model: "claude-fable-5-1", title: "Try" })],
+      tests: [
+        row({ id: "t1", is_test: true, writer_model: "claude-fable-5-1", title: "Try" }),
+        row({ id: "t2", is_test: true, status: "skipped", skip_reason: "check_failed", check_note: "max_tokens", title: "Cut off" }),
+        row({ id: "t3", is_test: true, status: "skipped", skip_reason: "provider_unavailable", title: null }),
+      ],
       testsToday: 3,
     };
     const html = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft: null, studio, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
@@ -84,6 +116,12 @@ describe("the Column card", () => {
     expect(html).toContain("7 of 10 left today (UTC)");
     expect(html).toContain("TEST · Try");
     expect(html).toContain("Fable 5.1");
+    // A skipped test draft reads its kept text but can't be rated, and says why it skipped in words.
+    expect(html).toContain('edition=t1">Read and rate</a>');
+    expect(html).toContain('edition=t2">Read</a>');
+    expect(html).toContain("Skipped: Checker hit its token limit");
+    expect(html).toContain("Skipped: Provider unavailable");
+    expect(html).not.toContain("edition=t3");
   });
 
   it("offers thumbs and a note under a draft, with its earlier notes", () => {

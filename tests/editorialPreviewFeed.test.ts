@@ -15,7 +15,7 @@ function row(overrides: Partial<AdminEditionRow>): AdminEditionRow {
   return {
     id: "e0000000-0000-4000-8000-000000000001", slot_key: "2026-W44:s0", is_test: false, slug: "an-edition", status: "held",
     title: "An edition", dek: "A dek.", body_md: "## The forecast\n\nClear skies.", facts_box: null, relevance_score: 3,
-    writer_model: "claude-opus-5-5", writer_effort: "high", skip_reason: null, hold_hours: 24,
+    writer_model: "claude-opus-5-5", writer_effort: "high", skip_reason: null, check_note: null, hold_hours: 24,
     created_at: "2026-10-26T14:00:00Z", updated_at: "2026-10-26T14:00:00Z", publish_at: null, published_at: null, vetoed_at: null, ...overrides,
   };
 }
@@ -64,6 +64,18 @@ describe("the private preview feed", () => {
     expect(xml).toContain("[Vetoed] Vetoed one");
     expect(xml).toContain("/operator?view=column&amp;edition=");
     expect(xml).not.toContain(TOKEN);
+  });
+
+  it("shows a skip's slot, reason and note, never the unchecked draft it kept", async () => {
+    mocks.read.mockResolvedValue([
+      row({ status: "skipped", slug: null, slot_key: "2026-W43:mon", skip_reason: "check_failed", check_note: "max_tokens", title: "Unchecked title", dek: "Unchecked dek.", body_md: "## The forecast\n\nUnchecked text." }),
+      row({ id: "e5", is_test: true, status: "skipped", slug: null, slot_key: "test:2026-10-26", skip_reason: "check_failed", check_note: "max_tokens", title: "Unchecked test title" }),
+    ]);
+    const xml = await (await GET(request(TOKEN))).text();
+    expect(xml).toContain("<title>[Skipped: check_failed (max_tokens)] Slot 2026-W43:mon</title>");
+    expect(xml).toContain("<title>TEST · Opus 5.5 · Untitled</title>");
+    expect(xml).toContain("Status: Skipped: check_failed (max_tokens)");
+    expect(xml).not.toContain("Unchecked");
   });
 
   it("labels test drafts with their model and held editions with their publish time", () => {

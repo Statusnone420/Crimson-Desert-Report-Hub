@@ -9,26 +9,9 @@ import { ColumnCadence } from "@/components/operator/ColumnCadence";
 import { SubmitButton } from "@/components/SubmitButton";
 import { COLUMN_AUTHOR, factsBoxSchema, formatUtcTimestamp, markdownToSections } from "@/lib/editorials/content";
 import { WRITER_MODEL_LABELS, isWriterModel, type ColumnProvider } from "@/lib/editorials/models";
+import { skipReasonLabel } from "@/lib/editorials/notices";
 import { previewStatusLabel } from "@/lib/editorials/previewFeed";
 import type { AdminEditionRow, ColumnDashboard } from "@/lib/editorials/store.server";
-
-const SKIP_REASON_LABELS: Record<string, string> = {
-  paused: "Paused",
-  below_threshold: "Not enough news",
-  min_gap: "Too soon after the last edition",
-  budget: "Over the column budget",
-  prompt_too_large: "Prompt too large",
-  provider_unavailable: "Provider unavailable",
-  model_not_allowed: "Model not allowed",
-  writer_failed: "Writer failed",
-  check_failed: "Fact check failed",
-  person_named: "Named a person",
-  too_short: "Too short after fact check",
-  missing_required_section: "Missing forecast and patch desk",
-  slop_check_failed: "Failed the style check",
-  no_time: "No time left after the scan",
-  too_long: "Too long for the page",
-};
 
 function modelLabel(model: string | null): string {
   if (!model) return "—";
@@ -70,18 +53,21 @@ function VetoButton({ row, now, disabled }: { row: AdminEditionRow; now: Date; d
 function EditionDraft({ row, now, notes, writesDisabled }: { row: AdminEditionRow; now: Date; notes: EditionNote[] | null; writesDisabled: boolean }) {
   const sections = row.body_md ? markdownToSections(row.body_md) : null;
   const facts = factsBoxSchema.safeParse(row.facts_box);
+  const skipped = row.status === "skipped";
   return <section className="workspace-panel" aria-labelledby="column-draft-heading">
     <div className="workspace-detail-heading">
-      <span className="workspace-badge">{row.is_test ? "Test draft" : previewStatusLabel(row, now)}</span>
+      <span className="workspace-badge">{row.is_test ? "Test draft" : skipped ? "Skipped" : previewStatusLabel(row, now)}</span>
       <h2 id="column-draft-heading">{row.title ?? `Slot ${row.slot_key}`}</h2>
       <p>By {COLUMN_AUTHOR} · {modelLabel(row.writer_model)}{row.writer_effort ? `, ${row.writer_effort} effort` : ""} · relevance {row.relevance_score ?? "not scored"}</p>
     </div>
     <div className="workspace-panel-body">
+      {skipped ? <p className="workspace-note">{`Skipped: ${skipReasonLabel(row.skip_reason, row.check_note)}.${sections
+        ? " This is the writer's draft. Nothing in it was fact-checked, and a skipped edition never publishes." : ""}`}</p> : null}
       {row.dek ? <p className="workspace-note">{row.dek}</p> : null}
       {sections ? sections.map((section) => <div className="workspace-detail-section" key={section.subhead}>
         <h3>{section.subhead}</h3>
         {section.paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}
-      </div>) : <p className="workspace-note">{row.status === "skipped" ? `Skipped: ${SKIP_REASON_LABELS[row.skip_reason ?? ""] ?? row.skip_reason}.` : "No text saved."}</p>}
+      </div>) : skipped ? null : <p className="workspace-note">No text saved.</p>}
       {facts.success ? <div className="workspace-detail-section">
         <h3>What&apos;s actually true</h3>
         <ul>{facts.data.items.map((item) => <li key={item.text}>{item.text} <small>({item.sourceIds.join(", ")})</small></li>)}</ul>
@@ -114,7 +100,7 @@ function EditionDraft({ row, now, notes, writesDisabled }: { row: AdminEditionRo
 /** A claim is a writer_failed skip until the edition is saved; a fresh one is still being written. */
 function statusText(row: AdminEditionRow, now: Date): string {
   if (row.status === "skipped" && row.skip_reason === "writer_failed" && now.getTime() - Date.parse(row.created_at) < 5 * 60_000) return "Writing now";
-  if (row.status === "skipped") return `Skipped: ${SKIP_REASON_LABELS[row.skip_reason ?? ""] ?? row.skip_reason}`;
+  if (row.status === "skipped") return `Skipped: ${skipReasonLabel(row.skip_reason, row.check_note)}`;
   return previewStatusLabel(row, now);
 }
 
@@ -190,7 +176,7 @@ export function ColumnWorkspace({ dashboard, draft, draftNotes = null, studio = 
         {dashboard.recent.length ? <table className="workspace-table">
           <thead><tr><th scope="col">Edition</th><th scope="col">Status</th><th scope="col">Relevance</th><th scope="col">Writer</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{dashboard.recent.map((row) => <tr key={row.id}>
-            <td><strong>{row.title ?? `Slot ${row.slot_key}`}</strong><small>{formatUtcTimestamp(row.created_at)}{row.status === "skipped" ? null : <> · <Link href={`/operator?view=column&edition=${row.id}`}>Read</Link></>}</small></td>
+            <td><strong>{row.title ?? `Slot ${row.slot_key}`}</strong><small>{formatUtcTimestamp(row.created_at)}{row.status === "skipped" && !row.body_md ? null : <> · <Link href={`/operator?view=column&edition=${row.id}`}>Read</Link></>}</small></td>
             <td>{statusText(row, now)}</td>
             <td>{row.relevance_score ?? "—"}</td>
             <td>{modelLabel(row.writer_model)}</td>

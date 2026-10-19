@@ -5,8 +5,15 @@ const mocks = vi.hoisted(() => ({ pack: vi.fn<() => Promise<FactPack>>() }));
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn, revalidateTag: vi.fn(), revalidatePath: vi.fn() }));
 vi.mock("@/lib/editorials/factPack.server", () => ({ readFactPack: mocks.pack }));
 
+import { budgetCoversBothCalls } from "@/lib/editorials/budgetGate.server";
+import { CHECKER_MAX_TOKENS, WRITER_MAX_TOKENS } from "@/lib/editorials/config";
+import { sectionsToMarkdown } from "@/lib/editorials/content";
+import { PROMPT_TOKEN_LIMIT } from "@/lib/editorials/generate.server";
+import { buildPreviewAtomXml } from "@/lib/editorials/previewFeed";
+import { worstCaseCost } from "@/lib/editorials/pricing";
 import { runColumn } from "@/lib/editorials/run.server";
 import { ColumnNotSetUpError } from "@/lib/editorials/settings.server";
+import { readPreviewEditions, readSitemapEditions, readVisibleEditions } from "@/lib/editorials/store.server";
 import { createFakeDb, markColumnTablesMissing, type FakeDb } from "./columnFakeDb";
 import { checkerOutput, GUIDES, json, messageReply, pipelinePack, providerFetch, RUN_NOW, writerOutput } from "./columnPipelineFixtures";
 
@@ -134,6 +141,50 @@ describe("one wake of the column", () => {
     expect(await run(providerFetch({ checker }).impl)).toMatchObject({ status: "skipped", reason });
   });
 
+  it("keeps the writer's unchecked draft on the skip when the checker hits its token limit, and never shows it", async () => {
+    const truncated = () => json(200, { content: [{ type: "thinking", thinking: "" }, { type: "text", text: '{"sentences":[{"id":"t","supported":tr' }], stop_reason: "max_tokens", usage: { input_tokens: 6000, output_tokens: 16000 } });
+    const provider = providerFetch({ checker: truncated });
+    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:mon", reason: "check_failed" });
+    expect(provider.messageCalls().map((call) => [call.body.model, call.body.max_tokens])).toEqual([["claude-opus-5-5", 8000], ["claude-haiku-5-5", 16000]]);
+    expect(db.tables.editorial_ai_spend.map((row) => [row.operation, row.cost_state])).toEqual([["writer", "settled"], ["checker", "settled"]]);
+
+    const output = writerOutput();
+    expect(editorials()).toEqual([expect.objectContaining({
+      slot_key: "2026-W44:mon", status: "skipped", skip_reason: "check_failed", slug: null, publish_at: null,
+      title: output.title, dek: output.dek,
+      body_md: sectionsToMarkdown(output.sections.map((section) => ({ subhead: section.subhead, paragraphs: section.paragraphs.map((paragraph) => paragraph.text) }))),
+      check_report: expect.objectContaining({ note: "max_tokens", post: null, checker: expect.objectContaining({ model: "claude-haiku-5-5" }) }),
+    })]);
+
+    // Still a skip: off the public pages, feeds and sitemap, long after any hold would end.
+    const later = new Date(RUN_NOW.getTime() + 30 * 86_400_000);
+    expect(await readVisibleEditions(db.client, later)).toEqual([]);
+    expect(await readSitemapEditions(db.client, later)).toEqual([]);
+    // The private preview feed names the slot and why it skipped, never the unchecked text.
+    const preview = buildPreviewAtomXml(await readPreviewEditions(db.client, RUN_NOW), RUN_NOW);
+    expect(preview).toContain("[Skipped: check_failed (max_tokens)] Slot 2026-W44:mon");
+    expect(preview).not.toContain(output.title);
+    expect(preview).not.toContain("held its ground");
+  });
+
+  it("keeps no draft when it would not fit the row", async () => {
+    const paragraphs = Array.from({ length: 8 }, () => ({ text: "Rain again. ".repeat(80).trim(), sourceIds: ["S1"] }));
+    const long = writerOutput({ sections: ["The forecast", "The patch desk", "The long view"].map((subhead) => ({ subhead, paragraphs })) });
+    const truncated = () => json(200, { content: [{ type: "text", text: "{" }], stop_reason: "max_tokens", usage: { input_tokens: 6000, output_tokens: 16000 } });
+    expect(await run(providerFetch({ writer: () => messageReply(long), checker: truncated }).impl)).toMatchObject({ status: "skipped", reason: "check_failed" });
+    expect(editorials()[0]).toMatchObject({ status: "skipped", skip_reason: "check_failed", check_report: expect.objectContaining({ note: "max_tokens" }) });
+    expect([editorials()[0].title, editorials()[0].dek, editorials()[0].body_md].map((value) => value ?? null)).toEqual([null, null, null]);
+  });
+
+  it.each([
+    ["an unreadable verdict", () => json(200, { content: [{ type: "text", text: "{}" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } })],
+    ["a refusal", () => messageReply({}, { stop_reason: "refusal" })],
+    ["a timeout", () => { throw Object.assign(new Error("timed out"), { name: "TimeoutError" }); }],
+  ])("keeps no draft when the checker stops on %s", async (_label, checker) => {
+    expect(await run(providerFetch({ checker }).impl)).toMatchObject({ status: "skipped", reason: "check_failed" });
+    expect([editorials()[0].title, editorials()[0].body_md].map((value) => value ?? null)).toEqual([null, null]);
+  });
+
   it("refuses a prompt that stays over 90k tokens after trimming, without a paid call", async () => {
     const provider = providerFetch({ countTokens: 95_000 });
     expect(await run(provider.impl)).toMatchObject({ status: "skipped", reason: "prompt_too_large" });
@@ -148,6 +199,18 @@ describe("one wake of the column", () => {
     expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:mon", reason: "budget" });
     expect(provider.messageCalls()).toEqual([]);
     expect(db.tables.editorial_ai_spend.map((row) => row.id)).toEqual(["spent"]);
+  });
+
+  it("counts both calls at the measured prompt, the checker at its full output allowance", async () => {
+    const both = worstCaseCost("claude-opus-5-5", 60_000, WRITER_MAX_TOKENS) + worstCaseCost("claude-haiku-5-5", 60_000 + 2 * WRITER_MAX_TOKENS, CHECKER_MAX_TOKENS);
+    const fits = (spent: number) => {
+      const ledger = createFakeDb({ editorial_ai_spend: [{ id: "spent", month: "2026-10", reserved_usd: spent, settled_usd: spent, cost_state: "settled" }] }, () => RUN_NOW);
+      return budgetCoversBothCalls(ledger.client, RUN_NOW, { writerModel: "claude-opus-5-5", checkerModel: "claude-haiku-5-5", promptTokens: 60_000, monthlyCapSetting: null });
+    };
+    expect(await fits(15 - both - 0.001)).toBe(true);
+    expect(await fits(15 - both + 0.001)).toBe(false);
+    // Even at the largest prompt, billed at Haiku's long-prompt rates, the checker stays far under the $1 request cap.
+    expect(worstCaseCost("claude-haiku-5-5", PROMPT_TOKEN_LIMIT + 2 * WRITER_MAX_TOKENS, CHECKER_MAX_TOKENS)).toBeLessThan(0.25);
   });
 
   it("defers when too little time is left after the scan, and records no_time on the window's last wake", async () => {

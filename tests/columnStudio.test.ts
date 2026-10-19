@@ -13,7 +13,7 @@ import { approvedEditions, latestFactPack } from "@/lib/editorials/runStore.serv
 import { readPreviewEditions, readVisibleEditions } from "@/lib/editorials/store.server";
 import { generateTestDraft } from "@/lib/editorials/testDraft.server";
 import { createFakeDb, type FakeDb } from "./columnFakeDb";
-import { GUIDES, pipelinePack, providerFetch, RUN_NOW } from "./columnPipelineFixtures";
+import { GUIDES, json, pipelinePack, providerFetch, RUN_NOW } from "./columnPipelineFixtures";
 
 let db: FakeDb;
 
@@ -155,6 +155,23 @@ describe("A/B test drafts", () => {
     const preview = buildPreviewAtomXml(await readPreviewEditions(db.client, RUN_NOW), RUN_NOW);
     expect(preview).toContain("TEST · Sonnet 5.5 · Clear skies over the inventory screen");
     expect(preview).toContain("TEST · Fable 5.1 · Clear skies over the inventory screen");
+  });
+
+  it("keep the writer's unchecked draft on a skipped test draft when the checker hits its token limit", async () => {
+    const checker = () => json(200, { content: [{ type: "text", text: '{"sentences":[' }], stop_reason: "max_tokens", usage: { input_tokens: 6000, output_tokens: 16000 } });
+    expect(await draft("claude-sonnet-5-5", providerFetch({ checker }).impl)).toEqual({ status: "skipped", reason: "check_failed" });
+    const tests = db.tables.editorials.filter((row) => row.is_test);
+    expect(tests).toEqual([expect.objectContaining({
+      status: "skipped", skip_reason: "check_failed", publish_at: null, slug: null, title: "Clear skies over the inventory screen",
+      dek: "Player numbers dipped and a hotfix tidied up two problems.", check_report: expect.objectContaining({ note: "max_tokens", post: null }),
+    })]);
+    expect(String(tests[0].body_md)).toMatch(/^## The forecast\n\n18,166 players were online/);
+    expect((await readColumnStudio(db.client, RUN_NOW)).tests).toEqual([expect.objectContaining({ check_note: "max_tokens", title: "Clear skies over the inventory screen" })]);
+    expect(await readVisibleEditions(db.client, new Date(RUN_NOW.getTime() + 30 * 86_400_000))).toEqual([]);
+    const preview = buildPreviewAtomXml(await readPreviewEditions(db.client, RUN_NOW), RUN_NOW);
+    expect(preview).toContain("TEST · Sonnet 5.5 · Untitled");
+    expect(preview).toContain("Status: Skipped: check_failed (max_tokens)");
+    expect(preview).not.toContain("Clear skies over the inventory screen");
   });
 
   it("use the freshest stored pack by when it was built, even when an older one was saved last", async () => {

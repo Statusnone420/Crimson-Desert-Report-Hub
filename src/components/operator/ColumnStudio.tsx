@@ -7,6 +7,7 @@ import { formatUtcTimestamp } from "@/lib/editorials/content";
 import type { ColumnStudio as Studio } from "@/lib/editorials/feedback.server";
 import { MAX_EXAMPLE_CHARACTERS, MAX_LABEL_CHARACTERS, MAX_VOICE_EXAMPLES } from "@/lib/editorials/feedbackForm";
 import { WRITER_EFFORTS, WRITER_MODEL_LABELS, WRITER_MODELS, isWriterModel } from "@/lib/editorials/models";
+import { skipReasonLabel } from "@/lib/editorials/notices";
 import { TEST_DRAFTS_PER_DAY } from "@/lib/editorials/provider.server";
 
 function Button({ disabled, children, pendingText = "Saving…", danger = false }: { disabled: boolean; children: ReactNode; pendingText?: string; danger?: boolean }) {
@@ -79,9 +80,9 @@ export function ColumnStudio({ studio, writesDisabled }: { studio: Studio | null
       {studio.tests.length ? <table className="workspace-table">
         <thead><tr><th scope="col">Draft</th><th scope="col">Writer</th><th scope="col">Result</th></tr></thead>
         <tbody>{studio.tests.map((row) => <tr key={row.id}>
-          <td><strong>{row.title ? `TEST · ${row.title}` : "TEST · no draft"}</strong><small>{formatUtcTimestamp(row.created_at)}{row.title ? <> · <Link href={`/operator?view=column&edition=${row.id}`}>Read and rate</Link></> : null}</small></td>
+          <td><strong>{row.title ? `TEST · ${row.title}` : "TEST · no draft"}</strong><small>{formatUtcTimestamp(row.created_at)}{row.title ? <> · <Link href={`/operator?view=column&edition=${row.id}`}>{row.status === "skipped" ? "Read" : "Read and rate"}</Link></> : null}</small></td>
           <td>{row.writer_model && isWriterModel(row.writer_model) ? WRITER_MODEL_LABELS[row.writer_model] : row.writer_model ?? "—"}{row.writer_effort ? <small>{row.writer_effort} effort</small> : null}</td>
-          <td>{row.status === "skipped" ? `Skipped: ${row.skip_reason}` : row.status === "vetoed" ? "Vetoed" : "Draft"}</td>
+          <td>{row.status === "skipped" ? `Skipped: ${skipReasonLabel(row.skip_reason, row.check_note)}` : row.status === "vetoed" ? "Vetoed" : "Draft"}</td>
         </tr>)}</tbody>
       </table> : <p className="workspace-panel-body workspace-note">No test drafts yet.</p>}
     </section>

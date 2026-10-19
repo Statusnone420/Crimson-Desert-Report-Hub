@@ -12,7 +12,7 @@ import { providerCarries } from "@/lib/editorials/provider.server";
 import { relevanceScore } from "@/lib/editorials/relevance";
 import { budgetCoversBothCalls, TYPICAL_PROMPT_TOKENS } from "@/lib/editorials/budgetGate.server";
 import {
-  approvedEditions, baselineMetrics, latestFactPack, recentOpeners, saveTestDraft, styleNotes, voiceExamples,
+  approvedEditions, baselineMetrics, latestFactPack, recentOpeners, saveTestDraft, styleNotes, voiceExamples, type UncheckedDraft,
 } from "@/lib/editorials/runStore.server";
 import { readColumnSettings } from "@/lib/editorials/settings.server";
 import type { SkipReason } from "@/lib/editorials/validate";
@@ -46,8 +46,8 @@ export async function generateTestDraft(input: {
   const { settings } = await readColumnSettings(client);
   const pack = await latestFactPack(client) ?? await readFactPack(now, await baselineMetrics(client));
   const draft = { slotKey: `test:${now.toISOString().slice(0, 10)}`, writerModel: model, writerEffort: effort, pack, relevanceScore: relevanceScore(pack.deltas) };
-  const skip = async (reason: SkipReason, checkReport: unknown = null): Promise<TestDraftOutcome> => {
-    await saveTestDraft(client, { ...draft, ok: false, reason, checkReport });
+  const skip = async (reason: SkipReason, checkReport: unknown = null, unchecked?: UncheckedDraft): Promise<TestDraftOutcome> => {
+    await saveTestDraft(client, { ...draft, ok: false, reason, checkReport, unchecked });
     return { status: "skipped", reason };
   };
 
@@ -68,7 +68,7 @@ export async function generateTestDraft(input: {
     deadlineMs, clock,
   });
   if (!result.ok && result.report.note === "test_daily_cap") return { status: "daily_cap" };
-  if (!result.ok) return skip(result.reason, result.report);
+  if (!result.ok) return skip(result.reason, result.report, result.unchecked);
   await saveTestDraft(client, {
     ...draft,
     ok: true,
