@@ -185,7 +185,7 @@ describe("A/B test drafts", () => {
     expect((await latestFactPack(db.client))?.builtAt).toBe(newer.builtAt);
   });
 
-  it.each([1, 2])("never reuse a version %i pack: the first draft builds a fresh one for the rest to share", async (version) => {
+  it.each([1, 2, 3])("never reuse a version %i pack: the first draft builds a fresh one for the rest to share", async (version) => {
     // Version 1 had no Hub checks and no newVerdictIssueIds; version 2 stated checks as labels.
     const older = {
       ...pipelinePack(), version, builtAt: "2026-10-19T14:00:00.000Z",

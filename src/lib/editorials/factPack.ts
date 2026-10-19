@@ -53,10 +53,11 @@ export type FactPackDeltas = {
 
 /**
  * Version 2 added Hub checks on listed fixes and the verdict deltas. Version 3 states each
- * check as a plain sentence and drops the label on fix lines. A stored pack of another
- * version is never reused.
+ * check as a plain sentence and drops the label on fix lines. Version 4 says one thing per
+ * fix line: a linked issue, or nothing on the Hub yet. A stored pack of another version is
+ * never reused.
  */
-export const FACT_PACK_VERSION = 3;
+export const FACT_PACK_VERSION = 4;
 
 export type FactPack = {
   version: typeof FACT_PACK_VERSION;
@@ -152,7 +153,7 @@ const CHECK_SENTENCES: Record<HubCheck, string> = {
   "Confirmed by players": "Players on the Hub say the fix worked.",
   "Still reported": "Players still report it on the Hub after the fix.",
   "Too little to call": "Since the fix, the Hub has too little evidence to call it either way.",
-  "No Hub signal yet": "The Hub has no signal on it yet.",
+  "No Hub signal yet": "Nothing on the Hub yet.",
 };
 
 /** Most cautious first: a fix line paired with several issues gets the weakest check among them. */
@@ -246,11 +247,10 @@ export function buildFactPack(input: FactPackInput): FactPack {
       const paired = checkBoard?.issues.filter((issue) => issue.afterFix?.fixes.some((line) => sameFixLine(line, fix.fixText))) ?? [];
       const checks = paired.flatMap((issue) => (issue.afterFix ? [hubCheck(issue.afterFix)] : []));
       const check = checkBoard ? CAUTION.find((item) => checks.includes(item)) ?? "No Hub signal yet" : null;
-      const pairing = paired.length
-        ? `The Hub pairs it with the known ${paired.length === 1 ? "issue" : "issues"} ${paired.map((issue) => `"${issue.title}"`).join(", ")}.`
-        : "No known issue on the Hub is paired with it.";
+      // An unlinked fix gets only "Nothing on the Hub yet.", so no line can say "no signal" and "no linked issue" together.
+      const linked = paired.length ? `The Hub links it to the known ${paired.length === 1 ? "issue" : "issues"} ${paired.map((issue) => `"${issue.title}"`).join(", ")}. ` : "";
       add("F", {
-        text: `Patch ${latest.version} lists this fix: "${fix.fixText}"${check ? `${/[.!?]$/.test(fix.fixText.trim()) ? "" : "."} ${pairing} ${CHECK_SENTENCES[check]}` : ""}`,
+        text: `Patch ${latest.version} lists this fix: "${fix.fixText}"${check ? `${/[.!?]$/.test(fix.fixText.trim()) ? "" : "."} ${linked}${CHECK_SENTENCES[check]}` : ""}`,
         period: latest.publishedAt ? formatUtcTimestamp(latest.publishedAt) : formatUtcTimestamp(latest.observedAt),
         value: latest.version,
         ...(check ? { check } : {}),
