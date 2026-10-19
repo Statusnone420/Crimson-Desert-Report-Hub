@@ -51,8 +51,11 @@ export type FactPackDeltas = {
   newVerdictIssueIds: string[];
 };
 
+/** Version 2 added Hub checks on listed fixes and the verdict deltas. A stored pack of another version is never reused. */
+export const FACT_PACK_VERSION = 2;
+
 export type FactPack = {
-  version: 1;
+  version: typeof FACT_PACK_VERSION;
   builtAt: string;
   facts: Fact[];
   metrics: FactPackMetrics;
@@ -377,7 +380,7 @@ export function buildFactPack(input: FactPackInput): FactPack {
   } else gaps.push("issues_unavailable");
 
   return {
-    version: 1,
+    version: FACT_PACK_VERSION,
     builtAt: input.now.toISOString(),
     facts,
     gaps,
