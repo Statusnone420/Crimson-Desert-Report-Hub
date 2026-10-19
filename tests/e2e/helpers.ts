@@ -1,20 +1,30 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+// A next/font file served by the local test server.
+const LOCAL_FONT_FILE = /^http:\/\/127\.0\.0\.1:\d+\/_next\/static\/media\/[^/?#]+\.woff2$/;
+
 export function collectConsoleProblems(page: Page, expectedNotFoundUrl?: string): string[] {
   const problems: string[] = [];
   const spec = test.info().titlePath.join(" › ");
+  // npm run verify sets CI on every machine; only GitHub's runners set GITHUB_ACTIONS.
+  const githubWindowsRunner = process.env.GITHUB_ACTIONS === "true" && process.platform === "win32";
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warning") {
       if (message.text().includes("/_next/webpack-hmr") && message.text().includes("WebSocket connection")) {
         return;
       }
-      // Chromium reports the Windows socket error WSAENOBUFS as this code. The
-      // Windows CI runner's OS raises it when a page load opens many local
-      // connections at once; the site never causes it. Print each one so the
-      // CI log shows how often it happens. Every other net:: error still fails.
-      if (message.type() === "error" && message.text().includes("net::ERR_NO_BUFFER_SPACE")) {
-        const url = message.location().url;
-        console.warn(`Ignored runner socket error net::ERR_NO_BUFFER_SPACE in ${spec}${url ? ` (${url})` : ""}`);
+      // On GitHub's Windows runners, Chromium sometimes fails one of the font
+      // files a page preloads all at once from the local test server. It reports
+      // the Windows socket error WSAENOBUFS as net::ERR_NO_BUFFER_SPACE. Skip
+      // only that case, and print it so the CI log shows how often it happens.
+      // The same code from any other file, or on any other machine, still fails.
+      if (
+        githubWindowsRunner &&
+        message.type() === "error" &&
+        message.text() === "Failed to load resource: net::ERR_NO_BUFFER_SPACE" &&
+        LOCAL_FONT_FILE.test(message.location().url)
+      ) {
+        console.warn(`Ignored runner socket error net::ERR_NO_BUFFER_SPACE in ${spec} (${message.location().url})`);
         return;
       }
       // Motion announces the requested OS preference in development. This is
