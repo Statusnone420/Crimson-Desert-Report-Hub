@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn, revalidateTag: vi.fn(), revalidatePath: vi.fn() }));
 
-import { readAdminEdition, readColumnDashboard, readPreviewEditions, readVisibleEditionBySlug, readVisibleEditions } from "@/lib/editorials/store.server";
+import { readAdminEdition, readColumnDashboard, readPreviewEditions, readSitemapEditions, readVisibleEditionBySlug, readVisibleEditions } from "@/lib/editorials/store.server";
 import { NOW, publicRow } from "./editorialFixtures";
 
 type Result = { data: unknown; error: { code?: string; message: string } | null };
@@ -13,7 +13,7 @@ function client(results: Record<string, Result>) {
   const calls: { table: string; method: string; args: unknown[] }[] = [];
   const from = (table: string) => {
     const builder: Record<string, unknown> = {};
-    for (const method of ["select", "eq", "in", "lte", "gte", "is", "order", "limit"]) {
+    for (const method of ["select", "eq", "in", "lte", "gte", "is", "order", "limit", "range"]) {
       builder[method] = (...args: unknown[]) => { calls.push({ table, method, args }); return builder; };
     }
     builder.then = (resolve: (value: Result) => unknown) => resolve(results[table] ?? { data: [], error: null });
@@ -52,6 +52,36 @@ describe("public editorial reads", () => {
     const { client: db, calls } = client({});
     expect(await readVisibleEditionBySlug(db, "../etc", NOW)).toBeNull();
     expect(calls).toEqual([]);
+  });
+});
+
+describe("the sitemap's edition read", () => {
+  /** Serves rows a page at a time, never more than `cap` per request, like PostgREST's max-rows setting. */
+  function paged(rows: unknown[], cap: number) {
+    const starts: number[] = [];
+    const from = () => {
+      let window = [0, Number.MAX_SAFE_INTEGER];
+      const builder: Record<string, unknown> = {};
+      for (const method of ["select", "eq", "in", "lte", "is", "order"]) builder[method] = () => builder;
+      builder.range = (start: number, end: number) => { window = [start, end]; starts.push(start); return builder; };
+      builder.then = (resolve: (value: Result) => unknown) => resolve({ data: rows.slice(window[0], Math.min(window[1] + 1, window[0] + cap)), error: null });
+      return builder;
+    };
+    return { client: { from } as unknown as SupabaseClient, starts };
+  }
+
+  it("lists every visible edition past the feeds' limit, even when the server caps each page", async () => {
+    const rows = Array.from({ length: 1205 }, (_, index) => publicRow({ id: `e${index}`, slug: `edition-${index}` }));
+    const { client: db, starts } = paged(rows, 500);
+    const editions = await readSitemapEditions(db, NOW);
+    expect(editions).toHaveLength(1205);
+    expect(editions[1204]).toEqual({ slug: "edition-1204", publishAt: rows[1204].publish_at });
+    expect(starts).toEqual([0, 500, 1000, 1205]);
+  });
+
+  it("treats a missing table as no editions and surfaces every other failure", async () => {
+    expect(await readSitemapEditions(client({ editorials: missing("editorials") }).client, NOW)).toEqual([]);
+    await expect(readSitemapEditions(client({ editorials: denied }).client, NOW)).rejects.toThrow("unavailable");
   });
 });
 

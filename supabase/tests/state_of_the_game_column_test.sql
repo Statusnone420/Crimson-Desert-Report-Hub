@@ -48,8 +48,8 @@ select throws_ok(
   '23514', null, 'an unknown skip reason is refused'
 );
 select lives_ok(
-  $$insert into public.editorials (slot_key, status, skip_reason) values ('2026-W43:s3', 'skipped', 'slop_check_failed'), ('2026-W43:s9', 'skipped', 'no_time')$$,
-  'slop_check_failed and no_time are skip reasons'
+  $$insert into public.editorials (slot_key, status, skip_reason) values ('2026-W43:s3', 'skipped', 'slop_check_failed'), ('2026-W43:s9', 'skipped', 'no_time'), ('2026-W43:s10', 'skipped', 'too_long')$$,
+  'slop_check_failed, no_time and too_long are skip reasons'
 );
 select throws_ok(
   $$insert into public.editorials (slot_key, status, skip_reason, slug, title, body_md) values ('2026-W43:s4', 'held', 'paused', 'held-with-reason', 'Title', 'Body.')$$,

@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { editorialPath } from "@/lib/editorials/content";
-import { getPublicEditions } from "@/lib/editorials/store.server";
+import { getSitemapEditions } from "@/lib/editorials/store.server";
 import { getPatchPublications } from "@/lib/patchPublications.server";
 import { patchPath } from "@/lib/patchPublications";
 import { SITE_FEED_PATH, SITE_RSS_PATH, SITE_URL } from "@/lib/site";
@@ -11,7 +11,7 @@ import { SITE_FEED_PATH, SITE_RSS_PATH, SITE_URL } from "@/lib/site";
 export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [{ articles, editions, unavailable }, column] = await Promise.all([getPatchPublications(), getPublicEditions()]);
+  const [{ articles, editions, unavailable }, column] = await Promise.all([getPatchPublications(), getSitemapEditions()]);
   if (unavailable) throw new Error("Patch sitemap temporarily unavailable");
   // A column database problem never breaks the sitemap for the rest of the site
   // (owner decision, 2026-10-18). The gap is logged; editions return on the next read.
