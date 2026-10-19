@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FactPack } from "@/lib/editorials/factPack";
+import { FACT_PACK_VERSION, type FactPack } from "@/lib/editorials/factPack";
 
 const mocks = vi.hoisted(() => ({ pack: vi.fn<() => Promise<FactPack>>() }));
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn, revalidateTag: vi.fn(), revalidatePath: vi.fn() }));
@@ -94,7 +94,7 @@ describe("one wake of the column", () => {
   it("stores the fact pack and score on a below-threshold skip", async () => {
     mocks.pack.mockResolvedValue(pipelinePack(false));
     await run(providerFetch().impl);
-    expect(editorials()[0]).toMatchObject({ skip_reason: "below_threshold", relevance_score: 0, fact_pack: expect.objectContaining({ version: 2 }) });
+    expect(editorials()[0]).toMatchObject({ skip_reason: "below_threshold", relevance_score: 0, fact_pack: expect.objectContaining({ version: FACT_PACK_VERSION }) });
   });
 
   it("uses only the column's OpenRouter key when OpenRouter is selected", async () => {

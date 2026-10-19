@@ -169,10 +169,13 @@ describe("Hub checks on listed fixes", () => {
     const pack = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX, "Fixed horses stuck in fences"]),
       board: board([issue({ approvedReports: 2, officialFixListed: true, stillHappening: true, afterFix: after({ readout: "still_happening", stillCheckins: 3, stillNetworks: 2, reportsSince: 1 }) })]) });
     const fact = (id: string) => pack.facts.find((item) => item.id === id);
-    expect(fact("F1")).toMatchObject({ check: "Still reported", text: `Patch 2.03.02 lists this fix: "${MAP_FIX}" The Hub pairs it with the known issue "Crash when opening the map". Hub check: Still reported.` });
-    expect(fact("F2")).toMatchObject({ check: "No Hub signal yet", text: 'Patch 2.03.02 lists this fix: "Fixed horses stuck in fences". No known issue on the Hub is paired with it. Hub check: No Hub signal yet.' });
+    expect(fact("F1")).toMatchObject({ check: "Still reported", text: `Patch 2.03.02 lists this fix: "${MAP_FIX}" The Hub pairs it with the known issue "Crash when opening the map". Players still report it on the Hub after the fix.` });
+    expect(fact("F2")).toMatchObject({ check: "No Hub signal yet", text: 'Patch 2.03.02 lists this fix: "Fixed horses stuck in fences". No known issue on the Hub is paired with it. The Hub has no signal on it yet.' });
+    // A fix line carries no evidence label: the writer once explained that label to readers.
+    expect(fact("F1")).not.toHaveProperty("label");
     expect(fact("C1")).toMatchObject({ check: "Still reported", status: "Still happening" });
-    expect(fact("C1")?.text).toContain('The notes for patch 2.03.02 list a fix for it. Since that fix: 3 "still happening" check-ins, 1 exact-patch player report. Hub check: Still reported.');
+    expect(fact("C1")?.text).toContain('The notes for patch 2.03.02 list a fix for it. Since that fix: 3 "still happening" check-ins, 1 exact-patch player report. Players still report it on the Hub after the fix.');
+    expect(pack.facts.map((item) => item.text).join(" ")).not.toMatch(/Hub check/);
   });
 
   it("gives a fix line paired with several issues the most cautious check", () => {

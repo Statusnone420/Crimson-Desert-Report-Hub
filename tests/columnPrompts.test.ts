@@ -96,7 +96,10 @@ describe("the writer and checker prompts", () => {
   it("asks the writer for the v3 sections, with no forecast, outlook or empty-board line", () => {
     for (const subhead of ["What the notes claim", "What we can corroborate", "What players are still hitting", "The numbers"]) expect(WRITER_INSTRUCTION).toContain(`- "${subhead}": `);
     expect(WRITER_INSTRUCTION).toContain('include "What the notes claim" or "What we can corroborate"');
-    expect(WRITER_INSTRUCTION).toContain("Never write a stronger check than the fact carries. A fix with no Hub check gets no corroboration line.");
+    expect(WRITER_INSTRUCTION).toContain("Never claim more than the fact's check. A fix whose fact has no check gets no corroboration line.");
+    expect(WRITER_INSTRUCTION).toContain('Never write "Hub check", "fact pack" or "label", and never use a check\'s name as a noun ("three No Hub signal yet").');
+    expect(WRITER_INSTRUCTION).toContain("every sentence has to make sense without the one before it. No rhetorical questions");
+    expect(WRITER_INSTRUCTION).not.toMatch(/Confirmed label/);
     expect(WRITER_INSTRUCTION).toContain("Never write about an empty issue board, zero check-ins or how many people use the Hub.");
     expect(WRITER_INSTRUCTION).toContain("Never tell readers whether to play, and write no outlook section.");
     expect(WRITER_INSTRUCTION).toContain("First person is for your reactions to the facts. Never invent things you did, saw or played.");
@@ -110,7 +113,9 @@ describe("the writer and checker prompts", () => {
 
   it("passes each fact's labels and Hub check to the models, never its URL", () => {
     const facts: { id: string; label?: string; check?: string }[] = JSON.parse(factPackMessage(samplePack())).facts;
-    expect(facts.find((fact) => fact.id === "F1")).toMatchObject({ label: "Confirmed", check: "No Hub signal yet" });
+    expect(facts.find((fact) => fact.id === "F1")).toMatchObject({ check: "No Hub signal yet" });
+    expect(facts.find((fact) => fact.id === "F1")).not.toHaveProperty("label");
+    expect(facts.find((fact) => fact.id === "C1")).toMatchObject({ label: "Reported" });
     expect(facts.find((fact) => fact.id === "S1")).not.toHaveProperty("check");
     expect(factPackMessage(samplePack())).not.toContain("https://");
   });
