@@ -63,9 +63,16 @@ const HARD_BANNED = new RegExp([
   "\\bplay(ing)? tonight\\b", "\\bshould (you|i|we) (still )?play\\b", "numbers don[’']t lie", "but they do exaggerate",
   "\\b(zero|0) check-ins?\\b", "\\bempty (issue )?board\\b",
   // Pipeline words never reach readers, and a check's name is never a noun ("three No Hub signal yet").
-  "\\bhub checks?\\b", "\\bfact[- ]packs?\\b", "\\b(confirmed|reported|evidence|status) labels?\\b",
+  "\\bhub checks?\\b", "\\bfact[- ]packs?\\b", "\\b(confirmed|evidence|status) label(s|l?ed)?\\b",
   "\\b(\\d+|two|three|four|five|six|seven|eight|nine|ten) (no hub signal yet|still reported|too little to call|confirmed by players)\\b",
 ].join("|"), "i");
+/** An evidence, status or check name the way a fact writes it, capitalized. A lowercase "reported" is just a verb. */
+const LABEL_NAME = "(?:Confirmed by players|Confirmed|Reported|One report|Still happening|Fixed \\(per patch notes\\)|Still reported|Too little to call|No Hub signal yet)";
+/**
+ * "label" within two words of such a name, either way ("The label here is Confirmed.", "a Reported label").
+ * The bare word stays: patch notes fix "item labels".
+ */
+const LABEL_JARGON = new RegExp(`\\b[Ll]abel(?:s|l?ed)?\\b(?:\\W+\\w+){0,2}?\\W+${LABEL_NAME}(?!\\w)|${LABEL_NAME}(?:\\W+\\w+){0,2}?\\W+[Ll]abel(?:s|l?ed)?\\b`);
 /** A line this short, right after a cut sentence, usually leaned on it ("Which regions?" cut leaves "Also not listed."). */
 const MAX_ORPHAN_WORDS = 5;
 /** No outlook section: readers already play, so the column doesn't tell them whether to. */
@@ -90,7 +97,7 @@ const AI_VOCABULARY = /\b(crucial|robust|seamless(ly)?|showcas\w*|landscapes?|un
 export function hardSlop(text: string): string[] {
   const reasons: string[] = [];
   if (TOOL_ARTIFACT.test(text)) reasons.push("tool_artifact");
-  if (HARD_BANNED.test(text)) reasons.push("banned_word");
+  if (HARD_BANNED.test(text) || LABEL_JARGON.test(text)) reasons.push("banned_word");
   if (GUARDRAIL.test(text)) reasons.push("guardrail");
   if (EMOJI.test(text)) reasons.push("emoji");
   if (HASHTAG.test(text)) reasons.push("hashtag");
@@ -123,8 +130,8 @@ export type ProcessedEdition =
 /**
  * Deterministic post-processing. Deletes sentences the checker found unsupported, that
  * quote a player, hit a banned word, guardrail or checklist rule, cite an id outside the
- * pack, or carry a number no cited fact contains, plus a short line left right after a cut
- * sentence, and drops an outlook section. Then skips when
+ * pack, or carry a number no cited fact contains, plus every body question and a short line
+ * left right after a cut sentence, and drops an outlook section. Then skips when
  * a person is named, the title or dek can't be cleaned, the title runs 70 characters or more,
  * neither "What the notes claim" nor "What we can corroborate" survives, fewer than 250 words
  * remain, the body is too long to store, or the facts box is missing or unsourced.
@@ -180,9 +187,10 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
     if (why.length) deleted.set(ref.id, why);
   }
 
-  // A rhetorical question never opens the column.
-  const firstBody = refs.find((ref) => ref.kind === "body");
-  if (firstBody && firstBody.text.trim().endsWith("?") && !deleted.has(firstBody.id)) deleted.set(firstBody.id, ["question_opener"]);
+  // The column asks no rhetorical questions: every body question goes, and the orphan rule below drops its short answer.
+  for (const ref of refs) {
+    if (ref.kind === "body" && /\?["”’)]*$/.test(ref.text.trim()) && !deleted.has(ref.id)) deleted.set(ref.id, ["question"]);
+  }
 
   // Three or more AI-vocabulary words: the sentences that use them go.
   const kept = () => refs.filter((ref) => (ref.kind === "body" || ref.kind === "fact") && !deleted.has(ref.id));

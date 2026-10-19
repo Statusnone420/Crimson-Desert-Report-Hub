@@ -165,12 +165,18 @@ describe("post-processing", () => {
     expect(why.length).toBe(2);
   });
 
-  it("drops a rhetorical question opener", () => {
+  it("drops every rhetorical question, opening the column or not", () => {
     const output = writer({ sections: [
       { subhead: "What the notes claim", paragraphs: [paragraph("Is anyone still riding horses?", [])] },
-      { subhead: "The numbers", paragraphs: [paragraph(NUMBERS, ["S1"])] },
+      { subhead: "The numbers", paragraphs: [{ text: `${NUMBERS} Who counts these things? I do, apparently, every single week.`, sourceIds: ["S1"] }] },
     ] });
-    expect(process(output).report.deleted).toContainEqual({ id: "b1", why: ["question_opener"] });
+    const units = numberSentences(output);
+    const id = (sentence: string) => units.find((unit) => unit.text === sentence)?.id ?? "missing";
+    const { deleted } = process(output).report;
+    expect(deleted).toContainEqual({ id: "b1", why: ["question"] });
+    expect(deleted).toContainEqual({ id: id("Who counts these things?"), why: ["question"] });
+    // Its answer is a full sentence, so it stays.
+    expect(deleted.map((entry) => entry.id)).not.toContain(id("I do, apparently, every single week."));
   });
 
   it("skips a checker reply that judges any unit twice", () => {
@@ -279,6 +285,23 @@ describe("post-processing", () => {
     expect(hardSlop(line)).toEqual(["banned_word"]);
   });
 
+  it.each([
+    "The label here is Confirmed.",
+    "It carries a Reported label.",
+    "This one is labeled One report.",
+    "Its label reads Still happening.",
+  ])("deletes \"label\" next to an evidence, status or check name: %s", (line) => {
+    expect(hardSlop(line)).toEqual(["banned_word"]);
+  });
+
+  it.each([
+    "Fixed missing item labels on the map.",
+    "Players reported missing item labels.",
+    "Confirmed by players: the missing map labels are back.",
+  ])("keeps \"label\" in patch and player wording: %s", (line) => {
+    expect(hardSlop(line)).toEqual([]);
+  });
+
   it("keeps the plain-sentence version of a check", () => {
     expect(hardSlop("The Hub has no signal on any of the three fixes yet.")).toEqual([]);
     expect(hardSlop("Players still report it on the Hub after the fix.")).toEqual([]);
@@ -289,10 +312,11 @@ describe("post-processing", () => {
     const output = writer({ sections: [{ subhead: "What the notes claim", paragraphs: [{ text, sourceIds: ["P1"] }] }, ...writer().sections.slice(1)] });
     const units = numberSentences(output);
     const id = (sentence: string) => units.find((unit) => unit.text === sentence)?.id ?? "missing";
-    const result = process(output, { [id("Which situations?")]: { slopRules: [7] } });
+    // No checker verdict: the question rule cuts "Which situations?" on its own.
+    const result = process(output);
     expect(result.ok).toBe(true);
     expect(result.report.deleted).toEqual([
-      { id: id("Which situations?"), why: ["checklist"] },
+      { id: id("Which situations?"), why: ["question"] },
       { id: id("The notes don't say."), why: ["orphan"] },
       { id: id("Credit where it's due."), why: ["orphan"] },
     ]);
