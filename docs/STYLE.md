@@ -224,7 +224,7 @@ The planned home page is a data-led "check before you play" page: players online
 
 ### Bylines and the human element
 
-- The column runs under the section name "The Pywel Desk" and is signed Statusnone.
+- The column runs under the section name "The Hub Desk" and is signed Statusnone.
 - Opinion pieces are signed Statusnone.
 - A short "Who runs this" note in your own words, signed Statusnone and linked from the footer.
 - Pseudonym only. The note, and everything else on the site, carry no legal name and no personal details.

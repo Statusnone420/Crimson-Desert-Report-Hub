@@ -44,7 +44,7 @@ beforeEach(() => {
 describe("the edition page", () => {
   it("shows the section, the byline, the sections and the facts box last, with sources", async () => {
     const html = renderToStaticMarkup(await EditionPage(props));
-    expect(html).toContain("The Pywel Desk · State of the Game");
+    expect(html).toContain("The Hub Desk · State of the Game");
     expect(html).toContain("By Statusnone");
     expect(html).not.toContain("Edited by");
     expect(html).toContain("Oct 26, 14:00 UTC");
@@ -78,7 +78,7 @@ describe("the edition page", () => {
 });
 
 describe("feeds and sitemap with editions", () => {
-  it("merges visible editions with patch rundowns, newest first, signed Statusnone under The Pywel Desk", async () => {
+  it("merges visible editions with patch rundowns, newest first, signed Statusnone under The Hub Desk", async () => {
     const atomXml = await (await atom()).text();
     const rssXml = await (await rss()).text();
     for (const xml of [atomXml, rssXml]) {
@@ -88,9 +88,9 @@ describe("feeds and sitemap with editions", () => {
       expectNoPrivateProcessWords(xml);
     }
     expect(atomXml).toContain("<name>Statusnone</name>");
-    expect(atomXml).toContain('<category term="The Pywel Desk"/>');
+    expect(atomXml).toContain('<category term="The Hub Desk"/>');
     expect(rssXml).toContain("<dc:creator>Statusnone</dc:creator>");
-    expect(rssXml).toContain("<category>The Pywel Desk</category>");
+    expect(rssXml).toContain("<category>The Hub Desk</category>");
     expect(rssXml).not.toContain("<author>");
   });
 
