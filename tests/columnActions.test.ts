@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const AUTH_SENTINEL = "auth sentinel: admin session required";
 
@@ -19,7 +19,7 @@ vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.fro
 vi.mock("@/lib/previewGuard", () => ({ assertProductionWriteAllowed: () => { if (mocks.preview()) throw new Error("preview writes disabled"); } }));
 
 import {
-  approveEdition, deleteColumnBurst, deleteVoiceExampleAction, generateTestDraftAction, moveVoiceExampleAction, saveColumnBurst,
+  approveEdition, deleteColumnBurst, deleteVoiceExampleAction, generateTestDraftAction, moveVoiceExampleAction, publishTestDraft, saveColumnBurst,
   saveColumnCadence, saveStyleNote, saveVoiceExampleAction, setColumnPaused, vetoEdition,
 } from "@/app/operator/column-actions";
 
@@ -61,6 +61,7 @@ describe("Column card actions", () => {
     await expect(deleteVoiceExampleAction(form({ id: ID }))).rejects.toThrow(AUTH_SENTINEL);
     await expect(moveVoiceExampleAction(form({ id: ID, direction: "up" }))).rejects.toThrow(AUTH_SENTINEL);
     await expect(generateTestDraftAction(form({ model: "claude-sonnet-5-5", effort: "high" }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(publishTestDraft(form({ id: ID, slotKey: "2026-W43:mon", confirm: "yes" }))).rejects.toThrow(AUTH_SENTINEL);
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
@@ -153,5 +154,60 @@ describe("Column card actions", () => {
     mocks.from.mockReturnValue({ insert });
     await expect(saveStyleNote(form({ editorialId: ID, rating: "down", note: "Less weather." }))).rejects.toThrow(`NEXT_REDIRECT /operator?view=column&edition=${ID}&notice=note_saved`);
     expect(insert).toHaveBeenCalledWith({ editorial_id: ID, rating: "down", note: "Less weather." });
+  });
+});
+
+describe("publishing a test draft", () => {
+  const settingsRead = () => {
+    const chain = { select: vi.fn(), eq: vi.fn(), limit: vi.fn(async () => ({ data: [{ value: {}, updated_at: null }], error: null })) };
+    chain.select.mockReturnValue(chain);
+    chain.eq.mockReturnValue(chain);
+    return chain;
+  };
+  const publish = (values: Record<string, string> = {}) => publishTestDraft(form({ id: ID, slotKey: "2026-W43:mon", confirm: "yes", ...values }));
+
+  beforeEach(() => {
+    // Monday Oct 19, after the default 14:00 slot of week 43.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-19T19:40:00Z"));
+    mocks.from.mockReturnValue(settingsRead());
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("publishes through the database function into this week's slot and revalidates", async () => {
+    mocks.rpc.mockResolvedValue({ data: "promoted", error: null });
+    await expect(publish()).rejects.toThrow(`NEXT_REDIRECT /operator?view=column&edition=${ID}&notice=draft_published`);
+    expect(mocks.from).toHaveBeenCalledWith("automation_settings");
+    expect(mocks.rpc).toHaveBeenCalledWith("editorial_promote_test", { p_id: ID, p_slot_key: "2026-W43:mon" });
+    expect(mocks.revalidateTag).toHaveBeenCalledWith("public-editorials", { expire: 0 });
+  });
+
+  it("needs the confirm tick, and publishes only into the slot the page showed", async () => {
+    await expect(publish({ confirm: "" })).rejects.toThrow("notice=publish_confirm");
+    await expect(publish({ slotKey: "2026-W42:mon" })).rejects.toThrow("notice=publish_slot_changed");
+    vi.setSystemTime(new Date("2026-10-19T13:00:00Z"));
+    await expect(publish()).rejects.toThrow("notice=publish_no_slot");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["not_approved", "publish_not_approved"],
+    ["slot_taken", "publish_slot_taken"],
+    ["slot_busy", "publish_slot_busy"],
+    ["not_promotable", "publish_not_promotable"],
+  ])("says why the database refused (%s) and changes nothing", async (result, notice) => {
+    mocks.rpc.mockResolvedValue({ data: result, error: null });
+    await expect(publish()).rejects.toThrow(`edition=${ID}&notice=${notice}`);
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
+  });
+
+  it("says the database update hasn't landed before the migration, and fails loudly on anything else", async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "Could not find the function public.editorial_promote_test(p_id, p_slot_key) in the schema cache" } });
+    await expect(publish()).rejects.toThrow("notice=publish_unavailable");
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "permission denied for table editorials" } });
+    await expect(publish()).rejects.toThrow("could not be published");
+    mocks.rpc.mockResolvedValue({ data: "bad_slot", error: null });
+    await expect(publish()).rejects.toThrow("could not be published");
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
   });
 });

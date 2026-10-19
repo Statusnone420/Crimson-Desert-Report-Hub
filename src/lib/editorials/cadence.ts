@@ -73,6 +73,22 @@ export function dueSlots(settings: ColumnSettings, now: Date): ColumnSlot[] {
     .filter((slot) => now.getTime() >= slot.at.getTime() && now.getTime() < slot.at.getTime() + DUE_WINDOW_MS);
 }
 
+/**
+ * This ISO week's latest slot that has already started, the one an approved test draft
+ * can be published in place of. Null before the week's first slot.
+ */
+export function currentWeekSlot(settings: ColumnSettings, now: Date): ColumnSlot | null {
+  const week = isoWeek(utcDate(now.getTime()));
+  let latest: ColumnSlot | null = null;
+  for (let offset = 6; offset >= 0; offset--) {
+    const date = utcDate(now.getTime() - offset * DAY_MS);
+    if (isoWeek(date) !== week) continue;
+    const slot = slotForDate(settings, date);
+    if (slot && slot.at.getTime() <= now.getTime()) latest = slot;
+  }
+  return latest;
+}
+
 /** The next slot strictly after now, for the Column card. Looks two weeks ahead. */
 export function nextSlot(settings: ColumnSettings, now: Date): ColumnSlot | null {
   for (let offset = 0; offset <= 14; offset++) {

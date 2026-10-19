@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { approveEdition, saveStyleNote, setColumnPaused, vetoEdition } from "@/app/operator/column-actions";
+import { approveEdition, publishTestDraft, saveStyleNote, setColumnPaused, vetoEdition } from "@/app/operator/column-actions";
+import { currentWeekSlot } from "@/lib/editorials/cadence";
 import { CharacterCountField } from "@/components/operator/CharacterCountField";
 import { ColumnStudio } from "@/components/operator/ColumnStudio";
 import type { ColumnStudio as Studio, EditionNote } from "@/lib/editorials/feedback.server";
@@ -50,7 +51,35 @@ function VetoButton({ row, now, disabled }: { row: AdminEditionRow; now: Date; d
   </form>;
 }
 
-function EditionDraft({ row, now, notes, writesDisabled }: { row: AdminEditionRow; now: Date; notes: EditionNote[] | null; writesDisabled: boolean }) {
+/** This week's slot and its real row, if the card has one, for publishing a test draft in its place. */
+type PublishSlot = { key: string; row: AdminEditionRow | null };
+
+/** Notes come newest first. The newest thumbs counts, so a later thumbs down withdraws an approval. */
+function newestThumbsIsUp(notes: EditionNote[]): boolean {
+  return notes.find((note) => note.rating !== null)?.rating === "up";
+}
+
+/** An approved test draft can go live as this week's edition, in place of the slot's skip. */
+function PublishTestDraft({ row, slot, approved, disabled }: { row: AdminEditionRow; slot: PublishSlot | null; approved: boolean; disabled: boolean }) {
+  // The card lists the last five editions; a slot row older than that is checked by the database instead.
+  const taken = slot?.row ? slot.row.status !== "skipped" : false;
+  return <div className="workspace-panel-body column-feedback">
+    <h3>Publish as this week&apos;s edition</h3>
+    {slot === null ? <p className="workspace-note">This week&apos;s slot hasn&apos;t started yet, so there&apos;s nothing to publish this draft in place of.</p>
+      : taken ? <p className="workspace-note">{`This week's slot (${slot.key}) already has an edition.`}</p>
+      : !approved ? <p className="workspace-note">Give this draft a thumbs up first. Only a test draft whose newest rating is a thumbs up can be published.</p>
+      : <form action={publishTestDraft} className="workspace-form">
+        <input type="hidden" name="id" value={row.id} />
+        <input type="hidden" name="slotKey" value={slot.key} />
+        <p className="workspace-note">{`Publishes this draft now as the edition for slot ${slot.key}${slot.row
+          ? `, in place of its skip (${skipReasonLabel(slot.row.skip_reason, slot.row.check_note)})` : ""}. It goes on the site and in the feeds, and counts as one approve-first approval. Unpublish takes it down.`}</p>
+        <label className="workspace-field column-checkbox"><input type="checkbox" name="confirm" value="yes" required /> I&apos;ve read this draft and want it live now.</label>
+        <div><ActionButton className="workspace-button workspace-button--primary" pendingText="Publishing…" disabled={disabled}>Publish this draft</ActionButton></div>
+      </form>}
+  </div>;
+}
+
+function EditionDraft({ row, now, notes, publishSlot, writesDisabled }: { row: AdminEditionRow; now: Date; notes: EditionNote[] | null; publishSlot: PublishSlot | null; writesDisabled: boolean }) {
   const sections = row.body_md ? markdownToSections(row.body_md) : null;
   const facts = factsBoxSchema.safeParse(row.facts_box);
   const skipped = row.status === "skipped";
@@ -91,8 +120,15 @@ function EditionDraft({ row, now, notes, writesDisabled }: { row: AdminEditionRo
           <strong>{note.rating === "up" ? "Thumbs up" : note.rating === "down" ? "Thumbs down" : "Note"}</strong> · {formatUtcTimestamp(note.created_at)}{note.note ? <p>{note.note}</p> : null}
         </li>)}</ul> : <p className="workspace-note">No notes on this edition yet.</p>}
     </div> : null}
+    {/* Unread notes leave the thumbs-up check to the database. */}
+    {row.is_test && row.status === "held"
+      ? <PublishTestDraft row={row} slot={publishSlot} approved={notes === null || newestThumbsIsUp(notes)} disabled={writesDisabled} />
+      : null}
     <div className="workspace-actions">
       <Link className="workspace-button" href="/operator?view=column">Back to the column</Link>
+      {isVisible(row, now) && row.slug ? <Link className="workspace-button" href={`/editorials/${row.slug}`}>View on the site</Link> : null}
+      {/* The card lists only the newest editions, so each edition's own page keeps its off switch. */}
+      {row.is_test ? null : <VetoButton row={row} now={now} disabled={writesDisabled} />}
     </div>
   </section>;
 }
@@ -114,6 +150,10 @@ export function ColumnWorkspace({ dashboard, draft, draftNotes = null, studio = 
   writesDisabled: boolean;
   keys: Record<ColumnProvider, boolean>;
 }) {
+  const weekSlot = dashboard?.state === "ready" ? currentWeekSlot(dashboard.settings, now) : null;
+  const publishSlot = weekSlot && dashboard?.state === "ready"
+    ? { key: weekSlot.key, row: dashboard.recent.find((row) => row.slot_key === weekSlot.key) ?? null }
+    : null;
   return <div className="workspace-page column-workspace">
     <header className="workspace-heading">
       <div>
@@ -124,7 +164,7 @@ export function ColumnWorkspace({ dashboard, draft, draftNotes = null, studio = 
     {notice ? <p className="workspace-notice" role="status">{notice}</p> : null}
     {writesDisabled ? <p className="workspace-notice">Preview edition: column changes are disabled here.</p> : null}
     {draft === "unavailable" ? <p className="workspace-error" role="status"><strong>Draft unavailable</strong>That edition could not be read for this page load. Reload to try again.</p>
-      : draft ? <EditionDraft row={draft} now={now} notes={draftNotes} writesDisabled={writesDisabled} /> : null}
+      : draft ? <EditionDraft row={draft} now={now} notes={draftNotes} publishSlot={publishSlot} writesDisabled={writesDisabled} /> : null}
     {dashboard === null ? <section className="workspace-panel workspace-empty">
       <h2>Column record unavailable</h2>
       <p>The column&apos;s data could not be read for this page load. Nothing changed, and the public site is unaffected. Reload to try again.</p>

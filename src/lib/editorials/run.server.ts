@@ -126,13 +126,13 @@ export async function runColumn(input: ColumnRunInput): Promise<ColumnRunOutcome
     test: false, deadlineMs: input.deadlineMs, clock,
   });
   if (!result.ok) {
-    await finishClaimAsSkip(client, claimId, result.reason, result.report, result.unchecked);
+    await finishClaimAsSkip(client, claimId, slot.key, result.reason, result.report, result.unchecked);
     return skipped(slot, result.reason);
   }
 
   // Approve-first: while editions are left, a new one waits with no publish time.
   const awaitingApproval = settings.approveFirstRemaining > 0;
-  await saveEdition(client, claimId, {
+  await saveEdition(client, claimId, slot.key, {
     slug: slugify(result.title),
     title: result.title,
     dek: result.dek,

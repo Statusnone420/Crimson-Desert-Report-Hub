@@ -6,6 +6,7 @@ vi.mock("@/app/operator/column-actions", () => ({
   approveEdition: vi.fn(), setColumnPaused: vi.fn(), vetoEdition: vi.fn(),
   saveColumnCadence: vi.fn(), saveColumnBurst: vi.fn(), deleteColumnBurst: vi.fn(),
   saveStyleNote: vi.fn(), saveVoiceExampleAction: vi.fn(), deleteVoiceExampleAction: vi.fn(), moveVoiceExampleAction: vi.fn(), generateTestDraftAction: vi.fn(),
+  publishTestDraft: vi.fn(),
 }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: ComponentProps<"a">) => createElement("a", { ...props, href }, children) }));
 
@@ -130,6 +131,69 @@ describe("the Column card", () => {
     expect(html).toContain("Rate this edition");
     expect(html).toContain("Thumbs down</strong> · Oct 26, 12:00 UTC");
     expect(html).toContain("0 of 500 characters");
+  });
+
+  describe("publishing a test draft", () => {
+    // NOW is Monday Oct 26, 15:00 UTC: the default 14:00 slot 2026-W44:mon has started.
+    const testDraft = row({ id: "e0000000-0000-4000-8000-0000000000aa", slot_key: "test:2026-10-26", is_test: true, slug: "approved-draft", title: "Approved draft" });
+    const skip = row({ id: "skip", slot_key: "2026-W44:mon", status: "skipped", title: null, slug: null, body_md: null, skip_reason: "check_failed", check_note: "max_tokens" });
+    const up = [{ id: "n1", rating: "up" as const, note: "Approved shape.", created_at: "2026-10-26T14:30:00Z" }];
+    const draftView = (draft: AdminEditionRow, draftNotes: { id: string; rating: "up" | "down" | null; note: string | null; created_at: string }[] | null, recent: AdminEditionRow[] = [skip], writesDisabled = false) =>
+      renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready({ recent }), draft, draftNotes, notice: null, now: NOW, writesDisabled, keys: { anthropic: true, openrouter: false } }));
+
+    it("offers an approved test draft in place of this week's skip, behind a confirm tick", () => {
+      const html = draftView(testDraft, up);
+      expect(html).toContain("Publish as this week&#x27;s edition");
+      expect(html).toContain("Publishes this draft now as the edition for slot 2026-W44:mon, in place of its skip (Checker hit its token limit).");
+      expect(html).toContain('name="slotKey" value="2026-W44:mon"');
+      expect(html).toContain('<input type="checkbox" required="" name="confirm" value="yes"/>');
+      expect(html).toContain("Publish this draft");
+    });
+
+    it("asks for a thumbs up first, and leaves unread notes to the database", () => {
+      expect(draftView(testDraft, [{ ...up[0], rating: "down" }])).toContain("Give this draft a thumbs up first.");
+      expect(draftView(testDraft, [])).not.toContain("Publish this draft");
+      expect(draftView(testDraft, null)).toContain("Publish this draft");
+    });
+
+    it("counts only the newest thumbs, so a later thumbs down withdraws an approval", () => {
+      // Notes arrive newest first.
+      const down = { id: "n2", rating: "down" as const, note: "On second thought, no.", created_at: "2026-10-26T14:45:00Z" };
+      const plain = { id: "n3", rating: null, note: "Keep this voice.", created_at: "2026-10-26T14:50:00Z" };
+      expect(draftView(testDraft, [down, ...up])).toContain("Give this draft a thumbs up first.");
+      expect(draftView(testDraft, [down, ...up])).not.toContain("Publish this draft");
+      expect(draftView(testDraft, [{ ...up[0], id: "n4", created_at: "2026-10-26T14:55:00Z" }, down, ...up])).toContain("Publish this draft");
+      expect(draftView(testDraft, [plain, ...up])).toContain("Publish this draft");
+      expect(draftView(testDraft, [plain])).not.toContain("Publish this draft");
+    });
+
+    it("says when this week's slot already has an edition, and offers nothing for drafts that can't go live", () => {
+      const taken = row({ id: "taken", slot_key: "2026-W44:mon", status: "published", publish_at: "2026-10-26T14:10:00Z" });
+      expect(draftView(testDraft, up, [taken])).toContain("This week&#x27;s slot (2026-W44:mon) already has an edition.");
+      expect(draftView(row({ ...testDraft, status: "skipped", skip_reason: "check_failed", title: null, slug: null, body_md: null }), up)).not.toContain("Publish as this week");
+      expect(draftView(row({}), up)).not.toContain("Publish as this week");
+    });
+
+    it("disables the button on preview builds", () => {
+      expect(draftView(testDraft, up, [skip], true)).toMatch(/<button type="submit" class="workspace-button workspace-button--primary" disabled="">Publish this draft<\/button>/);
+    });
+
+    it("links a live edition to its public page", () => {
+      const live = row({ status: "published", slug: "approved-draft", publish_at: "2026-10-26T14:30:00Z" });
+      expect(draftView(live, up)).toContain('href="/editorials/approved-draft"');
+      expect(draftView(row({}), up)).not.toContain("View on the site");
+    });
+
+    it("keeps Unpublish on a live edition's own page, even when the card no longer lists it", () => {
+      // A published draft keeps its old created_at, so it can sit below the card's newest five.
+      const live = row({ id: "e0000000-0000-4000-8000-0000000000aa", status: "published", slug: "approved-draft", publish_at: "2026-10-26T14:30:00Z" });
+      const page = draftView(live, up, []);
+      expect(page).toContain(">Unpublish</button>");
+      expect(page).toContain('name="id" value="e0000000-0000-4000-8000-0000000000aa"');
+      expect(draftView(row({ publish_at: null }), up, [])).toContain(">Veto</button>");
+      expect(draftView(testDraft, up, [])).not.toMatch(/>(Veto|Unpublish)<\/button>/);
+      expect(draftView(row({ status: "vetoed", vetoed_at: "2026-10-26T14:40:00Z" }), up, [])).not.toMatch(/>(Veto|Unpublish)<\/button>/);
+    });
   });
 
   it("keeps an off-list model or provider selected as Keep, so saving the schedule never unlocks it", () => {

@@ -15,6 +15,7 @@ import { addStyleNote, deleteVoiceExample, moveVoiceExample, saveVoiceExample } 
 import { styleNoteFromForm, voiceExampleFromForm } from "@/lib/editorials/feedbackForm";
 import { isWriterEffort, isWriterModel } from "@/lib/editorials/models";
 import { generateTestDraft } from "@/lib/editorials/testDraft.server";
+import { currentWeekSlot } from "@/lib/editorials/cadence";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,6 +29,18 @@ function backToColumn(notice: ColumnNotice): never {
   revalidatePath("/operator");
   redirect(`/operator?view=column&notice=${notice}`);
 }
+
+function backToEdition(id: string, notice: ColumnNotice): never {
+  revalidatePath("/operator");
+  redirect(`/operator?view=column&edition=${id}&notice=${notice}`);
+}
+
+const PUBLISH_REFUSALS: Partial<Record<string, ColumnNotice>> = {
+  not_promotable: "publish_not_promotable",
+  not_approved: "publish_not_approved",
+  slot_taken: "publish_slot_taken",
+  slot_busy: "publish_slot_busy",
+};
 
 /** Pause is the column's off switch. It never touches the scanner's settings. */
 export async function setColumnPaused(formData: FormData) {
@@ -67,6 +80,32 @@ export async function approveEdition(formData: FormData) {
   if (data !== "approved") backToColumn("not_pending");
   revalidateEditorials();
   backToColumn("approved");
+}
+
+/**
+ * Publishes an approved test draft now as this week's edition, in place of the slot's skip.
+ * The database function checks the draft, its thumbs up and the slot in one transaction.
+ */
+export async function publishTestDraft(formData: FormData) {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const id = editionId(formData);
+  if (formData.get("confirm") !== "yes") backToEdition(id, "publish_confirm");
+  const client = createServiceClient();
+  const slot = currentWeekSlot((await readColumnSettings(client)).settings, new Date());
+  if (!slot) backToEdition(id, "publish_no_slot");
+  // Publish only into the slot the page showed.
+  if (formData.get("slotKey") !== slot.key) backToEdition(id, "publish_slot_changed");
+  const { data, error } = await client.rpc("editorial_promote_test", { p_id: id, p_slot_key: slot.key });
+  if (isMissingSupabaseRpc(error, "editorial_promote_test")) backToEdition(id, "publish_unavailable");
+  if (error) throw new Error("The test draft could not be published. Nothing changed.");
+  if (data !== "promoted") {
+    const refusal = typeof data === "string" ? PUBLISH_REFUSALS[data] : undefined;
+    if (!refusal) throw new Error("The test draft could not be published. Nothing changed.");
+    backToEdition(id, refusal);
+  }
+  revalidateEditorials();
+  backToEdition(id, "draft_published");
 }
 
 /** The cadence dials and the provider switch. Only these keys are written. */
