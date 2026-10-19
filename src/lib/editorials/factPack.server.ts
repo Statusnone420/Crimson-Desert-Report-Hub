@@ -83,7 +83,9 @@ export async function readFactPack(now: Date, previous: FactPackMetrics | null):
     now,
     patches: patches.unavailable ? { available: false } : { available: true, editions: patches.editions },
     // The reviewed official notices on the catch-up page; patch notes reach the pack as patches.
-    notices: CATCH_UP_MILESTONES.filter((milestone) => milestone.kind === "announcement"),
+    // Their highlights can draw on several sources, so only the lines tied to each notice go in.
+    notices: CATCH_UP_MILESTONES.filter((milestone) => milestone.kind === "announcement")
+      .map(({ id, publishedAt, noticeSays, source, release }) => ({ id, publishedAt, says: noticeSays, source, release })),
     history,
     board: issues ? issueBoard(issues) : { available: false },
     previous,

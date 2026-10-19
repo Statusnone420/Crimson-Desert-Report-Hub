@@ -105,12 +105,14 @@ export type AfterFix = {
 
 export type IssueBoard = { available: true; patchVersion: string; issues: IssueAggregate[] } | { available: false };
 
-/** An official Pearl Abyss notice the Hub keeps in its catch-up timeline, in the Hub's reviewed words. */
+/**
+ * An official Pearl Abyss notice the Hub keeps in its catch-up timeline: the lines the Hub ties to
+ * that one page, in plain words, and the release date the page sets.
+ */
 export type OfficialNotice = {
   id: string;
   publishedAt: string;
-  summary: string;
-  highlights: readonly string[];
+  says?: readonly string[];
   source: { label: string; url: string };
   release?: { id: string; at: string };
 };
@@ -279,8 +281,9 @@ export function buildFactPack(input: FactPackInput): FactPack {
     }
   } else gaps.push("patches_unavailable");
 
-  // Official notices: Pearl Abyss's own pages only. A notice whose release date a later notice
-  // moved is out of date, so it stays out of the pack and the score.
+  // Official notices: Pearl Abyss's own pages only, and only what each page says itself, so every
+  // line cites the page it came from. A notice whose release date a later notice moved is out of
+  // date, so it stays out of the pack and the score; one with nothing to state stays out too.
   const official = input.notices.filter((notice) => isOfficialSourceUrl(notice.source.url) && Date.parse(notice.publishedAt) <= input.now.getTime());
   const newestForRelease = new Map<string, OfficialNotice>();
   for (const notice of official) {
@@ -288,7 +291,8 @@ export function buildFactPack(input: FactPackInput): FactPack {
     const current = newestForRelease.get(notice.release.id);
     if (!current || Date.parse(notice.publishedAt) > Date.parse(current.publishedAt)) newestForRelease.set(notice.release.id, notice);
   }
-  const notices = official.filter((notice) => !notice.release || newestForRelease.get(notice.release.id) === notice);
+  const notices = official.filter((notice) => ((notice.says?.length ?? 0) > 0 || notice.release !== undefined)
+    && (!notice.release || newestForRelease.get(notice.release.id) === notice));
   const previousNotices = input.previous?.noticeIds;
   const isNewNotice = (notice: OfficialNotice) => previousNotices
     ? !previousNotices.includes(notice.id)
@@ -303,7 +307,7 @@ export function buildFactPack(input: FactPackInput): FactPack {
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)).slice(0, MAX_NOTICES);
   for (const notice of described) {
     add(NOTICE_PREFIX, {
-      text: `Pearl Abyss official notice published ${formatUtcTimestamp(notice.publishedAt)}. ${notice.summary} ${notice.highlights.join(" ")}${notice.release
+      text: `Pearl Abyss official notice published ${formatUtcTimestamp(notice.publishedAt)}.${(notice.says ?? []).map((line) => ` ${line}`).join("")}${notice.release
         ? ` The notice sets the release for ${formatUtcTimestamp(notice.release.at)}.` : ""}`,
       period: formatUtcTimestamp(notice.publishedAt),
       value: notice.release?.at ?? null,

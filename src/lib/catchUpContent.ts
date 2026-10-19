@@ -1,4 +1,4 @@
-import { editorialArticles, type EditorialArticle, type ReleaseDate } from "./editorialArticles";
+import { editorialArticles, type EditorialArticle, type NoticeSays, type ReleaseDate } from "./editorialArticles";
 
 export type CatchUpMilestone = {
   id: string;
@@ -14,6 +14,7 @@ export type CatchUpMilestone = {
   source: { label: string; url: string };
   related?: { label: string; url: string }[];
   release?: ReleaseDate;
+  noticeSays?: NoticeSays;
 };
 
 // Patch history begins at 1.13.00. publishedAt uses official notice times in UTC.

@@ -6,6 +6,13 @@ export type EditorialSource = {
 /** A launch date an official notice sets. A later notice for the same release replaces it. */
 export type ReleaseDate = { id: string; at: string };
 
+/**
+ * What an announcement's linked official notice itself says, one plain statement each. Highlights
+ * can draw on several sources; the column states only these, so every line it cites is on the page
+ * it links.
+ */
+export type NoticeSays = readonly [string, ...string[]];
+
 export type PatchCatchUp = {
   kind: "update" | "hotfix";
   // Official notice time and first Hub availability are deliberately separate.
@@ -48,7 +55,7 @@ type EditorialArticleBase = {
 // A published patch report cannot omit its reviewed Catch Up content.
 export type EditorialArticle = EditorialArticleBase & (
   | { patchVersion: string; catchUp: PatchCatchUp }
-  | { patchVersion?: never; catchUp?: Omit<PatchCatchUp, "kind"> & { kind: "announcement"; release?: ReleaseDate } }
+  | { patchVersion?: never; catchUp?: Omit<PatchCatchUp, "kind"> & { kind: "announcement"; release?: ReleaseDate; noticeSays?: NoticeSays } }
 );
 
 export const chartingTheUnknown = {
@@ -215,6 +222,10 @@ export const chartingTheUnknownDelay = {
     title: "Charting the Unknown moves to October 29",
     summary: "Charting the Unknown moves to October 29. Pearl Abyss postpones the expansion by two weeks for further polish and stability work.",
     release: { id: "charting-the-unknown", at: "2026-10-29T22:00:00Z" },
+    noticeSays: [
+      "Pearl Abyss moves the Charting the Unknown release by 2 weeks, to October 29.",
+      "Pearl Abyss says it needs more development time to deliver a more polished and stable gameplay experience.",
+    ],
     highlights: [
       "The revised launch is October 29 at 22:00 UTC, or 6 p.m. Eastern.",
       "Pearl Abyss says it needs additional development time to refine the content.",

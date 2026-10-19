@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
 import { isPublicSourceUrl } from "@/lib/editorials/content";
 import {
   buildFactPack, editionLead, evidenceLabel, hubCheck, statusLabel,
@@ -289,12 +288,12 @@ describe("official notices", () => {
   // The Sep 30 delay notice and the Sep 3 notice whose Oct 15 date it replaced.
   const delay = notice({
     id: "announcement-delay", publishedAt: "2026-09-30T10:20:00Z", release: { id: "charting-the-unknown", at: "2026-10-29T22:00:00Z" },
-    summary: "Charting the Unknown moves to October 29.", highlights: ["The revised launch is October 29 at 22:00 UTC."],
+    says: ["Pearl Abyss moves the release by 2 weeks, to October 29."],
     source: { label: "Pearl Abyss — September 30 release-date update", url: NOTICE_URL },
   });
   const original = notice({
     id: "announcement-original", publishedAt: "2026-09-03T14:00:00Z", release: { id: "charting-the-unknown", at: "2026-10-15T22:00:00Z" },
-    summary: "Charting the Unknown is scheduled for October 15.", highlights: ["The announced launch is October 15."],
+    says: ["Charting the Unknown is scheduled for October 15."],
     source: { label: "Pearl Abyss — pre-order announcement", url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=129" },
   });
   const build = (notices: readonly OfficialNotice[], now = PACK_NOW, previous: FactPackMetrics | null = null) =>
@@ -305,7 +304,7 @@ describe("official notices", () => {
     const pack = build([delay]);
     expect(pack.facts.find((fact) => fact.id === "N1")).toEqual({
       id: "N1",
-      text: "Pearl Abyss official notice published Sep 30, 10:20 UTC. Charting the Unknown moves to October 29. The revised launch is October 29 at 22:00 UTC. The notice sets the release for Oct 29, 22:00 UTC.",
+      text: "Pearl Abyss official notice published Sep 30, 10:20 UTC. Pearl Abyss moves the release by 2 weeks, to October 29. The notice sets the release for Oct 29, 22:00 UTC.",
       period: "Sep 30, 10:20 UTC",
       value: "2026-10-29T22:00:00Z",
       source: { label: "Pearl Abyss — September 30 release-date update", url: NOTICE_URL },
@@ -369,14 +368,19 @@ describe("official notices", () => {
     expect(noticeFacts(notices).map((fact) => fact.period)).toEqual(["Oct 23, 09:00 UTC", "Oct 22, 09:00 UTC", "Oct 21, 09:00 UTC"]);
   });
 
-  it("gives the Oct 26 edition the Hub's record of the Oct 29 launch, and lets it lead", () => {
-    const pack = build(CATCH_UP_MILESTONES.filter((milestone) => milestone.kind === "announcement"), new Date("2026-10-26T12:00:00Z"));
-    const facts = pack.facts.filter((fact) => fact.id.startsWith("N"));
-    expect(facts.map((fact) => fact.source.url)).toEqual([NOTICE_URL]);
-    expect(facts[0].text).toContain("The notice sets the release for Oct 29, 22:00 UTC.");
-    expect(pack.deltas.upcomingReleaseIds).toEqual(["charting-the-unknown"]);
-    expect(relevanceScore(pack.deltas)).toBe(2);
-    expect(editionLead(pack)).toBe("notice");
+  it("states only what the linked page says: its own lines, its date and the release it sets", () => {
+    const dated = noticeFacts([notice({ says: undefined, publishedAt: "2026-09-01T00:00:00Z", release: { id: "launch", at: "2026-10-29T22:00:00Z" } })]);
+    expect(dated.map((fact) => fact.text)).toEqual(["Pearl Abyss official notice published Sep 1, 00:00 UTC. The notice sets the release for Oct 29, 22:00 UTC."]);
+    // Nothing tied to the page and no date it sets: nothing to state, so no fact and no score.
+    const bare = build([notice({ says: undefined })]);
+    expect(bare.facts.some((fact) => fact.id.startsWith("N"))).toBe(false);
+    expect(relevanceScore(bare.deltas)).toBe(0);
+  });
+
+  it("dates a release by its newest notice even when that notice has no lines of its own", () => {
+    const moved = notice({ id: "moved", says: undefined, publishedAt: "2026-10-20T09:00:00Z", release: { id: "charting-the-unknown", at: "2026-11-05T22:00:00Z" } });
+    const facts = noticeFacts([delay, moved]);
+    expect(facts.map((fact) => fact.text)).toEqual(["Pearl Abyss official notice published Oct 20, 09:00 UTC. The notice sets the release for Nov 5, 22:00 UTC."]);
   });
 });
 

@@ -37,8 +37,8 @@ export const NOTICE_URL = "https://crimsondesert.pearlabyss.com/en-US/News/Notic
 
 export function notice(overrides: Partial<OfficialNotice>): OfficialNotice {
   return {
-    id: "announcement-test", publishedAt: "2026-10-25T10:00:00Z", summary: "Pearl Abyss shares a schedule update.",
-    highlights: ["The notice lists one change."], source: { label: "Pearl Abyss — schedule update", url: NOTICE_URL }, ...overrides,
+    id: "announcement-test", publishedAt: "2026-10-25T10:00:00Z", says: ["Pearl Abyss shares a schedule update."],
+    source: { label: "Pearl Abyss — schedule update", url: NOTICE_URL }, ...overrides,
   };
 }
 
