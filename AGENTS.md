@@ -38,3 +38,21 @@ Guidance for AI coding agents and the people who run them. Human contributors sh
 - Add focused tests for behavior changes.
 - GitHub runs the gate on every pull request: `verify` (lint, unit tests, type check, build), `browser` (all browser suites) and `migrations` (migrations and database tests). `verify` always runs. When every changed file is documentation (`docs/**` except `docs/share-card/**`, `*.md` outside `docs/`, `.github/ISSUE_TEMPLATE/**`, `.github/PULL_REQUEST_TEMPLATE.md`), `browser` and `migrations` skip, but a change under `supabase/**` still runs `migrations`. Every push to `main` runs the whole gate. Merge only when every required check passes on the final commit.
 - Before pushing, run the checks that cover your change. `npm run verify` runs the full gate locally when you need it; only one local run at a time, because its browser tests use fixed ports.
+
+## Code Review Rules
+
+Rank review findings this way. Fix every P1 before merge.
+
+P1:
+- A database error treated as success: an empty result or "no data" instead of a failure or an "unavailable" state.
+- Private data in public output: raw reports, rejected candidates, private source text, network hashes, individual check-ins or provider identities.
+- A paid provider call that skips the budget cap or the off switch.
+- Weaker authentication, authorization, privacy or abuse controls.
+- A public page that shows wrong data in a common case.
+
+P2:
+- Docs or page text that the change made stale.
+- Changed behavior without a focused test.
+
+Low priority (note it, don't block the merge):
+- Rare wording or language edge cases in heuristic matchers, such as the scanner pre-filter, language detection and near-duplicate grouping.
