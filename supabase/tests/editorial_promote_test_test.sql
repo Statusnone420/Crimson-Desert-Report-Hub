@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(19);
 
 select ok(not has_function_privilege('anon', 'public.editorial_promote_test(uuid, text)', 'EXECUTE'), 'browsers cannot publish a test draft');
 select ok(not has_function_privilege('authenticated', 'public.editorial_promote_test(uuid, text)', 'EXECUTE'), 'signed-in browsers cannot publish a test draft');
@@ -7,33 +7,44 @@ select ok(has_function_privilege('service_role', 'public.editorial_promote_test(
 
 set local role service_role;
 
--- This week's skipped slot; a passed test draft with a thumbs up; one with only a thumbs
--- down; a test draft that failed its check; and a second approved draft for later.
+-- This week's skipped slot; a passed test draft whose newest thumbs is up; one with only
+-- a thumbs down; one whose thumbs up was withdrawn by a later thumbs down; one with a note
+-- but no thumbs; a test draft that failed its check; and a second approved draft for later.
 insert into public.editorials (id, slot_key, status, skip_reason) values
   ('f0000000-0000-4000-8000-000000000001', '2026-W43:mon', 'skipped', 'check_failed');
 insert into public.editorials (id, slot_key, is_test, status, slug, title, body_md) values
   ('f0000000-0000-4000-8000-000000000002', 'test:2026-10-19', true, 'held', 'approved-draft', 'Approved draft', 'Body.'),
   ('f0000000-0000-4000-8000-000000000003', 'test:2026-10-19', true, 'held', 'unrated-draft', 'Unrated draft', 'Body.'),
-  ('f0000000-0000-4000-8000-000000000005', 'test:2026-10-19', true, 'held', 'second-draft', 'Second draft', 'Body.');
+  ('f0000000-0000-4000-8000-000000000005', 'test:2026-10-19', true, 'held', 'second-draft', 'Second draft', 'Body.'),
+  ('f0000000-0000-4000-8000-000000000006', 'test:2026-10-19', true, 'held', 'withdrawn-draft', 'Withdrawn draft', 'Body.'),
+  ('f0000000-0000-4000-8000-000000000007', 'test:2026-10-19', true, 'held', 'noted-draft', 'Noted draft', 'Body.');
 insert into public.editorials (id, slot_key, is_test, status, skip_reason) values
   ('f0000000-0000-4000-8000-000000000004', 'test:2026-10-19', true, 'skipped', 'check_failed');
-insert into public.style_notes (editorial_id, rating, note) values
-  ('f0000000-0000-4000-8000-000000000002', 'up', 'Approved shape.'),
-  ('f0000000-0000-4000-8000-000000000003', 'down', 'Not this one.'),
-  ('f0000000-0000-4000-8000-000000000004', 'up', null),
-  ('f0000000-0000-4000-8000-000000000005', 'up', null);
+-- Every insert in this transaction shares one now(), so ratings that must be ordered get their own times.
+insert into public.style_notes (editorial_id, rating, note, created_at) values
+  ('f0000000-0000-4000-8000-000000000002', 'down', 'Too long.', '2026-10-19 10:00+00'),
+  ('f0000000-0000-4000-8000-000000000002', 'up', 'Approved shape.', '2026-10-19 11:00+00'),
+  ('f0000000-0000-4000-8000-000000000002', null, 'Keep this voice.', '2026-10-19 12:00+00'),
+  ('f0000000-0000-4000-8000-000000000003', 'down', 'Not this one.', '2026-10-19 10:00+00'),
+  ('f0000000-0000-4000-8000-000000000006', 'up', 'Good.', '2026-10-19 10:00+00'),
+  ('f0000000-0000-4000-8000-000000000006', 'down', 'On second thought, no.', '2026-10-19 11:00+00'),
+  ('f0000000-0000-4000-8000-000000000007', null, 'Reading it now.', '2026-10-19 10:00+00'),
+  ('f0000000-0000-4000-8000-000000000004', 'up', null, '2026-10-19 10:00+00'),
+  ('f0000000-0000-4000-8000-000000000005', 'up', null, '2026-10-19 10:00+00');
 
 select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000002', 'next monday'), 'bad_slot', 'a malformed slot key is refused');
 select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000001', '2026-W43:mon'), 'not_promotable', 'a real edition is not a test draft');
 select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000004', '2026-W43:mon'), 'not_promotable', 'a test draft that failed its check cannot be published');
 select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000003', '2026-W43:mon'), 'not_approved', 'a test draft without a thumbs up cannot be published');
+select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000006', '2026-W43:mon'), 'not_approved', 'a later thumbs down withdraws the approval');
+select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000007', '2026-W43:mon'), 'not_approved', 'a note without a thumbs is not an approval');
 select is(
   (select concat_ws(',', (select count(*) from public.editorials where is_test)::text,
     (select slot_key from public.editorials where id = 'f0000000-0000-4000-8000-000000000001'))),
-  '4,2026-W43:mon', 'refusals change nothing'
+  '6,2026-W43:mon', 'refusals change nothing'
 );
 
-select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000002', '2026-W43:mon'), 'promoted', 'an approved test draft replaces the week''s skip');
+select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000002', '2026-W43:mon'), 'promoted', 'a test draft whose newest thumbs is up replaces the week''s skip');
 select is(
   (select concat_ws(',', is_test::text, slot_key, status, slug, (publish_at is not null)::text, (published_at is not null)::text)
     from public.editorials where id = 'f0000000-0000-4000-8000-000000000002'),
@@ -43,7 +54,7 @@ select is(
   (select concat_ws(',', slot_key, status, skip_reason) from public.editorials where id = 'f0000000-0000-4000-8000-000000000001'),
   '2026-W43:mon:replaced,skipped,check_failed', 'the skip it replaced stays on record under a key no schedule computes'
 );
-select is((select count(*)::integer from public.style_notes where editorial_id = 'f0000000-0000-4000-8000-000000000002'), 1, 'the thumbs up stays with the edition');
+select is((select count(*)::integer from public.style_notes where editorial_id = 'f0000000-0000-4000-8000-000000000002'), 3, 'the notes stay with the edition');
 select is((select (value->>'approveFirstRemaining')::integer from public.automation_settings where key = 'column'), 2, 'publishing counts as one approve-first approval');
 
 select is(public.editorial_promote_test('f0000000-0000-4000-8000-000000000005', '2026-W43:mon'), 'slot_taken', 'a slot with an edition is never replaced');

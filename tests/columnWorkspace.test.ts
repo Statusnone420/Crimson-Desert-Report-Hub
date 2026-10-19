@@ -156,6 +156,17 @@ describe("the Column card", () => {
       expect(draftView(testDraft, null)).toContain("Publish this draft");
     });
 
+    it("counts only the newest thumbs, so a later thumbs down withdraws an approval", () => {
+      // Notes arrive newest first.
+      const down = { id: "n2", rating: "down" as const, note: "On second thought, no.", created_at: "2026-10-26T14:45:00Z" };
+      const plain = { id: "n3", rating: null, note: "Keep this voice.", created_at: "2026-10-26T14:50:00Z" };
+      expect(draftView(testDraft, [down, ...up])).toContain("Give this draft a thumbs up first.");
+      expect(draftView(testDraft, [down, ...up])).not.toContain("Publish this draft");
+      expect(draftView(testDraft, [{ ...up[0], id: "n4", created_at: "2026-10-26T14:55:00Z" }, down, ...up])).toContain("Publish this draft");
+      expect(draftView(testDraft, [plain, ...up])).toContain("Publish this draft");
+      expect(draftView(testDraft, [plain])).not.toContain("Publish this draft");
+    });
+
     it("says when this week's slot already has an edition, and offers nothing for drafts that can't go live", () => {
       const taken = row({ id: "taken", slot_key: "2026-W44:mon", status: "published", publish_at: "2026-10-26T14:10:00Z" });
       expect(draftView(testDraft, up, [taken])).toContain("This week&#x27;s slot (2026-W44:mon) already has an edition.");

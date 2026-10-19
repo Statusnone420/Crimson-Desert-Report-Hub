@@ -23,8 +23,11 @@ begin
     for update;
   if not found then return 'not_promotable'; end if;
 
-  -- Only after a thumbs up from the editor.
-  if not exists (select 1 from public.style_notes where editorial_id = p_id and rating = 'up') then
+  -- Only while the editor's newest thumbs is up, as the column reads approvals
+  -- everywhere: a later thumbs down withdraws one. Notes without a thumbs don't count.
+  if (select rating from public.style_notes
+        where editorial_id = p_id and rating is not null
+        order by created_at desc limit 1) is distinct from 'up' then
     return 'not_approved';
   end if;
 

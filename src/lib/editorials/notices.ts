@@ -31,7 +31,7 @@ export const COLUMN_NOTICES = {
   publish_slot_changed: "This week's slot changed since the page loaded. Reload and try again. Nothing changed.",
   publish_unavailable: "Publishing a test draft needs a database update that hasn't landed yet. Nothing changed.",
   publish_not_promotable: "Only a test draft that passed its fact check can be published. Nothing changed.",
-  publish_not_approved: "Give the test draft a thumbs up first. Nothing changed.",
+  publish_not_approved: "The test draft's newest rating isn't a thumbs up. Nothing changed.",
   publish_slot_taken: "This week's slot already has an edition. Nothing changed.",
 } as const;
 

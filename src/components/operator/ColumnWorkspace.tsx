@@ -54,6 +54,11 @@ function VetoButton({ row, now, disabled }: { row: AdminEditionRow; now: Date; d
 /** This week's slot and its real row, if the card has one, for publishing a test draft in its place. */
 type PublishSlot = { key: string; row: AdminEditionRow | null };
 
+/** Notes come newest first. The newest thumbs counts, so a later thumbs down withdraws an approval. */
+function newestThumbsIsUp(notes: EditionNote[]): boolean {
+  return notes.find((note) => note.rating !== null)?.rating === "up";
+}
+
 /** An approved test draft can go live as this week's edition, in place of the slot's skip. */
 function PublishTestDraft({ row, slot, approved, disabled }: { row: AdminEditionRow; slot: PublishSlot | null; approved: boolean; disabled: boolean }) {
   // The card lists the last five editions; a slot row older than that is checked by the database instead.
@@ -62,7 +67,7 @@ function PublishTestDraft({ row, slot, approved, disabled }: { row: AdminEdition
     <h3>Publish as this week&apos;s edition</h3>
     {slot === null ? <p className="workspace-note">This week&apos;s slot hasn&apos;t started yet, so there&apos;s nothing to publish this draft in place of.</p>
       : taken ? <p className="workspace-note">{`This week's slot (${slot.key}) already has an edition.`}</p>
-      : !approved ? <p className="workspace-note">Give this draft a thumbs up first. Only an approved test draft can be published.</p>
+      : !approved ? <p className="workspace-note">Give this draft a thumbs up first. Only a test draft whose newest rating is a thumbs up can be published.</p>
       : <form action={publishTestDraft} className="workspace-form">
         <input type="hidden" name="id" value={row.id} />
         <input type="hidden" name="slotKey" value={slot.key} />
@@ -117,7 +122,7 @@ function EditionDraft({ row, now, notes, publishSlot, writesDisabled }: { row: A
     </div> : null}
     {/* Unread notes leave the thumbs-up check to the database. */}
     {row.is_test && row.status === "held"
-      ? <PublishTestDraft row={row} slot={publishSlot} approved={notes === null || notes.some((note) => note.rating === "up")} disabled={writesDisabled} />
+      ? <PublishTestDraft row={row} slot={publishSlot} approved={notes === null || newestThumbsIsUp(notes)} disabled={writesDisabled} />
       : null}
     <div className="workspace-actions">
       <Link className="workspace-button" href="/operator?view=column">Back to the column</Link>
