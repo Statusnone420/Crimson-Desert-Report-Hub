@@ -23,14 +23,19 @@ export type Fact = {
   source: { label: string; url: string };
 };
 
+/**
+ * The baseline for the next edition. A lane that can't be read keeps the last known value,
+ * so the next good read is compared with it instead of an empty one. The two lists are null
+ * when their lane has never been read: the next edition then measures them as a first one.
+ */
 export type FactPackMetrics = {
-  patchVersions: string[];
+  patchVersions: string[] | null;
   latestPatch: { version: string; kind: "update" | "hotfix"; publishedAt: string | null } | null;
   playersAvg7d: number | null;
   reviewShare7d: number | null;
   twitchAvg7d: number | null;
   /** Issues that count as a pattern: Reported or Confirmed on the public issue page. */
-  patternIssueIds: string[];
+  patternIssueIds: string[] | null;
 };
 
 export type FactPackDeltas = {
@@ -162,8 +167,9 @@ export function buildFactPack(input: FactPackInput): FactPack {
     patchVersions = editions.map((edition) => edition.version);
     const latest = editions[0];
     if (latest) latestPatch = { version: latest.version, kind: patchKind(latest.version), publishedAt: latest.publishedAt };
-    newPatchVersions = input.previous
-      ? patchVersions.filter((version) => !input.previous!.patchVersions.includes(version))
+    const previousVersions = input.previous?.patchVersions;
+    newPatchVersions = previousVersions
+      ? patchVersions.filter((version) => !previousVersions.includes(version))
       : editions.filter((edition) => Date.parse(edition.publishedAt ?? edition.observedAt) >= input.now.getTime() - 7 * DAY_MS).map((edition) => edition.version);
     const described = [latest, ...editions.filter((edition) => edition !== latest && newPatchVersions.includes(edition.version)).slice(0, MAX_NEW_PATCHES - 1)].filter(Boolean) as PatchEdition[];
     for (const edition of described) {
@@ -303,7 +309,15 @@ export function buildFactPack(input: FactPackInput): FactPack {
     builtAt: input.now.toISOString(),
     facts,
     gaps,
-    metrics: { patchVersions, latestPatch, playersAvg7d, reviewShare7d, twitchAvg7d, patternIssueIds },
+    // An unread lane carries the last known metric forward; its current facts stay out.
+    metrics: {
+      patchVersions: input.patches.available ? patchVersions : input.previous?.patchVersions ?? null,
+      latestPatch: input.patches.available ? latestPatch : input.previous?.latestPatch ?? null,
+      playersAvg7d: input.history.lanes.players === "ready" ? playersAvg7d : input.previous?.playersAvg7d ?? null,
+      reviewShare7d: input.history.lanes.reviews === "ready" ? reviewShare7d : input.previous?.reviewShare7d ?? null,
+      twitchAvg7d: input.history.lanes.twitch === "ready" ? twitchAvg7d : input.previous?.twitchAvg7d ?? null,
+      patternIssueIds: input.board.available ? patternIssueIds : input.previous?.patternIssueIds ?? null,
+    },
     deltas: {
       newPatchVersions,
       newUpdate: newPatchVersions.some((version) => patchKind(version) === "update"),

@@ -94,6 +94,28 @@ describe("the fact pack", () => {
     });
   });
 
+  it("carries the last known metrics forward for data it can't read, so the next edition compares fairly", () => {
+    const patches = { available: true as const, editions: [patch("2.03.02", "2026-10-24T09:00:00Z", ["Fixed an issue where the map could crash.", "Fixed horses stuck in fences."])] };
+    const board = { available: true as const, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, checkins: 5, checkinNetworks: 5 })] };
+    const first = buildFactPack({ now: PACK_NOW, patches, history: history(), board, previous: null });
+    const outage = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: first.metrics,
+      history: { ...history(), lanes: { players: "unavailable", twitch: "unavailable", reviews: "unavailable" } } });
+    expect(outage.metrics).toEqual(first.metrics);
+    expect(outage.deltas).toEqual({ newPatchVersions: [], newUpdate: false, playersChangePct: null, reviewShareChangePoints: null, twitchChangePct: null, newPatternIssueIds: [] });
+    // The next good read finds nothing new against the carried baseline.
+    const next = buildFactPack({ now: PACK_NOW, patches, history: history(), board, previous: outage.metrics });
+    expect(next.deltas).toMatchObject({ newPatchVersions: [], newPatternIssueIds: [], playersChangePct: 0 });
+  });
+
+  it("marks lists it has never read as unknown, so a later read measures them like a first edition", () => {
+    const outage = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null, history: history() });
+    expect(outage.metrics).toMatchObject({ patchVersions: null, latestPatch: null, patternIssueIds: null });
+    const next = buildFactPack({ now: PACK_NOW, history: history(), board: { available: false }, previous: outage.metrics,
+      patches: { available: true, editions: [patch("2.03.02", "2026-10-24T09:00:00Z"), patch("2.02.00", "2026-09-01T09:00:00Z")] } });
+    // Only the patch from the last seven days counts as new, as on a first edition.
+    expect(next.deltas.newPatchVersions).toEqual(["2.03.02"]);
+  });
+
   it("records unavailable data as gaps instead of inventing facts", () => {
     const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null,
       history: { ...history(), lanes: { players: "unavailable", twitch: "unavailable", reviews: "unavailable" } } });
@@ -128,10 +150,11 @@ describe("reading the issue board", () => {
     expect(issueBoard(data([cluster({ directReportCount: 1, checkinsAvailable: false })]))).toEqual({ available: false });
   });
 
-  it("counts an official fix only when the claim context was read", () => {
+  it("counts an official fix when the claim context was read, and is unavailable when it wasn't", () => {
     const claims = { c1: [{ key: "k", text: "Fixed", section: null, officialUrl: "https://crimsondesert.pearlabyss.com/" }] };
     expect((issueBoard(data([cluster({ directReportCount: 1 })], { officialClaimsByCluster: claims })) as { issues: { officialFixListed: boolean }[] }).issues[0].officialFixListed).toBe(true);
-    expect((issueBoard(data([cluster({ directReportCount: 1 })], { officialClaimsByCluster: claims, officialClaimsUnavailable: true })) as { issues: { officialFixListed: boolean }[] }).issues[0].officialFixListed).toBe(false);
+    // An unread claim context never reads as "no listed fix", which would downgrade a fixed issue.
+    expect(issueBoard(data([cluster({ directReportCount: 1 })], { officialClaimsByCluster: claims, officialClaimsUnavailable: true }))).toEqual({ available: false });
   });
 
   it("names sites without keeping their paths", () => {

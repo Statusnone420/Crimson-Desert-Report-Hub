@@ -41,7 +41,9 @@ export async function baselineMetrics(client: SupabaseClient): Promise<FactPackM
   check(error, "Baseline read");
   const pack = (data?.[0] as { fact_pack?: Partial<FactPack> } | undefined)?.fact_pack;
   const metrics = pack?.metrics;
-  return metrics && Array.isArray(metrics.patchVersions) && Array.isArray(metrics.patternIssueIds) ? metrics as FactPackMetrics : null;
+  // A null list is a lane never read; anything else that isn't a list is a malformed pack.
+  const list = (value: unknown) => value === null || Array.isArray(value);
+  return metrics && list(metrics.patchVersions) && list(metrics.patternIssueIds) ? metrics as FactPackMetrics : null;
 }
 
 /** This month's column spend: settled cost, or the reservation for anything unsettled. */
