@@ -552,6 +552,7 @@ export type DecoratedCluster = ClusterRow & {
   postCurrentPatchReportCount: number;
   postCurrentPatchSignalCount: number;
   postCurrentPatchEvidenceCount: number;
+  postClaimEvidenceCount: number;
   confirmations: ClusterConfirmations;
   earlierCheckinCount?: number;
   checkinsAvailable?: boolean;
@@ -591,6 +592,7 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
     postCurrentPatchReportCount: counts.postCurrentPatchReportCount,
     postCurrentPatchSignalCount: counts.postCurrentPatchSignalCount,
     postCurrentPatchEvidenceCount,
+    postClaimEvidenceCount: counts.postClaimEvidenceCount,
     confirmations,
     earlierCheckinCount: counts.earlierCheckinCount,
     checkinsAvailable: counts.checkinsAvailable,

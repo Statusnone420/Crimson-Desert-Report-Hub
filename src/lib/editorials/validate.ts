@@ -13,7 +13,8 @@ export const MAX_BODY_CHARACTERS = 20_000;
 export const MAX_TITLE_CHARACTERS = 69;
 export const MAX_FACTS_BOX_ITEMS = 6;
 const MAX_FACT_CHARACTERS = 400;
-const REQUIRED_SECTIONS = ["the forecast", "the patch desk"];
+/** The column is a patch-and-evidence brief: one of these sections has to survive the check. */
+const REQUIRED_SECTIONS = ["what the notes claim", "what we can corroborate"];
 
 /** One numbered unit the checker judges: the title, the dek, a subhead, a body sentence or a facts-box item. */
 export type SentenceRef = {
@@ -53,12 +54,17 @@ export function numberSentences(output: WriterOutput): SentenceRef[] {
 const HANDLE = /(^|[\s(])@[A-Za-z0-9_]{2,}|\bu\/[A-Za-z0-9_-]{3,}/;
 const TOOL_ARTIFACT = /oaicite|\[cite:|utm_source=|grok_card|\bXX\b|[[\]{}]|\*\*|__|`|^#|\bTODO\b|\bTBD\b|lorem ipsum|as an ai\b|language model/i;
 const HARD_BANNED = new RegExp([
-  "game[- ]changer", "let[’']s dive in", "\\bdive in\\b", "roller ?coaster", "\\blol\\b", "\\bdelv(e|es|ed|ing)\\b",
+  "game[- ]changer", "\\binsane(ly)?\\b", "let[’']s dive in", "\\bdive in\\b", "roller ?coaster", "\\blol\\b", "\\bdelv(e|es|ed|ing)\\b",
   "\\btestament\\b", "\\bpivotal\\b", "\\btapestry\\b", "marks a shift", "\\bvibrant\\b", "\\bgroundbreaking\\b", "\\bboasts?\\b",
   "\\brenowned\\b", "\\bnestled\\b", "\\bin conclusion\\b", "\\bin summary\\b", "despite these challenges", "only time will tell",
   "it[’']s worth noting", "it is worth noting", "here[’']s what you need to know", "based on available information",
   "details are limited", "players are saying", "many players", "many fans", "experts say",
+  // The Oct 19 rework: no play-tonight advice, no exaggerate parenthetical, no narrated empty board.
+  "\\bplay(ing)? tonight\\b", "\\bshould (you|i|we) (still )?play\\b", "numbers don[’']t lie", "but they do exaggerate",
+  "\\b(zero|0) check-ins?\\b", "\\bempty (issue )?board\\b",
 ].join("|"), "i");
+/** No outlook section: readers already play, so the column doesn't tell them whether to. */
+const BANNED_SUBHEAD = /^\s*(the\s+)?outlook\b/i;
 // Cursing is allowed (owner decision, 2026-10-18). Slurs, sexual terms and real-world politics never are.
 const GUARDRAIL = new RegExp([
   "\\bn[i1]gg(a|as|az|er|ers)\\b", "\\bf[a@]gg?(s|ot|ots|y)?\\b", "\\bretard(s|ed)?\\b", "\\btrann(y|ies)\\b", "\\bspics?\\b", "\\bchinks?\\b",
@@ -112,10 +118,10 @@ export type ProcessedEdition =
 /**
  * Deterministic post-processing. Deletes sentences the checker found unsupported, that
  * quote a player, hit a banned word, guardrail or checklist rule, cite an id outside the
- * pack, or carry a number no cited fact contains. Then skips when a person is named, the title or
- * dek can't be cleaned, the title runs 70 characters or more, both required sections are
- * gone, fewer than 250 words remain, the body is too long to store, or the facts box is
- * missing or unsourced.
+ * pack, or carry a number no cited fact contains, and drops an outlook section. Then skips when
+ * a person is named, the title or dek can't be cleaned, the title runs 70 characters or more,
+ * neither "What the notes claim" nor "What we can corroborate" survives, fewer than 250 words
+ * remain, the body is too long to store, or the facts box is missing or unsourced.
  */
 export function processEdition(output: WriterOutput, checker: CheckerOutput, pack: FactPack): ProcessedEdition {
   const refs = numberSentences(output);
@@ -192,6 +198,7 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
       ...(verdict?.bannedWords.length ? ["banned_word"] : []),
       ...(verdict?.slopRules.length ? ["checklist"] : []),
       ...hardSlop(ref.text),
+      ...(BANNED_SUBHEAD.test(ref.text) ? ["outlook_section"] : []),
     ];
     if (why.length) deleted.set(ref.id, why);
   }

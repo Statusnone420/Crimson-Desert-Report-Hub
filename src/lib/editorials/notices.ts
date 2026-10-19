@@ -46,7 +46,7 @@ const SKIP_REASON_LABELS: Record<string, string> = {
   check_failed: "Fact check failed",
   person_named: "Named a person",
   too_short: "Too short after fact check",
-  missing_required_section: "Missing forecast and patch desk",
+  missing_required_section: "Missing the patch notes and corroboration sections",
   slop_check_failed: "Failed the style check",
   no_time: "No time left after the scan",
   too_long: "Too long for the page",

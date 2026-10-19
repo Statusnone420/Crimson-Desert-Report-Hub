@@ -44,6 +44,8 @@ export function issueBoard(data: IssuesData): IssueBoard {
       const site = siteName(post.source_url);
       if (site) postsBySite[site] = (postsBySite[site] ?? 0) + 1;
     }
+    const claims = data.officialClaimsByCluster[cluster.id] ?? [];
+    const { state } = cluster.readout;
     return {
       id: cluster.id,
       title: cluster.title,
@@ -52,9 +54,18 @@ export function issueBoard(data: IssuesData): IssueBoard {
       checkinNetworks: cluster.confirmations.affectedNetworks,
       publicPosts: posts.length,
       postsBySite,
-      officialFixListed: (data.officialClaimsByCluster[cluster.id]?.length ?? 0) > 0,
-      stillHappening: cluster.readout.state === "still_happening",
+      officialFixListed: claims.length > 0,
+      stillHappening: state === "still_happening",
       strength: cluster.strengthScore,
+      // Check-ins and exact-patch reports since the fix, counted the way the issue page counts them.
+      afterFix: claims.length ? {
+        fixes: claims.map((claim) => claim.text),
+        readout: state === "still_happening" || state === "players_say_fixed" ? state : "unverified",
+        fixedCheckins: cluster.confirmations.pollFixedCount,
+        stillCheckins: cluster.confirmations.pollStillCount,
+        stillNetworks: cluster.confirmations.pollStillNetworks,
+        reportsSince: cluster.postClaimEvidenceCount,
+      } : null,
     };
   });
   return { available: true, patchVersion: data.currentPatch.version, issues };

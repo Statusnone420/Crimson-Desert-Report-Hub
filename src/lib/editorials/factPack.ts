@@ -12,6 +12,8 @@ import { patchPath } from "@/lib/patchPublications";
  */
 export type EvidenceLabel = "Confirmed" | "Reported" | "One report";
 export type StatusLabel = "Fixed (per patch notes)" | "Still happening";
+/** What the Hub's own data says about a fix the notes list. */
+export type HubCheck = "Confirmed by players" | "Still reported" | "One sighting" | "No Hub signal yet";
 
 export type Fact = {
   id: string;
@@ -20,12 +22,13 @@ export type Fact = {
   value: number | string | null;
   label?: EvidenceLabel;
   status?: StatusLabel;
+  check?: HubCheck;
   source: { label: string; url: string };
 };
 
 /**
  * The baseline for the next edition. A lane that can't be read keeps the last known value,
- * so the next good read is compared with it instead of an empty one. The two lists are null
+ * so the next good read is compared with it instead of an empty one. The lists are null
  * when their lane has never been read: the next edition then measures them as a first one.
  */
 export type FactPackMetrics = {
@@ -36,15 +39,16 @@ export type FactPackMetrics = {
   twitchAvg7d: number | null;
   /** Issues that count as a pattern: Reported or Confirmed on the public issue page. */
   patternIssueIds: string[] | null;
+  /** Each issue's Hub check on its listed fix. Packs stored before checks existed lack it: read as never measured. */
+  hubChecks?: Record<string, HubCheck> | null;
 };
 
 export type FactPackDeltas = {
   newPatchVersions: string[];
   newUpdate: boolean;
-  playersChangePct: number | null;
-  reviewShareChangePoints: number | null;
-  twitchChangePct: number | null;
   newPatternIssueIds: string[];
+  /** Issues whose listed fix now reads Still reported or Confirmed by players, and didn't last edition. */
+  newVerdictIssueIds: string[];
 };
 
 export type FactPack = {
@@ -69,6 +73,20 @@ export type IssueAggregate = {
   officialFixListed: boolean;
   stillHappening: boolean;
   strength: number;
+  /** What players told the Hub after a fix the notes list for this issue on the board's patch. Null without one. */
+  afterFix: AfterFix | null;
+};
+
+export type AfterFix = {
+  /** The exact fix lines the Hub pairs with the issue. */
+  fixes: string[];
+  /** The issue page's readout since the fix. */
+  readout: "still_happening" | "players_say_fixed" | "unverified";
+  fixedCheckins: number;
+  stillCheckins: number;
+  stillNetworks: number;
+  /** Exact-patch player reports since the fix. */
+  reportsSince: number;
 };
 
 export type IssueBoard = { available: true; patchVersion: string; issues: IssueAggregate[] } | { available: false };
@@ -108,6 +126,30 @@ export function statusLabel(issue: IssueAggregate): StatusLabel | null {
   if (issue.stillHappening) return "Still happening";
   if (issue.officialFixListed) return "Fixed (per patch notes)";
   return null;
+}
+
+/**
+ * The Hub's check on a listed fix, never stronger than the issue page. Still reported takes two
+ * or more independent signals (exact-patch reports since the fix, or check-in networks); a single
+ * one is One sighting, and so are early check-ins from too few networks to weigh.
+ */
+export function hubCheck(after: AfterFix): HubCheck {
+  if (after.readout === "players_say_fixed") return "Confirmed by players";
+  if (after.readout === "still_happening") return after.reportsSince + after.stillNetworks >= 2 ? "Still reported" : "One sighting";
+  return after.fixedCheckins + after.stillCheckins > 0 ? "One sighting" : "No Hub signal yet";
+}
+
+/** Most cautious first: a fix line paired with several issues gets the weakest check among them. */
+const CAUTION: HubCheck[] = ["Still reported", "One sighting", "No Hub signal yet", "Confirmed by players"];
+const VERDICTS: HubCheck[] = ["Still reported", "Confirmed by players"];
+
+function sameFixLine(a: string, b: string): boolean {
+  const line = (text: string) => text.normalize("NFC").replace(/\s+/g, " ").trim();
+  return line(a) === line(b);
+}
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${NUMBER.format(count)} ${count === 1 ? singular : pluralForm}`;
 }
 
 function percentChange(current: number | null, before: number | null): number | null {
@@ -182,12 +224,21 @@ export function buildFactPack(input: FactPackInput): FactPack {
         source: { label: `Pearl Abyss patch notes ${edition.version}`, url: edition.officialUrl },
       });
     }
+    // A listed fix carries the Hub's check only when the issue board is on the same patch.
+    const checkBoard = input.board.available && latest && input.board.patchVersion === latest.version ? input.board : null;
     for (const fix of latest?.fixes.slice(0, MAX_FIXES) ?? []) {
+      const paired = checkBoard?.issues.filter((issue) => issue.afterFix?.fixes.some((line) => sameFixLine(line, fix.fixText))) ?? [];
+      const checks = paired.flatMap((issue) => (issue.afterFix ? [hubCheck(issue.afterFix)] : []));
+      const check = checkBoard ? CAUTION.find((item) => checks.includes(item)) ?? "No Hub signal yet" : null;
+      const pairing = paired.length
+        ? `The Hub pairs it with the known ${paired.length === 1 ? "issue" : "issues"} ${paired.map((issue) => `"${issue.title}"`).join(", ")}.`
+        : "No known issue on the Hub is paired with it.";
       add("F", {
-        text: `Patch ${latest.version} lists this fix: "${fix.fixText}"`,
+        text: `Patch ${latest.version} lists this fix: "${fix.fixText}"${check ? `${/[.!?]$/.test(fix.fixText.trim()) ? "" : "."} ${pairing} Hub check: ${check}.` : ""}`,
         period: latest.publishedAt ? formatUtcTimestamp(latest.publishedAt) : formatUtcTimestamp(latest.observedAt),
         value: latest.version,
         label: "Confirmed",
+        ...(check ? { check } : {}),
         source: { label: `Patch ${latest.version} fix record, Report Hub`, url: patchPath(latest.version) },
       });
     }
@@ -263,27 +314,44 @@ export function buildFactPack(input: FactPackInput): FactPack {
     });
   } else if (input.history.lanes.twitch !== "ready") gaps.push("twitch_unavailable");
 
-  // Known issues: public aggregates and the labels the issue page supports.
+  // Known issues: public aggregates, the labels the issue page supports and each listed fix's Hub check.
   let patternIssueIds: string[] = [];
   let newPatternIssueIds: string[] = [];
+  let newVerdictIssueIds: string[] = [];
+  const hubChecks: Record<string, HubCheck> = {};
   if (input.board.available) {
     const board = input.board;
     const previousPatterns = input.previous?.patternIssueIds ?? [];
+    const previousChecks = input.previous?.hubChecks ?? {};
+    for (const issue of board.issues) if (issue.afterFix) hubChecks[issue.id] = hubCheck(issue.afterFix);
     const isPattern = (issue: IssueAggregate) => evidenceLabel(issue) === "Reported" || evidenceLabel(issue) === "Confirmed";
     const isNewPattern = (issue: IssueAggregate) => isPattern(issue) && !previousPatterns.includes(issue.id);
-    // Newly Reported or Confirmed issues come first, so any news that raises the score is in the pack.
-    const issues = [...board.issues].sort((a, b) => Number(isNewPattern(b)) - Number(isNewPattern(a)) || b.strength - a.strength).slice(0, MAX_ISSUES);
+    const isNewVerdict = (issue: IssueAggregate) => VERDICTS.includes(hubChecks[issue.id]) && previousChecks[issue.id] !== hubChecks[issue.id];
+    const isNews = (issue: IssueAggregate) => isNewPattern(issue) || isNewVerdict(issue);
+    // News comes first (newly Reported or Confirmed issues, new verdicts on listed fixes), so any news that raises the score is in the pack.
+    const issues = [...board.issues].sort((a, b) => Number(isNews(b)) - Number(isNews(a)) || b.strength - a.strength).slice(0, MAX_ISSUES);
     patternIssueIds = board.issues.filter(isPattern).map((issue) => issue.id);
     newPatternIssueIds = issues.filter(isNewPattern).map((issue) => issue.id);
+    newVerdictIssueIds = issues.filter(isNewVerdict).map((issue) => issue.id);
     for (const issue of issues) {
       const label = evidenceLabel(issue);
       const status = statusLabel(issue);
+      const after = issue.afterFix;
+      const check = after ? hubChecks[issue.id] : null;
+      const since = after ? [
+        after.fixedCheckins ? plural(after.fixedCheckins, '"fixed for me" check-in') : null,
+        after.stillCheckins ? plural(after.stillCheckins, '"still happening" check-in') : null,
+        after.reportsSince ? plural(after.reportsSince, "exact-patch player report") : null,
+      ].filter(Boolean) : [];
       const parts = [
         label ? `Evidence: ${label}.` : "Evidence: forum links only, no label.",
         status ? `Status: ${status}.` : null,
         issue.approvedReports ? `${issue.approvedReports} approved player ${issue.approvedReports === 1 ? "report" : "reports"} on patch ${board.patchVersion}.` : null,
         issue.checkins ? `${issue.checkins} "happening to me" ${issue.checkins === 1 ? "check-in" : "check-ins"} on patch ${board.patchVersion}.` : null,
         issue.publicPosts ? `Mentioned in ${issue.publicPosts} public ${issue.publicPosts === 1 ? "post" : "posts"} (${Object.entries(issue.postsBySite).map(([site, count]) => `${site} ${count}`).join(", ")}).` : null,
+        after ? `The notes for patch ${board.patchVersion} list a fix for it.` : null,
+        since.length ? `Since that fix: ${since.join(", ")}.` : null,
+        check ? `Hub check: ${check}.` : null,
       ].filter(Boolean);
       add("C", {
         text: `Known issue "${issue.title}". ${parts.join(" ")}`,
@@ -291,17 +359,21 @@ export function buildFactPack(input: FactPackInput): FactPack {
         value: issue.approvedReports + issue.checkins,
         ...(label ? { label } : {}),
         ...(status ? { status } : {}),
+        ...(check ? { check } : {}),
         source: { label: `"${issue.title}" on the issue board, Report Hub`, url: `/issues#issue-${issue.id}` },
       });
     }
+    // A zero total stays out of the pack: the column never writes about an empty board.
     const checkins = board.issues.reduce((sum, issue) => sum + issue.checkins, 0);
     const withCheckins = board.issues.filter((issue) => issue.checkins > 0).length;
-    add("K", {
-      text: `Players added ${NUMBER.format(checkins)} "happening to me" ${checkins === 1 ? "check-in" : "check-ins"} across ${withCheckins} known ${withCheckins === 1 ? "issue" : "issues"} on patch ${board.patchVersion}.`,
-      period: `Patch ${board.patchVersion}`,
-      value: checkins,
-      source: { label: "Issue board, Report Hub", url: "/issues" },
-    });
+    if (checkins > 0) {
+      add("K", {
+        text: `Players added ${NUMBER.format(checkins)} "happening to me" ${checkins === 1 ? "check-in" : "check-ins"} across ${withCheckins} known ${withCheckins === 1 ? "issue" : "issues"} on patch ${board.patchVersion}.`,
+        period: `Patch ${board.patchVersion}`,
+        value: checkins,
+        source: { label: "Issue board, Report Hub", url: "/issues" },
+      });
+    }
   } else gaps.push("issues_unavailable");
 
   return {
@@ -317,14 +389,13 @@ export function buildFactPack(input: FactPackInput): FactPack {
       reviewShare7d: input.history.lanes.reviews === "ready" ? reviewShare7d : input.previous?.reviewShare7d ?? null,
       twitchAvg7d: input.history.lanes.twitch === "ready" ? twitchAvg7d : input.previous?.twitchAvg7d ?? null,
       patternIssueIds: input.board.available ? patternIssueIds : input.previous?.patternIssueIds ?? null,
+      hubChecks: input.board.available ? hubChecks : input.previous?.hubChecks ?? null,
     },
     deltas: {
       newPatchVersions,
       newUpdate: newPatchVersions.some((version) => patchKind(version) === "update"),
-      playersChangePct: percentChange(playersAvg7d, playersBaseline),
-      reviewShareChangePoints: reviewShare7d !== null && reviewBaseline !== null ? reviewShare7d - reviewBaseline : null,
-      twitchChangePct: percentChange(twitchAvg7d, twitchBaseline),
       newPatternIssueIds,
+      newVerdictIssueIds,
     },
   };
 }

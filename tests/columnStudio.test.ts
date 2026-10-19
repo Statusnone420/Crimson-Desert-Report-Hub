@@ -165,7 +165,7 @@ describe("A/B test drafts", () => {
       status: "skipped", skip_reason: "check_failed", publish_at: null, slug: null, title: "Clear skies over the inventory screen",
       dek: "Player numbers dipped and a hotfix tidied up two problems.", check_report: expect.objectContaining({ note: "max_tokens", post: null }),
     })]);
-    expect(String(tests[0].body_md)).toMatch(/^## The forecast\n\n18,166 players were online/);
+    expect(String(tests[0].body_md)).toMatch(/^## What the notes claim\n\nPatch 2\.03\.02 listed 2 fixes/);
     expect((await readColumnStudio(db.client, RUN_NOW)).tests).toEqual([expect.objectContaining({ check_note: "max_tokens", title: "Clear skies over the inventory screen" })]);
     expect(await readVisibleEditions(db.client, new Date(RUN_NOW.getTime() + 30 * 86_400_000))).toEqual([]);
     const preview = buildPreviewAtomXml(await readPreviewEditions(db.client, RUN_NOW), RUN_NOW);

@@ -44,13 +44,20 @@ function noteLine(note: StyleNote): string {
   return `- ${rating}${note.note ? `: ${note.note.replace(/\s+/g, " ").trim()}` : ""}`;
 }
 
-export const WRITER_INSTRUCTION = `Write this State of the Game edition from the fact pack in the user message.
+export const WRITER_INSTRUCTION = `Write this State of the Game edition from the fact pack in the user message. It's a patch-and-evidence brief for people who already play: what the latest official notes claim, then what the Hub's own data backs up.
 
 - Use only facts from the pack. In sourceIds, list the ids of every fact a paragraph uses; a paragraph with no factual claim has an empty list.
 - Every number, date, time and patch version you write must appear in a fact you cite. Don't round, convert or add years.
-- Give each known issue the evidence and status labels its fact carries, never stronger ones. An issue with forum links only has no label: attribute it by count ("4 public posts mention it") and never call it a pattern.
-- Write 4 or 5 sections with plain, sentence-case subheads from the style guide's rotation. Include "The forecast", "The patch desk" or both. Skip a section that has no data.
-- The sections hold 300 to 500 words. The title is under 70 characters. The dek is one sentence.
+- First person is for your reactions to the facts. Never invent things you did, saw or played.
+- Use these subheads word for word, in this order. Leave out any section with nothing real to say, but include "What the notes claim" or "What we can corroborate".
+  - "What the notes claim": the patch version and its date, then the listed fixes in plain English. Call out vague wording such as "certain situations".
+  - "What we can corroborate": each listed fix with the Hub check its fact carries: Confirmed by players, Still reported, One sighting or No Hub signal yet. Never write a stronger check than the fact carries. A fix with no Hub check gets no corroboration line. A fix's Confirmed label only means the notes list it.
+  - "What players are still hitting": only known issues labeled Reported, or whose Hub check is Still reported. Leave the section out when none qualify.
+  - "The numbers": optional, one short beat of Steam or Twitch context.
+- Give each known issue the evidence and status labels its fact carries, never stronger ones. One report means one sighting. An issue with forum links only has no label: attribute it by count ("4 public posts mention it") and never call it a pattern.
+- Never write about an empty issue board, zero check-ins or how many people use the Hub. Never tell readers whether to play, and write no outlook section.
+- Lead the title with the patch or the corroboration story, not a Steam or Twitch swing. The title is under 70 characters. The dek is one sentence.
+- The sections hold 300 to 500 words; in a thin week, at least 250.
 - factsBox holds 3 to 6 plain, joke-free statements, each with the ids it rests on.
 - Write every time in UTC, like "Oct 18, 16:00 UTC".
 - Before you answer, run the style guide's self-check and the pre-publish checklist.`;
@@ -74,6 +81,7 @@ export function factPackMessage(pack: FactPack): string {
       period: fact.period,
       ...(fact.label ? { label: fact.label } : {}),
       ...(fact.status ? { status: fact.status } : {}),
+      ...(fact.check ? { check: fact.check } : {}),
       source: fact.source.label,
     })),
   });
@@ -107,11 +115,11 @@ export function writerRequest(input: WriterPromptParts & { model: WriterModel; e
 export const CHECKER_INSTRUCTION = `You are the fact checker for the State of the Game column. The user message holds the fact pack and the edition split into numbered units: the title (t), the dek (d), section subheads (h1, h2, ...), body sentences (b1, b2, ...) and facts-box items (x1, x2, ...). Each unit lists the ids its paragraph or item cites.
 
 Return every unit id exactly once, with:
-- supported: true when the unit makes no factual claim, or every claim in it is backed by facts in the pack. Exaggerating a fact's tone is fine; changing its substance is not.
+- supported: true when the unit makes no factual claim, or every claim in it is backed by facts in the pack. Exaggerating a fact's tone is fine; changing its substance is not. A claim about what the Hub can corroborate for a listed fix is backed only when a fact it cites carries that same Hub check.
 - citedIds: the ids of the facts that back it; empty when it makes no factual claim.
 - namesPerson: true when it names or identifies any real person, player, poster, creator, streamer, journalist, reviewer or staff member, or any username or handle. The writer's own "I", "me" and "we" never count.
 - quotesPlayer: true when it quotes a player directly.
-- bannedWords: words or phrases from the style guide's banned lists or the checklist that appear in it, and any slur, sexual term or reference to real-world politics. Cursing on its own is allowed; don't list it.
+- bannedWords: words or phrases from the style guide's banned lists or the checklist that appear in it, and any slur, sexual term or reference to real-world politics. Also list any phrase that tells readers whether to play, or that points out an empty issue board, zero check-ins or how many people use the Hub. Cursing on its own is allowed; don't list it.
 - slopRules: the numbers of the pre-publish checklist rules it breaks.
 
 Judge every unit against the style guide and the checklist above.`;

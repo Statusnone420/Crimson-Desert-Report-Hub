@@ -77,20 +77,17 @@ describe("slot keys", () => {
   });
 });
 
-const quiet: FactPackDeltas = { newPatchVersions: [], newUpdate: false, playersChangePct: null, reviewShareChangePoints: null, twitchChangePct: null, newPatternIssueIds: [] };
+const quiet: FactPackDeltas = { newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [] };
 
 describe("relevance", () => {
-  it("scores new notes, issues and movements", () => {
+  it("scores new notes, new multi-signal issues and new verdicts on listed fixes", () => {
     expect(relevanceScore(quiet)).toBe(0);
     expect(relevanceScore({ ...quiet, newPatchVersions: ["2.04.00"], newUpdate: true })).toBe(3);
     expect(relevanceScore({ ...quiet, newPatchVersions: ["2.03.03"] })).toBe(2);
     expect(relevanceScore({ ...quiet, newPatternIssueIds: ["a", "b", "c", "d"] })).toBe(3);
-    expect(relevanceScore({ ...quiet, playersChangePct: -9.9 })).toBe(0);
-    expect(relevanceScore({ ...quiet, playersChangePct: -10 })).toBe(1);
-    expect(relevanceScore({ ...quiet, playersChangePct: 25 })).toBe(2);
-    expect(relevanceScore({ ...quiet, reviewShareChangePoints: -5 })).toBe(1);
-    expect(relevanceScore({ ...quiet, twitchChangePct: 24.9 })).toBe(0);
-    expect(relevanceScore({ ...quiet, twitchChangePct: -25 })).toBe(1);
+    expect(relevanceScore({ ...quiet, newVerdictIssueIds: ["a"] })).toBe(1);
+    expect(relevanceScore({ ...quiet, newVerdictIssueIds: ["a", "b", "c", "d"] })).toBe(3);
+    expect(relevanceScore({ ...quiet, newPatchVersions: ["2.03.03"], newPatternIssueIds: ["a"], newVerdictIssueIds: ["b"] })).toBe(4);
   });
 
   it("applies each threshold", () => {
