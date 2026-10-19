@@ -357,3 +357,8 @@ html[data-theme="dark"] .operator-workspace .theme-icon img { filter: invert(1);
 .operator-workspace .column-burst-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 10px; }
 .operator-workspace .column-bursts summary { cursor: pointer; min-height: 24px; font-size: 13px; }
 .operator-workspace .column-bursts details form { margin-top: 12px; }
+.operator-workspace .column-example-list { padding-left: 20px; margin: 0 0 12px; display: grid; gap: 12px; }
+.operator-workspace .column-example-list summary, .operator-workspace .column-workspace details > summary { cursor: pointer; min-height: 24px; font-size: 13px; }
+.operator-workspace .column-feedback { border-top: 1px solid var(--ws-line); }
+.operator-workspace .column-notes { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; font-size: 13px; }
+.operator-workspace .column-notes p { margin: 4px 0 0; white-space: pre-wrap; }

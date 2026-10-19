@@ -43,6 +43,10 @@ test("the Column card approves, vetoes and pauses without touching anything else
   await expect(page.getByRole("heading", { name: "Running" })).toBeVisible();
   await expect(page.getByText("Approve-first: 3 editions left.")).toBeVisible();
   await expect(page.getByText("Skipped: Not enough news")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Schedule and writer" })).toBeVisible();
+  await expect(page.getByText("Its key is missing, so each slot skips as provider unavailable and nothing is called.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Voice examples" })).toBeVisible();
+  await expect(page.getByText("10 of 10 left today (UTC)", { exact: false })).toBeVisible();
 
   await page.getByRole("button", { name: "Approve and publish" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Edition approved and published." })).toBeVisible();

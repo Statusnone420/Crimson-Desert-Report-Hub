@@ -11,6 +11,10 @@ import { revalidateEditorials } from "@/lib/revalidate";
 import { createServiceClient } from "@/lib/supabase";
 import { isMissingSupabaseRpc } from "@/lib/supabaseCompatibility";
 import type { ColumnNotice } from "@/lib/editorials/notices";
+import { addStyleNote, deleteVoiceExample, moveVoiceExample, saveVoiceExample } from "@/lib/editorials/feedback.server";
+import { styleNoteFromForm, voiceExampleFromForm } from "@/lib/editorials/feedbackForm";
+import { isWriterEffort, isWriterModel } from "@/lib/editorials/models";
+import { generateTestDraft } from "@/lib/editorials/testDraft.server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -102,4 +106,59 @@ export async function deleteColumnBurst(formData: FormData) {
   if (typeof id !== "string" || !settings.bursts.some((burst) => burst.id === id)) backToColumn("burst_missing");
   await mergeColumnSettings(client, { bursts: settings.bursts.filter((burst) => burst.id !== id) });
   backToColumn("burst_deleted");
+}
+
+/** A thumbs up or down and an optional note, for one edition or the column as a whole. */
+export async function saveStyleNote(formData: FormData) {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const input = styleNoteFromForm(formData);
+  if (!input) backToColumn("note_invalid");
+  await addStyleNote(createServiceClient(), input);
+  if (input.editorialId) {
+    revalidatePath("/operator");
+    redirect(`/operator?view=column&edition=${input.editorialId}&notice=note_saved`);
+  }
+  backToColumn("note_saved");
+}
+
+export async function saveVoiceExampleAction(formData: FormData) {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const input = voiceExampleFromForm(formData);
+  if (!input) backToColumn("example_invalid");
+  const result = await saveVoiceExample(createServiceClient(), input);
+  backToColumn(result === "saved" ? "example_saved" : result === "full" ? "examples_full" : "example_missing");
+}
+
+export async function deleteVoiceExampleAction(formData: FormData) {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const id = formData.get("id");
+  if (typeof id !== "string" || !UUID.test(id)) backToColumn("example_missing");
+  await deleteVoiceExample(createServiceClient(), id);
+  backToColumn("example_deleted");
+}
+
+export async function moveVoiceExampleAction(formData: FormData) {
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const id = formData.get("id");
+  const direction = formData.get("direction");
+  if (typeof id !== "string" || !UUID.test(id) || (direction !== "up" && direction !== "down")) backToColumn("example_missing");
+  const result = await moveVoiceExample(createServiceClient(), id, direction);
+  backToColumn(result === "moved" ? "example_moved" : result === "missing" ? "example_missing" : "examples_changed");
+}
+
+/** One A/B test draft on the newest fact pack, charged to the column budget, ten per UTC day. */
+export async function generateTestDraftAction(formData: FormData) {
+  // The page's maxDuration counts from here, so the draft's deadline does too.
+  const startedAtMs = Date.now();
+  await requireAdmin();
+  assertProductionWriteAllowed();
+  const model = formData.get("model");
+  const effort = formData.get("effort");
+  if (!isWriterModel(model) || !isWriterEffort(effort)) backToColumn("test_invalid");
+  const outcome = await generateTestDraft({ client: createServiceClient(), now: new Date(), model, effort, startedAtMs });
+  backToColumn(outcome.status === "saved" ? "test_saved" : outcome.status === "daily_cap" ? "test_cap" : "test_skipped");
 }

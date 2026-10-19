@@ -90,7 +90,7 @@ export async function generateEdition(input: GenerationInput): Promise<Generatio
     client: input.client, operation: input.test ? "test_writer" : "writer", request: { ...sized.request, timeoutMs: writerTimeoutNow },
     promptTokens: sized.tokens, target: input.target, monthlyCapSetting: input.monthlyCapSetting,
   });
-  if (writer.kind !== "ok") return fail(callFailure(writer, "writer_failed"));
+  if (writer.kind !== "ok") return fail(callFailure(writer, "writer_failed"), writer.kind === "blocked" ? writer.reason : undefined);
   report.writer.costUsd = writer.costUsd;
   const output = writer.stopReason === "end_turn" ? parseStructured(writer.text, writerOutputSchema) : null;
   if (!output) return fail("writer_failed", writer.stopReason ?? "no_stop_reason");
@@ -108,7 +108,7 @@ export async function generateEdition(input: GenerationInput): Promise<Generatio
     promptTokens: checkerTokens, target: input.target, monthlyCapSetting: input.monthlyCapSetting,
   });
   report.checker = { model: input.checkerModel, costUsd: checker.kind === "ok" ? checker.costUsd : null };
-  if (checker.kind !== "ok") return fail(callFailure(checker, "check_failed"));
+  if (checker.kind !== "ok") return fail(callFailure(checker, "check_failed"), checker.kind === "blocked" ? checker.reason : undefined);
   const verdicts = checker.stopReason === "end_turn" ? parseStructured(checker.text, checkerOutputSchema) : null;
   if (!verdicts) return fail("check_failed", checker.stopReason ?? "no_stop_reason");
 

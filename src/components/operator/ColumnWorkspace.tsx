@@ -1,6 +1,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { approveEdition, setColumnPaused, vetoEdition } from "@/app/operator/column-actions";
+import { approveEdition, saveStyleNote, setColumnPaused, vetoEdition } from "@/app/operator/column-actions";
+import { CharacterCountField } from "@/components/operator/CharacterCountField";
+import { ColumnStudio } from "@/components/operator/ColumnStudio";
+import type { ColumnStudio as Studio, EditionNote } from "@/lib/editorials/feedback.server";
+import { MAX_NOTE_CHARACTERS } from "@/lib/editorials/feedbackForm";
 import { ColumnCadence } from "@/components/operator/ColumnCadence";
 import { SubmitButton } from "@/components/SubmitButton";
 import { COLUMN_AUTHOR, factsBoxSchema, formatUtcTimestamp, markdownToSections } from "@/lib/editorials/content";
@@ -63,7 +67,7 @@ function VetoButton({ row, now, disabled }: { row: AdminEditionRow; now: Date; d
   </form>;
 }
 
-function EditionDraft({ row, now }: { row: AdminEditionRow; now: Date }) {
+function EditionDraft({ row, now, notes, writesDisabled }: { row: AdminEditionRow; now: Date; notes: EditionNote[] | null; writesDisabled: boolean }) {
   const sections = row.body_md ? markdownToSections(row.body_md) : null;
   const facts = factsBoxSchema.safeParse(row.facts_box);
   return <section className="workspace-panel" aria-labelledby="column-draft-heading">
@@ -83,6 +87,24 @@ function EditionDraft({ row, now }: { row: AdminEditionRow; now: Date }) {
         <ul>{facts.data.items.map((item) => <li key={item.text}>{item.text} <small>({item.sourceIds.join(", ")})</small></li>)}</ul>
       </div> : null}
     </div>
+    {row.status !== "skipped" ? <div className="workspace-panel-body column-feedback">
+      <h3>Rate this edition</h3>
+      <form action={saveStyleNote} className="workspace-form">
+        <input type="hidden" name="editorialId" value={row.id} />
+        <fieldset className="workspace-field column-days">
+          <legend>Thumbs</legend>
+          <label><input type="radio" name="rating" value="up" /> Thumbs up</label>
+          <label><input type="radio" name="rating" value="down" /> Thumbs down</label>
+          <label><input type="radio" name="rating" value="" defaultChecked /> No rating</label>
+        </fieldset>
+        <CharacterCountField name="note" label="Note for the writer (optional)" limit={MAX_NOTE_CHARACTERS} rows={3} />
+        <div><ActionButton className="workspace-button" pendingText="Saving…" disabled={writesDisabled}>Save note</ActionButton></div>
+      </form>
+      {notes === null ? <p className="workspace-note">Earlier notes could not be read.</p>
+        : notes.length ? <ul className="column-notes">{notes.map((note) => <li key={note.id}>
+          <strong>{note.rating === "up" ? "Thumbs up" : note.rating === "down" ? "Thumbs down" : "Note"}</strong> · {formatUtcTimestamp(note.created_at)}{note.note ? <p>{note.note}</p> : null}
+        </li>)}</ul> : <p className="workspace-note">No notes on this edition yet.</p>}
+    </div> : null}
     <div className="workspace-actions">
       <Link className="workspace-button" href="/operator?view=column">Back to the column</Link>
     </div>
@@ -96,9 +118,11 @@ function statusText(row: AdminEditionRow, now: Date): string {
   return previewStatusLabel(row, now);
 }
 
-export function ColumnWorkspace({ dashboard, draft, notice, now, writesDisabled, keys }: {
+export function ColumnWorkspace({ dashboard, draft, draftNotes = null, studio = null, notice, now, writesDisabled, keys }: {
   dashboard: ColumnDashboard | null;
   draft: AdminEditionRow | "unavailable" | null;
+  draftNotes?: EditionNote[] | null;
+  studio?: Studio | null;
   notice: string | null;
   now: Date;
   writesDisabled: boolean;
@@ -114,7 +138,7 @@ export function ColumnWorkspace({ dashboard, draft, notice, now, writesDisabled,
     {notice ? <p className="workspace-notice" role="status">{notice}</p> : null}
     {writesDisabled ? <p className="workspace-notice">Preview edition: column changes are disabled here.</p> : null}
     {draft === "unavailable" ? <p className="workspace-error" role="status"><strong>Draft unavailable</strong>That edition could not be read for this page load. Reload to try again.</p>
-      : draft ? <EditionDraft row={draft} now={now} /> : null}
+      : draft ? <EditionDraft row={draft} now={now} notes={draftNotes} writesDisabled={writesDisabled} /> : null}
     {dashboard === null ? <section className="workspace-panel workspace-empty">
       <h2>Column record unavailable</h2>
       <p>The column&apos;s data could not be read for this page load. Nothing changed, and the public site is unaffected. Reload to try again.</p>
@@ -175,6 +199,7 @@ export function ColumnWorkspace({ dashboard, draft, notice, now, writesDisabled,
         </table> : <p className="workspace-panel-body workspace-note">No editions yet.</p>}
       </section>
       <ColumnCadence settings={dashboard.settings} keys={keys} now={now} writesDisabled={writesDisabled} />
+      <ColumnStudio studio={studio} writesDisabled={writesDisabled} />
     </>}
   </div>;
 }

@@ -26,6 +26,14 @@ function compare(value: unknown, other: unknown): number {
   return String(value ?? "").localeCompare(String(other ?? ""));
 }
 
+/** A column's value, or a key inside a JSON column for PostgREST's `column->>key`. */
+function field(row: Row, column: string): unknown {
+  const [base, key] = column.split("->>");
+  if (key === undefined) return row[column];
+  const value = row[base];
+  return value && typeof value === "object" ? (value as Record<string, unknown>)[key] ?? null : null;
+}
+
 export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () => Date = () => new Date()): FakeDb {
   const tables: Record<string, Row[]> = {
     automation_settings: [{ key: "scanner", value: { paused: false }, updated_at: "2026-10-01T00:00:00Z" }],
@@ -47,11 +55,12 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
   function builder(table: string) {
     touched.add(table);
     const filters: Filter[] = [];
-    let mode: "select" | "insert" | "update" = "select";
+    let mode: "select" | "insert" | "update" | "delete" = "select";
     let payload: Row[] = [];
     let patch: Row = {};
-    const orders: { column: string; ascending: boolean }[] = [];
+    const orders: { column: string; ascending: boolean; nullsFirst?: boolean }[] = [];
     let limit: number | null = null;
+    let offset = 0;
     let returning = false;
 
     function run(): Result {
@@ -67,19 +76,31 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
             ...raw,
           };
           if (uniqueViolation(table, row)) return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } };
+          if (table === "voice_examples" && rows.length + inserted.length >= 5) return { data: null, error: { code: "23514", message: "voice_examples_limit" } };
           inserted.push(row);
         }
         rows.push(...inserted);
         return { data: returning ? inserted.map((row) => ({ ...row })) : null, error: null };
       }
       let matched = rows.filter((row) => filters.every((filter) => filter(row)));
+      if (mode === "delete") {
+        tables[table] = rows.filter((row) => !matched.includes(row));
+        return { data: returning ? matched.map((row) => ({ ...row })) : null, error: null };
+      }
       if (mode === "update") {
         for (const row of matched) if (uniqueViolation(table, { ...row, ...patch }, row.id)) return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } };
         for (const row of matched) Object.assign(row, patch);
         return { data: returning ? matched.map((row) => ({ ...row })) : null, error: null };
       }
-      for (const order of [...orders].reverse()) matched = [...matched].sort((a, b) => compare(a[order.column], b[order.column]) * (order.ascending ? 1 : -1));
-      if (limit !== null) matched = matched.slice(0, limit);
+      for (const order of [...orders].reverse()) {
+        matched = [...matched].sort((a, b) => {
+          const left = field(a, order.column);
+          const right = field(b, order.column);
+          if (order.nullsFirst !== undefined && (left == null) !== (right == null)) return (left == null) === order.nullsFirst ? -1 : 1;
+          return compare(left, right) * (order.ascending ? 1 : -1);
+        });
+      }
+      if (limit !== null || offset) matched = matched.slice(offset, limit === null ? undefined : offset + limit);
       return { data: matched.map((row) => ({ ...row })), error: null };
     }
 
@@ -87,6 +108,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
       select: () => { if (mode !== "select") returning = true; return query; },
       insert: (rows: Row | Row[]) => { mode = "insert"; payload = Array.isArray(rows) ? rows : [rows]; return query; },
       update: (values: Row) => { mode = "update"; patch = values; return query; },
+      delete: () => { mode = "delete"; return query; },
       eq: (column: string, value: unknown) => { filters.push((row) => row[column] === value); return query; },
       neq: (column: string, value: unknown) => { filters.push((row) => row[column] !== value); return query; },
       in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(row[column])); return query; },
@@ -107,8 +129,9 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
         }));
         return query;
       },
-      order: (column: string, options?: { ascending?: boolean }) => { orders.push({ column, ascending: options?.ascending ?? true }); return query; },
+      order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => { orders.push({ column, ascending: options?.ascending ?? true, nullsFirst: options?.nullsFirst }); return query; },
       limit: (count: number) => { limit = count; return query; },
+      range: (from: number, to: number) => { offset = from; limit = to - from + 1; return query; },
       then: (resolve: (value: Result) => unknown, reject?: (reason: unknown) => unknown) => Promise.resolve().then(run).then(resolve, reject),
     };
     return query;
@@ -152,6 +175,19 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
       if (!row || (row.value as Row).nextEditionModel !== args.p_model) return { data: false, error: null };
       row.value = { ...(row.value as Row), nextEditionModel: null };
       return { data: true, error: null };
+    },
+    voice_examples_reorder: (args) => {
+      const ids = args.p_ids as string[];
+      const rows = tables.voice_examples;
+      const current = [...rows].sort((a, b) => compare(a.position, b.position) || compare(a.created_at, b.created_at) || compare(a.id, b.id)).map((row) => row.id);
+      if (JSON.stringify(current) !== JSON.stringify(args.p_expected ?? null)) {
+        return { data: null, error: { code: "22023", message: "voice_examples_reorder_stale" } };
+      }
+      if (ids.length !== rows.length || new Set(ids).size !== ids.length || ids.some((id) => !rows.some((row) => row.id === id))) {
+        return { data: null, error: { code: "22023", message: "voice_examples_reorder_mismatch" } };
+      }
+      for (const [position, id] of ids.entries()) Object.assign(rows.find((row) => row.id === id)!, { position });
+      return { data: ids.length, error: null };
     },
     editorial_approve: (args) => {
       const edition = tables.editorials.find((row) => row.id === args.p_id && row.status === "held" && !row.is_test && row.publish_at == null && row.vetoed_at == null);

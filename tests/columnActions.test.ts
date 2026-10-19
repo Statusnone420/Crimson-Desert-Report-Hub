@@ -12,13 +12,16 @@ const mocks = vi.hoisted(() => ({
   preview: vi.fn(() => false),
 }));
 
-vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath, revalidateTag: mocks.revalidateTag }));
+vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath, revalidateTag: mocks.revalidateTag, unstable_cache: (fn: unknown) => fn }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/supabase", () => ({ createServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 vi.mock("@/lib/previewGuard", () => ({ assertProductionWriteAllowed: () => { if (mocks.preview()) throw new Error("preview writes disabled"); } }));
 
-import { approveEdition, deleteColumnBurst, saveColumnBurst, saveColumnCadence, setColumnPaused, vetoEdition } from "@/app/operator/column-actions";
+import {
+  approveEdition, deleteColumnBurst, deleteVoiceExampleAction, generateTestDraftAction, moveVoiceExampleAction, saveColumnBurst,
+  saveColumnCadence, saveStyleNote, saveVoiceExampleAction, setColumnPaused, vetoEdition,
+} from "@/app/operator/column-actions";
 
 const ID = "e0000000-0000-4000-8000-000000000001";
 
@@ -53,6 +56,11 @@ describe("Column card actions", () => {
     await expect(saveColumnCadence(form({ mode: "weekly", days: "mon", hourUtc: "14", holdHours: "24", relevance: "normal", minGapHours: "20", provider: "anthropic" }))).rejects.toThrow(AUTH_SENTINEL);
     await expect(saveColumnBurst(form({ label: "Launch", model: "claude-opus-5-5", startDate: "2026-10-29", endDate: "2026-11-04", hourUtc: "14", holdHours: "8" }))).rejects.toThrow(AUTH_SENTINEL);
     await expect(deleteColumnBurst(form({ id: "expansion-launch" }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(saveStyleNote(form({ rating: "up", note: "More horses." }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(saveVoiceExampleAction(form({ body: "Deadpan." }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(deleteVoiceExampleAction(form({ id: ID }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(moveVoiceExampleAction(form({ id: ID, direction: "up" }))).rejects.toThrow(AUTH_SENTINEL);
+    await expect(generateTestDraftAction(form({ model: "claude-sonnet-5-5", effort: "high" }))).rejects.toThrow(AUTH_SENTINEL);
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
@@ -129,5 +137,21 @@ describe("Column card actions", () => {
     await expect(deleteColumnBurst(form({ id: "expansion-launch" }))).rejects.toThrow("notice=burst_deleted");
     expect(mocks.rpc).toHaveBeenLastCalledWith("editorial_settings_merge", { p_patch: { bursts: [] } });
     await expect(deleteColumnBurst(form({ id: "gone" }))).rejects.toThrow("notice=burst_missing");
+  });
+
+  it("refuse invalid notes, examples and test drafts before any database call", async () => {
+    await expect(saveStyleNote(form({ rating: "", note: "" }))).rejects.toThrow("notice=note_invalid");
+    await expect(saveVoiceExampleAction(form({ body: "x".repeat(1501) }))).rejects.toThrow("notice=example_invalid");
+    await expect(generateTestDraftAction(form({ model: "claude-haiku-5-5", effort: "high" }))).rejects.toThrow("notice=test_invalid");
+    await expect(generateTestDraftAction(form({ model: "claude-opus-5-5", effort: "max" }))).rejects.toThrow("notice=test_invalid");
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("save a note for an edition and go back to that edition", async () => {
+    const insert = vi.fn(async () => ({ data: null, error: null }));
+    mocks.from.mockReturnValue({ insert });
+    await expect(saveStyleNote(form({ editorialId: ID, rating: "down", note: "Less weather." }))).rejects.toThrow(`NEXT_REDIRECT /operator?view=column&edition=${ID}&notice=note_saved`);
+    expect(insert).toHaveBeenCalledWith({ editorial_id: ID, rating: "down", note: "Less weather." });
   });
 });

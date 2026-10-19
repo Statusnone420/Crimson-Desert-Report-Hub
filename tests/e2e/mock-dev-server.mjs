@@ -892,6 +892,8 @@ const editorials = [
   },
 ];
 const editorialAiSpend = [];
+const voiceExamples = [];
+const styleNotes = [];
 
 /**
  * Test-only fixture reset. Every table above is a module-level array that the
@@ -926,6 +928,8 @@ const resettableTables = [
   claimReviewSyncState,
   editorials,
   editorialAiSpend,
+  voiceExamples,
+  styleNotes,
 ];
 
 const pristineTables = resettableTables.map((table) => structuredClone(table));
@@ -2440,6 +2444,16 @@ const server = createServer(async (req, res) => {
     if (setting) Object.assign(setting, { value: { ...setting.value, ...patch }, updated_at: timestamp });
     else automationSettings.push({ key: "column", value: { ...patch }, updated_at: timestamp });
     sendJson(res, req.method, 200, automationSettings.find((item) => item.key === "column").value);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/voice_examples" && req.method === "GET") {
+    sendJson(res, req.method, 200, [...voiceExamples].sort((a, b) => a.position - b.position));
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/style_notes" && req.method === "GET") {
+    sendJson(res, req.method, 200, filterRows(styleNotes, url));
     return;
   }
 
