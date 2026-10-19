@@ -90,21 +90,27 @@ const APPROVED_NOTE_PAGE = 50;
 const APPROVED_NOTE_LIMIT = 500;
 
 /**
- * Up to two distinct editions the editor rated thumbs up, most recently rated first,
- * rotating into block [B]. Notes are read page by page until two distinct editions are
- * found, so many thumbs on one edition can't crowd out the next one.
+ * Up to two distinct editions whose newest rating is a thumbs up, most recently rated
+ * first, rotating into block [B]. A later thumbs down takes an edition out. Ratings are
+ * read page by page until two are found, so many thumbs on one edition can't crowd out
+ * the next one.
  */
 export async function approvedEditions(client: SupabaseClient): Promise<(ApprovedEdition & { id: string })[]> {
   const found: (ApprovedEdition & { id: string })[] = [];
   const seen = new Set<string>();
   for (let offset = 0; found.length < 2 && offset < APPROVED_NOTE_LIMIT; offset += APPROVED_NOTE_PAGE) {
-    const { data, error } = await client.from("style_notes").select("editorial_id, created_at")
-      .eq("rating", "up").not("editorial_id", "is", null).order("created_at", { ascending: false })
+    const { data, error } = await client.from("style_notes").select("editorial_id, rating, created_at")
+      .not("rating", "is", null).not("editorial_id", "is", null).order("created_at", { ascending: false })
       .range(offset, offset + APPROVED_NOTE_PAGE - 1);
     check(error, "Approved editions read");
-    const rows = (data ?? []) as { editorial_id: string }[];
-    const fresh = [...new Set(rows.map((row) => row.editorial_id))].filter((id) => !seen.has(id));
-    for (const id of fresh) seen.add(id);
+    const rows = (data ?? []) as { editorial_id: string; rating: "up" | "down" }[];
+    // Newest first, so the first rating seen for an edition is the one that counts.
+    const fresh: string[] = [];
+    for (const row of rows) {
+      if (seen.has(row.editorial_id)) continue;
+      seen.add(row.editorial_id);
+      if (row.rating === "up") fresh.push(row.editorial_id);
+    }
     if (fresh.length) {
       const editions = await client.from("editorials").select("id, title, body_md").in("id", fresh).neq("status", "skipped");
       check(editions.error, "Approved editions read");

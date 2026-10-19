@@ -101,6 +101,21 @@ describe("voice examples", () => {
     expect((await readColumnStudio(db.client, RUN_NOW)).rotation).toEqual([{ id: "a", title: "A" }, { id: "b", title: "B" }]);
   });
 
+  it("drop an edition from the rotation when its newest rating is a thumbs down", async () => {
+    const body = "## The forecast\n\nClear skies.";
+    db.tables.editorials.push(
+      { id: "a", slot_key: "2026-W40:mon", status: "published", title: "A", body_md: body, is_test: false },
+      { id: "b", slot_key: "2026-W41:mon", status: "published", title: "B", body_md: body, is_test: false },
+    );
+    db.tables.style_notes.push(
+      { id: "n1", editorial_id: "a", rating: "up", created_at: "2026-10-20T00:00:00Z" },
+      { id: "n2", editorial_id: "b", rating: "up", created_at: "2026-10-21T00:00:00Z" },
+      { id: "n3", editorial_id: "a", rating: "down", created_at: "2026-10-22T00:00:00Z" },
+      { id: "n4", editorial_id: "b", rating: null, note: "Shorter next time.", created_at: "2026-10-23T00:00:00Z" },
+    );
+    expect((await approvedEditions(db.client)).map((edition) => edition.id)).toEqual(["b"]);
+  });
+
   it("find the second approved edition behind many thumbs on the first", async () => {
     const body = "## The forecast\n\nClear skies.";
     db.tables.editorials.push(
