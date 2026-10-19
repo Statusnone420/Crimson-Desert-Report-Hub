@@ -2383,9 +2383,14 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // PostgREST filters the column's reads use, applied as the database would.
+  // PostgREST filters the column's reads use, applied as the database would: filter
+  // and sort first, then page. The shared helper pages before these filters, so it
+  // gets the request without its offset and limit.
   if (url.pathname === "/rest/v1/editorials" && req.method === "GET") {
-    let rows = filterRows(editorials, url);
+    const unpaged = new URL(url);
+    unpaged.searchParams.delete("offset");
+    unpaged.searchParams.delete("limit");
+    let rows = filterRows(editorials, unpaged);
     for (const [column, value] of url.searchParams.entries()) {
       if (value.startsWith("in.(")) { const allowed = value.slice(4, -1).split(","); rows = rows.filter((row) => allowed.includes(String(row[column]))); }
       if (value.startsWith("lte.")) rows = rows.filter((row) => row[column] != null && Date.parse(row[column]) <= Date.parse(value.slice(4)));
