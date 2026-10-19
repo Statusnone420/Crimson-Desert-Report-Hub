@@ -1,6 +1,17 @@
 // Next's dev-server restart keeps only the last repeated preload option.
-// Load both fixture overrides through one entry so the clock stays frozen.
+// Load the fixture overrides through one entry so the clock stays frozen.
+import http from "node:http";
 import "./freeze-time.cjs";
+
+// Test clients reuse keep-alive sockets across slow steps. Under Node's 5-second default the dev
+// server can close one just as a request reuses it, which reads as ECONNRESET, and `next dev` has
+// no keep-alive option. Here only clients close idle sockets, as on the mock server.
+const createServer = http.createServer;
+http.createServer = function fixtureCreateServer(...args) {
+  const server = createServer.apply(this, args);
+  server.keepAliveTimeout = 0;
+  return server;
+};
 
 // Loaded only by the local fixture server. Exercise the real check-in route
 // without sending a token or secret to Cloudflare.
