@@ -13,7 +13,7 @@ import { patchPath } from "@/lib/patchPublications";
 export type EvidenceLabel = "Confirmed" | "Reported" | "One report";
 export type StatusLabel = "Fixed (per patch notes)" | "Still happening";
 /** What the Hub's own data says about a fix the notes list. */
-export type HubCheck = "Confirmed by players" | "Still reported" | "One sighting" | "No Hub signal yet";
+export type HubCheck = "Confirmed by players" | "Still reported" | "Too little to call" | "No Hub signal yet";
 
 export type Fact = {
   id: string;
@@ -51,8 +51,12 @@ export type FactPackDeltas = {
   newVerdictIssueIds: string[];
 };
 
-/** Version 2 added Hub checks on listed fixes and the verdict deltas. A stored pack of another version is never reused. */
-export const FACT_PACK_VERSION = 2;
+/**
+ * Version 2 added Hub checks on listed fixes and the verdict deltas. Version 3 states each
+ * check as a plain sentence and drops the label on fix lines. A stored pack of another
+ * version is never reused.
+ */
+export const FACT_PACK_VERSION = 3;
 
 export type FactPack = {
   version: typeof FACT_PACK_VERSION;
@@ -133,17 +137,26 @@ export function statusLabel(issue: IssueAggregate): StatusLabel | null {
 
 /**
  * The Hub's check on a listed fix, never stronger than the issue page. Still reported takes two
- * or more independent signals (exact-patch reports since the fix, or check-in networks); a single
- * one is One sighting, and so are early check-ins from too few networks to weigh.
+ * or more independent signals (exact-patch reports since the fix, or check-in networks). Anything
+ * thinner, or early check-ins from too few networks to weigh, is Too little to call. That name and
+ * its sentence carry no count, because one network can send several check-ins.
  */
 export function hubCheck(after: AfterFix): HubCheck {
   if (after.readout === "players_say_fixed") return "Confirmed by players";
-  if (after.readout === "still_happening") return after.reportsSince + after.stillNetworks >= 2 ? "Still reported" : "One sighting";
-  return after.fixedCheckins + after.stillCheckins > 0 ? "One sighting" : "No Hub signal yet";
+  if (after.readout === "still_happening") return after.reportsSince + after.stillNetworks >= 2 ? "Still reported" : "Too little to call";
+  return after.fixedCheckins + after.stillCheckins > 0 ? "Too little to call" : "No Hub signal yet";
 }
 
+/** Each check as the plain sentence a fact states, so the writer has no check name to copy as a label. */
+const CHECK_SENTENCES: Record<HubCheck, string> = {
+  "Confirmed by players": "Players on the Hub say the fix worked.",
+  "Still reported": "Players still report it on the Hub after the fix.",
+  "Too little to call": "Since the fix, the Hub has too little evidence to call it either way.",
+  "No Hub signal yet": "The Hub has no signal on it yet.",
+};
+
 /** Most cautious first: a fix line paired with several issues gets the weakest check among them. */
-const CAUTION: HubCheck[] = ["Still reported", "One sighting", "No Hub signal yet", "Confirmed by players"];
+const CAUTION: HubCheck[] = ["Still reported", "Too little to call", "No Hub signal yet", "Confirmed by players"];
 const VERDICTS: HubCheck[] = ["Still reported", "Confirmed by players"];
 
 function sameFixLine(a: string, b: string): boolean {
@@ -237,10 +250,9 @@ export function buildFactPack(input: FactPackInput): FactPack {
         ? `The Hub pairs it with the known ${paired.length === 1 ? "issue" : "issues"} ${paired.map((issue) => `"${issue.title}"`).join(", ")}.`
         : "No known issue on the Hub is paired with it.";
       add("F", {
-        text: `Patch ${latest.version} lists this fix: "${fix.fixText}"${check ? `${/[.!?]$/.test(fix.fixText.trim()) ? "" : "."} ${pairing} Hub check: ${check}.` : ""}`,
+        text: `Patch ${latest.version} lists this fix: "${fix.fixText}"${check ? `${/[.!?]$/.test(fix.fixText.trim()) ? "" : "."} ${pairing} ${CHECK_SENTENCES[check]}` : ""}`,
         period: latest.publishedAt ? formatUtcTimestamp(latest.publishedAt) : formatUtcTimestamp(latest.observedAt),
         value: latest.version,
-        label: "Confirmed",
         ...(check ? { check } : {}),
         source: { label: `Patch ${latest.version} fix record, Report Hub`, url: patchPath(latest.version) },
       });
@@ -354,7 +366,7 @@ export function buildFactPack(input: FactPackInput): FactPack {
         issue.publicPosts ? `Mentioned in ${issue.publicPosts} public ${issue.publicPosts === 1 ? "post" : "posts"} (${Object.entries(issue.postsBySite).map(([site, count]) => `${site} ${count}`).join(", ")}).` : null,
         after ? `The notes for patch ${board.patchVersion} list a fix for it.` : null,
         since.length ? `Since that fix: ${since.join(", ")}.` : null,
-        check ? `Hub check: ${check}.` : null,
+        check ? CHECK_SENTENCES[check] : null,
       ].filter(Boolean);
       add("C", {
         text: `Known issue "${issue.title}". ${parts.join(" ")}`,

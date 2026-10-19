@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { FactPack } from "@/lib/editorials/factPack";
+import { FACT_PACK_VERSION, type FactPack } from "@/lib/editorials/factPack";
 import type { CheckerOutput, WriterOutput } from "@/lib/editorials/schemas";
 import { hardSlop, numberSentences, processEdition, splitSentences } from "@/lib/editorials/validate";
 
 const pack: FactPack = {
-  version: 2,
+  version: FACT_PACK_VERSION,
   builtAt: "2026-10-26T14:05:00.000Z",
   gaps: [],
   metrics: { patchVersions: ["2.03.02"], latestPatch: null, playersAvg7d: null, reviewShare7d: null, twitchAvg7d: null, patternIssueIds: [] },
@@ -270,8 +270,35 @@ describe("post-processing", () => {
     "Zero check-ins came in this week.",
     "It's an empty board, folks.",
     "An insane week for horses.",
-  ])("deletes play-tonight advice, the exaggerate line, a narrated empty board and hype: %s", (line) => {
+    // Pipeline words, and a check's name used as a noun (all from the first v3 test draft).
+    "All three fixes carry a Hub check of No Hub signal yet.",
+    "The Confirmed label on these fixes means the notes list them.",
+    "The fact pack lists 3 fixes.",
+    "Three claims, three No Hub signal yet.",
+  ])("deletes play-tonight advice, the exaggerate line, a narrated empty board, hype and pipeline words: %s", (line) => {
     expect(hardSlop(line)).toEqual(["banned_word"]);
+  });
+
+  it("keeps the plain-sentence version of a check", () => {
+    expect(hardSlop("The Hub has no signal on any of the three fixes yet.")).toEqual([]);
+    expect(hardSlop("Players still report it on the Hub after the fix.")).toEqual([]);
+  });
+
+  it("drops a short line left right after a cut sentence, and only that", () => {
+    const text = [NOTES, "Short list.", "Which situations?", "The notes don't say.", "Credit where it's due.", ...FILLER].join(" ");
+    const output = writer({ sections: [{ subhead: "What the notes claim", paragraphs: [{ text, sourceIds: ["P1"] }] }, ...writer().sections.slice(1)] });
+    const units = numberSentences(output);
+    const id = (sentence: string) => units.find((unit) => unit.text === sentence)?.id ?? "missing";
+    const result = process(output, { [id("Which situations?")]: { slopRules: [7] } });
+    expect(result.ok).toBe(true);
+    expect(result.report.deleted).toEqual([
+      { id: id("Which situations?"), why: ["checklist"] },
+      { id: id("The notes don't say."), why: ["orphan"] },
+      { id: id("Credit where it's due."), why: ["orphan"] },
+    ]);
+    if (!result.ok) return;
+    // A short line after a kept one stays, and so does the full sentence after the orphans.
+    expect(result.sections[0].paragraphs[0]).toMatch(/^Patch 2\.03\.02 listed 2 fixes on Oct 24\. Short list\. The inventory screen held its ground all week\./);
   });
 
   it("skips when fewer than 250 words remain", () => {

@@ -160,19 +160,31 @@ describe("Hub checks on listed fixes", () => {
     expect(hubCheck(after({ readout: "still_happening", stillCheckins: 3, stillNetworks: 2 }))).toBe("Still reported");
     expect(hubCheck(after({ readout: "still_happening", stillCheckins: 1, stillNetworks: 1, reportsSince: 1 }))).toBe("Still reported");
     // A single exact-patch report is one signal, and early check-ins from too few networks don't count yet.
-    expect(hubCheck(after({ readout: "still_happening", reportsSince: 1 }))).toBe("One sighting");
-    expect(hubCheck(after({ fixedCheckins: 2 }))).toBe("One sighting");
+    expect(hubCheck(after({ readout: "still_happening", reportsSince: 1 }))).toBe("Too little to call");
+    expect(hubCheck(after({ fixedCheckins: 2 }))).toBe("Too little to call");
     expect(hubCheck(after())).toBe("No Hub signal yet");
+  });
+
+  it("never turns thin evidence into a count: several check-ins from one source stay too little to call", () => {
+    const pack = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX]),
+      board: board([issue({ officialFixListed: true, afterFix: after({ fixedCheckins: 2 }) })]) });
+    const text = (id: string) => pack.facts.find((item) => item.id === id)?.text ?? "";
+    expect(text("C1")).toContain('Since that fix: 2 "fixed for me" check-ins. Since the fix, the Hub has too little evidence to call it either way.');
+    expect(text("F1")).toContain("Since the fix, the Hub has too little evidence to call it either way.");
+    expect(pack.facts.map((item) => item.text).join(" ")).not.toMatch(/one sighting|only one/i);
   });
 
   it("pairs each listed fix with its known issue, and both carry the same check", () => {
     const pack = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX, "Fixed horses stuck in fences"]),
       board: board([issue({ approvedReports: 2, officialFixListed: true, stillHappening: true, afterFix: after({ readout: "still_happening", stillCheckins: 3, stillNetworks: 2, reportsSince: 1 }) })]) });
     const fact = (id: string) => pack.facts.find((item) => item.id === id);
-    expect(fact("F1")).toMatchObject({ check: "Still reported", text: `Patch 2.03.02 lists this fix: "${MAP_FIX}" The Hub pairs it with the known issue "Crash when opening the map". Hub check: Still reported.` });
-    expect(fact("F2")).toMatchObject({ check: "No Hub signal yet", text: 'Patch 2.03.02 lists this fix: "Fixed horses stuck in fences". No known issue on the Hub is paired with it. Hub check: No Hub signal yet.' });
+    expect(fact("F1")).toMatchObject({ check: "Still reported", text: `Patch 2.03.02 lists this fix: "${MAP_FIX}" The Hub pairs it with the known issue "Crash when opening the map". Players still report it on the Hub after the fix.` });
+    expect(fact("F2")).toMatchObject({ check: "No Hub signal yet", text: 'Patch 2.03.02 lists this fix: "Fixed horses stuck in fences". No known issue on the Hub is paired with it. The Hub has no signal on it yet.' });
+    // A fix line carries no evidence label: the writer once explained that label to readers.
+    expect(fact("F1")).not.toHaveProperty("label");
     expect(fact("C1")).toMatchObject({ check: "Still reported", status: "Still happening" });
-    expect(fact("C1")?.text).toContain('The notes for patch 2.03.02 list a fix for it. Since that fix: 3 "still happening" check-ins, 1 exact-patch player report. Hub check: Still reported.');
+    expect(fact("C1")?.text).toContain('The notes for patch 2.03.02 list a fix for it. Since that fix: 3 "still happening" check-ins, 1 exact-patch player report. Players still report it on the Hub after the fix.');
+    expect(pack.facts.map((item) => item.text).join(" ")).not.toMatch(/Hub check/);
   });
 
   it("gives a fix line paired with several issues the most cautious check", () => {
@@ -198,7 +210,7 @@ describe("Hub checks on listed fixes", () => {
     const build = (readout: AfterFix["readout"], previous: FactPackMetrics | null) => buildFactPack({ now: PACK_NOW, history: history(), previous,
       patches: patches([MAP_FIX]), board: board([issue({ officialFixListed: true, afterFix: after({ readout, stillCheckins: 2, stillNetworks: 2 }) })]) });
     const first = build("unverified", null);
-    expect(first.metrics.hubChecks).toEqual({ [id]: "One sighting" });
+    expect(first.metrics.hubChecks).toEqual({ [id]: "Too little to call" });
     expect(first.deltas.newVerdictIssueIds).toEqual([]);
     const moved = build("still_happening", first.metrics);
     expect(moved.deltas).toEqual({ newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [id] });

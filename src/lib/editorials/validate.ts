@@ -62,7 +62,12 @@ const HARD_BANNED = new RegExp([
   // The Oct 19 rework: no play-tonight advice, no exaggerate parenthetical, no narrated empty board.
   "\\bplay(ing)? tonight\\b", "\\bshould (you|i|we) (still )?play\\b", "numbers don[’']t lie", "but they do exaggerate",
   "\\b(zero|0) check-ins?\\b", "\\bempty (issue )?board\\b",
+  // Pipeline words never reach readers, and a check's name is never a noun ("three No Hub signal yet").
+  "\\bhub checks?\\b", "\\bfact[- ]packs?\\b", "\\b(confirmed|reported|evidence|status) labels?\\b",
+  "\\b(\\d+|two|three|four|five|six|seven|eight|nine|ten) (no hub signal yet|still reported|too little to call|confirmed by players)\\b",
 ].join("|"), "i");
+/** A line this short, right after a cut sentence, usually leaned on it ("Which regions?" cut leaves "Also not listed."). */
+const MAX_ORPHAN_WORDS = 5;
 /** No outlook section: readers already play, so the column doesn't tell them whether to. */
 const BANNED_SUBHEAD = /^\s*(the\s+)?outlook\b/i;
 // Cursing is allowed (owner decision, 2026-10-18). Slurs, sexual terms and real-world politics never are.
@@ -118,7 +123,8 @@ export type ProcessedEdition =
 /**
  * Deterministic post-processing. Deletes sentences the checker found unsupported, that
  * quote a player, hit a banned word, guardrail or checklist rule, cite an id outside the
- * pack, or carry a number no cited fact contains, and drops an outlook section. Then skips when
+ * pack, or carry a number no cited fact contains, plus a short line left right after a cut
+ * sentence, and drops an outlook section. Then skips when
  * a person is named, the title or dek can't be cleaned, the title runs 70 characters or more,
  * neither "What the notes claim" nor "What we can corroborate" survives, fewer than 250 words
  * remain, the body is too long to store, or the facts box is missing or unsourced.
@@ -184,6 +190,13 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
   if (vocabulary >= 3) {
     for (const ref of kept()) if (ref.text.match(AI_VOCABULARY)) deleted.set(ref.id, ["ai_vocabulary"]);
   }
+
+  // A short line right after a cut sentence in the same paragraph goes too, and so on down the paragraph.
+  refs.forEach((ref, index) => {
+    const previous = refs[index - 1];
+    if (ref.kind !== "body" || deleted.has(ref.id) || previous?.kind !== "body" || !deleted.has(previous.id)) return;
+    if (previous.section === ref.section && previous.paragraph === ref.paragraph && wordCount(ref.text) <= MAX_ORPHAN_WORDS) deleted.set(ref.id, ["orphan"]);
+  });
 
   const title = output.title.trim();
   if (title.length > MAX_TITLE_CHARACTERS) return fail("check_failed");

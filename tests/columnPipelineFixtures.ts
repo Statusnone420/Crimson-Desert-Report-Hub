@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { FactPack } from "@/lib/editorials/factPack";
+import { FACT_PACK_VERSION, type FactPack } from "@/lib/editorials/factPack";
 import type { CheckerOutput, WriterOutput } from "@/lib/editorials/schemas";
 import { numberSentences } from "@/lib/editorials/validate";
 
@@ -8,7 +8,7 @@ export const GUIDES = () => ({ style: "# Column style guide (test copy)\n", slop
 
 export function pipelinePack(newsworthy = true): FactPack {
   return {
-    version: 2,
+    version: FACT_PACK_VERSION,
     builtAt: RUN_NOW.toISOString(),
     gaps: [],
     metrics: { patchVersions: ["2.03.02"], latestPatch: { version: "2.03.02", kind: "hotfix", publishedAt: "2026-10-24T09:00:00Z" }, playersAvg7d: 18000, reviewShare7d: 72, twitchAvg7d: 3000, patternIssueIds: [] },
