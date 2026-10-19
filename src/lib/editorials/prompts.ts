@@ -51,11 +51,12 @@ export const WRITER_INSTRUCTION = `Write this State of the Game edition from the
 - First person is for your reactions to the facts. Never invent things you did, saw or played.
 - Use these subheads word for word, in this order. Leave out any section with nothing real to say, but include "What the notes claim" or "What we can corroborate".
   - "What the notes claim": the patch version and its date, then the listed fixes in plain English. Call out vague wording such as "certain situations".
-  - "What we can corroborate": what the Hub can back up for each listed fix, said the way its fact says it, such as "The Hub has no signal on it yet." Never claim more than the fact's check. A fix whose fact has no check gets no corroboration line.
+  - "What we can corroborate": one short line per listed fix, each its own paragraph citing that fix's fact, in the form "Grimnir: nothing on the Hub yet." Give the fix's short name, then what its fact says the Hub has, never more than the fact's check. One thing per line: never say in the same sentence that the Hub has nothing and that no known issue is linked. A fix whose fact has no check gets no line.
   - "What players are still hitting": only known issues labeled Reported, or whose check is Still reported. Leave the section out when none qualify.
   - "The numbers": optional, one short beat of Steam or Twitch context.
 - Describe each known issue no more strongly than its fact's evidence and status allow. One report means a single source, which can send several check-ins, so never turn it into a count. An issue with forum links only has no label: attribute it by count ("4 public posts mention it") and never call it a pattern.
 - Write for readers, in plain words. Never write "Hub check", "fact pack" or "label", and never use a check's name as a noun ("three No Hub signal yet").
+- Name the patch version once per section. After that, say "the patch", "this fix" or the fix's short name, such as "the Grimnir fix".
 - The fact check can cut any sentence, so every sentence has to make sense without the one before it. No rhetorical questions, and no fragments that lean on the line before, like "Also not listed." or "Credit where it's due."
 - Never write about an empty issue board, zero check-ins or how many people use the Hub. Never tell readers whether to play, and write no outlook section.
 - Lead the title with the patch or the corroboration story, not a Steam or Twitch swing. The title is under 70 characters. The dek is one sentence.

@@ -96,7 +96,9 @@ describe("the writer and checker prompts", () => {
   it("asks the writer for the v3 sections, with no forecast, outlook or empty-board line", () => {
     for (const subhead of ["What the notes claim", "What we can corroborate", "What players are still hitting", "The numbers"]) expect(WRITER_INSTRUCTION).toContain(`- "${subhead}": `);
     expect(WRITER_INSTRUCTION).toContain('include "What the notes claim" or "What we can corroborate"');
-    expect(WRITER_INSTRUCTION).toContain("Never claim more than the fact's check. A fix whose fact has no check gets no corroboration line.");
+    expect(WRITER_INSTRUCTION).toContain(`one short line per listed fix, each its own paragraph citing that fix's fact, in the form "Grimnir: nothing on the Hub yet."`);
+    expect(WRITER_INSTRUCTION).toContain("never say in the same sentence that the Hub has nothing and that no known issue is linked. A fix whose fact has no check gets no line.");
+    expect(WRITER_INSTRUCTION).toContain(`Name the patch version once per section. After that, say "the patch", "this fix" or the fix's short name`);
     expect(WRITER_INSTRUCTION).toContain('Never write "Hub check", "fact pack" or "label", and never use a check\'s name as a noun ("three No Hub signal yet").');
     expect(WRITER_INSTRUCTION).toContain("every sentence has to make sense without the one before it. No rhetorical questions");
     expect(WRITER_INSTRUCTION).not.toMatch(/Confirmed label|one sighting/i);
