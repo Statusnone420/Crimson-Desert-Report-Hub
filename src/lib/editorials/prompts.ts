@@ -19,7 +19,7 @@ export const MAX_APPROVED_EXAMPLES = 2;
 export const MAX_NOTES = 10;
 export const MAX_OPENERS = 3;
 
-/** Block [A]: the Hub Desk style guide, then the pre-publish checklist. The checker reuses it byte for byte. */
+/** Block [A]: the column's style guide, then the pre-publish checklist. The checker reuses it byte for byte. */
 export function styleBlock(guides: ColumnGuides): string {
   return `${guides.style.trimEnd()}\n\n${guides.slop.trimEnd()}\n`;
 }
