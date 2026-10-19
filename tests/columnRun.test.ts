@@ -159,6 +159,15 @@ describe("one wake of the column", () => {
     expect(provider.impl).not.toHaveBeenCalled();
   });
 
+  it("still runs an older slot inside its window after a newer due slot is taken", async () => {
+    const lateNight = { id: "late-night", label: "Late night", enabled: true, startDate: "2026-10-26", endDate: "2026-10-26", cadence: "daily", hourUtc: 23, model: "claude-opus-5-5", holdHours: 8 };
+    settings({ paused: true, hourUtc: 0, days: ["tue"], bursts: [lateNight] });
+    db.tables.editorials.push({ id: "taken", slot_key: "2026-W44:tue", status: "skipped", skip_reason: "paused", is_test: false, created_at: RUN_NOW.toISOString() });
+    const now = new Date("2026-10-27T01:05:00Z");
+    expect(await run(providerFetch().impl, { now })).toEqual({ status: "skipped", slot: "burst:late-night:2026-10-26", reason: "paused" });
+    expect(await run(providerFetch().impl, { now })).toEqual({ status: "idle", reason: "slot_taken" });
+  });
+
   it("runs a slot once when two wakes race", async () => {
     const provider = providerFetch();
     const results = await Promise.all([run(provider.impl), run(provider.impl)]);

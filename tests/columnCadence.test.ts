@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { activeBurst, dueSlot, isoWeek, nextSlot } from "@/lib/editorials/cadence";
+import { activeBurst, dueSlots, isoWeek, nextSlot } from "@/lib/editorials/cadence";
 import { meetsThreshold, relevanceScore } from "@/lib/editorials/relevance";
 import { DEFAULT_COLUMN_SETTINGS, EXPANSION_LAUNCH_BURST, normalizeColumnSettings, type ColumnSettings } from "@/lib/editorials/settings";
 import type { FactPackDeltas } from "@/lib/editorials/factPack";
 
 const at = (iso: string) => new Date(iso);
 const settings = (patch: Partial<ColumnSettings>): ColumnSettings => normalizeColumnSettings({ ...DEFAULT_COLUMN_SETTINGS, ...patch });
+/** The oldest due slot, for the cases where at most one is due. */
+const dueSlot = (value: ColumnSettings, now: Date) => dueSlots(value, now)[0] ?? null;
 
 describe("slot keys", () => {
   it("uses ISO weeks, across a year boundary too", () => {
@@ -45,6 +47,12 @@ describe("slot keys", () => {
     const late = settings({ hourUtc: 22 });
     expect(dueSlot(late, at("2026-10-27T01:00:00Z"))?.key).toBe("2026-W44:mon");
     expect(dueSlot(late, at("2026-10-27T04:00:00Z"))).toBeNull();
+  });
+
+  it("keeps both slots due, oldest first, when a late slot runs into the next day's early one", () => {
+    const busy = settings({ hourUtc: 0, days: ["tue"], bursts: [{ ...EXPANSION_LAUNCH_BURST, id: "late-night", enabled: true, startDate: "2026-10-26", endDate: "2026-10-26", hourUtc: 23 }] });
+    expect(dueSlots(busy, at("2026-10-27T00:30:00Z")).map((slot) => slot.key)).toEqual(["burst:late-night:2026-10-26", "2026-W44:tue"]);
+    expect(dueSlots(busy, at("2026-10-27T05:30:00Z")).map((slot) => slot.key)).toEqual(["2026-W44:tue"]);
   });
 
   it("does nothing with the seeded expansion burst while it stays disabled", () => {

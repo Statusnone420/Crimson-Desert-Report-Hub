@@ -19,7 +19,7 @@ export const MAX_APPROVED_EXAMPLES = 2;
 export const MAX_NOTES = 10;
 export const MAX_OPENERS = 3;
 
-/** Block [A]: the Pywel Desk style guide, then the pre-publish checklist. The checker reuses it byte for byte. */
+/** Block [A]: the Hub Desk style guide, then the pre-publish checklist. The checker reuses it byte for byte. */
 export function styleBlock(guides: ColumnGuides): string {
   return `${guides.style.trimEnd()}\n\n${guides.slop.trimEnd()}\n`;
 }
@@ -104,14 +104,14 @@ export function writerRequest(input: WriterPromptParts & { model: WriterModel; e
   };
 }
 
-export const CHECKER_INSTRUCTION = `You are the fact checker for The Pywel Desk. The user message holds the fact pack and the edition split into numbered units: the title (t), the dek (d), section subheads (h1, h2, ...), body sentences (b1, b2, ...) and facts-box items (x1, x2, ...). Each unit lists the ids its paragraph or item cites.
+export const CHECKER_INSTRUCTION = `You are the fact checker for the State of the Game column. The user message holds the fact pack and the edition split into numbered units: the title (t), the dek (d), section subheads (h1, h2, ...), body sentences (b1, b2, ...) and facts-box items (x1, x2, ...). Each unit lists the ids its paragraph or item cites.
 
 Return every unit id exactly once, with:
 - supported: true when the unit makes no factual claim, or every claim in it is backed by facts in the pack. Exaggerating a fact's tone is fine; changing its substance is not.
 - citedIds: the ids of the facts that back it; empty when it makes no factual claim.
-- namesPerson: true when it names or identifies any real person, player, poster, creator, streamer, journalist, reviewer or staff member, or any username or handle.
+- namesPerson: true when it names or identifies any real person, player, poster, creator, streamer, journalist, reviewer or staff member, or any username or handle. The writer's own "I", "me" and "we" never count.
 - quotesPlayer: true when it quotes a player directly.
-- bannedWords: words or phrases from the style guide's banned lists or the checklist that appear in it.
+- bannedWords: words or phrases from the style guide's banned lists or the checklist that appear in it, and any slur, sexual term or reference to real-world politics. Cursing on its own is allowed; don't list it.
 - slopRules: the numbers of the pre-publish checklist rules it breaks.
 
 Judge every unit against the style guide and the checklist above.`;

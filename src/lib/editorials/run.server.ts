@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { columnMonthlyCapUsd, columnRequestCapUsd } from "@/lib/editorials/budget";
-import { dueSlot, LAST_WAKE_AFTER_MS, type ColumnSlot } from "@/lib/editorials/cadence";
+import { dueSlots, LAST_WAKE_AFTER_MS, type ColumnSlot } from "@/lib/editorials/cadence";
 import { providerKey, resolveCheckerModel, resolveProvider, resolveWriterModel, writerEffort, CHECKER_MAX_TOKENS, WRITER_MAX_TOKENS } from "@/lib/editorials/config";
 import { sectionsToMarkdown } from "@/lib/editorials/content";
 import { readFactPack } from "@/lib/editorials/factPack.server";
@@ -46,6 +46,12 @@ function skipped(slot: ColumnSlot, reason: SkipReason): ColumnRunOutcome {
   return { status: "skipped", slot: slot.key, reason };
 }
 
+/** The oldest due slot with no row yet, so a newer slot can't hide an older one still in its window. */
+async function openSlot(client: SupabaseClient, slots: readonly ColumnSlot[]): Promise<ColumnSlot | null> {
+  for (const slot of slots) if (!(await slotTaken(client, slot.key))) return slot;
+  return null;
+}
+
 /** Clears the one-shot writer override only when this edition used it and nobody changed it since. */
 async function clearUsedOverride(client: SupabaseClient, settings: ColumnSettings, model: string): Promise<void> {
   if (settings.nextEditionModel !== model) return;
@@ -67,9 +73,10 @@ export async function runColumn(input: ColumnRunInput): Promise<ColumnRunOutcome
   const clock = input.clock ?? Date.now;
   const { now } = input;
   const { settings } = await readColumnSettings(client);
-  const slot = dueSlot(settings, now);
-  if (!slot) return { status: "idle", reason: "no_slot" };
-  if (await slotTaken(client, slot.key)) return { status: "idle", reason: "slot_taken" };
+  const slots = dueSlots(settings, now);
+  if (!slots.length) return { status: "idle", reason: "no_slot" };
+  const slot = await openSlot(client, slots);
+  if (!slot) return { status: "idle", reason: "slot_taken" };
 
   const skip = async (reason: SkipReason, fields: Parameters<typeof recordSkip>[3] = {}): Promise<ColumnRunOutcome> => {
     const recorded = await recordSkip(client, slot.key, reason, fields);

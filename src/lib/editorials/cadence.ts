@@ -61,13 +61,16 @@ export function slotForDate(settings: ColumnSettings, date: string): ColumnSlot 
   };
 }
 
-/** The slot due now: today's or yesterday's, when now falls inside its six-hour window. */
-export function dueSlot(settings: ColumnSettings, now: Date): ColumnSlot | null {
-  const candidates = [utcDate(now.getTime() - DAY_MS), utcDate(now.getTime())]
+/**
+ * The slots due now, oldest first: yesterday's and today's, when now falls inside their
+ * six-hour windows. Both can be due at once when adjacent days use different hours,
+ * such as a 23:00 burst followed by a 00:00 slot.
+ */
+export function dueSlots(settings: ColumnSettings, now: Date): ColumnSlot[] {
+  return [utcDate(now.getTime() - DAY_MS), utcDate(now.getTime())]
     .map((date) => slotForDate(settings, date))
     .filter((slot): slot is ColumnSlot => slot !== null)
     .filter((slot) => now.getTime() >= slot.at.getTime() && now.getTime() < slot.at.getTime() + DUE_WINDOW_MS);
-  return candidates.at(-1) ?? null;
 }
 
 /** The next slot strictly after now, for the Column card. Looks two weeks ahead. */

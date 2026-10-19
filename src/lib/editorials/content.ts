@@ -2,8 +2,8 @@ import { z } from "zod";
 import { SITE_URL } from "@/lib/site";
 
 export const COLUMN_NAME = "State of the Game";
-export const COLUMN_AUTHOR = "The Pywel Desk";
-export const COLUMN_EDITOR = "Statusnone";
+export const COLUMN_SECTION = "The Hub Desk";
+export const COLUMN_AUTHOR = "Statusnone";
 export const EDITORIAL_PATH_PREFIX = "/editorials";
 
 export type EditionSource = { id: string; label: string; url: string };

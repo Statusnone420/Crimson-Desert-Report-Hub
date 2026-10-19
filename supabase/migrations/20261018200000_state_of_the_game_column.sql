@@ -21,7 +21,7 @@ create table public.editorials (
   skip_reason text check (skip_reason in (
     'paused', 'below_threshold', 'min_gap', 'budget', 'prompt_too_large', 'provider_unavailable',
     'model_not_allowed', 'writer_failed', 'check_failed', 'person_named', 'too_short',
-    'missing_required_section', 'slop_check_failed', 'no_time'
+    'missing_required_section', 'slop_check_failed', 'no_time', 'too_long'
   )),
   hold_hours integer check (hold_hours between 0 and 336),
   created_at timestamptz not null default now(),
@@ -29,7 +29,7 @@ create table public.editorials (
   published_at timestamptz,
   vetoed_at timestamptz,
   updated_at timestamptz not null default now(),
-  author text not null default 'The Pywel Desk' check (author = 'The Pywel Desk'),
+  author text not null default 'Statusnone' check (author = 'Statusnone'),
   constraint editorials_skip_reason check ((status = 'skipped') = (skip_reason is not null)),
   constraint editorials_written check (status = 'skipped' or (slug is not null and title is not null and body_md is not null)),
   constraint editorials_vetoed check ((status = 'vetoed') = (vetoed_at is not null)),

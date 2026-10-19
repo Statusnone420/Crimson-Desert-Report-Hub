@@ -28,9 +28,14 @@ export function siteName(url: string): string | null {
 
 type IssuesData = Awaited<ReturnType<typeof getIssuesData>>;
 
-/** The issue board's public aggregates: counts, labels and titles. No report text, no URLs, no hashes. */
+/**
+ * The issue board's public aggregates: counts, labels and titles. No report text, no URLs,
+ * no hashes. A failed check-in read makes the board unavailable, like a failed board read:
+ * zero check-ins would be a made-up fact, and the labels and relevance rest on them.
+ */
 export function issueBoard(data: IssuesData): IssueBoard {
   if (data.boardReadFailed || data.currentPatch.source === "fallback") return { available: false };
+  if (data.checkinsAvailable === false || data.clusters.some((cluster) => cluster.checkinsAvailable === false)) return { available: false };
   const issues: IssueAggregate[] = data.clusters.filter(needsFullIssueCard).map((cluster) => {
     const postsBySite: Record<string, number> = {};
     const posts = data.signalsByCluster[cluster.id] ?? [];
@@ -42,8 +47,8 @@ export function issueBoard(data: IssuesData): IssueBoard {
       id: cluster.id,
       title: cluster.title,
       approvedReports: cluster.directReportCount,
-      checkins: cluster.checkinsAvailable === false ? 0 : cluster.confirmations.affectedCount,
-      checkinNetworks: cluster.checkinsAvailable === false ? 0 : cluster.confirmations.affectedNetworks,
+      checkins: cluster.confirmations.affectedCount,
+      checkinNetworks: cluster.confirmations.affectedNetworks,
       publicPosts: posts.length,
       postsBySite,
       officialFixListed: !data.officialClaimsUnavailable && (data.officialClaimsByCluster[cluster.id]?.length ?? 0) > 0,

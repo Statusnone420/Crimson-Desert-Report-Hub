@@ -93,4 +93,10 @@ describe("the Column card", () => {
     expect(html).toContain("Thumbs down</strong> · Oct 26, 12:00 UTC");
     expect(html).toContain("0 of 500 characters");
   });
+
+  it("keeps an off-list model or provider selected as Keep, so saving the schedule never unlocks it", () => {
+    const html = render(ready({ settings: { ...DEFAULT_COLUMN_SETTINGS, defaultWriterModel: "gpt-5", provider: "elsewhere" } }));
+    expect(html).toContain('<option value="keep" selected="">Keep gpt-5 (not allowed: slots skip)</option>');
+    expect(html).toContain('<option value="keep" selected="">Keep &quot;elsewhere&quot; (not recognized: slots skip)</option>');
+  });
 });

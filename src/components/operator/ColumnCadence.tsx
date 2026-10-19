@@ -6,6 +6,7 @@ import { resolveWriterModel } from "@/lib/editorials/config";
 import { formatUtcTimestamp } from "@/lib/editorials/content";
 import { COLUMN_PROVIDERS, WRITER_MODEL_LABELS, WRITER_MODELS, isWriterModel, type ColumnProvider } from "@/lib/editorials/models";
 import { CADENCE_MODES, RELEVANCE_LEVELS, WEEKDAYS, type ColumnBurst, type ColumnSettings } from "@/lib/editorials/settings";
+import { KEEP_STORED } from "@/lib/editorials/settingsForm";
 
 const MODE_LABELS = { weekly: "Weekly", "2x": "Twice a week", "3x": "Three times a week" } as const;
 const RELEVANCE_LABELS = { always: "Always write", normal: "Normal (score 2 or more)", strict: "Strict (score 4 or more)" } as const;
@@ -22,8 +23,11 @@ function Button({ disabled, children, danger = false }: { disabled: boolean; chi
   return disabled ? <button type="submit" className={className} disabled>{children}</button> : <SubmitButton className={className} pendingText="Saving…">{children}</SubmitButton>;
 }
 
+/** A stored model off the allowlist stays selected as "Keep", so saving never swaps it for one that runs. */
 function ModelSelect({ name, value, emptyLabel, id }: { name: string; value: string | null; emptyLabel?: string; id: string }) {
-  return <select id={id} name={name} defaultValue={value ?? ""}>
+  const unknown = value && !isWriterModel(value) ? value : null;
+  return <select id={id} name={name} defaultValue={unknown ? KEEP_STORED : value ?? ""}>
+    {unknown ? <option value={KEEP_STORED}>{`Keep ${unknown} (not allowed: slots skip)`}</option> : null}
     {emptyLabel ? <option value="">{emptyLabel}</option> : null}
     {WRITER_MODELS.map((model) => <option key={model} value={model}>{WRITER_MODEL_LABELS[model]}</option>)}
   </select>;
@@ -91,11 +95,14 @@ export function ColumnCadence({ settings, keys, now, writesDisabled }: {
             <select id="column-relevance" name="relevance" defaultValue={settings.relevance}>{RELEVANCE_LEVELS.map((level) => <option key={level} value={level}>{RELEVANCE_LABELS[level]}</option>)}</select>
           </div>
           <div className="workspace-field"><label htmlFor="column-gap">Minimum gap between editions (hours)</label><input id="column-gap" name="minGapHours" type="number" min={0} max={168} required defaultValue={settings.minGapHours} /></div>
-          <div className="workspace-field"><label htmlFor="column-default-writer">Default writer</label><ModelSelect id="column-default-writer" name="defaultWriterModel" value={isWriterModel(settings.defaultWriterModel) ? settings.defaultWriterModel : null} emptyLabel="Not set (COLUMN_WRITER_MODEL, else Opus 5.5)" /></div>
-          <div className="workspace-field"><label htmlFor="column-next-writer">Next edition only</label><ModelSelect id="column-next-writer" name="nextEditionModel" value={isWriterModel(settings.nextEditionModel) ? settings.nextEditionModel : null} emptyLabel="No override" /></div>
+          <div className="workspace-field"><label htmlFor="column-default-writer">Default writer</label><ModelSelect id="column-default-writer" name="defaultWriterModel" value={settings.defaultWriterModel} emptyLabel="Not set (COLUMN_WRITER_MODEL, else Opus 5.5)" /></div>
+          <div className="workspace-field"><label htmlFor="column-next-writer">Next edition only</label><ModelSelect id="column-next-writer" name="nextEditionModel" value={settings.nextEditionModel} emptyLabel="No override" /></div>
           <div className="workspace-field"><label htmlFor="column-cap">Monthly cap (USD, at most 50)</label><input id="column-cap" name="monthlyCapUsd" type="number" min={0} max={50} step="0.01" placeholder="15 (default)" defaultValue={settings.monthlyCapUsd ?? ""} /></div>
           <div className="workspace-field"><label htmlFor="column-provider">Provider</label>
-            <select id="column-provider" name="provider" defaultValue={provider ?? "anthropic"}>{COLUMN_PROVIDERS.map((value) => <option key={value} value={value}>{PROVIDER_LABELS[value]}</option>)}</select>
+            <select id="column-provider" name="provider" defaultValue={provider ?? KEEP_STORED}>
+              {provider ? null : <option value={KEEP_STORED}>{`Keep "${settings.provider}" (not recognized: slots skip)`}</option>}
+              {COLUMN_PROVIDERS.map((value) => <option key={value} value={value}>{PROVIDER_LABELS[value]}</option>)}
+            </select>
           </div>
         </div>
         <p className="workspace-note">Current default writer: {modelName(settings.defaultWriterModel)}. Next-edition override: {modelName(settings.nextEditionModel)}; it clears after the next real edition.</p>

@@ -27,6 +27,7 @@ const SKIP_REASON_LABELS: Record<string, string> = {
   missing_required_section: "Missing forecast and patch desk",
   slop_check_failed: "Failed the style check",
   no_time: "No time left after the scan",
+  too_long: "Too long for the page",
 };
 
 function modelLabel(model: string | null): string {

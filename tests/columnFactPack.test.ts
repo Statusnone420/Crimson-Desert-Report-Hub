@@ -84,6 +84,16 @@ describe("the fact pack", () => {
     expect(pack.facts.some((fact) => fact.text.startsWith("Steam players online averaged"))).toBe(false);
   });
 
+  it("dates the all-time review score by the day it was recorded", () => {
+    const sparse = history();
+    sparse.days = sparse.days.map((day, index) => ({ ...day, lifetimePositive: index === sparse.days.length - 10 ? 79 : null }));
+    const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null, history: sparse });
+    expect(pack.facts.find((fact) => fact.text.startsWith("Crimson Desert's all-time"))).toMatchObject({
+      text: "Crimson Desert's all-time Steam review score was 79% positive.",
+      period: "Oct 17 (UTC)",
+    });
+  });
+
   it("records unavailable data as gaps instead of inventing facts", () => {
     const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null,
       history: { ...history(), lanes: { players: "unavailable", twitch: "unavailable", reviews: "unavailable" } } });
@@ -111,6 +121,11 @@ describe("reading the issue board", () => {
 
   it("is unavailable when the board read failed, never an empty board", () => {
     expect(issueBoard(data([cluster({})], { boardReadFailed: true }))).toEqual({ available: false });
+  });
+
+  it("is unavailable when check-ins could not be read, never zero check-ins", () => {
+    expect(issueBoard(data([cluster({ directReportCount: 1 })], { checkinsAvailable: false }))).toEqual({ available: false });
+    expect(issueBoard(data([cluster({ directReportCount: 1, checkinsAvailable: false })]))).toEqual({ available: false });
   });
 
   it("counts an official fix only when the claim context was read", () => {

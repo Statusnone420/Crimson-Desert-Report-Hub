@@ -4,7 +4,7 @@ import type { CheckerOutput, WriterOutput } from "@/lib/editorials/schemas";
 import { numberSentences } from "@/lib/editorials/validate";
 
 export const RUN_NOW = new Date("2026-10-26T14:05:00.000Z");
-export const GUIDES = () => ({ style: "# The Pywel Desk style guide (test copy)\n", slop: "## Pre-publish checklist (test copy)\n" });
+export const GUIDES = () => ({ style: "# The Hub Desk style guide (test copy)\n", slop: "## Pre-publish checklist (test copy)\n" });
 
 export function pipelinePack(newsworthy = true): FactPack {
   return {
@@ -21,11 +21,11 @@ export function pipelinePack(newsworthy = true): FactPack {
 }
 
 const FILLER = [
-  "The inventory screen held its ground all week.", "Horses kept their opinions to themselves.", "The menus opened when asked, which the Desk appreciated.",
+  "The inventory screen held its ground all week.", "Horses kept their opinions to themselves.", "The menus opened when asked, which I honestly appreciated.",
   "Quest markers pointed in roughly the right direction.", "The weather over the northern hills stayed dramatic, as advertised.", "Nobody reported a fence winning a fight this time.",
-  "The Desk checked the patch notes twice and found them tidy.", "Combat felt the same, which is a kind of news.", "The map behaved itself on most evenings.",
-  "Fast travel took players where they asked to go.", "The Desk has notes, but they are short ones.", "Camp chores went on without incident.",
-  "Rivers flowed downhill, which the Desk confirms is still the rule.", "Bandits remained easy to find and hard to like.",
+  "I checked the patch notes twice and found them pretty tidy.", "Combat felt the same, which is a kind of news.", "The map behaved itself on most evenings.",
+  "Fast travel took players where they asked to go.", "I have notes, but they are pretty short ones.", "Camp chores went on without incident.",
+  "Rivers flowed downhill, which I can confirm is still the rule.", "Bandits remained easy to find and hard to like.",
   "The cooking pot kept its secrets for another week.", "Night fell on schedule over every camp in the region.",
 ];
 

@@ -17,6 +17,6 @@ function read(name: string): string {
 }
 
 export function readColumnGuides(): ColumnGuides {
-  cached ??= { style: read("pywelDeskStyle.md"), slop: read("avoidAiSlop.md") };
+  cached ??= { style: read("hubDeskStyle.md"), slop: read("avoidAiSlop.md") };
   return cached;
 }

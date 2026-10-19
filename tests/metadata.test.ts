@@ -4,7 +4,10 @@ vi.mock("@/lib/patchPublications.server", async () => {
   return { getPatchPublications: vi.fn(async () => ({ articles: [...editorialArticles], editions: [], unavailable: false })) };
 });
 // Column editions are covered in editorialPublicSurfaces.test.ts; none exist here.
-vi.mock("@/lib/editorials/store.server", () => ({ getPublicEditions: vi.fn(async () => ({ editions: [], unavailable: false })) }));
+vi.mock("@/lib/editorials/store.server", () => ({
+  getPublicEditions: vi.fn(async () => ({ editions: [], unavailable: false })),
+  getSitemapEditions: vi.fn(async () => ({ editions: [], unavailable: false })),
+}));
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";

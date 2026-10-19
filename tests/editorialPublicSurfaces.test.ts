@@ -8,10 +8,11 @@ import type { PatchEdition } from "@/lib/patchPublications";
 const mocks = vi.hoisted(() => ({
   catalog: vi.fn<() => Promise<{ editions: PatchEdition[]; articles: EditorialArticle[]; unavailable: boolean }>>(),
   editions: vi.fn<() => Promise<{ editions: PublicEdition[]; unavailable: boolean }>>(),
+  sitemap: vi.fn<() => Promise<{ editions: Pick<PublicEdition, "slug" | "publishAt">[]; unavailable: boolean }>>(),
   bySlug: vi.fn<(slug: string) => Promise<PublicEdition | null>>(),
 }));
 vi.mock("@/lib/patchPublications.server", () => ({ getPatchPublications: mocks.catalog }));
-vi.mock("@/lib/editorials/store.server", () => ({ getPublicEditions: mocks.editions, getPublicEditionBySlug: mocks.bySlug }));
+vi.mock("@/lib/editorials/store.server", () => ({ getPublicEditions: mocks.editions, getSitemapEditions: mocks.sitemap, getPublicEditionBySlug: mocks.bySlug }));
 vi.mock("@/components/dispatch/Chrome", () => ({ PublicShell: ({ children }: { children: ReactNode }) => createElement("div", null, children) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: ComponentProps<"a">) => createElement("a", { ...props, href }, children) }));
 
@@ -36,14 +37,16 @@ function expectNoPrivateProcessWords(text: string) {
 beforeEach(() => {
   mocks.catalog.mockResolvedValue({ editions: [patch], articles: patchPublications([patch]), unavailable: false });
   mocks.editions.mockResolvedValue({ editions: [edition], unavailable: false });
+  mocks.sitemap.mockResolvedValue({ editions: [{ slug: edition.slug, publishAt: edition.publishAt }], unavailable: false });
   mocks.bySlug.mockImplementation(async (slug) => (slug === edition.slug ? edition : null));
 });
 
 describe("the edition page", () => {
-  it("shows the byline, the editor, the sections and the facts box last, with sources", async () => {
+  it("shows the section, the byline, the sections and the facts box last, with sources", async () => {
     const html = renderToStaticMarkup(await EditionPage(props));
-    expect(html).toContain("By The Pywel Desk");
-    expect(html).toContain("Edited by Statusnone");
+    expect(html).toContain("The Hub Desk · State of the Game");
+    expect(html).toContain("By Statusnone");
+    expect(html).not.toContain("Edited by");
     expect(html).toContain("Oct 26, 14:00 UTC");
     expect(html).toContain("The forecast");
     expect(html.indexOf("What&#x27;s actually true")).toBeGreaterThan(html.indexOf("The patch desk"));
@@ -52,10 +55,10 @@ describe("the edition page", () => {
     expect(html).toContain("_boardNo=140");
   });
 
-  it("publishes NewsArticle JSON-LD by the house byline, edited by Statusnone", async () => {
+  it("publishes NewsArticle JSON-LD by Statusnone, a plain Person with no editor", async () => {
     const jsonLd = editionJsonLd(edition);
-    expect(jsonLd.author).toEqual({ "@type": "Organization", name: "The Pywel Desk" });
-    expect(jsonLd.editor).toEqual({ "@type": "Person", name: "Statusnone" });
+    expect(jsonLd.author).toEqual({ "@type": "Person", name: "Statusnone" });
+    expect(jsonLd).not.toHaveProperty("editor");
     expect(jsonLd.citation).toContain("https://crimsonreporthub.com/observatory#updates");
     const html = renderToStaticMarkup(await EditionPage(props));
     expect(html).toContain('"@type":"NewsArticle"');
@@ -75,7 +78,7 @@ describe("the edition page", () => {
 });
 
 describe("feeds and sitemap with editions", () => {
-  it("merges visible editions with patch rundowns, newest first, bylined The Pywel Desk", async () => {
+  it("merges visible editions with patch rundowns, newest first, signed Statusnone under The Hub Desk", async () => {
     const atomXml = await (await atom()).text();
     const rssXml = await (await rss()).text();
     for (const xml of [atomXml, rssXml]) {
@@ -84,8 +87,10 @@ describe("feeds and sitemap with editions", () => {
       expect(xml.indexOf(`/editorials/${edition.slug}`)).toBeLessThan(xml.indexOf("/articles/patch-2-03-01"));
       expectNoPrivateProcessWords(xml);
     }
-    expect(atomXml).toContain("<name>The Pywel Desk</name>");
-    expect(rssXml).toContain("<dc:creator>The Pywel Desk</dc:creator>");
+    expect(atomXml).toContain("<name>Statusnone</name>");
+    expect(atomXml).toContain('<category term="The Hub Desk"/>');
+    expect(rssXml).toContain("<dc:creator>Statusnone</dc:creator>");
+    expect(rssXml).toContain("<category>The Hub Desk</category>");
     expect(rssXml).not.toContain("<author>");
   });
 
@@ -150,9 +155,16 @@ describe("feeds and sitemap with editions", () => {
     expectNoPrivateProcessWords(JSON.stringify(entries));
   });
 
+  it("lists every edition the sitemap read returns, past the feeds' limit", async () => {
+    const many = Array.from({ length: 60 }, (_, index) => ({ slug: `edition-${index}`, publishAt: new Date(Date.UTC(2026, 9, 1, index)).toISOString() }));
+    mocks.sitemap.mockResolvedValue({ editions: many, unavailable: false });
+    const entries = await sitemap();
+    expect(entries.filter((entry) => entry.url.includes("/editorials/"))).toHaveLength(60);
+  });
+
   it("keeps the sitemap working when editions fail, and logs the gap", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    mocks.editions.mockResolvedValue({ editions: [], unavailable: true });
+    mocks.sitemap.mockResolvedValue({ editions: [], unavailable: true });
     const entries = await sitemap();
     expect(entries).toContainEqual(expect.objectContaining({ url: "https://crimsonreporthub.com/articles/patch-2-03-01" }));
     expect(entries.some((entry) => entry.url.includes("/editorials/"))).toBe(false);

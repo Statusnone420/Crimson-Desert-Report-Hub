@@ -19,6 +19,9 @@ import { isMissingSupabaseRelation, type SupabaseErrorLike } from "@/lib/supabas
 
 export const COLUMN_TABLES = ["editorials", "editorial_ai_spend", "style_notes", "voice_examples"] as const;
 const PUBLIC_LIST_LIMIT = 50;
+const SITEMAP_PAGE_SIZE = 1000;
+// The sitemap protocol's limit for one file.
+const SITEMAP_MAX_EDITIONS = 50_000;
 const SLUG_SHAPE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /**
@@ -52,6 +55,30 @@ export async function readVisibleEditions(client: SupabaseClient, now: Date, lim
   return publicEditions((data ?? []) as unknown as PublicEditorialRow[], now);
 }
 
+export type SitemapEdition = Pick<PublicEdition, "slug" | "publishAt">;
+
+/**
+ * Every visible edition for the sitemap, newest first, read a page at a time so older
+ * editions stay listed after the feeds' bounded read stops reaching them. It keeps
+ * reading until a page comes back empty, so a server-side row cap can't cut it short.
+ */
+export async function readSitemapEditions(client: SupabaseClient, now: Date): Promise<SitemapEdition[]> {
+  const editions = new Map<string, SitemapEdition>();
+  for (let from = 0; from < SITEMAP_MAX_EDITIONS;) {
+    const { data, error } = await whereEditorialVisible(client.from("editorials").select(PUBLIC_EDITORIAL_COLUMNS), now)
+      .order("publish_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + SITEMAP_PAGE_SIZE - 1);
+    if (isColumnTableMissing(error)) return [];
+    if (error) throw new Error("Editorials are unavailable.");
+    const rows = (data ?? []) as unknown as PublicEditorialRow[];
+    if (!rows.length) break;
+    for (const edition of publicEditions(rows, now)) editions.set(edition.slug, { slug: edition.slug, publishAt: edition.publishAt });
+    from += rows.length;
+  }
+  return [...editions.values()].slice(0, SITEMAP_MAX_EDITIONS);
+}
+
 export async function readVisibleEditionBySlug(client: SupabaseClient, slug: string, now: Date): Promise<PublicEdition | null> {
   if (!SLUG_SHAPE.test(slug) || slug.length > 120) return null;
   const { data, error } = await whereEditorialVisible(client.from("editorials").select(PUBLIC_EDITORIAL_COLUMNS).eq("slug", slug), now).limit(1);
@@ -77,13 +104,29 @@ const getCachedEditionBySlug = unstable_cache(
   { revalidate: 300, tags: [EDITORIALS_TAG] },
 );
 
+const getCachedSitemapEditions = unstable_cache(
+  async () => readSitemapEditions(serviceClient(), new Date()),
+  ["sitemap-editorials-v1"],
+  { revalidate: 300, tags: [EDITORIALS_TAG] },
+);
+
 /**
- * Feeds and the sitemap: visible editions, or `unavailable` when the read failed.
+ * Feeds: the newest visible editions, or `unavailable` when the read failed.
  * Failures are not cached, and an unavailable read never looks like an empty column.
  */
 export const getPublicEditions = cache(async (): Promise<{ editions: PublicEdition[]; unavailable: boolean }> => {
   try {
     return { editions: await getCachedVisibleEditions(), unavailable: false };
+  } catch {
+    console.warn(JSON.stringify({ event: "editorials_read_unavailable" }));
+    return { editions: [], unavailable: true };
+  }
+});
+
+/** The sitemap: every visible edition's address and date, or `unavailable` when the read failed. */
+export const getSitemapEditions = cache(async (): Promise<{ editions: SitemapEdition[]; unavailable: boolean }> => {
+  try {
+    return { editions: await getCachedSitemapEditions(), unavailable: false };
   } catch {
     console.warn(JSON.stringify({ event: "editorials_read_unavailable" }));
     return { editions: [], unavailable: true };
