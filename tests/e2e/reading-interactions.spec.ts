@@ -3,9 +3,7 @@ import { expect, test } from "@playwright/test";
 import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 test("section navigation follows reading position and preserves native hashes and history", async ({ page }) => {
-  const errors: string[] = [];
-  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-  page.on("pageerror", (error) => errors.push(error.message));
+  const problems = collectConsoleProblems(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/observatory");
   await waitForHydration(page);
@@ -28,14 +26,12 @@ test("section navigation follows reading position and preserves native hashes an
   await expect(nav.getByRole("link", { name: "The review record", exact: true })).toHaveAttribute("aria-current", "location");
   // Reading does not create extra history entries or replace a shared deep link.
   await expect(page).toHaveURL(/#platform-activity$/);
-  expect(errors).toEqual([]);
+  expect(problems).toEqual([]);
 });
 
 for (const article of ["patch-2-03-00", "patch-2-02-00", "charting-the-unknown"]) {
   test(`${article} keeps mobile and desktop contents complete and sources reachable`, async ({ page }, testInfo) => {
-    const errors: string[] = [];
-    page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-    page.on("pageerror", (error) => errors.push(error.message));
+    const problems = collectConsoleProblems(page);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(`/articles/${article}`);
     await waitForHydration(page);
@@ -60,7 +56,7 @@ for (const article of ["patch-2-03-00", "patch-2-02-00", "charting-the-unknown"]
     expect(await source.evaluate((link) => getComputedStyle(link).outlineStyle)).toBe("solid");
     await expect(page.locator(".article-bottom").getByRole("link", { name: "Back to top", exact: true })).toHaveAttribute("href", /^#(article-top|main-top)$/);
     if (article === "charting-the-unknown") await expect(page.locator(".reading-progress")).toBeHidden();
-    expect(errors).toEqual([]);
+    expect(problems).toEqual([]);
   });
 }
 
