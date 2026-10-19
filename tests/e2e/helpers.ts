@@ -1,10 +1,20 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 export function collectConsoleProblems(page: Page, expectedNotFoundUrl?: string): string[] {
   const problems: string[] = [];
+  const spec = test.info().titlePath.join(" › ");
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warning") {
       if (message.text().includes("/_next/webpack-hmr") && message.text().includes("WebSocket connection")) {
+        return;
+      }
+      // Chromium reports the Windows socket error WSAENOBUFS as this code. The
+      // Windows CI runner's OS raises it when a page load opens many local
+      // connections at once; the site never causes it. Print each one so the
+      // CI log shows how often it happens. Every other net:: error still fails.
+      if (message.type() === "error" && message.text().includes("net::ERR_NO_BUFFER_SPACE")) {
+        const url = message.location().url;
+        console.warn(`Ignored runner socket error net::ERR_NO_BUFFER_SPACE in ${spec}${url ? ` (${url})` : ""}`);
         return;
       }
       // Motion announces the requested OS preference in development. This is
