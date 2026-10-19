@@ -2394,12 +2394,13 @@ const server = createServer(async (req, res) => {
     }
     const order = url.searchParams.get("order");
     if (order) {
-      const [column, direction] = order.split(".");
+      const [column, direction] = order.split(",")[0].split(".");
       rows.sort((a, b) => (Date.parse(a[column] ?? 0) - Date.parse(b[column] ?? 0)) * (direction === "desc" ? -1 : 1));
     }
+    const offset = Number(url.searchParams.get("offset") ?? 0);
     const limit = Number(url.searchParams.get("limit") ?? rows.length);
     const columns = (url.searchParams.get("select") ?? "*").split(",").map((column) => column.trim());
-    rows = rows.slice(0, limit).map((row) => (columns.includes("*") ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))));
+    rows = rows.slice(offset, offset + limit).map((row) => (columns.includes("*") ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))));
     sendJson(res, req.method, 200, rows);
     return;
   }

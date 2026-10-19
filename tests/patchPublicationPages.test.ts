@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   column: vi.fn(async () => ({ editions: [], unavailable: false })),
 }));
 vi.mock("@/lib/patchPublications.server", () => ({ getPatchPublications: mocks.catalog }));
-vi.mock("@/lib/editorials/store.server", () => ({ getPublicEditions: mocks.column }));
+vi.mock("@/lib/editorials/store.server", () => ({ getPublicEditions: mocks.column, getSitemapEditions: mocks.column }));
 vi.mock("@/components/dispatch/Chrome", () => ({ PublicShell: ({ children }: { children: ReactNode }) => createElement("div", null, children) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: ComponentProps<"a">) => createElement("a", { ...props, href }, children) }));
 

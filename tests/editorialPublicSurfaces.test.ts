@@ -8,10 +8,11 @@ import type { PatchEdition } from "@/lib/patchPublications";
 const mocks = vi.hoisted(() => ({
   catalog: vi.fn<() => Promise<{ editions: PatchEdition[]; articles: EditorialArticle[]; unavailable: boolean }>>(),
   editions: vi.fn<() => Promise<{ editions: PublicEdition[]; unavailable: boolean }>>(),
+  sitemap: vi.fn<() => Promise<{ editions: Pick<PublicEdition, "slug" | "publishAt">[]; unavailable: boolean }>>(),
   bySlug: vi.fn<(slug: string) => Promise<PublicEdition | null>>(),
 }));
 vi.mock("@/lib/patchPublications.server", () => ({ getPatchPublications: mocks.catalog }));
-vi.mock("@/lib/editorials/store.server", () => ({ getPublicEditions: mocks.editions, getPublicEditionBySlug: mocks.bySlug }));
+vi.mock("@/lib/editorials/store.server", () => ({ getPublicEditions: mocks.editions, getSitemapEditions: mocks.sitemap, getPublicEditionBySlug: mocks.bySlug }));
 vi.mock("@/components/dispatch/Chrome", () => ({ PublicShell: ({ children }: { children: ReactNode }) => createElement("div", null, children) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: ComponentProps<"a">) => createElement("a", { ...props, href }, children) }));
 
@@ -36,6 +37,7 @@ function expectNoPrivateProcessWords(text: string) {
 beforeEach(() => {
   mocks.catalog.mockResolvedValue({ editions: [patch], articles: patchPublications([patch]), unavailable: false });
   mocks.editions.mockResolvedValue({ editions: [edition], unavailable: false });
+  mocks.sitemap.mockResolvedValue({ editions: [{ slug: edition.slug, publishAt: edition.publishAt }], unavailable: false });
   mocks.bySlug.mockImplementation(async (slug) => (slug === edition.slug ? edition : null));
 });
 
@@ -153,9 +155,16 @@ describe("feeds and sitemap with editions", () => {
     expectNoPrivateProcessWords(JSON.stringify(entries));
   });
 
+  it("lists every edition the sitemap read returns, past the feeds' limit", async () => {
+    const many = Array.from({ length: 60 }, (_, index) => ({ slug: `edition-${index}`, publishAt: new Date(Date.UTC(2026, 9, 1, index)).toISOString() }));
+    mocks.sitemap.mockResolvedValue({ editions: many, unavailable: false });
+    const entries = await sitemap();
+    expect(entries.filter((entry) => entry.url.includes("/editorials/"))).toHaveLength(60);
+  });
+
   it("keeps the sitemap working when editions fail, and logs the gap", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    mocks.editions.mockResolvedValue({ editions: [], unavailable: true });
+    mocks.sitemap.mockResolvedValue({ editions: [], unavailable: true });
     const entries = await sitemap();
     expect(entries).toContainEqual(expect.objectContaining({ url: "https://crimsonreporthub.com/articles/patch-2-03-01" }));
     expect(entries.some((entry) => entry.url.includes("/editorials/"))).toBe(false);
