@@ -61,6 +61,10 @@ describe("splitting and numbering", () => {
     expect(splitSentences("Patch 2.03.02 landed. It fixed 2 things at 09:00 UTC! Good? Yes.")).toEqual(["Patch 2.03.02 landed.", "It fixed 2 things at 09:00 UTC!", "Good?", "Yes."]);
   });
 
+  it("treats straight single quotes like curly ones at a sentence break", () => {
+    expect(splitSentences("The notes say 'certain regions.' 'Still broken?' The map agreed.")).toEqual(["The notes say 'certain regions.'", "'Still broken?'", "The map agreed."]);
+  });
+
   it("numbers the title, dek, body sentences and facts box", () => {
     const ids = numberSentences(writer()).map((unit) => unit.id);
     expect(ids.slice(0, 4)).toEqual(["t", "d", "h1", "b1"]);
@@ -168,15 +172,18 @@ describe("post-processing", () => {
   it("drops every rhetorical question, opening the column or not", () => {
     const output = writer({ sections: [
       { subhead: "What the notes claim", paragraphs: [paragraph("Is anyone still riding horses?", [])] },
-      { subhead: "The numbers", paragraphs: [{ text: `${NUMBERS} Who counts these things? I do, apparently, every single week.`, sourceIds: ["S1"] }] },
+      { subhead: "The numbers", paragraphs: [{ text: `${NUMBERS} Who counts these things? I do, apparently, every single week. 'Still broken?' The map icons stayed missing all week.`, sourceIds: ["S1"] }] },
     ] });
     const units = numberSentences(output);
     const id = (sentence: string) => units.find((unit) => unit.text === sentence)?.id ?? "missing";
     const { deleted } = process(output).report;
     expect(deleted).toContainEqual({ id: "b1", why: ["question"] });
     expect(deleted).toContainEqual({ id: id("Who counts these things?"), why: ["question"] });
-    // Its answer is a full sentence, so it stays.
+    // A question in straight single quotes goes too.
+    expect(deleted).toContainEqual({ id: id("'Still broken?'"), why: ["question"] });
+    // Full-sentence answers stay.
     expect(deleted.map((entry) => entry.id)).not.toContain(id("I do, apparently, every single week."));
+    expect(deleted.map((entry) => entry.id)).not.toContain(id("The map icons stayed missing all week."));
   });
 
   it("skips a checker reply that judges any unit twice", () => {

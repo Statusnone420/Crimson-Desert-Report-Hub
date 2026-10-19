@@ -27,9 +27,9 @@ export type SentenceRef = {
   writerIds: string[];
 };
 
-/** Splits on sentence-ending punctuation followed by a space and a capital, digit or opening quote. */
+/** Splits on sentence-ending punctuation followed by a space and a capital, digit or opening quote, straight or curly. */
 export function splitSentences(text: string): string[] {
-  return text.trim().split(/(?<=[.!?]["”’)]?)\s+(?=["“‘(]?[A-Z0-9])/).map((sentence) => sentence.trim()).filter(Boolean);
+  return text.trim().split(/(?<=[.!?]["”’')]?)\s+(?=["“‘'(]?[A-Z0-9])/).map((sentence) => sentence.trim()).filter(Boolean);
 }
 
 export function numberSentences(output: WriterOutput): SentenceRef[] {
@@ -189,7 +189,7 @@ export function processEdition(output: WriterOutput, checker: CheckerOutput, pac
 
   // The column asks no rhetorical questions: every body question goes, and the orphan rule below drops its short answer.
   for (const ref of refs) {
-    if (ref.kind === "body" && /\?["”’)]*$/.test(ref.text.trim()) && !deleted.has(ref.id)) deleted.set(ref.id, ["question"]);
+    if (ref.kind === "body" && /\?["”’')]*$/.test(ref.text.trim()) && !deleted.has(ref.id)) deleted.set(ref.id, ["question"]);
   }
 
   // Three or more AI-vocabulary words: the sentences that use them go.
