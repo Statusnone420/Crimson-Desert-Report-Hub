@@ -5,17 +5,19 @@ import { choosePlatform, installTurnstile } from "./checkin-helpers";
 
 const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 const CANDIDATE_ONLY_ID = "00000000-0000-4000-8000-000000000099";
+const CANDIDATE_ONLY_TOPIC = { id: CANDIDATE_ONLY_ID, slug: "candidate-only-watchlist", title: "Candidate-only watchlist check-in", signalId: "candidate-only-signal" };
+const SECOND_CANDIDATE_TOPIC = { id: "00000000-0000-4000-8000-000000000098", slug: "second-candidate-watchlist", title: "Second candidate-only watchlist topic", signalId: "second-candidate-signal" };
 
 async function revalidatePublicIssues(page: Page) {
   await refreshFixtureReads(page);
 }
 
-async function seedCandidateOnlyWatchlist(page: Page) {
+async function seedCandidateOnlyWatchlist(page: Page, topic = CANDIDATE_ONLY_TOPIC) {
   const cluster = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/issue_clusters`, {
     data: {
-      id: CANDIDATE_ONLY_ID,
-      slug: "candidate-only-watchlist",
-      title: "Candidate-only watchlist check-in",
+      id: topic.id,
+      slug: topic.slug,
+      title: topic.title,
       category: "performance",
       description: "A public candidate-only fixture for deep-link selection.",
       fix_status: "reported",
@@ -28,11 +30,11 @@ async function seedCandidateOnlyWatchlist(page: Page) {
 
   const signal = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/source_signals`, {
     data: {
-      id: "candidate-only-signal",
-      cluster_id: CANDIDATE_ONLY_ID,
+      id: topic.signalId,
+      cluster_id: topic.id,
       source: "web_search",
       source_type: "web_search",
-      source_url: "https://community.example/crimson-desert/candidate-only-watchlist",
+      source_url: `https://community.example/crimson-desert/${topic.slug}`,
       title: "Crimson Desert candidate-only performance question",
       summary: "Crimson Desert players are asking about a performance issue after patch 1.13.01.",
       source_published_at: "2026-07-19T12:00:00.000Z",
@@ -285,6 +287,48 @@ test.describe("mutating issue navigation fixture", () => {
       expect(reset.ok(), "fixture reset failed — later projects would inherit this test's writes").toBe(true);
       // Reset restores mock rows only. The same safe admin write invalidates
       // app caches before Chromium and mobile snapshot projects start.
+      await revalidatePublicIssues(page);
+      await expect(async () => {
+        await page.goto("/issues");
+        await expect(page.locator(`#issue-${CANDIDATE_ONLY_ID}`)).toHaveCount(0);
+      }).toPass({ timeout: 30_000 });
+    }
+  });
+
+  test("a watchlist check-in ends at its buttons, so the next topic follows", async ({ page }) => {
+    await signInAsAdmin(page);
+    try {
+      await seedCandidateOnlyWatchlist(page);
+      await seedCandidateOnlyWatchlist(page, SECOND_CANDIDATE_TOPIC);
+      await revalidatePublicIssues(page);
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await expect(async () => {
+          await page.goto("/issues");
+          await waitForHydration(page);
+          await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
+          await expect(page.locator(`#issue-${SECOND_CANDIDATE_TOPIC.id}`)).toBeVisible({ timeout: 1_000 });
+        }).toPass({ timeout: 30_000 });
+        // Both topics sit in one category column. A flex basis left from the old
+        // row layout once made the first check-in block 360px tall, which left an
+        // empty band above the second topic.
+        const layout = await page.locator(".watch-category").filter({ has: page.locator(`#issue-${CANDIDATE_ONLY_ID}`) }).evaluate((column) => {
+          const [entry, next] = column.querySelectorAll<HTMLElement>(".watch-entry");
+          const buttons = entry.querySelectorAll(".confirmation-checkin__row .tap-btn");
+          const lastButton = buttons[buttons.length - 1].getBoundingClientRect();
+          return {
+            entries: column.querySelectorAll(".watch-entry").length,
+            band: entry.querySelector(".confirmation-checkin")!.getBoundingClientRect().bottom - lastButton.bottom,
+            gap: next.getBoundingClientRect().top - lastButton.bottom - Number.parseFloat(getComputedStyle(entry).paddingBottom),
+          };
+        });
+        expect(layout.entries).toBe(2);
+        expect(Math.abs(layout.band), `empty band under the check-in buttons at ${width}px`).toBeLessThan(1);
+        expect(Math.abs(layout.gap), `space before the next topic beyond the entry padding at ${width}px`).toBeLessThan(1);
+      }
+    } finally {
+      const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
+      expect(reset.ok()).toBe(true);
       await revalidatePublicIssues(page);
       await expect(async () => {
         await page.goto("/issues");
