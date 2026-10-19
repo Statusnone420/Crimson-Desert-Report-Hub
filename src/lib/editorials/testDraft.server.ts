@@ -10,6 +10,7 @@ import type { WriterEffort, WriterModel } from "@/lib/editorials/models";
 import type { ColumnGuides } from "@/lib/editorials/prompts";
 import { providerCarries } from "@/lib/editorials/provider.server";
 import { relevanceScore } from "@/lib/editorials/relevance";
+import { budgetCoversBothCalls } from "@/lib/editorials/run.server";
 import {
   approvedEditions, baselineMetrics, latestFactPack, recentOpeners, saveTestDraft, styleNotes, voiceExamples,
 } from "@/lib/editorials/runStore.server";
@@ -50,6 +51,8 @@ export async function generateTestDraft(input: {
   if (!provider || !apiKey) return skip("provider_unavailable");
   const checker = resolveCheckerModel();
   if (!checker.ok || !providerCarries(provider, model) || !providerCarries(provider, checker.model)) return skip("model_not_allowed");
+  // The scheduled run's pre-check: never pay for a writer whose checker the budget can't cover.
+  if (!(await budgetCoversBothCalls(client, now, model, settings.monthlyCapUsd))) return skip("budget");
 
   const guides = (input.guides ?? readColumnGuides)();
   const [examples, notes, openers, approved] = await Promise.all([voiceExamples(client), styleNotes(client), recentOpeners(client), approvedEditions(client)]);

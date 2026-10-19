@@ -158,6 +158,15 @@ describe("A/B test drafts", () => {
     expect((await latestFactPack(db.client))?.builtAt).toBe(newer.builtAt);
   });
 
+  it("skip before any paid call when the budget can't cover both the writer and the checker", async () => {
+    db.tables.editorials.push({ id: "real", slot_key: "2026-W43:s0", status: "skipped", skip_reason: "below_threshold", is_test: false, fact_pack: pipelinePack(), created_at: "2026-10-19T14:00:00Z", updated_at: "2026-10-19T14:00:00Z" });
+    db.tables.editorial_ai_spend.push({ id: "spent", month: "2026-10", operation: "writer", provider: "anthropic", model: "claude-opus-5-5", reserved_usd: 14.9, settled_usd: 14.9, cost_state: "settled", created_at: RUN_NOW.toISOString() });
+    const provider = providerFetch();
+    expect(await draft("claude-sonnet-5-5", provider.impl)).toEqual({ status: "skipped", reason: "budget" });
+    expect(provider.messageCalls()).toEqual([]);
+    expect(db.tables.editorials.filter((row) => row.is_test).map((row) => [row.status, row.skip_reason])).toEqual([["skipped", "budget"]]);
+  });
+
   it("build a pack without saving an edition when none is stored", async () => {
     expect(await draft("claude-opus-5-5", providerFetch().impl)).toEqual({ status: "saved" });
     expect(mocks.pack).toHaveBeenCalledOnce();
