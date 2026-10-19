@@ -336,4 +336,44 @@ test.describe("mutating issue navigation fixture", () => {
       }).toPass({ timeout: 30_000 });
     }
   });
+
+  test("each watchlist topic shows its own image, the same one on every visit", async ({ page }) => {
+    await signInAsAdmin(page);
+    try {
+      await seedCandidateOnlyWatchlist(page);
+      await seedCandidateOnlyWatchlist(page, SECOND_CANDIDATE_TOPIC);
+      await revalidatePublicIssues(page);
+      const column = page.locator(".watch-category").filter({ has: page.locator(`#issue-${CANDIDATE_ONLY_ID}`) });
+      const shownImages = async () => {
+        await expect(async () => {
+          await page.goto("/issues");
+          await waitForHydration(page);
+          await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
+          await expect(page.locator(`#issue-${SECOND_CANDIDATE_TOPIC.id}`)).toBeVisible({ timeout: 1_000 });
+        }).toPass({ timeout: 30_000 });
+        // The column no longer has an image of its own; each topic carries one.
+        await expect(column.locator(":scope > figure")).toHaveCount(0);
+        const entries = column.locator(".watch-entry");
+        await expect(entries).toHaveCount(2);
+        for (const entry of await entries.all()) {
+          await expect(entry.locator("figure img")).toHaveCount(1);
+          await expect(entry.locator("figure img")).toHaveAttribute("alt", "");
+          await expect(entry.locator("figcaption")).toHaveText("Image: Pearl Abyss");
+        }
+        return entries.locator("figure img").evaluateAll((images) => images.map((image) => new URL(image.getAttribute("src")!, location.href).searchParams.get("url")));
+      };
+      const first = await shownImages();
+      expect(first.every((source) => source?.startsWith("/official/"))).toBe(true);
+      expect(new Set(first).size).toBe(2);
+      expect(await shownImages()).toEqual(first);
+    } finally {
+      const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
+      expect(reset.ok()).toBe(true);
+      await revalidatePublicIssues(page);
+      await expect(async () => {
+        await page.goto("/issues");
+        await expect(page.locator(`#issue-${CANDIDATE_ONLY_ID}`)).toHaveCount(0);
+      }).toPass({ timeout: 30_000 });
+    }
+  });
 });
