@@ -3,6 +3,9 @@ export type EditorialSource = {
   url: string;
 };
 
+/** A launch date an official notice sets. A later notice for the same release replaces it. */
+export type ReleaseDate = { id: string; at: string };
+
 export type PatchCatchUp = {
   kind: "update" | "hotfix";
   // Official notice time and first Hub availability are deliberately separate.
@@ -45,7 +48,7 @@ type EditorialArticleBase = {
 // A published patch report cannot omit its reviewed Catch Up content.
 export type EditorialArticle = EditorialArticleBase & (
   | { patchVersion: string; catchUp: PatchCatchUp }
-  | { patchVersion?: never; catchUp?: Omit<PatchCatchUp, "kind"> & { kind: "announcement" } }
+  | { patchVersion?: never; catchUp?: Omit<PatchCatchUp, "kind"> & { kind: "announcement"; release?: ReleaseDate } }
 );
 
 export const chartingTheUnknown = {
@@ -211,6 +214,7 @@ export const chartingTheUnknownDelay = {
     availableAt: "2026-09-30T13:30:00Z",
     title: "Charting the Unknown moves to October 29",
     summary: "Charting the Unknown moves to October 29. Pearl Abyss postpones the expansion by two weeks for further polish and stability work.",
+    release: { id: "charting-the-unknown", at: "2026-10-29T22:00:00Z" },
     highlights: [
       "The revised launch is October 29 at 22:00 UTC, or 6 p.m. Eastern.",
       "Pearl Abyss says it needs additional development time to refine the content.",

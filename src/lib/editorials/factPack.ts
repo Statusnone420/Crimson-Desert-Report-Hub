@@ -1,14 +1,14 @@
 import type { ActivityDay, ActivityHistory } from "@/lib/activityHistory";
 import { completeDays, reviewShare, typicalPlayers } from "@/lib/activityHistory";
-import { formatUtcTimestamp, isPublicSourceUrl } from "@/lib/editorials/content";
+import { formatUtcTimestamp, isOfficialSourceUrl, isPublicSourceUrl } from "@/lib/editorials/content";
 import type { PatchEdition } from "@/lib/patchPublications";
 import { patchPath } from "@/lib/patchPublications";
 
 /**
  * The column's only input: public, aggregate, reviewed data. Official patch notes and
- * listed fixes, public issue aggregates, Steam and Twitch aggregates and check-in
- * counts. Never raw reports, rejected candidates, private source text, individual
- * check-ins, usernames or links to individual posts.
+ * listed fixes, the official Pearl Abyss notices the Hub keeps, public issue aggregates,
+ * Steam and Twitch aggregates and check-in counts. Never raw reports, rejected candidates,
+ * private source text, individual check-ins, usernames or links to individual posts.
  */
 export type EvidenceLabel = "Confirmed" | "Reported" | "One report";
 export type StatusLabel = "Fixed (per patch notes)" | "Still happening";
@@ -41,6 +41,8 @@ export type FactPackMetrics = {
   patternIssueIds: string[] | null;
   /** Each issue's Hub check on its listed fix. Packs stored before checks existed lack it: read as never measured. */
   hubChecks?: Record<string, HubCheck> | null;
+  /** The official notices the Hub knew of. Packs stored before notices existed lack it: read as never measured. */
+  noticeIds?: string[] | null;
 };
 
 export type FactPackDeltas = {
@@ -49,15 +51,19 @@ export type FactPackDeltas = {
   newPatternIssueIds: string[];
   /** Issues whose listed fix now reads Still reported or Confirmed by players, and didn't last edition. */
   newVerdictIssueIds: string[];
+  /** Official notices the last edition's pack didn't have. */
+  newNoticeIds: string[];
+  /** Releases an official notice dates within the next 14 days. Not a change since the last edition, but news all the same. */
+  upcomingReleaseIds: string[];
 };
 
 /**
  * Version 2 added Hub checks on listed fixes and the verdict deltas. Version 3 states each
  * check as a plain sentence and drops the label on fix lines. Version 4 says one thing per
- * fix line: a linked issue, or nothing on the Hub yet. A stored pack of another version is
- * never reused.
+ * fix line: a linked issue, or nothing on the Hub yet. Version 5 adds official notices and
+ * the release dates they set. A stored pack of another version is never reused.
  */
-export const FACT_PACK_VERSION = 4;
+export const FACT_PACK_VERSION = 5;
 
 export type FactPack = {
   version: typeof FACT_PACK_VERSION;
@@ -99,9 +105,20 @@ export type AfterFix = {
 
 export type IssueBoard = { available: true; patchVersion: string; issues: IssueAggregate[] } | { available: false };
 
+/** An official Pearl Abyss notice the Hub keeps in its catch-up timeline, in the Hub's reviewed words. */
+export type OfficialNotice = {
+  id: string;
+  publishedAt: string;
+  summary: string;
+  highlights: readonly string[];
+  source: { label: string; url: string };
+  release?: { id: string; at: string };
+};
+
 export type FactPackInput = {
   now: Date;
   patches: { available: true; editions: PatchEdition[] } | { available: false };
+  notices: readonly OfficialNotice[];
   history: ActivityHistory;
   board: IssueBoard;
   previous: FactPackMetrics | null;
@@ -111,6 +128,9 @@ const DAY_MS = 86_400_000;
 const MAX_FIXES = 8;
 const MAX_ISSUES = 8;
 const MAX_NEW_PATCHES = 3;
+const MAX_NOTICES = 3;
+const RELEASE_WINDOW_MS = 14 * DAY_MS;
+const NOTICE_PREFIX = "N";
 const NUMBER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 export function patchKind(version: string): "update" | "hotfix" {
@@ -259,6 +279,38 @@ export function buildFactPack(input: FactPackInput): FactPack {
     }
   } else gaps.push("patches_unavailable");
 
+  // Official notices: Pearl Abyss's own pages only. A notice whose release date a later notice
+  // moved is out of date, so it stays out of the pack and the score.
+  const official = input.notices.filter((notice) => isOfficialSourceUrl(notice.source.url) && Date.parse(notice.publishedAt) <= input.now.getTime());
+  const newestForRelease = new Map<string, OfficialNotice>();
+  for (const notice of official) {
+    if (!notice.release) continue;
+    const current = newestForRelease.get(notice.release.id);
+    if (!current || Date.parse(notice.publishedAt) > Date.parse(current.publishedAt)) newestForRelease.set(notice.release.id, notice);
+  }
+  const notices = official.filter((notice) => !notice.release || newestForRelease.get(notice.release.id) === notice);
+  const previousNotices = input.previous?.noticeIds;
+  const isNewNotice = (notice: OfficialNotice) => previousNotices
+    ? !previousNotices.includes(notice.id)
+    : Date.parse(notice.publishedAt) >= input.now.getTime() - 7 * DAY_MS;
+  const releaseSoon = (notice: OfficialNotice) => {
+    const at = notice.release ? Date.parse(notice.release.at) : Number.NaN;
+    return at > input.now.getTime() && at <= input.now.getTime() + RELEASE_WINDOW_MS;
+  };
+  const newNoticeIds = notices.filter(isNewNotice).map((notice) => notice.id);
+  const upcomingReleaseIds = notices.filter(releaseSoon).map((notice) => notice.release!.id);
+  const described = notices.filter((notice) => isNewNotice(notice) || releaseSoon(notice))
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)).slice(0, MAX_NOTICES);
+  for (const notice of described) {
+    add(NOTICE_PREFIX, {
+      text: `Pearl Abyss official notice published ${formatUtcTimestamp(notice.publishedAt)}. ${notice.summary} ${notice.highlights.join(" ")}${notice.release
+        ? ` The notice sets the release for ${formatUtcTimestamp(notice.release.at)}.` : ""}`,
+      period: formatUtcTimestamp(notice.publishedAt),
+      value: notice.release?.at ?? null,
+      source: notice.source,
+    });
+  }
+
   // Steam players, reviews and Twitch: recorded context, never player evidence.
   const { recent, before } = windows(input.history);
   const playersAvg7d = input.history.lanes.players === "ready" ? playersAverage(recent) : null;
@@ -405,12 +457,23 @@ export function buildFactPack(input: FactPackInput): FactPack {
       twitchAvg7d: input.history.lanes.twitch === "ready" ? twitchAvg7d : input.previous?.twitchAvg7d ?? null,
       patternIssueIds: input.board.available ? patternIssueIds : input.previous?.patternIssueIds ?? null,
       hubChecks: input.board.available ? hubChecks : input.previous?.hubChecks ?? null,
+      noticeIds: official.map((notice) => notice.id),
     },
     deltas: {
       newPatchVersions,
       newUpdate: newPatchVersions.some((version) => patchKind(version) === "update"),
       newPatternIssueIds,
       newVerdictIssueIds,
+      newNoticeIds,
+      upcomingReleaseIds,
     },
   };
+}
+
+/**
+ * What opens the edition. A new patch leads, its claims and the Hub's corroboration first.
+ * Without one, an official notice in the pack leads, so a quiet patch week isn't a rerun of old notes.
+ */
+export function editionLead(pack: Pick<FactPack, "facts" | "deltas">): "patch" | "notice" {
+  return !pack.deltas.newPatchVersions.length && pack.facts.some((fact) => fact.id.startsWith(NOTICE_PREFIX)) ? "notice" : "patch";
 }

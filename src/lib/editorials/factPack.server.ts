@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getActivityHistory } from "@/lib/activityHistory.server";
+import { CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
 import { buildFactPack, type FactPack, type FactPackMetrics, type IssueAggregate, type IssueBoard } from "@/lib/editorials/factPack";
 import { needsFullIssueCard } from "@/lib/evidence";
 import { getPatchPublications } from "@/lib/patchPublications.server";
@@ -81,6 +82,8 @@ export async function readFactPack(now: Date, previous: FactPackMetrics | null):
   return buildFactPack({
     now,
     patches: patches.unavailable ? { available: false } : { available: true, editions: patches.editions },
+    // The reviewed official notices on the catch-up page; patch notes reach the pack as patches.
+    notices: CATCH_UP_MILESTONES.filter((milestone) => milestone.kind === "announcement"),
     history,
     board: issues ? issueBoard(issues) : { available: false },
     previous,

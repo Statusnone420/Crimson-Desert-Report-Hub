@@ -5,7 +5,9 @@ import type { RelevanceLevel } from "@/lib/editorials/settings";
  * How much happened since the last edition:
  * +3 new official update notes, or +2 when only hotfixes are new;
  * +1 per newly Reported or Confirmed issue, at most +3;
- * +1 per listed fix whose Hub check newly reads Still reported or Confirmed by players, at most +3.
+ * +1 per listed fix whose Hub check newly reads Still reported or Confirmed by players, at most +3;
+ * +2 for an official notice new since the last edition and +2 for an official release date within
+ * the next 14 days, at most +3 together.
  * Steam and Twitch numbers are supporting context in the pack and never add to the score.
  */
 export function relevanceScore(deltas: FactPackDeltas): number {
@@ -14,6 +16,7 @@ export function relevanceScore(deltas: FactPackDeltas): number {
   else if (deltas.newPatchVersions.length) score += 2;
   score += Math.min(deltas.newPatternIssueIds.length, 3);
   score += Math.min(deltas.newVerdictIssueIds.length, 3);
+  score += Math.min((deltas.newNoticeIds.length ? 2 : 0) + (deltas.upcomingReleaseIds.length ? 2 : 0), 3);
   return score;
 }
 

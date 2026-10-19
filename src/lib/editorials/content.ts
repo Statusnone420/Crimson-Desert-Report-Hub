@@ -53,6 +53,16 @@ export function isPublicSourceUrl(value: string): boolean {
   }
 }
 
+/** A page on Pearl Abyss's own Crimson Desert site. */
+export function isOfficialSourceUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === OFFICIAL_HOST && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 /** Who published a source, by its host. A Hub page can be a path or an absolute Hub URL. */
 export function sourceProvenance(value: string): string {
   if (value.startsWith("/")) return "Crimson Desert Report Hub";

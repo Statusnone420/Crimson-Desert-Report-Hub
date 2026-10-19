@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { CATCH_UP_MILESTONES } from "@/lib/catchUpContent";
 import { isPublicSourceUrl } from "@/lib/editorials/content";
-import { buildFactPack, evidenceLabel, hubCheck, statusLabel, type AfterFix, type FactPackMetrics, type IssueAggregate } from "@/lib/editorials/factPack";
+import {
+  buildFactPack, editionLead, evidenceLabel, hubCheck, statusLabel,
+  type AfterFix, type FactPackDeltas, type FactPackMetrics, type IssueAggregate, type OfficialNotice,
+} from "@/lib/editorials/factPack";
 import { issueBoard, siteName } from "@/lib/editorials/factPack.server";
 import { relevanceScore } from "@/lib/editorials/relevance";
-import { history, issue, PACK_NOW, patch, samplePack } from "./columnPackFixtures";
+import { history, issue, notice, NOTICE_URL, PACK_NOW, patch, samplePack } from "./columnPackFixtures";
 
 describe("evidence labels", () => {
   it("never go past what the public issue page shows", () => {
@@ -42,7 +46,7 @@ describe("the fact pack", () => {
   });
 
   it("states forum-only issues by count, without a label", () => {
-    const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, history: history(), previous: null,
+    const pack = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, history: history(), previous: null,
       board: { available: true, patchVersion: "2.03.02", issues: [issue({ publicPosts: 4, postsBySite: { "Steam Community": 4 } })] } });
     const fact = pack.facts.find((item) => item.id === "C1");
     expect(fact?.label).toBeUndefined();
@@ -54,20 +58,20 @@ describe("the fact pack", () => {
   it("measures deltas against the previous edition's pack", () => {
     const first = samplePack();
     const pack = buildFactPack({
-      now: PACK_NOW,
+      now: PACK_NOW, notices: [],
       patches: { available: true, editions: [patch("2.04.00", "2026-10-26T09:00:00Z"), patch("2.03.02", "2026-10-24T09:00:00Z")] },
       history: history(25_000, 4_000),
       board: { available: true, patchVersion: "2.04.00", issues: [issue({ approvedReports: 2 }), issue({ id: "00000000-0000-4000-8000-0000000000bb", checkinNetworks: 2, checkins: 2 })] },
       previous: first.metrics,
     });
-    expect(pack.deltas).toEqual({ newPatchVersions: ["2.04.00"], newUpdate: true, newPatternIssueIds: ["00000000-0000-4000-8000-0000000000bb"], newVerdictIssueIds: [] });
+    expect(pack.deltas).toEqual({ newPatchVersions: ["2.04.00"], newUpdate: true, newPatternIssueIds: ["00000000-0000-4000-8000-0000000000bb"], newVerdictIssueIds: [], newNoticeIds: [], upcomingReleaseIds: [] });
     expect(pack.facts.find((fact) => fact.text.startsWith("Steam players online averaged"))?.text).toContain("up 25% since the last edition");
     expect(pack.facts.find((fact) => fact.text.startsWith("Twitch viewers averaged"))?.text).toContain("up 33% since the last edition");
   });
 
   it("keeps a Steam or Twitch swing as context, never as news", () => {
     const swing = buildFactPack({
-      now: PACK_NOW,
+      now: PACK_NOW, notices: [],
       patches: { available: true, editions: [patch("2.03.02", "2026-10-24T09:00:00Z", ["Fixed an issue where the map could crash.", "Fixed horses stuck in fences."])] },
       history: history(25_000, 4_000),
       board: { available: true, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, checkins: 5, checkinNetworks: 5, publicPosts: 3, postsBySite: { "Steam Community": 3 } })] },
@@ -78,11 +82,11 @@ describe("the fact pack", () => {
   });
 
   it("leaves a zero check-in total out, so the column can't narrate an empty board", () => {
-    const quiet = buildFactPack({ now: PACK_NOW, patches: { available: false }, history: history(), previous: null,
+    const quiet = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, history: history(), previous: null,
       board: { available: true, patchVersion: "2.03.02", issues: [issue({ publicPosts: 2, postsBySite: { Reddit: 2 } })] } });
     expect(quiet.facts.map((fact) => fact.id)).toEqual(["S1", "S2", "S3", "S4", "T1", "C1"]);
     expect(quiet.facts.find((fact) => fact.id === "C1")?.text).not.toContain("check-in");
-    const empty = buildFactPack({ now: PACK_NOW, patches: { available: false }, history: history(), previous: null, board: { available: true, patchVersion: "2.03.02", issues: [] } });
+    const empty = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, history: history(), previous: null, board: { available: true, patchVersion: "2.03.02", issues: [] } });
     expect(empty.facts.some((fact) => /^[CK]/.test(fact.id))).toBe(false);
     expect(empty.gaps).not.toContain("issues_unavailable");
   });
@@ -91,7 +95,7 @@ describe("the fact pack", () => {
     const strong = Array.from({ length: 9 }, (_, index) => issue({ id: `00000000-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`, title: `Old ${index}`, strength: 50 - index, approvedReports: 2 }));
     const fresh = issue({ id: "00000000-0000-4000-8000-0000000002aa", title: "New and weak", strength: 1, checkinNetworks: 2, checkins: 2 });
     const previous = { ...samplePack().metrics, patternIssueIds: strong.map((item) => item.id) };
-    const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, history: history(), previous,
+    const pack = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, history: history(), previous,
       board: { available: true, patchVersion: "2.03.02", issues: [...strong, fresh] } });
     expect(pack.deltas.newPatternIssueIds).toEqual([fresh.id]);
     expect(pack.facts.some((fact) => fact.text.includes("New and weak"))).toBe(true);
@@ -101,7 +105,7 @@ describe("the fact pack", () => {
   it("leaves out the players average when fewer than five of the seven days were recorded", () => {
     const sparse = history();
     sparse.days = sparse.days.map((day, index) => (index >= sparse.days.length - 8 && index % 2 === 0 ? day : { ...day, playersAvg: index >= sparse.days.length - 8 ? null : day.playersAvg }));
-    const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null, history: sparse });
+    const pack = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, board: { available: false }, previous: null, history: sparse });
     expect(pack.metrics.playersAvg7d).toBeNull();
     expect(pack.facts.some((fact) => fact.text.startsWith("Steam players online averaged"))).toBe(false);
   });
@@ -109,7 +113,7 @@ describe("the fact pack", () => {
   it("dates the all-time review score by the day it was recorded", () => {
     const sparse = history();
     sparse.days = sparse.days.map((day, index) => ({ ...day, lifetimePositive: index === sparse.days.length - 10 ? 79 : null }));
-    const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null, history: sparse });
+    const pack = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, board: { available: false }, previous: null, history: sparse });
     expect(pack.facts.find((fact) => fact.text.startsWith("Crimson Desert's all-time"))).toMatchObject({
       text: "Crimson Desert's all-time Steam review score was 79% positive.",
       period: "Oct 17 (UTC)",
@@ -119,28 +123,28 @@ describe("the fact pack", () => {
   it("carries the last known metrics forward for data it can't read, so the next edition compares fairly", () => {
     const patches = { available: true as const, editions: [patch("2.03.02", "2026-10-24T09:00:00Z", ["Fixed an issue where the map could crash.", "Fixed horses stuck in fences."])] };
     const board = { available: true as const, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, checkins: 5, checkinNetworks: 5 })] };
-    const first = buildFactPack({ now: PACK_NOW, patches, history: history(), board, previous: null });
-    const outage = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: first.metrics,
+    const first = buildFactPack({ now: PACK_NOW, notices: [], patches, history: history(), board, previous: null });
+    const outage = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, board: { available: false }, previous: first.metrics,
       history: { ...history(), lanes: { players: "unavailable", twitch: "unavailable", reviews: "unavailable" } } });
     expect(outage.metrics).toEqual(first.metrics);
-    expect(outage.deltas).toEqual({ newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [] });
+    expect(outage.deltas).toEqual({ newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [], newNoticeIds: [], upcomingReleaseIds: [] });
     // The next good read finds nothing new against the carried baseline.
-    const next = buildFactPack({ now: PACK_NOW, patches, history: history(), board, previous: outage.metrics });
-    expect(next.deltas).toEqual({ newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [] });
+    const next = buildFactPack({ now: PACK_NOW, notices: [], patches, history: history(), board, previous: outage.metrics });
+    expect(next.deltas).toEqual({ newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [], newNoticeIds: [], upcomingReleaseIds: [] });
     expect(next.facts.find((fact) => fact.text.startsWith("Steam players online averaged"))?.text).toContain("up 0% since the last edition");
   });
 
   it("marks lists it has never read as unknown, so a later read measures them like a first edition", () => {
-    const outage = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null, history: history() });
+    const outage = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, board: { available: false }, previous: null, history: history() });
     expect(outage.metrics).toMatchObject({ patchVersions: null, latestPatch: null, patternIssueIds: null, hubChecks: null });
-    const next = buildFactPack({ now: PACK_NOW, history: history(), board: { available: false }, previous: outage.metrics,
+    const next = buildFactPack({ now: PACK_NOW, notices: [], history: history(), board: { available: false }, previous: outage.metrics,
       patches: { available: true, editions: [patch("2.03.02", "2026-10-24T09:00:00Z"), patch("2.02.00", "2026-09-01T09:00:00Z")] } });
     // Only the patch from the last seven days counts as new, as on a first edition.
     expect(next.deltas.newPatchVersions).toEqual(["2.03.02"]);
   });
 
   it("records unavailable data as gaps instead of inventing facts", () => {
-    const pack = buildFactPack({ now: PACK_NOW, patches: { available: false }, board: { available: false }, previous: null,
+    const pack = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, board: { available: false }, previous: null,
       history: { ...history(), lanes: { players: "unavailable", twitch: "unavailable", reviews: "unavailable" } } });
     expect(pack.facts).toEqual([]);
     expect(pack.gaps).toEqual(["patches_unavailable", "players_unavailable", "reviews_unavailable", "twitch_unavailable", "issues_unavailable"]);
@@ -166,7 +170,7 @@ describe("Hub checks on listed fixes", () => {
   });
 
   it("never turns thin evidence into a count: several check-ins from one source stay too little to call", () => {
-    const pack = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX]),
+    const pack = buildFactPack({ now: PACK_NOW, notices: [], history: history(), previous: null, patches: patches([MAP_FIX]),
       board: board([issue({ officialFixListed: true, afterFix: after({ fixedCheckins: 2 }) })]) });
     const text = (id: string) => pack.facts.find((item) => item.id === id)?.text ?? "";
     expect(text("C1")).toContain('Since that fix: 2 "fixed for me" check-ins. Since the fix, the Hub has too little evidence to call it either way.');
@@ -175,7 +179,7 @@ describe("Hub checks on listed fixes", () => {
   });
 
   it("pairs each listed fix with its known issue, and both carry the same check", () => {
-    const pack = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX, "Fixed horses stuck in fences"]),
+    const pack = buildFactPack({ now: PACK_NOW, notices: [], history: history(), previous: null, patches: patches([MAP_FIX, "Fixed horses stuck in fences"]),
       board: board([issue({ approvedReports: 2, officialFixListed: true, stillHappening: true, afterFix: after({ readout: "still_happening", stillCheckins: 3, stillNetworks: 2, reportsSince: 1 }) })]) });
     const fact = (id: string) => pack.facts.find((item) => item.id === id);
     expect(fact("F1")).toMatchObject({ check: "Still reported", text: `Patch 2.03.02 lists this fix: "${MAP_FIX}" The Hub links it to the known issue "Crash when opening the map". Players still report it on the Hub after the fix.` });
@@ -193,7 +197,7 @@ describe("Hub checks on listed fixes", () => {
     const fixed = issue({ title: "Map crash", officialFixListed: true, afterFix: after({ readout: "players_say_fixed", fixedCheckins: 5 }) });
     // The same line with different spacing still pairs.
     const quiet = issue({ id: "00000000-0000-4000-8000-0000000000bb", title: "Map freeze", officialFixListed: true, afterFix: after({ fixes: [`  ${MAP_FIX.replace(" ", " ")}`] }) });
-    const fix = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX]), board: board([fixed, quiet]) }).facts.find((item) => item.id === "F1");
+    const fix = buildFactPack({ now: PACK_NOW, notices: [], history: history(), previous: null, patches: patches([MAP_FIX]), board: board([fixed, quiet]) }).facts.find((item) => item.id === "F1");
     expect(fix?.check).toBe("No Hub signal yet");
     expect(fix?.text).toContain('The Hub links it to the known issues "Map crash", "Map freeze".');
   });
@@ -201,7 +205,7 @@ describe("Hub checks on listed fixes", () => {
   it("checks no fix against an unread board or a board on another patch", () => {
     const paired = issue({ officialFixListed: true, afterFix: after({ readout: "players_say_fixed", fixedCheckins: 5 }) });
     for (const issues of [{ available: false } as const, board([paired], "2.03.01")]) {
-      const fix = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX]), board: issues }).facts.find((item) => item.id === "F1");
+      const fix = buildFactPack({ now: PACK_NOW, notices: [], history: history(), previous: null, patches: patches([MAP_FIX]), board: issues }).facts.find((item) => item.id === "F1");
       expect(fix?.text).toBe(`Patch 2.03.02 lists this fix: "${MAP_FIX}"`);
       expect(fix?.check).toBeUndefined();
     }
@@ -209,13 +213,13 @@ describe("Hub checks on listed fixes", () => {
 
   it("counts a new verdict on a listed fix as news once, and reads older packs as never measured", () => {
     const id = "00000000-0000-4000-8000-0000000000aa";
-    const build = (readout: AfterFix["readout"], previous: FactPackMetrics | null) => buildFactPack({ now: PACK_NOW, history: history(), previous,
+    const build = (readout: AfterFix["readout"], previous: FactPackMetrics | null) => buildFactPack({ now: PACK_NOW, notices: [], history: history(), previous,
       patches: patches([MAP_FIX]), board: board([issue({ officialFixListed: true, afterFix: after({ readout, stillCheckins: 2, stillNetworks: 2 }) })]) });
     const first = build("unverified", null);
     expect(first.metrics.hubChecks).toEqual({ [id]: "Too little to call" });
     expect(first.deltas.newVerdictIssueIds).toEqual([]);
     const moved = build("still_happening", first.metrics);
-    expect(moved.deltas).toEqual({ newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [id] });
+    expect(moved.deltas).toEqual({ newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [id], newNoticeIds: [], upcomingReleaseIds: [] });
     expect(relevanceScore(moved.deltas)).toBe(1);
     expect(build("still_happening", moved.metrics).deltas.newVerdictIssueIds).toEqual([]);
     const older: FactPackMetrics = { ...moved.metrics };
@@ -278,5 +282,120 @@ describe("reading the issue board", () => {
     expect(siteName("https://forum.example.com/t/1")).toBe("forum.example.com");
     expect(siteName("https://steamcommunity.com/app/1")).toBe("Steam Community");
     expect(siteName("not a url")).toBeNull();
+  });
+});
+
+describe("official notices", () => {
+  // The Sep 30 delay notice and the Sep 3 notice whose Oct 15 date it replaced.
+  const delay = notice({
+    id: "announcement-delay", publishedAt: "2026-09-30T10:20:00Z", release: { id: "charting-the-unknown", at: "2026-10-29T22:00:00Z" },
+    summary: "Charting the Unknown moves to October 29.", highlights: ["The revised launch is October 29 at 22:00 UTC."],
+    source: { label: "Pearl Abyss — September 30 release-date update", url: NOTICE_URL },
+  });
+  const original = notice({
+    id: "announcement-original", publishedAt: "2026-09-03T14:00:00Z", release: { id: "charting-the-unknown", at: "2026-10-15T22:00:00Z" },
+    summary: "Charting the Unknown is scheduled for October 15.", highlights: ["The announced launch is October 15."],
+    source: { label: "Pearl Abyss — pre-order announcement", url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=129" },
+  });
+  const build = (notices: readonly OfficialNotice[], now = PACK_NOW, previous: FactPackMetrics | null = null) =>
+    buildFactPack({ now, notices, patches: { available: false }, history: history(), board: { available: false }, previous });
+  const noticeFacts = (notices: readonly OfficialNotice[], now = PACK_NOW) => build(notices, now).facts.filter((fact) => fact.id.startsWith("N"));
+
+  it("states an official notice with its publication date, its link and the release it sets", () => {
+    const pack = build([delay]);
+    expect(pack.facts.find((fact) => fact.id === "N1")).toEqual({
+      id: "N1",
+      text: "Pearl Abyss official notice published Sep 30, 10:20 UTC. Charting the Unknown moves to October 29. The revised launch is October 29 at 22:00 UTC. The notice sets the release for Oct 29, 22:00 UTC.",
+      period: "Sep 30, 10:20 UTC",
+      value: "2026-10-29T22:00:00Z",
+      source: { label: "Pearl Abyss — September 30 release-date update", url: NOTICE_URL },
+    });
+    // Three days before launch: the release counts, and an old notice isn't new.
+    expect(pack.deltas).toMatchObject({ newNoticeIds: [], upcomingReleaseIds: ["charting-the-unknown"] });
+    expect(relevanceScore(pack.deltas)).toBe(2);
+  });
+
+  it("takes only Pearl Abyss's own pages, never X, Reddit or the Hub's articles", () => {
+    const pack = build([
+      notice({ id: "x", source: { label: "Official post on X", url: "https://x.com/crimsondesert_/status/1" } }),
+      notice({ id: "reddit", source: { label: "Reddit thread", url: "https://www.reddit.com/r/CrimsonDesert/comments/1" } }),
+      notice({ id: "hub", source: { label: "Hub report", url: "/articles/charting-the-unknown-delay" } }),
+      notice({ id: "official" }),
+    ]);
+    expect(pack.facts.filter((fact) => fact.id.startsWith("N")).map((fact) => fact.source.url)).toEqual([NOTICE_URL]);
+    expect(pack.deltas.newNoticeIds).toEqual(["official"]);
+    expect(pack.metrics.noticeIds).toEqual(["official"]);
+  });
+
+  it("uses the newest notice for a release and leaves out the date it replaced", () => {
+    const pack = build([original, delay]);
+    expect(pack.facts.filter((fact) => fact.id.startsWith("N")).map((fact) => fact.source.url)).toEqual([NOTICE_URL]);
+    expect(JSON.stringify(pack.facts)).not.toContain("October 15");
+    // The replaced notice is still known, so it never counts as new later.
+    expect(pack.metrics.noticeIds).toEqual(["announcement-original", "announcement-delay"]);
+    // Two days before the old date, nothing counts: Oct 15 is out of date, and Oct 29 is 16 days off.
+    expect(build([original, delay], new Date("2026-10-13T22:00:00Z")).deltas.upcomingReleaseIds).toEqual([]);
+  });
+
+  it("counts a notice as new once: against the last edition's list, or the last 7 days before there is one", () => {
+    const fresh = notice({ id: "fresh", publishedAt: "2026-10-22T09:00:00Z" });
+    const old = notice({ id: "old", publishedAt: "2026-10-01T09:00:00Z" });
+    const first = build([fresh, old]);
+    expect(first.deltas.newNoticeIds).toEqual(["fresh"]);
+    expect(relevanceScore(first.deltas)).toBe(2);
+    const next = build([fresh, old, notice({ id: "added", publishedAt: "2026-10-26T09:00:00Z" })], PACK_NOW, first.metrics);
+    expect(next.deltas.newNoticeIds).toEqual(["added"]);
+    expect(next.facts.filter((fact) => fact.id.startsWith("N"))).toHaveLength(1);
+    // A pack stored before notices existed has no list: the last 7 days count, as for a first edition.
+    const older: FactPackMetrics = { ...first.metrics, noticeIds: undefined };
+    expect(build([fresh, old], PACK_NOW, older).deltas.newNoticeIds).toEqual(["fresh"]);
+  });
+
+  it("counts a release only within the next 14 days, never one that has started", () => {
+    const releaseAt = (at: string) => build([notice({ publishedAt: "2026-09-01T00:00:00Z", release: { id: "launch", at } })]).deltas.upcomingReleaseIds;
+    expect(releaseAt("2026-11-09T14:05:00Z")).toEqual(["launch"]);
+    expect(releaseAt("2026-11-09T14:06:00Z")).toEqual([]);
+    expect(releaseAt("2026-10-26T14:05:00Z")).toEqual([]);
+  });
+
+  it("leaves an old notice with no release coming out of the pack", () => {
+    const pack = build([notice({ publishedAt: "2026-09-01T00:00:00Z" })]);
+    expect(pack.facts.some((fact) => fact.id.startsWith("N"))).toBe(false);
+    expect(relevanceScore(pack.deltas)).toBe(0);
+  });
+
+  it("keeps the three newest notices, so a busy week can't crowd the pack", () => {
+    const notices = ["20", "21", "22", "23"].map((day) => notice({ id: `n${day}`, publishedAt: `2026-10-${day}T09:00:00Z` }));
+    expect(noticeFacts(notices).map((fact) => fact.period)).toEqual(["Oct 23, 09:00 UTC", "Oct 22, 09:00 UTC", "Oct 21, 09:00 UTC"]);
+  });
+
+  it("gives the Oct 26 edition the Hub's record of the Oct 29 launch, and lets it lead", () => {
+    const pack = build(CATCH_UP_MILESTONES.filter((milestone) => milestone.kind === "announcement"), new Date("2026-10-26T12:00:00Z"));
+    const facts = pack.facts.filter((fact) => fact.id.startsWith("N"));
+    expect(facts.map((fact) => fact.source.url)).toEqual([NOTICE_URL]);
+    expect(facts[0].text).toContain("The notice sets the release for Oct 29, 22:00 UTC.");
+    expect(pack.deltas.upcomingReleaseIds).toEqual(["charting-the-unknown"]);
+    expect(relevanceScore(pack.deltas)).toBe(2);
+    expect(editionLead(pack)).toBe("notice");
+  });
+});
+
+describe("relevance from official notices", () => {
+  const quiet: FactPackDeltas = { newPatchVersions: [], newUpdate: false, newPatternIssueIds: [], newVerdictIssueIds: [], newNoticeIds: [], upcomingReleaseIds: [] };
+
+  it("adds 2 for a new notice and 2 for a release within 14 days, at most 3 together", () => {
+    expect(relevanceScore(quiet)).toBe(0);
+    expect(relevanceScore({ ...quiet, newNoticeIds: ["a", "b"] })).toBe(2);
+    expect(relevanceScore({ ...quiet, upcomingReleaseIds: ["launch"] })).toBe(2);
+    expect(relevanceScore({ ...quiet, newNoticeIds: ["a"], upcomingReleaseIds: ["launch"] })).toBe(3);
+    // The cap is on the notices alone; a new hotfix still adds its own 2.
+    expect(relevanceScore({ ...quiet, newPatchVersions: ["2.03.03"], newNoticeIds: ["a"], upcomingReleaseIds: ["launch"] })).toBe(5);
+  });
+
+  it("lets a notice lead only when no patch is new", () => {
+    const pack = buildFactPack({ now: PACK_NOW, notices: [notice({})], patches: { available: true, editions: [patch("2.03.03", "2026-10-25T09:00:00Z")] }, history: history(), board: { available: false }, previous: null });
+    expect(editionLead(pack)).toBe("patch");
+    expect(editionLead({ ...pack, deltas: { ...pack.deltas, newPatchVersions: [] } })).toBe("notice");
+    expect(editionLead({ facts: pack.facts.filter((fact) => !fact.id.startsWith("N")), deltas: { ...pack.deltas, newPatchVersions: [] } })).toBe("patch");
   });
 });
