@@ -178,8 +178,10 @@ describe("Hub checks on listed fixes", () => {
     const pack = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX, "Fixed horses stuck in fences"]),
       board: board([issue({ approvedReports: 2, officialFixListed: true, stillHappening: true, afterFix: after({ readout: "still_happening", stillCheckins: 3, stillNetworks: 2, reportsSince: 1 }) })]) });
     const fact = (id: string) => pack.facts.find((item) => item.id === id);
-    expect(fact("F1")).toMatchObject({ check: "Still reported", text: `Patch 2.03.02 lists this fix: "${MAP_FIX}" The Hub pairs it with the known issue "Crash when opening the map". Players still report it on the Hub after the fix.` });
-    expect(fact("F2")).toMatchObject({ check: "No Hub signal yet", text: 'Patch 2.03.02 lists this fix: "Fixed horses stuck in fences". No known issue on the Hub is paired with it. The Hub has no signal on it yet.' });
+    expect(fact("F1")).toMatchObject({ check: "Still reported", text: `Patch 2.03.02 lists this fix: "${MAP_FIX}" The Hub links it to the known issue "Crash when opening the map". Players still report it on the Hub after the fix.` });
+    expect(fact("F2")).toMatchObject({ check: "No Hub signal yet", text: 'Patch 2.03.02 lists this fix: "Fixed horses stuck in fences". Nothing on the Hub yet.' });
+    // One thing per fix line: an unlinked fix never pairs "nothing on the Hub" with "no linked issue".
+    expect(pack.facts.map((item) => item.text).join(" ")).not.toMatch(/paired|no known issue/i);
     // A fix line carries no evidence label: the writer once explained that label to readers.
     expect(fact("F1")).not.toHaveProperty("label");
     expect(fact("C1")).toMatchObject({ check: "Still reported", status: "Still happening" });
@@ -193,7 +195,7 @@ describe("Hub checks on listed fixes", () => {
     const quiet = issue({ id: "00000000-0000-4000-8000-0000000000bb", title: "Map freeze", officialFixListed: true, afterFix: after({ fixes: [`  ${MAP_FIX.replace(" ", " ")}`] }) });
     const fix = buildFactPack({ now: PACK_NOW, history: history(), previous: null, patches: patches([MAP_FIX]), board: board([fixed, quiet]) }).facts.find((item) => item.id === "F1");
     expect(fix?.check).toBe("No Hub signal yet");
-    expect(fix?.text).toContain('The Hub pairs it with the known issues "Map crash", "Map freeze".');
+    expect(fix?.text).toContain('The Hub links it to the known issues "Map crash", "Map freeze".');
   });
 
   it("checks no fix against an unread board or a board on another patch", () => {
