@@ -183,6 +183,17 @@ describe("the Column card", () => {
       expect(draftView(live, up)).toContain('href="/editorials/approved-draft"');
       expect(draftView(row({}), up)).not.toContain("View on the site");
     });
+
+    it("keeps Unpublish on a live edition's own page, even when the card no longer lists it", () => {
+      // A published draft keeps its old created_at, so it can sit below the card's newest five.
+      const live = row({ id: "e0000000-0000-4000-8000-0000000000aa", status: "published", slug: "approved-draft", publish_at: "2026-10-26T14:30:00Z" });
+      const page = draftView(live, up, []);
+      expect(page).toContain(">Unpublish</button>");
+      expect(page).toContain('name="id" value="e0000000-0000-4000-8000-0000000000aa"');
+      expect(draftView(row({ publish_at: null }), up, [])).toContain(">Veto</button>");
+      expect(draftView(testDraft, up, [])).not.toMatch(/>(Veto|Unpublish)<\/button>/);
+      expect(draftView(row({ status: "vetoed", vetoed_at: "2026-10-26T14:40:00Z" }), up, [])).not.toMatch(/>(Veto|Unpublish)<\/button>/);
+    });
   });
 
   it("keeps an off-list model or provider selected as Keep, so saving the schedule never unlocks it", () => {

@@ -127,6 +127,8 @@ function EditionDraft({ row, now, notes, publishSlot, writesDisabled }: { row: A
     <div className="workspace-actions">
       <Link className="workspace-button" href="/operator?view=column">Back to the column</Link>
       {isVisible(row, now) && row.slug ? <Link className="workspace-button" href={`/editorials/${row.slug}`}>View on the site</Link> : null}
+      {/* The card lists only the newest editions, so each edition's own page keeps its off switch. */}
+      {row.is_test ? null : <VetoButton row={row} now={now} disabled={writesDisabled} />}
     </div>
   </section>;
 }
