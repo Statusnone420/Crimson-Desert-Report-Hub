@@ -21,6 +21,15 @@ test("check-in choices keep visible borders and 44px targets", async ({ page }) 
   }
 });
 
+test("the check-in block ends at its buttons, with no empty band below them", async ({ page }) => {
+  const card = await checkInCard(page);
+  const band = await card.locator(".confirmation-checkin").evaluate((checkin) => {
+    const buttons = checkin.querySelectorAll(".confirmation-checkin__row .tap-btn");
+    return checkin.getBoundingClientRect().bottom - buttons[buttons.length - 1].getBoundingClientRect().bottom;
+  });
+  expect(Math.abs(band)).toBeLessThan(1);
+});
+
 test("check-in picker focuses the platform and cancel or Escape does not post", async ({ page }) => {
   await installTurnstile(page);
   let posts = 0;

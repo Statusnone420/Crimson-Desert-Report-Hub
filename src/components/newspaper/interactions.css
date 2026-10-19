@@ -16,7 +16,6 @@
 }
 
 .newspaper .confirmation-checkin {
-  flex: 1 1 360px;
   min-width: 0;
 }
 .newspaper .confirmation-checkin__question {
@@ -230,7 +229,6 @@
   .newspaper .report-dispatch .dispatch-heading { grid-template-columns: minmax(0,1fr) 160px; align-items: start; gap: 24px; margin: 20px 0; }
 }
 @media (max-width: 650px) {
-  .newspaper .confirmation-checkin { flex-basis: 100%; }
   .newspaper .confirmation-checkin__question { font-size: 24px; }
   .newspaper .confirmation-checkin__row { grid-template-columns: 1fr; }
   .newspaper .confirmation-checkin__row .tap-btn { width: 100%; }

@@ -38,6 +38,7 @@ export default async function IssuesPage() {
       title: cluster.title,
       category: cluster.category,
       categoryLabel: CATEGORY_LABELS[cluster.category as keyof typeof CATEGORY_LABELS] ?? cluster.category,
+      createdAt: cluster.created_at ?? null,
       description: displayDescription(cluster.title, cluster.description),
       status: cluster.readout.label,
       tone: cluster.readout.tone,

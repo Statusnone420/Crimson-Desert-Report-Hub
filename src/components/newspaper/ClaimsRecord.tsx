@@ -10,7 +10,7 @@ export type ClaimGroup = { key: string; label: string; visual: string; claims: P
 const SECTION_ART: Record<string, { icon: string; image: string; position: string; alt: string }> = {
   content: { icon: "scroll-text", image: "/official/content.jpg", position: "40% center", alt: "An adventurer overlooking a riverside settlement" },
   combat: { icon: "swords", image: "/official/combat.jpg", position: "46% center", alt: "Two armored fighters clashing in a stone courtyard" },
-  interface: { icon: "panels-top-left", image: "/official/interface.png", position: "48% center", alt: "An adventurer facing a stone mechanism" },
+  interface: { icon: "panels-top-left", image: "/official/interface.jpg", position: "48% center", alt: "An adventurer facing a stone mechanism" },
   graphics: { icon: "aperture", image: "/official/graphics.jpg", position: "center", alt: "A sunlit valley with distant mountains" },
   localization: { icon: "languages", image: "/official/localization.jpg", position: "40% center", alt: "A group of armed travelers gathered by torchlight" },
   other: { icon: "wrench", image: "/official/other.jpg", position: "48% center", alt: "A Crimson Desert environment" },
