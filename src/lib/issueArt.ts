@@ -23,8 +23,8 @@ export const ISSUE_ART: Record<string, readonly IssueArt[]> = {
   other: [topicArt("forest-stream"), topicArt("red-canyon"), topicArt("flower-field")],
 };
 
-// FNV-1a: a small, stable string hash, so a topic gets the same image on every
-// visit and on the server and client alike.
+// FNV-1a: a small, stable string hash, so a topic's first choice is the same on
+// every visit, on the server and in the browser.
 function hash(text: string) {
   let value = 0x811c9dc5;
   for (let index = 0; index < text.length; index += 1) {
@@ -35,30 +35,35 @@ function hash(text: string) {
 }
 
 /**
- * Picks an image for every topic. A topic starts at the slot its id hashes to
- * in its category's set and takes the next free one if that is taken, so two
- * topics in one category never share an image. A category with more topics
- * than images borrows images that no topic on the board uses; an image repeats
- * only once all of them are in use, and never within a category while that
- * category has an image left.
+ * Picks an image for every topic. Each topic starts at the slot its id hashes
+ * to in its category's set. Older topics choose first, and a topic whose slot
+ * is taken moves to the next free one. So two topics in one category never
+ * share an image, and a new topic never changes the image of a topic already
+ * on the board. A topic's image changes only when an older topic that wanted
+ * the same slot leaves the board; keeping it then would need a stored image per
+ * topic. A category with more topics than images borrows images that no topic
+ * on the board uses; an image repeats only once all of them are in use, and
+ * never within a category while that category has an image left.
  */
-export function assignIssueArt(topics: readonly { id: string; category: string }[], pools: Record<string, readonly IssueArt[]> = ISSUE_ART) {
+export function assignIssueArt(topics: readonly { id: string; category: string; createdAt?: string | null }[], pools: Record<string, readonly IssueArt[]> = ISSUE_ART) {
   const assigned = new Map<string, IssueArt>();
   const everyImage = [...new Set(Object.values(pools).flat())];
   // A category without a set shares the "other" set, and the rule against repeats with it.
-  const groups = new Map<string, Set<string>>();
-  for (const { id, category } of topics) {
+  const groups = new Map<string, Map<string, number>>();
+  for (const { id, category, createdAt } of topics) {
     const key = Object.prototype.hasOwnProperty.call(pools, category) ? category : "other";
-    groups.set(key, (groups.get(key) ?? new Set()).add(id));
+    const created = createdAt ? Date.parse(createdAt) : Number.NaN;
+    groups.set(key, (groups.get(key) ?? new Map()).set(id, Number.isNaN(created) ? Number.NEGATIVE_INFINITY : created));
   }
   const takenIn = new Map<string, Set<IssueArt>>();
   const overflow: { id: string; key: string; fallback: IssueArt }[] = [];
-  // Sorting makes the result independent of the order the board lists topics in.
+  // Oldest first, then by id, whatever order the board lists topics in.
   for (const key of [...groups.keys()].sort()) {
     const own = pools[key] ?? [];
     const taken = new Set<IssueArt>();
     takenIn.set(key, taken);
-    for (const id of [...groups.get(key)!].sort()) {
+    const members = [...groups.get(key)!].sort(([leftId, left], [rightId, right]) => left - right || (leftId < rightId ? -1 : leftId > rightId ? 1 : 0));
+    for (const [id] of members) {
       if (own.length === 0) continue;
       const start = hash(id) % own.length;
       const preferred = own.map((_, offset) => own[(start + offset) % own.length]);

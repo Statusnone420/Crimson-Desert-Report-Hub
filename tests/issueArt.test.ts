@@ -40,7 +40,7 @@ const pools = {
   performance: [image("performance-a"), image("performance-b")],
   other: [image("other-a")],
 };
-const topic = (id: string, category: string) => ({ id, category });
+const topic = (id: string, category: string, createdAt?: string) => ({ id, category, createdAt });
 
 describe("assignIssueArt", () => {
   it("gives a topic the same image on every visit, whatever order the board lists topics in", () => {
@@ -48,6 +48,18 @@ describe("assignIssueArt", () => {
     const first = assignIssueArt(topics, pools);
     const reversed = assignIssueArt([...topics].reverse(), pools);
     for (const { id } of topics) expect(reversed.get(id)).toBe(first.get(id));
+  });
+
+  it("never changes the image of a topic already on the board when a newer topic joins", () => {
+    const alone = (id: string) => assignIssueArt([topic(id, "crash_startup")], pools).get(id);
+    // A newer topic whose id sorts first and whose first choice is the older topic's image.
+    const newer = Array.from({ length: 100 }, (_, index) => `a-newer-${index}`).find((id) => alone(id) === alone("m-older"))!;
+    const assigned = assignIssueArt([
+      topic(newer, "crash_startup", "2026-10-02T00:00:00.000Z"),
+      topic("m-older", "crash_startup", "2026-10-01T00:00:00.000Z"),
+    ], pools);
+    expect(assigned.get("m-older")).toBe(alone("m-older"));
+    expect(assigned.get(newer)).not.toBe(assigned.get("m-older"));
   });
 
   it("never gives two topics in one category the same image while the category has room", () => {
