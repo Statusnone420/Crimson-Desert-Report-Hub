@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeBurst, dueSlots, isoWeek, nextSlot } from "@/lib/editorials/cadence";
+import { activeBurst, currentWeekSlot, dueSlots, isoWeek, nextSlot } from "@/lib/editorials/cadence";
 import { meetsThreshold, relevanceScore } from "@/lib/editorials/relevance";
 import { DEFAULT_COLUMN_SETTINGS, EXPANSION_LAUNCH_BURST, normalizeColumnSettings, type ColumnSettings } from "@/lib/editorials/settings";
 import type { FactPackDeltas } from "@/lib/editorials/factPack";
@@ -25,6 +25,19 @@ describe("slot keys", () => {
     expect(dueSlot(thrice, at("2026-10-28T15:00:00Z"))?.key).toBe("2026-W44:wed");
     expect(dueSlot(thrice, at("2026-10-30T19:59:00Z"))?.key).toBe("2026-W44:fri");
     expect(dueSlot(thrice, at("2026-10-27T14:00:00Z"))).toBeNull();
+  });
+
+  it("names this week's latest started slot, the one a test draft can be published in place of", () => {
+    // Monday's 14:00 slot, all week long, and nothing before it starts.
+    expect(currentWeekSlot(settings({}), at("2026-10-26T13:59:00Z"))).toBeNull();
+    expect(currentWeekSlot(settings({}), at("2026-10-26T14:00:00Z"))?.key).toBe("2026-W44:mon");
+    expect(currentWeekSlot(settings({}), at("2026-11-01T23:59:00Z"))?.key).toBe("2026-W44:mon");
+    // A new ISO week starts over: nothing until its own first slot.
+    expect(currentWeekSlot(settings({}), at("2026-11-02T09:00:00Z"))).toBeNull();
+    // Twice a week: the latest one that has started.
+    const twice = settings({ mode: "2x", days: ["mon", "thu"] });
+    expect(currentWeekSlot(twice, at("2026-10-28T09:00:00Z"))?.key).toBe("2026-W44:mon");
+    expect(currentWeekSlot(twice, at("2026-10-29T14:30:00Z"))?.key).toBe("2026-W44:thu");
   });
 
   it("keeps written slots and new days apart when the days change mid-week", () => {

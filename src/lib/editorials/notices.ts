@@ -25,6 +25,14 @@ export const COLUMN_NOTICES = {
   test_skipped: "The test draft was skipped. The reason is in the test draft list.",
   test_cap: "Ten test drafts already ran today (UTC). Try again tomorrow.",
   test_invalid: "Pick a writer and an effort. Nothing ran.",
+  draft_published: "Test draft published as this week's edition. It's on the site and in the feeds now; Unpublish takes it down.",
+  publish_confirm: "Tick the box to confirm you want this draft live. Nothing changed.",
+  publish_no_slot: "This week's slot hasn't started yet, so there's nothing to publish it in place of. Nothing changed.",
+  publish_slot_changed: "This week's slot changed since the page loaded. Reload and try again. Nothing changed.",
+  publish_unavailable: "Publishing a test draft needs a database update that hasn't landed yet. Nothing changed.",
+  publish_not_promotable: "Only a test draft that passed its fact check can be published. Nothing changed.",
+  publish_not_approved: "Give the test draft a thumbs up first. Nothing changed.",
+  publish_slot_taken: "This week's slot already has an edition. Nothing changed.",
 } as const;
 
 export type ColumnNotice = keyof typeof COLUMN_NOTICES;
