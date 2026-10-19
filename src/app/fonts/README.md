@@ -12,8 +12,11 @@ a fresh development or production build does not download fonts from Google.
 
 The font bytes, weight ranges, styles, and CSS variables stay the same. Each
 face lists Latin last so it has precedence when character maps overlap. The
-other files retain the existing extended character coverage. Next.js preloads
-the bundled local files; all 16 files total 153,508 bytes.
+other files retain the existing extended character coverage. All 16 files
+total 153,508 bytes. Next.js preloads only the 5 Latin files (80,740 bytes);
+`layout.tsx` loads the other subsets in a separate call per family, with
+`preload: false`, and the browser fetches them only when a page uses a
+character the Latin file lacks.
 
 The upstream projects are [Instrument Sans](https://github.com/Instrument/instrument-sans),
 [Instrument Serif](https://github.com/Instrument/instrument-serif), and
