@@ -5,16 +5,19 @@ import { readColumnGuides } from "@/lib/editorials/guides.server";
 import {
   CHECKER_INSTRUCTION,
   checkerRequest,
+  factPackMessage,
   NOTES_INTRO,
   OPENERS_INTRO,
   styleBlock,
   trimmedParts,
   VOICE_INTRO,
   voiceBlock,
+  WRITER_INSTRUCTION,
   writerRequest,
   type WriterPromptParts,
 } from "@/lib/editorials/prompts";
 import { numberSentences } from "@/lib/editorials/validate";
+import { samplePack } from "./columnPackFixtures";
 import { pipelinePack, writerOutput } from "./columnPipelineFixtures";
 
 const guides = readColumnGuides();
@@ -32,16 +35,18 @@ describe("the column's guides", () => {
     const file = (name: string) => readFileSync(path.join(directory, name), "utf8").replace(/\r\n/g, "\n");
     expect(guides.style).toBe(file("hubDeskStyle.md"));
     expect(guides.slop).toBe(file("avoidAiSlop.md"));
-    expect(guides.style.startsWith("# The Hub Desk: voice, style guide and comedy guardrails (v1)\n")).toBe(true);
+    expect(guides.style.startsWith("# State of the Game, by Statusnone: voice, style guide and guardrails (v3, 2026-10-19)\n")).toBe(true);
     expect(guides.slop.startsWith("## Pre-publish checklist\n")).toBe(true);
     expect(guides.slop.match(/^\d+\. /gm)).toHaveLength(15);
   });
 
-  it("has Statusnone write in first person, with cursing allowed and the old persona gone", () => {
-    expect(guides.style).toContain("Statusnone writes this column.");
-    expect(guides.style).toContain('- Byline is exactly "Statusnone."');
-    expect(guides.style).toContain("- No sexual content, no slurs, ever.\n");
-    expect(guides.style).not.toMatch(/\bthe Desk\b|profanity|first person singular|weather bureau/i);
+  it("makes the column a patch-and-evidence brief by Statusnone, with the forecast and outlook gone", () => {
+    expect(guides.style).toContain('Statusnone, in first person ("I" / "we"). No persona, mascot, or "the Desk."');
+    expect(guides.style).toContain('Byline "State of the Game, by Statusnone" only (pseudonym, never legal name).');
+    expect(guides.style).toContain("Never: named people, identity/platform digs, drama, politics, slurs, sexual content,");
+    for (const section of ["What the notes claim", "What we can corroborate", "What players are still hitting"]) expect(guides.style).toContain(`   - **${section}:**`);
+    expect(guides.style).toContain('5. **No Outlook / "play tonight" section.**');
+    expect(guides.style).not.toMatch(/\*\*(The forecast|The patch desk|Field reports|Outlook):\*\*/);
   });
 });
 
@@ -86,6 +91,28 @@ describe("the writer and checker prompts", () => {
     expect(CHECKER_INSTRUCTION).toContain("any slur, sexual term or reference to real-world politics");
     expect(CHECKER_INSTRUCTION).toContain("Cursing on its own is allowed; don't list it.");
     expect(CHECKER_INSTRUCTION).not.toMatch(/Pywel Desk|Hub Desk/);
+  });
+
+  it("asks the writer for the v3 sections, with no forecast, outlook or empty-board line", () => {
+    for (const subhead of ["What the notes claim", "What we can corroborate", "What players are still hitting", "The numbers"]) expect(WRITER_INSTRUCTION).toContain(`- "${subhead}": `);
+    expect(WRITER_INSTRUCTION).toContain('include "What the notes claim" or "What we can corroborate"');
+    expect(WRITER_INSTRUCTION).toContain("Never write a stronger check than the fact carries. A fix with no Hub check gets no corroboration line.");
+    expect(WRITER_INSTRUCTION).toContain("Never write about an empty issue board, zero check-ins or how many people use the Hub.");
+    expect(WRITER_INSTRUCTION).toContain("Never tell readers whether to play, and write no outlook section.");
+    expect(WRITER_INSTRUCTION).toContain("First person is for your reactions to the facts. Never invent things you did, saw or played.");
+    expect(WRITER_INSTRUCTION).not.toMatch(/The forecast|The patch desk|exaggerate/i);
+  });
+
+  it("has the checker hold corroboration to the fact's Hub check, and flag play advice and empty-board lines", () => {
+    expect(CHECKER_INSTRUCTION).toContain("A claim about what the Hub can corroborate for a listed fix is backed only when a fact it cites carries that same Hub check.");
+    expect(CHECKER_INSTRUCTION).toContain("Also list any phrase that tells readers whether to play, or that points out an empty issue board, zero check-ins or how many people use the Hub.");
+  });
+
+  it("passes each fact's labels and Hub check to the models, never its URL", () => {
+    const facts: { id: string; label?: string; check?: string }[] = JSON.parse(factPackMessage(samplePack())).facts;
+    expect(facts.find((fact) => fact.id === "F1")).toMatchObject({ label: "Confirmed", check: "No Hub signal yet" });
+    expect(facts.find((fact) => fact.id === "S1")).not.toHaveProperty("check");
+    expect(factPackMessage(samplePack())).not.toContain("https://");
   });
 
   it("trims the oldest notes and openers first, then the rotating examples", () => {

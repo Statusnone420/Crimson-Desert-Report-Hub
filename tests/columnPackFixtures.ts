@@ -36,7 +36,7 @@ export const patch = (version: string, publishedAt: string, fixes: string[] = ["
 export function issue(overrides: Partial<IssueAggregate>): IssueAggregate {
   return {
     id: "00000000-0000-4000-8000-0000000000aa", title: "Crash when opening the map", approvedReports: 0, checkins: 0, checkinNetworks: 0,
-    publicPosts: 0, postsBySite: {}, officialFixListed: false, stillHappening: false, strength: 1, ...overrides,
+    publicPosts: 0, postsBySite: {}, officialFixListed: false, stillHappening: false, strength: 1, afterFix: null, ...overrides,
   };
 }
 
