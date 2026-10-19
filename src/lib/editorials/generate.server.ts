@@ -82,8 +82,12 @@ export async function generateEdition(input: GenerationInput): Promise<Generatio
   }
   if (!sized) return fail("prompt_too_large");
 
+  // Token counting takes time too, so each paid call's timeout is measured again just
+  // before it starts. Out of time here means no paid call at all.
+  const writerTimeoutNow = Math.min(WRITER_TIMEOUT_MAX_MS, input.deadlineMs - clock() - CHECKER_RESERVE_MS);
+  if (writerTimeoutNow < MIN_WRITER_MS) return fail("no_time");
   const writer = await meteredCall({
-    client: input.client, operation: input.test ? "test_writer" : "writer", request: sized.request,
+    client: input.client, operation: input.test ? "test_writer" : "writer", request: { ...sized.request, timeoutMs: writerTimeoutNow },
     promptTokens: sized.tokens, target: input.target, monthlyCapSetting: input.monthlyCapSetting,
   });
   if (writer.kind !== "ok") return fail(callFailure(writer, "writer_failed"), writer.kind === "blocked" ? writer.reason : undefined);
@@ -97,8 +101,10 @@ export async function generateEdition(input: GenerationInput): Promise<Generatio
   const request = checkerRequest({ guides: input.guides, model: input.checkerModel, pack: input.pack, units, timeoutMs: checkerTimeout });
   const checkerTokens = await promptSize(request, input.target);
   if (checkerTokens > PROMPT_TOKEN_LIMIT) return fail("prompt_too_large");
+  const checkerTimeoutNow = Math.min(CHECKER_TIMEOUT_MAX_MS, input.deadlineMs - clock() - 5_000);
+  if (checkerTimeoutNow < MIN_CHECKER_MS) return fail("check_failed", "checker_out_of_time");
   const checker = await meteredCall({
-    client: input.client, operation: input.test ? "test_checker" : "checker", request,
+    client: input.client, operation: input.test ? "test_checker" : "checker", request: { ...request, timeoutMs: checkerTimeoutNow },
     promptTokens: checkerTokens, target: input.target, monthlyCapSetting: input.monthlyCapSetting,
   });
   report.checker = { model: input.checkerModel, costUsd: checker.kind === "ok" ? checker.costUsd : null };

@@ -149,6 +149,26 @@ describe("one wake of the column", () => {
     expect(provider.impl).not.toHaveBeenCalled();
   });
 
+  it("measures each call's time again after token counting, so a slow count never runs past the deadline", async () => {
+    // A slow count before the writer: no paid call starts, and the slot records no_time.
+    let clockMs = RUN_NOW.getTime();
+    const provider = providerFetch();
+    const slowCounts = (delays: number[]): typeof fetch => async (input, init) => {
+      if (String(input).endsWith("/count_tokens")) clockMs += delays.shift() ?? 0;
+      return provider.impl(input, init);
+    };
+    const run = (fetchImpl: typeof fetch) => runColumn({ now: RUN_NOW, deadlineMs: RUN_NOW.getTime() + 280_000, client: db.client, guides: GUIDES, clock: () => clockMs, fetchImpl });
+    expect(await run(slowCounts([180_000]))).toEqual({ status: "skipped", slot: "2026-W44:mon", reason: "no_time" });
+    expect(provider.messageCalls()).toEqual([]);
+    expect(db.tables.editorial_ai_spend).toEqual([]);
+
+    // A slow count before the checker: the writer ran, and the checker never starts.
+    db = createFakeDb({}, () => RUN_NOW);
+    clockMs = RUN_NOW.getTime();
+    expect(await run(slowCounts([0, 265_000]))).toEqual({ status: "skipped", slot: "2026-W44:mon", reason: "check_failed" });
+    expect(provider.messageCalls().map((call) => call.body.model)).toEqual(["claude-opus-5-5"]);
+  });
+
   it("does nothing outside a slot, on a slot already written, or on a preview deployment", async () => {
     const provider = providerFetch();
     expect(await run(provider.impl, { now: new Date("2026-10-27T14:05:00Z") })).toEqual({ status: "idle", reason: "no_slot" });

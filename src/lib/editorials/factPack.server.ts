@@ -30,11 +30,12 @@ type IssuesData = Awaited<ReturnType<typeof getIssuesData>>;
 
 /**
  * The issue board's public aggregates: counts, labels and titles. No report text, no URLs,
- * no hashes. A failed check-in read makes the board unavailable, like a failed board read:
- * zero check-ins would be a made-up fact, and the labels and relevance rest on them.
+ * no hashes. A failed check-in or official-claim read makes the board unavailable, like a
+ * failed board read: zero check-ins or "no listed fix" would be made-up facts, and the
+ * labels and relevance rest on them.
  */
 export function issueBoard(data: IssuesData): IssueBoard {
-  if (data.boardReadFailed || data.currentPatch.source === "fallback") return { available: false };
+  if (data.boardReadFailed || data.currentPatch.source === "fallback" || data.officialClaimsUnavailable) return { available: false };
   if (data.checkinsAvailable === false || data.clusters.some((cluster) => cluster.checkinsAvailable === false)) return { available: false };
   const issues: IssueAggregate[] = data.clusters.filter(needsFullIssueCard).map((cluster) => {
     const postsBySite: Record<string, number> = {};
@@ -51,7 +52,7 @@ export function issueBoard(data: IssuesData): IssueBoard {
       checkinNetworks: cluster.confirmations.affectedNetworks,
       publicPosts: posts.length,
       postsBySite,
-      officialFixListed: !data.officialClaimsUnavailable && (data.officialClaimsByCluster[cluster.id]?.length ?? 0) > 0,
+      officialFixListed: (data.officialClaimsByCluster[cluster.id]?.length ?? 0) > 0,
       stillHappening: cluster.readout.state === "still_happening",
       strength: cluster.strengthScore,
     };
