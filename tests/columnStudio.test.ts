@@ -9,7 +9,7 @@ import { buildPreviewAtomXml } from "@/lib/editorials/previewFeed";
 import { deleteVoiceExample, listVoiceExamples, moveVoiceExample, readColumnStudio, saveVoiceExample } from "@/lib/editorials/feedback.server";
 import { styleNoteFromForm, voiceExampleFromForm } from "@/lib/editorials/feedbackForm";
 import { runColumn } from "@/lib/editorials/run.server";
-import { approvedEditions } from "@/lib/editorials/runStore.server";
+import { approvedEditions, latestFactPack } from "@/lib/editorials/runStore.server";
 import { readPreviewEditions, readVisibleEditions } from "@/lib/editorials/store.server";
 import { generateTestDraft } from "@/lib/editorials/testDraft.server";
 import { createFakeDb, type FakeDb } from "./columnFakeDb";
@@ -130,6 +130,17 @@ describe("A/B test drafts", () => {
     const preview = buildPreviewAtomXml(await readPreviewEditions(db.client, RUN_NOW), RUN_NOW);
     expect(preview).toContain("TEST · Sonnet 5.5 · Clear skies over the inventory screen");
     expect(preview).toContain("TEST · Fable 5.1 · Clear skies over the inventory screen");
+  });
+
+  it("use the freshest stored pack by when it was built, even when an older one was saved last", async () => {
+    const newer = { ...pipelinePack(), builtAt: "2026-10-26T13:00:00.000Z" };
+    const older = { ...pipelinePack(), builtAt: "2026-10-26T10:00:00.000Z" };
+    db.tables.editorials.push(
+      { id: "real", slot_key: "2026-W44:mon", status: "skipped", skip_reason: "below_threshold", is_test: false, fact_pack: newer, created_at: "2026-10-26T13:00:00Z", updated_at: "2026-10-26T13:00:00Z" },
+      { id: "late", slot_key: "test:2026-10-26", status: "skipped", skip_reason: "writer_failed", is_test: true, fact_pack: older, created_at: "2026-10-26T13:05:00Z", updated_at: "2026-10-26T13:05:00Z" },
+      { id: "undated", slot_key: "test:2026-10-26", status: "skipped", skip_reason: "writer_failed", is_test: true, fact_pack: { version: 1, facts: [] }, created_at: "2026-10-26T13:10:00Z", updated_at: "2026-10-26T13:10:00Z" },
+    );
+    expect((await latestFactPack(db.client))?.builtAt).toBe(newer.builtAt);
   });
 
   it("build a pack without saving an edition when none is stored", async () => {

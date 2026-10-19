@@ -119,10 +119,16 @@ export async function approvedEditions(client: SupabaseClient): Promise<(Approve
   return found;
 }
 
-/** The newest stored fact pack, real or test, so every test draft sees the same facts. */
+/**
+ * The freshest stored fact pack, real or test, so every test draft sees the same facts.
+ * Ordered by when each pack was built, not when its row was written: a slow test draft
+ * that saves an older pack after a newer one never brings the older pack back.
+ */
 export async function latestFactPack(client: SupabaseClient): Promise<FactPack | null> {
   const { data, error } = await client.from("editorials").select("fact_pack")
-    .not("fact_pack", "is", null).order("created_at", { ascending: false }).limit(1);
+    .not("fact_pack", "is", null)
+    .order("fact_pack->>builtAt", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false }).limit(1);
   check(error, "Fact pack read");
   const pack = (data?.[0] as { fact_pack?: FactPack } | undefined)?.fact_pack;
   return pack && pack.version === 1 && Array.isArray(pack.facts) ? pack : null;

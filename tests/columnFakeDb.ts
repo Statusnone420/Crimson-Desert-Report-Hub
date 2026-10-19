@@ -26,6 +26,14 @@ function compare(value: unknown, other: unknown): number {
   return String(value ?? "").localeCompare(String(other ?? ""));
 }
 
+/** A column's value, or a key inside a JSON column for PostgREST's `column->>key`. */
+function field(row: Row, column: string): unknown {
+  const [base, key] = column.split("->>");
+  if (key === undefined) return row[column];
+  const value = row[base];
+  return value && typeof value === "object" ? (value as Record<string, unknown>)[key] ?? null : null;
+}
+
 export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () => Date = () => new Date()): FakeDb {
   const tables: Record<string, Row[]> = {
     automation_settings: [{ key: "scanner", value: { paused: false }, updated_at: "2026-10-01T00:00:00Z" }],
@@ -50,7 +58,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
     let mode: "select" | "insert" | "update" | "delete" = "select";
     let payload: Row[] = [];
     let patch: Row = {};
-    const orders: { column: string; ascending: boolean }[] = [];
+    const orders: { column: string; ascending: boolean; nullsFirst?: boolean }[] = [];
     let limit: number | null = null;
     let offset = 0;
     let returning = false;
@@ -84,7 +92,14 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
         for (const row of matched) Object.assign(row, patch);
         return { data: returning ? matched.map((row) => ({ ...row })) : null, error: null };
       }
-      for (const order of [...orders].reverse()) matched = [...matched].sort((a, b) => compare(a[order.column], b[order.column]) * (order.ascending ? 1 : -1));
+      for (const order of [...orders].reverse()) {
+        matched = [...matched].sort((a, b) => {
+          const left = field(a, order.column);
+          const right = field(b, order.column);
+          if (order.nullsFirst !== undefined && (left == null) !== (right == null)) return (left == null) === order.nullsFirst ? -1 : 1;
+          return compare(left, right) * (order.ascending ? 1 : -1);
+        });
+      }
       if (limit !== null || offset) matched = matched.slice(offset, limit === null ? undefined : offset + limit);
       return { data: matched.map((row) => ({ ...row })), error: null };
     }
@@ -101,7 +116,7 @@ export function createFakeDb(seed: Partial<Record<string, Row[]>> = {}, now: () 
       not: (column: string, operator: string, value: null) => { if (operator === "is" && value === null) filters.push((row) => row[column] != null); return query; },
       gte: (column: string, value: string) => { filters.push((row) => row[column] != null && Date.parse(String(row[column])) >= Date.parse(value)); return query; },
       lte: (column: string, value: string) => { filters.push((row) => row[column] != null && Date.parse(String(row[column])) <= Date.parse(value)); return query; },
-      order: (column: string, options?: { ascending?: boolean }) => { orders.push({ column, ascending: options?.ascending ?? true }); return query; },
+      order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => { orders.push({ column, ascending: options?.ascending ?? true, nullsFirst: options?.nullsFirst }); return query; },
       limit: (count: number) => { limit = count; return query; },
       range: (from: number, to: number) => { offset = from; limit = to - from + 1; return query; },
       then: (resolve: (value: Result) => unknown, reject?: (reason: unknown) => unknown) => Promise.resolve().then(run).then(resolve, reject),
