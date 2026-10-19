@@ -1,20 +1,18 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { columnMonthlyCapUsd, columnRequestCapUsd } from "@/lib/editorials/budget";
+import { budgetCoversBothCalls, TYPICAL_PROMPT_TOKENS } from "@/lib/editorials/budgetGate.server";
 import { dueSlots, LAST_WAKE_AFTER_MS, type ColumnSlot } from "@/lib/editorials/cadence";
-import { providerKey, resolveCheckerModel, resolveProvider, resolveWriterModel, writerEffort, CHECKER_MAX_TOKENS, WRITER_MAX_TOKENS } from "@/lib/editorials/config";
+import { providerKey, resolveCheckerModel, resolveProvider, resolveWriterModel, writerEffort } from "@/lib/editorials/config";
 import { sectionsToMarkdown } from "@/lib/editorials/content";
 import { readFactPack } from "@/lib/editorials/factPack.server";
 import { generateEdition, MIN_GENERATION_MS, slugify } from "@/lib/editorials/generate.server";
 import { readColumnGuides } from "@/lib/editorials/guides.server";
-import type { WriterModel } from "@/lib/editorials/models";
 import type { ColumnGuides } from "@/lib/editorials/prompts";
 import { providerCarries, type ProviderTarget } from "@/lib/editorials/provider.server";
-import { worstCaseCost } from "@/lib/editorials/pricing";
 import { meetsThreshold, relevanceScore } from "@/lib/editorials/relevance";
 import {
-  approvedEditions, baselineMetrics, claimSlot, finishClaimAsSkip, lastEditionAt, monthSpendUsd, recentOpeners, recordSkip,
+  approvedEditions, baselineMetrics, claimSlot, finishClaimAsSkip, lastEditionAt, recentOpeners, recordSkip,
   saveEdition, slotTaken, styleNotes, voiceExamples,
 } from "@/lib/editorials/runStore.server";
 import { ColumnNotSetUpError, readColumnSettings } from "@/lib/editorials/settings.server";
@@ -25,20 +23,6 @@ import { isVercelPreview } from "@/lib/previewGuard";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 
 const HOUR_MS = 3_600_000;
-/** A typical prompt for the budget pre-check; the real reservation uses the measured size. */
-const PRECHECK_PROMPT_TOKENS = 30_000;
-
-/**
- * The budget pre-check, before any paid call: the worst case for the writer and the
- * checker together must fit under the request and monthly caps, so neither a run nor a
- * test draft pays for a writer whose checker the budget can't cover.
- */
-export async function budgetCoversBothCalls(client: SupabaseClient, now: Date, writerModel: WriterModel, monthlyCapSetting: number | null): Promise<boolean> {
-  const writerEstimate = worstCaseCost(writerModel, PRECHECK_PROMPT_TOKENS, WRITER_MAX_TOKENS);
-  const checkerEstimate = worstCaseCost("claude-haiku-5-5", PRECHECK_PROMPT_TOKENS, CHECKER_MAX_TOKENS);
-  const spent = await monthSpendUsd(client, now);
-  return writerEstimate <= columnRequestCapUsd() && spent + writerEstimate + checkerEstimate <= columnMonthlyCapUsd(monthlyCapSetting);
-}
 
 export type ColumnRunOutcome =
   | { status: "idle"; reason: "preview" | "no_database" | "no_slot" | "slot_taken" | "deferred" }
@@ -103,8 +87,14 @@ export async function runColumn(input: ColumnRunInput): Promise<ColumnRunOutcome
 
   const writerChoice = resolveWriterModel({ nextEditionModel: settings.nextEditionModel, burstModel: slot.burst?.model ?? null, defaultWriterModel: settings.defaultWriterModel });
   const checkerChoice = resolveCheckerModel();
-  const priceModel = writerChoice.ok ? writerChoice.model : "claude-fable-5-1";
-  if (!(await budgetCoversBothCalls(client, now, priceModel, settings.monthlyCapUsd))) return skip("budget");
+  // An early check with a typical prompt; generation checks again with the measured one.
+  const budgetOk = await budgetCoversBothCalls(client, now, {
+    writerModel: writerChoice.ok ? writerChoice.model : "claude-fable-5-1",
+    checkerModel: checkerChoice.ok ? checkerChoice.model : "claude-haiku-5-5",
+    promptTokens: TYPICAL_PROMPT_TOKENS,
+    monthlyCapSetting: settings.monthlyCapUsd,
+  });
+  if (!budgetOk) return skip("budget");
 
   const pack = await readFactPack(now, await baselineMetrics(client));
   const score = relevanceScore(pack.deltas);

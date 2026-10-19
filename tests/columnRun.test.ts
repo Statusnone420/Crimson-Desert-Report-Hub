@@ -140,6 +140,16 @@ describe("one wake of the column", () => {
     expect(provider.messageCalls()).toEqual([]);
   });
 
+  it("checks the budget again with the measured prompt, and skips before any paid call when both calls no longer fit", async () => {
+    // $14.535 of $15 spent: the early check with a typical prompt passes, and the writer
+    // alone would still fit, but not the writer and the checker at a measured 60k tokens.
+    db.tables.editorial_ai_spend.push({ id: "spent", month: "2026-10", operation: "writer", provider: "anthropic", model: "claude-opus-5-5", reserved_usd: 14.535, settled_usd: 14.535, cost_state: "settled", created_at: RUN_NOW.toISOString() });
+    const provider = providerFetch({ countTokens: 60_000 });
+    expect(await run(provider.impl)).toEqual({ status: "skipped", slot: "2026-W44:mon", reason: "budget" });
+    expect(provider.messageCalls()).toEqual([]);
+    expect(db.tables.editorial_ai_spend.map((row) => row.id)).toEqual(["spent"]);
+  });
+
   it("defers when too little time is left after the scan, and records no_time on the window's last wake", async () => {
     const provider = providerFetch();
     expect(await run(provider.impl, { deadlineMs: RUN_NOW.getTime() + 60_000 })).toEqual({ status: "idle", reason: "deferred" });

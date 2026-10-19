@@ -71,7 +71,12 @@ describe("the keepalive hook", () => {
     scheduleColumnAfterKeepalive(request(), Date.now());
     expect(mocks.after).toHaveBeenCalledOnce();
     scheduleColumnAfterKeepalive(request("Bearer wrong"), Date.now());
-    vi.stubEnv("VERCEL_ENV", "preview");
+    // Previews, development builds and servers with no VERCEL_ENV never schedule it, even with the secret.
+    for (const env of ["preview", "development", ""]) {
+      vi.stubEnv("VERCEL_ENV", env);
+      scheduleColumnAfterKeepalive(request(), Date.now());
+    }
+    delete process.env.VERCEL_ENV;
     scheduleColumnAfterKeepalive(request(), Date.now());
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("CRON_SECRET", "");

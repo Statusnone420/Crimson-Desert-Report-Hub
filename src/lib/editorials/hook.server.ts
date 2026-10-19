@@ -3,17 +3,20 @@ import "server-only";
 import { after } from "next/server";
 import { hasCronAuthorization } from "@/lib/cronAuth";
 import { columnFailureCode, runColumn, type ColumnRunOutcome } from "@/lib/editorials/run.server";
-import { isVercelPreview } from "@/lib/previewGuard";
 
 /** The keepalive route's maxDuration. The column must finish inside it. */
 export const KEEPALIVE_MAX_MS = 300_000;
 /** Time kept back for the platform to close the function cleanly. */
 export const KEEPALIVE_SAFETY_MS = 20_000;
 
-/** Only a real, authorized production wake runs the column. */
+/**
+ * Only a real, authorized production wake runs the column. Production is required by
+ * name: a preview, a development build or a server with no VERCEL_ENV at all never
+ * schedules a paid run, even with the cron secret.
+ */
 function wakeAllowed(req: Request): boolean {
   const secret = process.env.CRON_SECRET?.trim();
-  return Boolean(secret) && hasCronAuthorization(req, secret!) && !isVercelPreview();
+  return process.env.VERCEL_ENV === "production" && Boolean(secret) && hasCronAuthorization(req, secret!);
 }
 
 /** Resolves with null at the deadline, so a slow call can never hold the function open. */

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { budgetCoversBothCalls } from "@/lib/editorials/budgetGate.server";
 import { factsBoxSchema, type EditionSection, type FactsBox } from "@/lib/editorials/content";
 import type { FactPack } from "@/lib/editorials/factPack";
 import type { CheckerModel, WriterEffort, WriterModel } from "@/lib/editorials/models";
@@ -81,6 +82,13 @@ export async function generateEdition(input: GenerationInput): Promise<Generatio
     if (tokens <= PROMPT_TOKEN_LIMIT) sized = { request, tokens };
   }
   if (!sized) return fail("prompt_too_large");
+
+  // With the writer's prompt measured, both paid calls must fit the budget before the
+  // writer starts, so the checker is never blocked after the writer was paid for.
+  const budgetOk = await budgetCoversBothCalls(input.client, new Date(clock()), {
+    writerModel: input.writerModel, checkerModel: input.checkerModel, promptTokens: sized.tokens, monthlyCapSetting: input.monthlyCapSetting,
+  });
+  if (!budgetOk) return fail("budget");
 
   // Token counting takes time too, so each paid call's timeout is measured again just
   // before it starts. Out of time here means no paid call at all.
