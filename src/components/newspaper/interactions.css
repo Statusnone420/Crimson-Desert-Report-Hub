@@ -206,7 +206,7 @@
 .newspaper .dispatch-actions { flex-direction: column; align-items: stretch; }
 .newspaper .confirmation-checkin__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .newspaper .confirmation-checkin__heading .confirmation-checkin__question { margin: 0; }
-.newspaper .confirmation-checkin__patch { color: var(--muted); font: 12px/1.4 var(--mono), monospace; white-space: nowrap; }
+.newspaper .confirmation-checkin__patch { color: var(--muted); white-space: nowrap; }
 .newspaper .confirmation-checkin__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .newspaper .confirmation-checkin__row .tap-btn { width: 100%; justify-content: space-between; min-height: 54px; }
 .newspaper .confirmation-checkin__platforms .tap-btn[aria-pressed="true"] { color: var(--blue); border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, var(--paper)); }
