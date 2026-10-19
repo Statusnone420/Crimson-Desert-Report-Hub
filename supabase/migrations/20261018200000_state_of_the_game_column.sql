@@ -21,7 +21,7 @@ create table public.editorials (
   skip_reason text check (skip_reason in (
     'paused', 'below_threshold', 'min_gap', 'budget', 'prompt_too_large', 'provider_unavailable',
     'model_not_allowed', 'writer_failed', 'check_failed', 'person_named', 'too_short',
-    'missing_required_section', 'slop_check_failed', 'no_time'
+    'missing_required_section', 'slop_check_failed', 'no_time', 'too_long'
   )),
   hold_hours integer check (hold_hours between 0 and 336),
   created_at timestamptz not null default now(),
