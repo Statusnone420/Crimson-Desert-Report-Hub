@@ -15,7 +15,7 @@ function Button({ disabled, children, pendingText = "Saving…", danger = false 
   return disabled ? <button type="submit" className={className} disabled>{children}</button> : <SubmitButton className={className} pendingText={pendingText}>{children}</SubmitButton>;
 }
 
-/** Voice examples, the approved editions rotating in, and A/B test drafts. */
+/** Voice examples, the thumbs-up drafts and editions the writer also reads, and A/B test drafts. */
 export function ColumnStudio({ studio, writesDisabled }: { studio: Studio | null; writesDisabled: boolean }) {
   if (!studio) return <section className="workspace-panel workspace-empty">
     <h2>Voice and test drafts unavailable</h2>
@@ -54,14 +54,14 @@ export function ColumnStudio({ studio, writesDisabled }: { studio: Studio | null
           </form>
         </details> : <p className="workspace-note">Five examples is the limit. Remove one to add another.</p>}
         <p className="workspace-note">{studio.rotation.length
-          ? `Approved editions rotating in: ${studio.rotation.map((edition) => edition.title).join("; ")}.`
-          : "No approved editions rotate in yet. A thumbs up on an edition adds it, two at most."}</p>
+          ? `The writer also reads your thumbs-up drafts and editions as voice examples, two at most: ${studio.rotation.map((edition) => edition.title).join("; ")}.`
+          : "No thumbs-up drafts or editions yet. Give one a thumbs up and the writer reads it as a voice example, two at most."}</p>
       </div>
     </section>
     <section className="workspace-panel" aria-labelledby="column-tests-heading">
       <div className="workspace-panel-header"><div>
         <h2 id="column-tests-heading">Test drafts</h2>
-        <p>Same fact pack, different writer. Test drafts are never published, never take a slot, and come out of the column budget. {testsLeft} of {TEST_DRAFTS_PER_DAY} left today (UTC).</p>
+        <p>Same fact pack, different writer. Test drafts stay private unless you publish an approved one as this week&apos;s edition from its page. They come out of the column budget. {testsLeft} of {TEST_DRAFTS_PER_DAY} left today (UTC).</p>
       </div></div>
       <div className="workspace-panel-body">
         <form action={generateTestDraftAction} className="workspace-form">
