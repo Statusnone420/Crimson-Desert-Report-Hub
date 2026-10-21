@@ -47,6 +47,8 @@ const browser = [
   ["Delayed Twitch history", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "recorded Twitch history"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/platform-context-delayed.json", PLAYWRIGHT_WARM_UP_PAGES: "/observatory" }],
   ["Older Twitch history", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "recorded Twitch history"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/platform-context-older-history.json", PLAYWRIGHT_WARM_UP_PAGES: "/observatory" }],
   ["IGDB platform recovery", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "platform record retains"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/observatory-recovery.json", PLAYWRIGHT_WARM_UP_PAGES: "/observatory" }],
+  // The desk lists the October notices and their videos only once the server clock has passed them.
+  ["Expansion desk player", ["exec", "playwright", "--", "test", "tests/e2e/expansion-desk.spec.ts", "--no-deps"], { PLAYWRIGHT_NOW: "2026-10-21T15:00:00.000Z", PLAYWRIGHT_WARM_UP_PAGES: "/topics/charting-the-unknown" }],
   ["Empty and unavailable states", ["run", "test:e2e:n0"]],
   ["Turnstile themes", ["run", "test:e2e:turnstile"]],
 ];

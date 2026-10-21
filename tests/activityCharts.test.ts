@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
@@ -17,6 +17,11 @@ import { readBoardWatchSummary } from "@/lib/boardWatch.server";
 import { BeforeYouPlay } from "@/components/newspaper/BeforeYouPlay";
 import { DailyReviews, reviewDayClass } from "@/components/newspaper/DailyReviews";
 import { UpdateTimeline } from "@/components/newspaper/UpdateTimeline";
+
+// The front page passes its render time; these render at the history's read time unless a test says otherwise.
+function readings(props: Omit<ComponentProps<typeof BeforeYouPlay>, "now"> & { now?: number }) {
+  return renderToStaticMarkup(createElement(BeforeYouPlay, { now: Date.parse(props.history.checkedAt), ...props }));
+}
 
 describe("chart geometry", () => {
   it("rounds axis tops up to readable values", () => {
@@ -211,21 +216,21 @@ describe("activity components", () => {
       patchVersion: "2.03.02", threads: 4, topics: 3,
       systems: [{ category: "crash_startup", threads: 2 }, { category: "other", threads: 1 }, { category: "quest_progression", threads: 1 }],
     });
-    const html = renderToStaticMarkup(createElement(BeforeYouPlay, {
+    const html = readings({
       history: history(),
       latestPatch: { version: "2.03.02", publishedAt: "2026-09-23T04:45:00Z", fixes: 3 },
       watch,
-    }));
+    });
     expect(html).toContain("Playing on Steam");
     expect(html).toContain("Steam mood, last 7 days");
     expect(html).toContain("24 days ago · 3 listed fixes");
     expect(html).toContain("3 topics");
     expect(html).toContain("These are leads, not confirmed reports.");
-    const unavailable = renderToStaticMarkup(createElement(BeforeYouPlay, {
+    const unavailable = readings({
       history: history({ players: "unavailable", twitch: "ready", reviews: "unavailable" }),
       latestPatch: null,
       watch: null,
-    }));
+    });
     expect(unavailable).toContain("Steam player counts could not be read.");
     expect(unavailable).toContain("Steam review totals could not be read.");
     expect(unavailable).toContain("The official patch record could not be read.");
@@ -238,11 +243,11 @@ describe("activity components", () => {
     for (const capture of zero.playerCaptures) {
       if (capture.capturedAt.endsWith("T16:00:00.000Z") && capture.capturedAt < "2026-10-17") capture.playerCount = 0;
     }
-    const html = renderToStaticMarkup(createElement(BeforeYouPlay, {
+    const html = readings({
       history: zero,
       latestPatch: { version: "2.03.02", publishedAt: "2026-09-23T04:45:00Z", fixes: 3 },
       watch: null,
-    }));
+    });
     expect(html).not.toMatch(/Infinity|NaN/);
     expect(html).toContain("at this time is 0 (median of the last 3), so no percentage is given.");
   });
@@ -251,20 +256,20 @@ describe("activity components", () => {
     const stale = history();
     // Read three days after the last capture: the line stops short of the right edge.
     stale.checkedAt = "2026-10-20T16:00:00.000Z";
-    const html = renderToStaticMarkup(createElement(BeforeYouPlay, { history: stale, latestPatch: null, watch: null }));
+    const html = readings({ history: stale, latestPatch: null, watch: null });
     expect(html).toContain("Latest capture, Saturday, Oct 17, 16:00 UTC");
     expect(html).toMatch(/class="dd-spark-dot" style="left:57\.14\d*%/);
     // Ten days after it, no capture falls inside the last 7 days.
     stale.checkedAt = "2026-10-27T16:00:00.000Z";
-    const old = renderToStaticMarkup(createElement(BeforeYouPlay, { history: stale, latestPatch: null, watch: null }));
+    const old = readings({ history: stale, latestPatch: null, watch: null });
     expect(old).toContain("No Steam player capture in the last 7 days.");
     expect(old).not.toMatch(/Infinity|NaN/);
   });
 
   it("counts a patch's age in UTC calendar days, like the date beside it", () => {
-    const render = (publishedAt: string) => renderToStaticMarkup(createElement(BeforeYouPlay, {
+    const render = (publishedAt: string) => readings({
       history: history(), latestPatch: { version: "2.04.01", publishedAt, fixes: 2 }, watch: null,
-    }));
+    });
     // Checked Oct 17 at 16:30 UTC: a patch from 20:00 the day before is a day old, not "today".
     expect(render("2026-10-16T20:00:00Z")).toContain("Oct 16 · 1 day ago");
     expect(render("2026-10-17T01:00:00Z")).toContain("Oct 17 · today");
@@ -276,13 +281,17 @@ describe("activity components", () => {
     monday.days = monday.days.filter((day) => day.day <= "2026-10-12");
     Object.assign(monday.days.at(-1)!, { newReviews: null, newPositive: null });
     monday.checkedAt = "2026-10-12T01:00:00.000Z";
-    const early = renderToStaticMarkup(createElement(BeforeYouPlay, { history: monday, latestPatch: null, watch: null }));
+    const early = readings({ history: monday, latestPatch: null, watch: null });
     expect(early).toContain("This week has no share yet.");
     expect(early).not.toContain("The dark bar is this week so far.");
     expect(early).not.toContain('class="dd-column"');
-    const later = renderToStaticMarkup(createElement(BeforeYouPlay, { history: history(), latestPatch: null, watch: null }));
+    const later = readings({ history: history(), latestPatch: null, watch: null });
     expect(later).toContain("The dark bar is this week so far.");
     expect(later).toContain('class="dd-column"');
+    // Records read on Saturday, page rebuilt on Monday: that bar is last week's now.
+    const monday10 = readings({ history: history(), latestPatch: null, watch: null, now: Date.parse("2026-10-19T00:10:00Z") });
+    expect(monday10).toContain("This week has no share yet.");
+    expect(monday10).not.toContain('class="dd-column"');
   });
 
   it("says what a blank cell in the daily table means", () => {
@@ -296,7 +305,7 @@ describe("activity components", () => {
     const skewed = history();
     // Today so far: 100 new reviews, none positive. The last 7 full days are 80% positive.
     Object.assign(skewed.days.at(-1)!, { newReviews: 100, newPositive: 0 });
-    const html = renderToStaticMarkup(createElement(BeforeYouPlay, { history: skewed, latestPatch: null, watch: null }));
+    const html = readings({ history: skewed, latestPatch: null, watch: null });
     expect(html).toContain('<p class="dd-tile-value">80%</p>');
     expect(html).toContain("of 700 new Steam reviews were positive.");
   });
@@ -323,11 +332,11 @@ describe("activity components", () => {
   });
 
   it("reports failed notes and scanner reads as unavailable, not as an empty record", () => {
-    const html = renderToStaticMarkup(createElement(BeforeYouPlay, {
+    const html = readings({
       history: history(),
       latestPatch: { version: "2.03.02", publishedAt: "2026-09-23T04:45:00Z", fixes: null, notesUnavailable: true },
       watch: "unavailable",
-    }));
+    });
     expect(html).toContain("the official notes could not be read");
     expect(html).not.toContain("official notes not listed yet");
     expect(html).toContain("On the radar");

@@ -74,7 +74,9 @@ describe("automatic official patch publications", () => {
     expect(milestones.find((item) => item.patch === "2.01.00")).toEqual(CATCH_UP_MILESTONES.find((item) => item.patch === "2.01.00"));
     const selection = parseCatchUpHash("#patch=2.03.01&include=1", new Date("2026-09-22"), milestones);
     expect(selection).toEqual({ kind: "patch", value: "2.03.01", includeSelected: true });
-    expect(selectCatchUpMilestones(selection, milestones).map((item) => item.patch ?? item.id)).toEqual(["2.03.01", "announcement-charting-the-unknown-delay"]);
+    expect(selectCatchUpMilestones(selection, milestones).map((item) => item.patch ?? item.id)).toEqual([
+      "2.03.01", "announcement-charting-the-unknown-delay", "charting-the-unknown-diving-short", "charting-the-unknown-features",
+    ]);
     expect(parseCatchUpChapter("#chapter=hotfix-2-03-01", milestones)).toBe("hotfix-2-03-01");
   });
 

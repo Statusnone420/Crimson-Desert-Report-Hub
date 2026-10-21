@@ -12,9 +12,12 @@ describe("published patch reports and Catch Up", () => {
     expect(delay.availableAt).toBe(chartingTheUnknownDelay.publishedAt);
     expect(delay.source.url).toBe(chartingTheUnknownDelay.sources[0].url);
     expect(delay.related).toContainEqual({ label: "Read the report", url: chartingTheUnknownDelay.path });
-    expect(selectCatchUpMilestones({ kind: "since", value: "2026-09-30T10:45:00Z" })).toEqual([]);
-    expect(selectCatchUpMilestones({ kind: "since", value: "2026-09-30T10:45:00Z", remembered: true })).toEqual([delay]);
-    expect(selectCatchUpMilestones({ kind: "since", value: "2026-09-30T13:00:00Z", remembered: true })).toEqual([delay]);
+    // The October expansion notices came after the delay, so every edition from Sep 30 lists them.
+    const later = CATCH_UP_MILESTONES.filter((item) => Date.parse(item.publishedAt) > Date.parse(delay.publishedAt));
+    expect(later.map((item) => item.id)).toEqual(["charting-the-unknown-diving-short", "charting-the-unknown-features"]);
+    expect(selectCatchUpMilestones({ kind: "since", value: "2026-09-30T10:45:00Z" })).toEqual(later);
+    expect(selectCatchUpMilestones({ kind: "since", value: "2026-09-30T10:45:00Z", remembered: true })).toEqual([delay, ...later]);
+    expect(selectCatchUpMilestones({ kind: "since", value: "2026-09-30T13:00:00Z", remembered: true })).toEqual([delay, ...later]);
     expect(selectCatchUpMilestones({ kind: "highlights" })).toContain(delay);
     const original = CATCH_UP_MILESTONES.find((item) => item.id === "charting-the-unknown-announcement")!;
     expect(original.publishedAt).toBe("2026-09-03T14:00:00Z");
@@ -58,11 +61,11 @@ describe("published patch reports and Catch Up", () => {
       slug: "future-patch-fixture",
       path: "/articles/future-patch-fixture",
       patchVersion: "2.04.00",
-      publishedAt: "2026-10-02T08:00:00Z",
+      publishedAt: "2026-12-02T08:00:00Z",
       catchUp: {
         ...patch20300.catchUp,
-        publishedAt: "2026-10-02T01:00:00Z",
-        availableAt: "2026-10-02T08:00:00Z",
+        publishedAt: "2026-12-02T01:00:00Z",
+        availableAt: "2026-12-02T08:00:00Z",
       },
     };
     const timeline = buildCatchUpMilestones([next, ...editorialArticles]);
@@ -72,8 +75,9 @@ describe("published patch reports and Catch Up", () => {
     expect(added.related).toContainEqual({ label: "Read the Patch 2.04.00 report", url: next.path });
     expect(selectCatchUpMilestones({ kind: "highlights" }, timeline)).toContain(added);
     expect(selectCatchUpMilestones({ kind: "patch", value: "2.04.00", includeSelected: true }, timeline)).toEqual([added]);
-    expect(selectCatchUpMilestones({ kind: "patch", value: "2.03.00" }, timeline)).toEqual([CATCH_UP_MILESTONES.at(-1), added]);
-    const cursor = "2026-10-02T07:00:00Z";
+    const after203 = CATCH_UP_MILESTONES.slice(CATCH_UP_MILESTONES.findIndex((item) => item.patch === "2.03.00") + 1);
+    expect(selectCatchUpMilestones({ kind: "patch", value: "2.03.00" }, timeline)).toEqual([...after203, added]);
+    const cursor = "2026-12-02T07:00:00Z";
     expect(selectCatchUpMilestones({ kind: "since", value: cursor }, timeline)).toEqual([]);
     expect(selectCatchUpMilestones({ kind: "since", value: cursor, remembered: true }, timeline)).toEqual([added]);
   });
@@ -82,7 +86,7 @@ describe("published patch reports and Catch Up", () => {
     const hotfixes = ["2.04.02", "2.04.01"].map((patchVersion): EditorialArticle => ({
       ...patch20300,
       patchVersion,
-      catchUp: { ...patch20300.catchUp, kind: "hotfix", publishedAt: "2026-10-02T01:00:00Z" },
+      catchUp: { ...patch20300.catchUp, kind: "hotfix", publishedAt: "2026-12-02T01:00:00Z" },
     }));
     const timeline = buildCatchUpMilestones([...hotfixes, ...editorialArticles]);
     expect(selectCatchUpMilestones({ kind: "patch", value: "2.04.01", includeSelected: true }, timeline).map((item) => item.patch)).toEqual(["2.04.01", "2.04.02"]);

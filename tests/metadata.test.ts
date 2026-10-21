@@ -39,6 +39,8 @@ const expectedDescriptions = {
     "Anonymous issue check-ins use Turnstile and one current response per network, issue, and exact patch. No raw IP address is stored.",
   "/observatory":
     "Recorded Steam review movement, Twitch audience activity, and the current public-source radar for Crimson Desert.",
+  "/topics/charting-the-unknown":
+    "When Crimson Desert’s Charting the Unknown expansion lands, what unlocks when, and the official videos, from Pearl Abyss’s own notices.",
 } as const;
 
 function pngSize(file: string): { width: number; height: number } {
@@ -86,6 +88,7 @@ describe("search and share metadata", () => {
       { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
       { url: `${SITE_URL}/news`, changeFrequency: "weekly", priority: 0.9 },
       { url: `${SITE_URL}/catch-up`, changeFrequency: "weekly", priority: 0.8 },
+      { url: `${SITE_URL}/topics/charting-the-unknown`, changeFrequency: "daily", priority: 0.8 },
       { url: `${SITE_URL}${chartingTheUnknownDelay.path}`, lastModified: chartingTheUnknownDelay.publishedAt, changeFrequency: "monthly", priority: 0.8 },
       {
         url: `${SITE_URL}/articles/patch-2-03-00`,
@@ -183,7 +186,7 @@ describe("search and share metadata", () => {
   });
 
   it("gives each route a distinct title, matching canonical and og:url, and keeps the parent's share images", async () => {
-    const [issues, about, contact, privacy, observatory, news, watch, patches] = await Promise.all([
+    const [issues, about, contact, privacy, observatory, news, watch, patches, expansionDesk] = await Promise.all([
       import("@/app/issues/page"),
       import("@/app/about/page"),
       import("@/app/contact/page"),
@@ -192,6 +195,7 @@ describe("search and share metadata", () => {
       import("@/app/news/page"),
       import("@/app/watch/page"),
       import("@/app/patches/page"),
+      import("@/app/topics/charting-the-unknown/page"),
     ]);
     // The resolved root openGraph as Next hands it to generateMetadata: it
     // already carries the file-convention share image. A route override must
@@ -222,6 +226,7 @@ describe("search and share metadata", () => {
       [news, "Crimson Desert news", "/news", expectedDescriptions["/news"]],
       [watch, "Crimson Desert videos", "/watch", expectedDescriptions["/watch"]],
       [patches, "Crimson Desert patch notes: what changed", "/patches", expectedDescriptions["/patches"]],
+      [expansionDesk, "Charting the Unknown: release time and what unlocks when", "/topics/charting-the-unknown", expectedDescriptions["/topics/charting-the-unknown"]],
     ] as const;
     const descriptions: string[] = [SITE_DESCRIPTION];
     for (const [page, title, path, description] of expectations) {

@@ -33,7 +33,7 @@ export default async function PrivacyPage() {
           <dt className="method-registers__term">No raw IP storage</dt>
           <dd className="method-registers__def">The database does not store raw IP addresses.</dd>
           <dt className="method-registers__term">No ads or trackers</dt>
-          <dd className="method-registers__def">This project does not include advertising code or analytics trackers.</dd>
+          <dd className="method-registers__def">This project does not include advertising code or analytics trackers. The expansion desk&rsquo;s video player loads from YouTube only when a reader clicks play.</dd>
           <dt className="method-registers__term">Historical written reports</dt>
           <dd className="method-registers__def">The public free-form report flow is retired. Approved historical reports and excerpts may remain in the record.</dd>
           <dt className="method-registers__term">Private reports</dt>

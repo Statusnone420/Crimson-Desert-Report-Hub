@@ -26,6 +26,7 @@ html[data-theme=dark] .newspaper{--dd-series:#6490e4;--dd-wash:rgba(100,144,228,
 .newspaper .dd-watch{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 18px;align-items:baseline;border-top:1px solid var(--line);margin-top:18px;padding-top:14px;font-size:15px;line-height:1.55}
 .newspaper .dd-watch strong{font-weight:600}
 .newspaper .dd-brief-link{margin-top:14px}
+.newspaper .dd-brief-links{display:flex;flex-wrap:wrap;gap:0 28px;margin-top:14px}
 
 /* Charts */
 .newspaper .dd-figure{margin:0;padding-top:6px}
