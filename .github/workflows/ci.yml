@@ -136,16 +136,18 @@ jobs:
       - name: Shared browser verification, main suite
         run: npm run verify -- --browser-main --shard=${{ matrix.shard }}/4
 
+      # Failure screenshots and error notes only, for one day: the account's
+      # free Actions artifact storage is 0.5 GB.
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v6
         with:
           name: playwright-artifacts-main-${{ matrix.shard }}
           path: |
-            test-results
-            playwright-report
+            test-results/**/test-failed-*.png
+            test-results/**/error-context.md
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1
 
   # The patch, Twitch, IGDB, empty-state and Turnstile suites.
   browser-other:
@@ -170,16 +172,18 @@ jobs:
       - name: Shared browser verification, other suites
         run: npm run verify -- --browser-other
 
+      # Failure screenshots and error notes only, for one day: the account's
+      # free Actions artifact storage is 0.5 GB.
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v6
         with:
           name: playwright-artifacts-other
           path: |
-            test-results
-            playwright-report
+            test-results/**/test-failed-*.png
+            test-results/**/error-context.md
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1
 
   # The required browser check. It passes only when every browser job passed,
   # or when the gate skipped them on purpose for a documentation change.
