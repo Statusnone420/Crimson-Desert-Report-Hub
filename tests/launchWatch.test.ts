@@ -116,6 +116,18 @@ describe("the front page around the expansion launch", () => {
     expect(watch).not.toContain("The latest readings");
   });
 
+  it("names today by the page's clock when the records were read before UTC midnight", async () => {
+    // Read at Oct 30, 23:45 and still cached when the page rebuilds at Oct 31, 00:10.
+    vi.setSystemTime(new Date("2026-10-31T00:10:00Z"));
+    mocks.getActivityHistory.mockResolvedValue(history(Date.parse("2026-10-30T23:45:00Z")));
+    const watch = text(renderToStaticMarkup(await HomePage()).match(/<section class="dd-brief" id="launch-watch"[\s\S]*?<\/section>/)?.[0] ?? "");
+    expect(watch).toContain("Steam reviews, today so farNo review record for today yet.");
+    expect(watch).not.toContain("today so far400");
+    expect(watch).not.toContain("Yesterday, a full day");
+    // The Oct 29 patch is two days old by the page's clock.
+    expect(watch).toContain("Oct 29 · 2 days ago");
+  });
+
   it("says when no patch notes came since launch day", async () => {
     mocks.getDashboardData.mockResolvedValue(dashboard("2026-10-22T09:00:00Z"));
     const markup = await frontPageAt("2026-10-30T15:00:00Z");

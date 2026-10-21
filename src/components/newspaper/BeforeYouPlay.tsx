@@ -2,7 +2,6 @@ import { ReadingLink } from "./ReadingLink";
 import { CHART_WIDTH, PANEL_HEIGHT, timeBandPath, timeLinePath } from "@/lib/activityCharts";
 import {
   completeDays,
-  partialDay,
   reviewShare,
   typicalPlayers,
   usualRangeAt,
@@ -84,7 +83,7 @@ function PlayersTile({ history }: { history: ActivityHistory }) {
   );
 }
 
-function MoodTile({ history }: { history: ActivityHistory }) {
+function MoodTile({ history, now }: { history: ActivityHistory; now: number }) {
   if (history.lanes.reviews === "unavailable") {
     return <div className="dd-tile"><p className="dd-tile-label">Steam mood, last 7 days</p><p className="np-error">Steam review totals could not be read.</p></div>;
   }
@@ -98,7 +97,6 @@ function MoodTile({ history }: { history: ActivityHistory }) {
   }
   const slot = CHART_WIDTH / Math.max(1, weeks.length);
   // A week without a share has no bar, so the last bar is this week's only when its week is this one.
-  const now = Date.parse(history.checkedAt);
   const current = Number.isFinite(now) && weeks.at(-1)?.weekStart === utcWeekStart(utcDay(now));
   return (
     <div className="dd-tile">
@@ -123,17 +121,19 @@ function MoodTile({ history }: { history: ActivityHistory }) {
 }
 
 // Steam's review totals are recorded a few times a day, so today's net change is a partial day.
-function TodayReviewsTile({ history }: { history: ActivityHistory }) {
+function TodayReviewsTile({ history, now }: { history: ActivityHistory; now: number }) {
   const label = <p className="dd-tile-label">Steam reviews, today so far</p>;
   if (history.lanes.reviews === "unavailable") {
     return <div className="dd-tile">{label}<p className="np-error">Steam review totals could not be read.</p></div>;
   }
-  const today = partialDay(history) ? history.days.at(-1) : undefined;
+  // Today by the page's clock: records read before UTC midnight hold no row for it.
+  const index = history.days.findIndex((day) => day.day === utcDay(now));
+  const today = index < 0 ? undefined : history.days[index];
   if (!today || today.newReviews === null) {
     return <div className="dd-tile">{label}<p className="dd-tile-sub">No review record for today yet.</p></div>;
   }
   const share = reviewShare([today]);
-  const yesterday = reviewShare(history.days.slice(-2, -1));
+  const yesterday = index > 0 ? reviewShare([history.days[index - 1]]) : null;
   return (
     <div className="dd-tile">
       {label}
@@ -179,19 +179,22 @@ function PatchTile({ patch, now, launchAt }: { patch: LatestPatch | null; now: n
 /**
  * The front page's readings. For launch week (`launch` set) they lead the page as the launch
  * watch: today's reviews replace the 7-day mood, and the patch tile says when no notes came since.
+ * `now` is the page's render time, for words such as "today" and "this week". The history's own
+ * read time, which can be an hour older, still decides which days were complete when read.
  */
 export function BeforeYouPlay({
   history,
   latestPatch,
   watch,
   launch,
+  now,
 }: {
   history: ActivityHistory;
   latestPatch: LatestPatch | null;
   watch: BoardWatchRead;
   launch?: { at: string };
+  now: number;
 }) {
-  const now = Date.parse(history.checkedAt);
   const summary = watch === "unavailable" ? null : watch;
   const systems = summary?.systems.slice(0, 3).map((system) => `${CATEGORY_LABELS[system.category].toLowerCase()} ${system.threads}`).join(", ");
   return (
@@ -211,7 +214,7 @@ export function BeforeYouPlay({
       )}
       <div className="dd-tiles">
         <PlayersTile history={history} />
-        {launch ? <TodayReviewsTile history={history} /> : <MoodTile history={history} />}
+        {launch ? <TodayReviewsTile history={history} now={now} /> : <MoodTile history={history} now={now} />}
         <PatchTile patch={latestPatch} now={now} launchAt={launch?.at} />
       </div>
       {summary && summary.threads > 0 ? (

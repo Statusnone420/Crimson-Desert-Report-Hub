@@ -44,8 +44,9 @@ export default async function HomePage() {
     notesUnavailable: !edition && publications.unavailable,
   };
   const watchingOnly = publishedCount === 0 && watchSummary !== null && watchSummary.threads > 0;
-  const launch = currentLaunch(new Date().getTime());
-  const readings = <BeforeYouPlay history={activity} latestPatch={latestPatch} watch={watch} launch={launch?.phase === "watch" ? launch : undefined} />;
+  const now = new Date().getTime();
+  const launch = currentLaunch(now);
+  const readings = <BeforeYouPlay history={activity} latestPatch={latestPatch} watch={watch} launch={launch?.phase === "watch" ? launch : undefined} now={now} />;
   return <PublicShell active="brief" masthead><script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(webSiteJsonLd())}}/>
     {launch?.phase === "countdown" ? <LaunchClock at={launch.at} days={launch.days} /> : null}
     {/* For launch week the readings lead the page as the launch watch. */}
