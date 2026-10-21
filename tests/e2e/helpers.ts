@@ -113,9 +113,9 @@ export async function submitAction(page: Page, submit: () => Promise<void>) {
   await submit();
   const response = await posted;
   expect(response.status(), "server action returned an error status").toBeLessThan(400);
-  // In `next dev` 16.4 the page can cancel an action's request after its last byte has arrived,
-  // when the dev server pushes a build event, and Chromium reports net::ERR_ABORTED.
-  // finished() resolves only for a request that completes, so that cancel also ends the stream.
+  // In `next dev` 16.4 the page can cancel an action's request after its last byte arrives, when
+  // the dev server pushes a build event; Chromium reports net::ERR_ABORTED. finished() never
+  // resolves for a failed request, so a failure ends the wait too, and only that cancel passes.
   const request = response.request();
   let stopWaiting = () => {};
   const cancelled = new Promise<void>((resolve) => {
