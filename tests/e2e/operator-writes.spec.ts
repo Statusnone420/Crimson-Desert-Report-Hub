@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectConsoleProblems, expectHealthyPage, refreshFixtureReads, signInAsAdmin, waitForHydration } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, refreshFixtureReads, signInAsAdmin, submitAction, waitForHydration } from "./helpers";
 
 const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 
@@ -18,23 +18,6 @@ async function expectAfterWrite(page: Page, path: string, assertion: () => Promi
     await page.goto(path);
     await assertion();
   }).toPass({ timeout: 30_000 });
-}
-
-/**
- * Wait for the server action's complete POST response. Headers can arrive while
- * Next.js is still streaming the refreshed UI, before React clears form pending
- * state. Check the status and stream before starting the DOM assertion timeout.
- */
-async function submitAction(page: Page, submit: () => Promise<void>) {
-  const posted = page.waitForResponse(async (response) => {
-    const request = response.request();
-    if (request.method() !== "POST") return false;
-    return Boolean((await request.allHeaders())["next-action"]);
-  });
-  await submit();
-  const response = await posted;
-  expect(response.status(), "server action returned an error status").toBeLessThan(400);
-  expect(await response.finished(), "server action response did not finish").toBeNull();
 }
 
 /**
