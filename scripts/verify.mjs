@@ -43,9 +43,10 @@ const browser = [
   ["Install Chromium", ["exec", "playwright", "--", "install", "chromium"]],
   ["Desktop, mobile, and operator tests", ["run", "test:e2e"]],
   ["Patch publication and archive", ["run", "test:e2e:patches"]],
-  ["Delayed Twitch history", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "recorded Twitch history"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/platform-context-delayed.json" }],
-  ["Older Twitch history", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "recorded Twitch history"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/platform-context-older-history.json" }],
-  ["IGDB platform recovery", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "platform record retains"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/observatory-recovery.json" }],
+  // These runs open only /observatory, so the main warm-up skips the rest of the suite's routes.
+  ["Delayed Twitch history", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "recorded Twitch history"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/platform-context-delayed.json", PLAYWRIGHT_WARM_UP_PAGES: "/observatory" }],
+  ["Older Twitch history", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "recorded Twitch history"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/platform-context-older-history.json", PLAYWRIGHT_WARM_UP_PAGES: "/observatory" }],
+  ["IGDB platform recovery", ["exec", "playwright", "--", "test", "tests/e2e/observatory-polish.spec.ts", "--no-deps", "--grep", "platform record retains"], { PREVIEW_SEED_FILE: "tests/e2e/fixtures/observatory-recovery.json", PLAYWRIGHT_WARM_UP_PAGES: "/observatory" }],
   ["Empty and unavailable states", ["run", "test:e2e:n0"]],
   ["Turnstile themes", ["run", "test:e2e:turnstile"]],
 ];
