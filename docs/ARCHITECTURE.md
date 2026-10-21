@@ -6,9 +6,10 @@ This is the public architecture contract: enough structure to review the privacy
 
 | Route | Public purpose |
 | --- | --- |
-| `/` | Newspaper front page: the newest patch story, official record, selected external coverage, patch context, then a "Before you play" band of recorded Steam and patch readings above the aggregate platform pulse. Manual reporting wins for the same exact version. |
+| `/` | Newspaper front page: the newest patch story, official record, selected external coverage, patch context, then a "Before you play" band of recorded Steam and patch readings above the aggregate platform pulse. Manual reporting wins for the same exact version. Before the expansion's release, one countdown line from the newest official notice's release time sits above the lead story. For the seven days after release, the readings lead the page as a launch watch: Steam players against the usual, today's Steam reviews, the newest patch, and the scanner's thread counts. |
 | `/news` | Original Hub reports and automatic official-note rundowns, plus selected external coverage. |
-| `/articles/*` | Source-backed editorial reports and templated official patch rundowns. The legacy `/topics/charting-the-unknown` route redirects to its canonical article. |
+| `/articles/*` | Source-backed editorial reports and templated official patch rundowns. |
+| `/topics/charting-the-unknown` | Expansion desk built from the official notices on the catch-up timeline: the release time and countdown, each notice's own lines, what no notice has said yet, and the official videos. |
 | `/watch` | Official video and selected creator coverage, with links to the original channels. |
 | `/patches` | Current official patch record, stated fix claims, player responses, and an archive of retained official versions. |
 | `/patches/[version]` | Permanent historical claim record; does not reuse current player verdicts. `/patches/archive` redirects to `/patches#archive`. |

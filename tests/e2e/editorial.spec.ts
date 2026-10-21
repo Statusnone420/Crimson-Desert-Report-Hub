@@ -13,8 +13,7 @@ test("newspaper editorial routes retain the brand and separate coverage from sca
   await expect(page.getByRole("heading", { name: "Crimson Desert news", exact: true })).toBeVisible();
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "https://crimsonreporthub.com/news");
   await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "News", exact: true })).toHaveAttribute("aria-current", "page");
-  await page.goto("/topics/charting-the-unknown");
-  await expect(page).toHaveURL(/\/articles\/charting-the-unknown$/);
+  await page.goto("/articles/charting-the-unknown");
   await expect(page.getByRole("heading", { name: "Charting the Unknown: original launch announcement", exact: true })).toBeVisible();
   await expect(page.locator(".article-hero img")).toBeVisible();
   await expect(page.locator(".opening")).toContainText("Crimson Desert’s Charting the Unknown expansion launches October 15, 2026, at 6 p.m. Eastern.");

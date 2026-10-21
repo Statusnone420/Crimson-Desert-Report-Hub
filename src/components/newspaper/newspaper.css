@@ -620,3 +620,16 @@ body:has(.newspaper) > .dispatch-grain{display:none}
 @media(max-width:1000px){.newspaper .patch-archive-rail{grid-auto-columns:calc((100% - 24px)/2)}}
 @media(max-width:750px){.newspaper .patch-archive-heading{display:block}.newspaper .patch-archive-heading h2{font-size:38px;margin-bottom:12px}.newspaper .patch-archive-heading>p{max-width:30em}.newspaper .patch-archive-rail{grid-auto-columns:100%;gap:16px}.newspaper .patch-preview{padding:21px;min-height:360px}.newspaper .patch-preview h3{font-size:48px}.newspaper .patch-preview-excerpt{font-size:15px}}
 .newspaper .rundown-body{max-width:800px;margin:0 auto 50px}.newspaper .rundown-body ul{list-style:disc;padding-left:1.25em}.newspaper .rundown-body li{margin-bottom:20px}.newspaper .rundown-body .patch-heading-actions{font:16px/1.5 var(--sans),sans-serif;justify-content:flex-start;gap:20px}
+/* The expansion countdown: one quiet line under the front-page nav. */
+.newspaper .launch-clock{margin:0;padding:14px 0;border-bottom:1px solid var(--line);text-align:center;font:400 23px/1.4 var(--serif),serif}
+.newspaper .launch-clock a{color:var(--blue);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}
+.newspaper .launch-clock time{white-space:nowrap}
+@media(max-width:650px){.newspaper .launch-clock{font-size:19px;padding:12px 0;text-align:left}}
+/* The expansion desk reuses the article layout; each notice's lines read as a plain list. */
+.newspaper .expansion-desk .article-body ul{list-style:disc;padding-left:1.25em;margin:0 0 20px}
+.newspaper .expansion-desk .article-body li{font-size:20px;line-height:1.55;margin-bottom:12px}
+.newspaper .expansion-desk .desk-notice{border-top:1px solid var(--line);padding-top:20px;margin-top:28px}
+.newspaper .expansion-desk .desk-notice h3{font:400 32px/1.2 var(--serif),serif;margin:8px 0 14px}
+.newspaper .expansion-desk .desk-open a{color:var(--blue);font:15px/1.6 var(--sans),sans-serif}
+.newspaper .expansion-desk .desk-more{margin-top:32px}
+@media(max-width:750px){.newspaper .expansion-desk .article-body li{font-size:18px}.newspaper .expansion-desk .desk-notice h3{font-size:25px}}

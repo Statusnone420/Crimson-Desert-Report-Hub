@@ -13,6 +13,7 @@ const PUBLIC_ROUTES = [
   "/about",
   "/privacy",
   "/articles/charting-the-unknown",
+  "/topics/charting-the-unknown",
 ];
 
 const MAIN_ACTIONS = [

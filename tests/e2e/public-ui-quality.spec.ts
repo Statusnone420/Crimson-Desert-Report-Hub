@@ -13,6 +13,7 @@ const routes = [
   "/observatory", "/catch-up", "/about", "/privacy", "/contact",
   "/articles/charting-the-unknown", "/articles/charting-the-unknown-delay", "/articles/patch-2-02-00",
   "/articles/patch-2-03-00", "/articles/patch-1-13-01", "/editorials/clear-skies-over-the-inventory-screen",
+  "/topics/charting-the-unknown",
   "/admin/login", "/missing-public-page",
 ];
 
@@ -22,7 +23,6 @@ const redirects = {
   "/report": "/issues",
   "/scanner": "/observatory",
   "/patches/archive": "/patches#archive",
-  "/topics/charting-the-unknown": "/articles/charting-the-unknown",
 };
 function publicPageTemplates(files: string[], pageExtensions = ["tsx", "ts", "jsx", "js"]) {
   const pageNames = new Set(pageExtensions.map((extension) => `page.${extension}`));

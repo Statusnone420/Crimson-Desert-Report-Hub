@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { editorialPath } from "@/lib/editorials/content";
+import { EXPANSION } from "@/lib/expansion";
 import { getSitemapEditions } from "@/lib/editorials/store.server";
 import { getPatchPublications } from "@/lib/patchPublications.server";
 import { patchPath } from "@/lib/patchPublications";
@@ -20,6 +21,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: SITE_URL, changeFrequency: "hourly", priority: 1 },
     { url: `${SITE_URL}/news`, changeFrequency: "weekly", priority: 0.9 },
     { url: `${SITE_URL}/catch-up`, changeFrequency: "weekly", priority: 0.8 },
+    { url: `${SITE_URL}${EXPANSION.path}`, changeFrequency: "daily", priority: 0.8 },
     ...articles.map((article) => ({
       url: `${SITE_URL}${article.path}`,
       lastModified: article.updatedAt ?? article.publishedAt,

@@ -14,6 +14,8 @@ export type CatchUpMilestone = {
   source: { label: string; url: string };
   related?: { label: string; url: string }[];
   release?: ReleaseDate;
+  // The release an announcement covers when it sets no date of its own.
+  about?: ReleaseDate["id"];
   noticeSays?: NoticeSays;
 };
 
@@ -331,6 +333,63 @@ const HISTORICAL_MILESTONES: readonly CatchUpMilestone[] = [
       label: "Pearl Abyss · 2.01.00 patch notes",
       url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=128",
     },
+  },
+  {
+    id: "charting-the-unknown-diving-short",
+    publishedAt: "2026-10-08T09:00:04Z",
+    availableAt: "2026-10-22T00:00:00Z",
+    kind: "announcement",
+    about: "charting-the-unknown",
+    title: "A 12-second diving short",
+    summary: "Pearl Abyss posts a short of divers among sunken ruins. It ends on an October 29 pre-order card.",
+    highlights: [
+      "The short’s title says Charting the Unknown arrives Oct 29 PT/GMT.",
+    ],
+    noticeSays: [
+      "The official Crimson Desert YouTube channel posts a 12-second short titled “Dive into the unknown”.",
+      "The short’s title says Charting the Unknown arrives Oct 29 PT/GMT.",
+    ],
+    source: {
+      label: "“Dive into the unknown” short",
+      url: "https://www.youtube.com/shorts/er6wiBEXYYs",
+    },
+  },
+  {
+    id: "charting-the-unknown-features",
+    publishedAt: "2026-10-20T23:00:00Z",
+    availableAt: "2026-10-22T00:00:00Z",
+    kind: "announcement",
+    title: "Pearl Abyss lists what unlocks when",
+    summary: "A features overview and video say when each part of Charting the Unknown opens. Diving needs no unlock. The new character stories, castles and Garden of Trials come after the main story.",
+    release: { id: "charting-the-unknown", at: "2026-10-29T22:00:00Z" },
+    highlights: [
+      "Ships, the upgraded housing system and rented businesses need the Greymane Camp at Howling Hill first.",
+      "The new stories for Kliff, Oongka and Damiane, three claimable castles and Garden of Trials open after the main story.",
+      "The release stays Oct 29, 22:00 UTC. Pearl Abyss says more details come with the release-day patch notes.",
+    ],
+    noticeSays: [
+      "The notice links the expansion’s store pages for PS5, Xbox Series X|S, Steam and Epic Games Store.",
+      "Diving needs no special conditions. Staying underwater uses breath, and gear such as a diving suit extends it.",
+      "A new ocean storyline opens after completing “Howling Hill” in the main story.",
+      "Ships come from a questline that opens once the Greymane Camp is set up at Howling Hill. Players build one through a ship-building dispatch at a port or buy one from a Fleet Office manager.",
+      "The upgraded housing system opens after setting up camp at Howling Hill and completing Luke’s Request in the “Grounds of the Sunrise” Greymanes Faction quest.",
+      "Businesses to rent, such as a restaurant in Vellua and a smithy at Zargan Tankworks, open from the world map after the faction quest that liberates their region and the Greymane Camp setup.",
+      "Friends may visit the Greymane Camp once it is upgraded to a certain level, and some relationships can lead to romance and marriage.",
+      "The three new stories, one each for Kliff, Oongka and Damiane, start from the Journal menu after the main story.",
+      "Three castles can be claimed after the main story and related quests, by liberating each stronghold to unlock its claim missions.",
+      "Garden of Trials, a run of earlier bosses one after another, opens after the main questline and gives special rewards.",
+      "Pearl Abyss says more details come in the patch notes on release day.",
+    ],
+    source: {
+      label: "Pearl Abyss · Charting the Unknown features overview",
+      url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=137",
+    },
+    related: [
+      {
+        label: "Features Overview video",
+        url: "https://www.youtube.com/watch?v=k9WnZqkAFis",
+      },
+    ],
   },
 ];
 

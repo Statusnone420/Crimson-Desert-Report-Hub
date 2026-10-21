@@ -11,6 +11,9 @@ import {
 import { CATCH_UP_HIGHLIGHTS_START, CATCH_UP_MILESTONES, type CatchUpMilestone } from "@/lib/catchUpContent";
 
 const delay = CATCH_UP_MILESTONES.find((item) => item.id === "announcement-charting-the-unknown-delay")!;
+// The October expansion notices that follow the delay on the timeline.
+const diving = CATCH_UP_MILESTONES.find((item) => item.id === "charting-the-unknown-diving-short")!;
+const features = CATCH_UP_MILESTONES.find((item) => item.id === "charting-the-unknown-features")!;
 
 const NOW = new Date("2026-09-06T12:00:00.000Z");
 
@@ -19,7 +22,7 @@ describe("catch-up selection URLs", () => {
     const latest = CATCH_UP_MILESTONES.filter((item) => item.patch).at(-1)!;
     const hash = `#patch=${latest.patch}&include=1&chapter=${latest.id}`;
     const selection = parseCatchUpHash(hash);
-    expect(selectCatchUpMilestones(selection)).toEqual([latest, delay]);
+    expect(selectCatchUpMilestones(selection)).toEqual([latest, delay, diving, features]);
     expect(catchUpHash(selection, latest.id)).toBe(hash);
     expect(catchUpSelectionLabel(selection)).toBe(`Patch ${latest.patch} and later`);
   });
@@ -102,31 +105,31 @@ describe("catch-up milestone selection", () => {
     }
   });
 
-  it("returns all 21 milestones for full history", () => {
+  it("returns all 23 milestones for full history", () => {
     expect(selectCatchUpMilestones({ kind: "all" })).toEqual(CATCH_UP_MILESTONES);
-    expect(selectCatchUpMilestones({ kind: "all" })).toHaveLength(21);
+    expect(selectCatchUpMilestones({ kind: "all" })).toHaveLength(23);
   });
 
   it("retains the full history when a direct caller supplies an unknown patch", () => {
     expect(selectCatchUpMilestones({ kind: "patch", value: "1.00.00" })).toEqual(CATCH_UP_MILESTONES);
   });
 
-  it("keeps the default highlights at the eight entries from patch 2.00.00 onward", () => {
+  it("keeps the default highlights at the ten entries from patch 2.00.00 onward", () => {
     const highlights = CATCH_UP_MILESTONES.filter((item) => Date.parse(item.publishedAt) >= Date.parse(CATCH_UP_HIGHLIGHTS_START));
     expect(CATCH_UP_HIGHLIGHTS_START).toBe(CATCH_UP_MILESTONES.find((item) => item.patch === "2.00.00")?.publishedAt);
-    expect(highlights).toHaveLength(8);
+    expect(highlights).toHaveLength(10);
     expect(selectCatchUpMilestones({ kind: "highlights" })).toEqual(highlights);
   });
 
   it("includes the full July history for an explicit early date", () => {
     const selected = selectCatchUpMilestones({ kind: "since", value: "2026-07-03T00:00:00.000Z" });
-    expect(selected).toHaveLength(21);
+    expect(selected).toHaveLength(23);
     expect(selected[0].patch).toBe("1.13.00");
   });
 
   it("starts after patch 1.13.00 and keeps every later milestone", () => {
     const selected = selectCatchUpMilestones({ kind: "patch", value: "1.13.00" });
-    expect(selected).toHaveLength(20);
+    expect(selected).toHaveLength(22);
     expect(selected[0].patch).toBe("1.13.01");
     expect(selected.some((item) => item.patch === "1.13.00")).toBe(false);
   });
@@ -140,6 +143,8 @@ describe("catch-up milestone selection", () => {
       "2.02.00",
       "2.03.00",
       "announcement-charting-the-unknown-delay",
+      "charting-the-unknown-diving-short",
+      "charting-the-unknown-features",
     ]);
     const selectedPatch = CATCH_UP_MILESTONES.find((item) => item.patch === "2.00.01");
     expect(selectedPatch).toBeDefined();
@@ -149,12 +154,12 @@ describe("catch-up milestone selection", () => {
   it("shows 2.03.00 after 2.02.00 and accepts the latest patch and chapter links", () => {
     const now = new Date("2026-09-18T12:00:00Z");
     const selected = selectCatchUpMilestones({ kind: "patch", value: "2.02.00" });
-    expect(selected.map((item) => item.patch ?? item.id)).toEqual(["2.03.00", delay.id]);
+    expect(selected.map((item) => item.patch ?? item.id)).toEqual(["2.03.00", delay.id, diving.id, features.id]);
     expect(selected[0].publishedAt).toBe("2026-09-18T01:00:00Z");
     expect(parseCatchUpChapter("#chapter=update-2-03-00")).toBe("update-2-03-00");
     const latest = parseCatchUpHash("#patch=2.03.00", now);
     expect(latest).toEqual({ kind: "patch", value: "2.03.00" });
-    expect(selectCatchUpMilestones(latest)).toEqual([delay]);
+    expect(selectCatchUpMilestones(latest)).toEqual([delay, diving, features]);
   });
 
   it("uses exact instants for date selections", () => {

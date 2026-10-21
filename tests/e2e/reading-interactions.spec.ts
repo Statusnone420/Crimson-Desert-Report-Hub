@@ -65,7 +65,7 @@ for (const theme of ["light", "dark"]) {
     const problems = collectConsoleProblems(page);
     await page.addInitScript((selectedTheme) => localStorage.setItem("newspaper-theme", selectedTheme), theme);
     await page.clock.setFixedTime(new Date("2026-07-20T00:10:00Z"));
-    const routes = ["/", "/news", "/watch", "/issues", "/patches", "/observatory", "/about", "/privacy", "/catch-up", "/articles/patch-2-02-00", "/articles/charting-the-unknown"];
+    const routes = ["/", "/news", "/watch", "/issues", "/patches", "/observatory", "/about", "/privacy", "/catch-up", "/articles/patch-2-02-00", "/articles/charting-the-unknown", "/topics/charting-the-unknown"];
     for (const route of routes) {
       await page.goto(route);
       await waitForHydration(page);

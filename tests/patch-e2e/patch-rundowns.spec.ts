@@ -38,7 +38,8 @@ test("the latest hotfix remains discoverable below newer news and in archive, fe
   await menu.getByRole("radio", { name: /2.03.01/ }).check();
   await menu.getByRole("button", { name: "Show updates" }).click();
   await expect(page).toHaveURL(/\/catch-up#patch=2.03.01&include=1/);
-  await expect(page.locator(".cu-milestone")).toHaveCount(2);
+  // 2.03.01, the Sep 30 delay, then the October diving short and features overview.
+  await expect(page.locator(".cu-milestone")).toHaveCount(4);
   await expect(page.locator("#hotfix-2-03-01")).toContainText("Patch 2.03.01: official notes");
   await expect(page.locator(".cu-milestone").getByRole("link", { name: /Read the Patch 2.03.01/ })).toHaveAttribute("href", "/articles/patch-2-03-01");
   await expectHealthyPage(page, problems);

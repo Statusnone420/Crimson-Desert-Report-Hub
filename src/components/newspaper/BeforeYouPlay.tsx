@@ -2,6 +2,7 @@ import { ReadingLink } from "./ReadingLink";
 import { CHART_WIDTH, PANEL_HEIGHT, timeBandPath, timeLinePath } from "@/lib/activityCharts";
 import {
   completeDays,
+  partialDay,
   reviewShare,
   typicalPlayers,
   usualRangeAt,
@@ -12,6 +13,8 @@ import {
 } from "@/lib/activityHistory";
 import type { BoardWatchRead } from "@/lib/boardWatch";
 import { CATEGORY_LABELS } from "@/lib/constants";
+import { formatUtcTimestamp } from "@/lib/editorials/content";
+import { EXPANSION } from "@/lib/expansion";
 
 const DAY_MS = 86_400_000;
 const number = (value: number) => Math.round(value).toLocaleString("en-US");
@@ -119,12 +122,41 @@ function MoodTile({ history }: { history: ActivityHistory }) {
   );
 }
 
+// Steam's review totals are recorded a few times a day, so today's net change is a partial day.
+function TodayReviewsTile({ history }: { history: ActivityHistory }) {
+  const label = <p className="dd-tile-label">Steam reviews, today so far</p>;
+  if (history.lanes.reviews === "unavailable") {
+    return <div className="dd-tile">{label}<p className="np-error">Steam review totals could not be read.</p></div>;
+  }
+  const today = partialDay(history) ? history.days.at(-1) : undefined;
+  if (!today || today.newReviews === null) {
+    return <div className="dd-tile">{label}<p className="dd-tile-sub">No review record for today yet.</p></div>;
+  }
+  const share = reviewShare([today]);
+  const yesterday = reviewShare(history.days.slice(-2, -1));
+  return (
+    <div className="dd-tile">
+      {label}
+      <p className="dd-tile-value">{today.newReviews.toLocaleString("en-US")}</p>
+      <p className="dd-tile-sub">
+        {share ? `new Steam reviews, ${share.share.toFixed(0)}% positive.`
+          : today.newReviews > 0 ? "new Steam reviews."
+            : today.newReviews < 0 ? "More reviews were removed than added." : "Steam’s review total hasn’t changed today."}
+      </p>
+      {yesterday ? <p className="dd-tile-delta">Yesterday, a full day: {number(yesterday.total)} new, {yesterday.share.toFixed(0)}% positive.</p> : null}
+      <ReadingLink variant="quiet" className="dd-tile-link" href="/observatory#review-record">Read the review record</ReadingLink>
+    </div>
+  );
+}
+
 type LatestPatch = { version: string; publishedAt: string | null; fixes: number | null; notesUnavailable?: boolean };
 
-function PatchTile({ patch, now }: { patch: LatestPatch | null; now: number }) {
+function PatchTile({ patch, now, launchAt }: { patch: LatestPatch | null; now: number; launchAt?: string }) {
   if (!patch) return <div className="dd-tile"><p className="dd-tile-label">Latest official patch</p><p className="np-error">The official patch record could not be read.</p></div>;
   // Days between UTC calendar dates, to match the date shown beside them.
   const published = patch.publishedAt ? Date.parse(patch.publishedAt) : Number.NaN;
+  // Release-day notes can land hours before the release itself.
+  const olderThanLaunch = launchAt !== undefined && Number.isFinite(published) && published < Date.parse(launchAt) - DAY_MS;
   const days = Number.isFinite(published) && Number.isFinite(now)
     ? Math.round((Date.parse(`${utcDay(now)}T00:00:00Z`) - Date.parse(`${utcDay(published)}T00:00:00Z`)) / DAY_MS)
     : null;
@@ -138,34 +170,49 @@ function PatchTile({ patch, now }: { patch: LatestPatch | null; now: number }) {
           ? `${patch.fixes} listed ${patch.fixes === 1 ? "fix" : "fixes"}`
           : patch.notesUnavailable ? "the official notes could not be read" : "official notes not listed yet"}
       </p>
+      {olderThanLaunch ? <p className="dd-tile-delta">No patch notes on the Hub since launch day yet.</p> : null}
       <ReadingLink variant="quiet" className="dd-tile-link" href="/catch-up">What changed since you last played</ReadingLink>
     </div>
   );
 }
 
+/**
+ * The front page's readings. For launch week (`launch` set) they lead the page as the launch
+ * watch: today's reviews replace the 7-day mood, and the patch tile says when no notes came since.
+ */
 export function BeforeYouPlay({
   history,
   latestPatch,
   watch,
+  launch,
 }: {
   history: ActivityHistory;
   latestPatch: LatestPatch | null;
   watch: BoardWatchRead;
+  launch?: { at: string };
 }) {
   const now = Date.parse(history.checkedAt);
   const summary = watch === "unavailable" ? null : watch;
   const systems = summary?.systems.slice(0, 3).map((system) => `${CATEGORY_LABELS[system.category].toLowerCase()} ${system.threads}`).join(", ");
   return (
-    <section className="dd-brief" aria-labelledby="before-you-play-title">
-      <div className="dd-brief-heading">
-        <p className="kicker">Before you play</p>
-        <h2 id="before-you-play-title">The latest readings</h2>
-        <p className="dd-brief-deck">Recorded data from Steam and the official notes, updated after each scan. It describes the game&apos;s activity, not whether a problem is fixed.</p>
-      </div>
+    <section className="dd-brief" id={launch ? "launch-watch" : undefined} aria-labelledby="before-you-play-title">
+      {launch ? (
+        <div className="dd-brief-heading">
+          <p className="kicker">Launch watch</p>
+          <h2 id="before-you-play-title">{EXPANSION.name} is out</h2>
+          <p className="dd-brief-deck">Out since <time dateTime={launch.at}>{formatUtcTimestamp(launch.at)}</time>. Players, reviews, patches and forum threads for launch week.</p>
+        </div>
+      ) : (
+        <div className="dd-brief-heading">
+          <p className="kicker">Before you play</p>
+          <h2 id="before-you-play-title">The latest readings</h2>
+          <p className="dd-brief-deck">Recorded data from Steam and the official notes, updated after each scan. It describes the game&apos;s activity, not whether a problem is fixed.</p>
+        </div>
+      )}
       <div className="dd-tiles">
         <PlayersTile history={history} />
-        <MoodTile history={history} />
-        <PatchTile patch={latestPatch} now={now} />
+        {launch ? <TodayReviewsTile history={history} /> : <MoodTile history={history} />}
+        <PatchTile patch={latestPatch} now={now} launchAt={launch?.at} />
       </div>
       {summary && summary.threads > 0 ? (
         <div className="dd-watch">
@@ -183,7 +230,12 @@ export function BeforeYouPlay({
           <p className="np-error">The scanner&apos;s thread counts could not be read.</p>
         </div>
       ) : null}
-      <ReadingLink variant="quiet" className="dd-brief-link" href="/observatory#updates">Open the data desk</ReadingLink>
+      {launch ? (
+        <div className="dd-brief-links">
+          <ReadingLink variant="quiet" href={EXPANSION.path}>Open the expansion desk</ReadingLink>
+          <ReadingLink variant="quiet" href="/observatory#updates">Open the data desk</ReadingLink>
+        </div>
+      ) : <ReadingLink variant="quiet" className="dd-brief-link" href="/observatory#updates">Open the data desk</ReadingLink>}
     </section>
   );
 }
