@@ -24,6 +24,8 @@ test("the latest hotfix remains discoverable below newer news and in archive, fe
   await expect(page).toHaveURL(/\/patches\/2-03-01$/);
   await expect(page.locator("#claims")).toContainText("lantern-aim input for controllers");
   await page.getByRole("link", { name: "Back to the patch archive" }).click();
+  // The patch record has the same heading, so confirm the archive loaded before reading it.
+  await expect(page).toHaveURL(/\/patches#archive$/);
   await expect(page.locator(".patch-heading h1")).toHaveText("Patch 2.03.01");
   await expect(page.locator(".patch-intro")).not.toContainText("Fellow Greymanes");
   await expect(page.locator("#archive li")).toHaveCount(6);

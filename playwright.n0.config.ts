@@ -7,6 +7,7 @@ const zeroSupabasePort = Number(process.env.PLAYWRIGHT_N0_SUPABASE_PORT ?? 18766
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.n0.ts",
   testMatch: "n0.spec.ts",
   timeout: 60_000,
   reporter: [["list"]],

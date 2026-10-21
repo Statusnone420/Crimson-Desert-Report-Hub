@@ -5,6 +5,7 @@ const port = 3106;
 export default defineConfig({
   ...base,
   testDir: "./tests/patch-e2e",
+  globalSetup: "./tests/patch-e2e/global-setup.ts",
   testMatch: "patch-rundowns.spec.ts",
   testIgnore: [],
   workers: 1,

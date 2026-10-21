@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signInAsAdmin, waitForHydration } from "./helpers";
+import { refreshFixtureReads, signInAsAdmin, waitForHydration } from "./helpers";
 
 const MOCK_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 const PAIRING_ID = "00000000-0000-4000-8000-000000000201";
@@ -13,6 +13,8 @@ test("public exact claim context stays unavailable before the first durable sync
   const marker = await page.request.get(`${MOCK_ORIGIN}/rest/v1/claim_review_sync_state`);
   expect(marker.ok()).toBe(true);
   expect(await marker.json()).toEqual([]);
+  // The warm-up already cached /issues from the unchanged fixture.
+  await refreshFixtureReads(page, ["/issues"]);
 
   await page.goto("/issues");
   const issue = page.getByRole("article", { name: "Map-open crash persists after fix", exact: true });
