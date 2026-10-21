@@ -633,3 +633,23 @@ body:has(.newspaper) > .dispatch-grain{display:none}
 .newspaper .expansion-desk .desk-open a{color:var(--blue);font:15px/1.6 var(--sans),sans-serif}
 .newspaper .expansion-desk .desk-more{margin-top:32px}
 @media(max-width:750px){.newspaper .expansion-desk .article-body li{font-size:18px}.newspaper .expansion-desk .desk-notice h3{font-size:25px}}
+/* Click-to-play: a local still until the reader presses play, then YouTube's player in the same box. */
+.newspaper .click-to-play{position:relative;width:100%;background:#000;overflow:hidden}
+.newspaper .click-to-play>button,.newspaper .click-to-play>a{display:block;position:relative;width:100%;height:100%;cursor:pointer}
+.newspaper .click-to-play img{transition:transform .4s ease}
+.newspaper .click-to-play>:is(button,a):hover img{transform:scale(1.02)}
+.newspaper .click-to-play iframe{display:block;width:100%;height:100%;border:0}
+.newspaper .click-to-play__badge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:0 20px;border-radius:4px;background:rgba(0,0,0,.78);color:#fff;font:600 16px/1 var(--sans),sans-serif;white-space:nowrap}
+.newspaper .click-to-play>:is(button,a):hover .click-to-play__badge{background:#000}
+.newspaper .click-to-play>:is(button,a):focus-visible{outline:2px solid var(--blue);outline-offset:4px}
+@media(prefers-reduced-motion:reduce){.newspaper .click-to-play img{transition:none}.newspaper .click-to-play>:is(button,a):hover img{transform:none}}
+.newspaper .expansion-desk .desk-note{font:15px/1.6 var(--sans),sans-serif;color:var(--muted);margin:0}
+.newspaper .expansion-desk .desk-video{margin:24px 0 0;border-top:1px solid var(--line);padding-top:22px}
+.newspaper .expansion-desk .desk-video figcaption{position:static;display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:12px;color:var(--ink);font:12px/1.6 var(--sans),sans-serif;font-style:normal;text-shadow:none}
+.newspaper .expansion-desk .desk-video .video-category{color:var(--muted)}
+.newspaper .expansion-desk .desk-video figcaption strong{font:400 28px/1.2 var(--serif),serif}
+.newspaper .expansion-desk .desk-video figcaption a{display:inline-flex;align-items:center;gap:8px;min-height:44px;color:var(--blue);font-size:14px}
+.newspaper .expansion-desk .desk-video.is-tall{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:0 28px;align-items:end}
+.newspaper .expansion-desk .desk-video.is-tall figcaption{margin-top:0}
+.newspaper .expansion-desk .desk-price{margin-bottom:10px}
+@media(max-width:750px){.newspaper .expansion-desk .desk-video.is-tall{display:block}.newspaper .expansion-desk .desk-video.is-tall .click-to-play{max-width:360px}.newspaper .expansion-desk .desk-video.is-tall figcaption{margin-top:12px}.newspaper .expansion-desk .desk-video figcaption strong{font-size:24px}}

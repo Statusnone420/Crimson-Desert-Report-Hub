@@ -55,8 +55,10 @@ describe("the expansion desk", () => {
     expect(page).toContain("Castles open after the main story.");
     expect(page).not.toContain("Not about the expansion.");
     expect(markup).toContain('href="https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=200"');
-    const videos = [...markup.matchAll(/<a class="video-link" href="([^"]+)"/g)].map((match) => match[1]);
-    expect(videos).toEqual(["https://www.youtube.com/watch?v=AAAAAAAAAAA", "https://www.youtube.com/shorts/er6wiBEXYYs", OFFICIAL_REVEAL_URL]);
+    const watch = markup.slice(markup.indexOf('id="watch"'));
+    const order = ["https://www.youtube.com/watch?v=AAAAAAAAAAA", "https://www.youtube.com/shorts/er6wiBEXYYs", OFFICIAL_REVEAL_URL].map((url) => watch.indexOf(`href="${url}"`));
+    expect(order.every((index) => index > -1)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
   it("leaves out a notice published after the moment it shows", () => {
@@ -72,11 +74,33 @@ describe("the expansion desk", () => {
     expect(page).toContain("Diving needs no special conditions.");
     expect(page).toContain("The upgraded housing system opens after setting up camp at Howling Hill");
     expect(page).toContain("Not said yet");
-    expect(page).toContain("A price. Each store lists its own.");
     expect(page).toContain("The download size.");
     expect(page).toContain("A Mac date.");
-    expect(markup).toContain('href="https://www.youtube.com/watch?v=k9WnZqkAFis"');
+    expect(page).not.toContain("A price.");
     expect(markup).toContain(`href="${OFFICIAL_REVEAL_URL}"`);
+  });
+
+  it("sources the price to Steam's US store, apart from what Pearl Abyss has said", () => {
+    const markup = desk("2026-10-21T12:00:00Z");
+    const page = text(markup);
+    expect(page).toContain("$24.99 on Steam (US store), checked Oct 21, 2026. Other stores and regions may differ.");
+    expect(markup).toContain('href="https://store.steampowered.com/app/5001840/"');
+    const said = page.slice(page.indexOf("What Pearl Abyss has said"), page.indexOf("Official videos", page.indexOf("What Pearl Abyss has said")));
+    expect(said).not.toContain("$24.99");
+  });
+
+  it("renders the two new official videos as local stills that load nothing from YouTube", () => {
+    const markup = desk("2026-10-21T12:00:00Z");
+    expect(markup).not.toContain("<iframe");
+    expect(markup).not.toContain("youtube-nocookie.com");
+    // Before hydration the still is a plain link to the video, so it works without JavaScript.
+    expect(markup).toContain('aria-label="Watch Features Overview video on YouTube"');
+    expect(markup).toContain('href="https://www.youtube.com/watch?v=k9WnZqkAFis"');
+    expect(markup).toContain('aria-label="Watch “Dive into the unknown” short on YouTube"');
+    expect(markup).toContain('href="https://www.youtube.com/shorts/er6wiBEXYYs"');
+    expect(markup.match(/k9WnZqkAFis\.jpg/g)?.length).toBeGreaterThan(0);
+    expect(markup.match(/er6wiBEXYYs\.jpg/g)?.length).toBeGreaterThan(0);
+    expect(markup.match(/class="click-to-play(?: is-tall)?"/g)).toHaveLength(2);
   });
 
   it("says the expansion is out once the release time passes", () => {

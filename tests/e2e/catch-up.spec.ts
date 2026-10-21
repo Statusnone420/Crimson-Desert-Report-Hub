@@ -311,7 +311,9 @@ test.describe("public catch-up journey", () => {
     await expect(page).toHaveURL(/#patch=2\.03\.00&include=1$/);
     await expect(page.locator("article.cu-milestone")).toHaveCount(4);
     await expect(page.locator(".cu-edition")).toContainText("Patch 2.03.00 and later");
-    await expect(page.locator(".cu-brief-grid")).toContainText("Photo Mode and Water Stride expand");
+    // The brief keeps the three newest entries, so 2.03.00 now leads the journey below it.
+    await expect(page.locator(".cu-brief-grid")).toContainText("Pearl Abyss lists what unlocks when");
+    await expect(page.locator("article.cu-milestone").first()).toHaveAttribute("id", "update-2-03-00");
     await expect(milestone.locator(".cu-takeaways li")).toHaveCount(3);
     await page.reload();
     await expect(page.locator("article.cu-milestone")).toHaveCount(4);

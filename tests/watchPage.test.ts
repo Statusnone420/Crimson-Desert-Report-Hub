@@ -23,6 +23,17 @@ const stillManifest = JSON.parse(
   assets: { file: string; videoUrl: string; sha256: string; bytes: number; width: number; height: number }[];
 };
 
+// The frame header (SOF0-SOF15, except DHT C4, JPG C8 and DAC CC) carries a JPEG's size.
+function jpegSize(bytes: Buffer): { width: number; height: number } {
+  for (let offset = 2; bytes[offset] === 0xff && offset + 9 < bytes.length; offset += 2 + bytes.readUInt16BE(offset + 2)) {
+    const marker = bytes[offset + 1];
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      return { height: bytes.readUInt16BE(offset + 5), width: bytes.readUInt16BE(offset + 7) };
+    }
+  }
+  throw new Error("No JPEG frame header");
+}
+
 function renderWatch() {
   return renderToStaticMarkup(createElement(WatchPage));
 }
@@ -77,17 +88,18 @@ describe("watch desk selections", () => {
     expect(getEditorialCoverage().some((item) => item.url === officialWatchSelection.url)).toBe(false);
   });
 
-  it("keeps hosted stills aligned with the verified YouTube maxres files", () => {
+  it("keeps hosted stills aligned with the verified YouTube thumbnails", () => {
     expect(stillManifest.assets.map((asset) => asset.videoUrl)).toEqual([
       "https://www.youtube.com/watch?v=HaCtG1F_hfE",
       "https://www.youtube.com/watch?v=6H6c0S80d4U",
+      "https://www.youtube.com/watch?v=k9WnZqkAFis",
+      "https://www.youtube.com/watch?v=er6wiBEXYYs",
     ]);
     for (const asset of stillManifest.assets) {
       const bytes = readFileSync(path.join(process.cwd(), "public", asset.file.replace(/^\//, "")));
       expect(bytes.byteLength).toBe(asset.bytes);
       expect(createHash("sha256").update(bytes).digest("hex")).toBe(asset.sha256);
-      expect(asset.width).toBe(1280);
-      expect(asset.height).toBe(720);
+      expect(jpegSize(bytes), asset.file).toEqual({ width: asset.width, height: asset.height });
     }
   });
 });

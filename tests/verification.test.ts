@@ -34,6 +34,7 @@ appendFileSync(process.env.VERIFY_TEST_LOG, JSON.stringify({
   args,
   seed: process.env.PREVIEW_SEED_FILE ?? null,
   warmUpPages: process.env.PLAYWRIGHT_WARM_UP_PAGES ?? null,
+  now: process.env.PLAYWRIGHT_NOW ?? null,
   serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? null,
   ci: process.env.CI,
   marker: existsSync("gate-marker.txt") ? readFileSync("gate-marker.txt", "utf8") : null,
@@ -89,6 +90,7 @@ describe("shared verification runner", () => {
       SUPABASE_SERVICE_ROLE_KEY: "must-not-reach-checks",
       PREVIEW_SEED_FILE: "private-preview.json",
       PLAYWRIGHT_WARM_UP_PAGES: "/inherited",
+      PLAYWRIGHT_NOW: "2099-01-01T00:00:00.000Z",
       CI: "false",
     });
     expect(result.status, result.stderr).toBe(0);
@@ -100,7 +102,12 @@ describe("shared verification runner", () => {
       "tests/e2e/fixtures/observatory-recovery.json",
     ]);
     // The one-spec runs warm only the page they open; every other step warms its whole suite.
-    expect(commands.map(({ warmUpPages }) => warmUpPages)).toEqual(commands.map(({ seed }) => seed === null ? null : "/observatory"));
+    const desk = (args: string[]) => args.includes("tests/e2e/expansion-desk.spec.ts");
+    expect(commands.map(({ warmUpPages }) => warmUpPages)).toEqual(commands.map(({ seed, args }) =>
+      seed !== null ? "/observatory" : desk(args) ? "/topics/charting-the-unknown" : null));
+    // Only the expansion desk run moves the fixture clock, past the October notices it shows.
+    expect(commands.filter(({ now }) => now !== null).map(({ args, now }) => ({ desk: desk(args), now })))
+      .toEqual([{ desk: true, now: "2026-10-21T15:00:00.000Z" }]);
     expect(commands.at(-1).args).toEqual(["run", "test:e2e:turnstile"]);
     expect(commands.at(-1).seed).toBeNull();
   });
@@ -121,13 +128,13 @@ describe("shared verification runner", () => {
       arg !== "--headed" && !(arg === "--" && args[index + 1] === "--headed" && args[0] === "run"),
     ))).toEqual(normal.commands.map(({ args }) => args));
     const headed = visible.commands.filter(({ args }) => args.includes("--headed"));
-    expect(headed).toHaveLength(7);
+    expect(headed).toHaveLength(8);
     expect(headed.map(({ seed }) => seed)).toEqual([
       null, null,
       "tests/e2e/fixtures/platform-context-delayed.json",
       "tests/e2e/fixtures/platform-context-older-history.json",
       "tests/e2e/fixtures/observatory-recovery.json",
-      null, null,
+      null, null, null,
     ]);
   });
 

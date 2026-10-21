@@ -16,7 +16,8 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   `connect-src 'self'${impeccableLiveDev} https://challenges.cloudflare.com`,
-  "frame-src https://challenges.cloudflare.com",
+  // The expansion desk's video player, inserted only when a reader clicks play.
+  "frame-src https://challenges.cloudflare.com https://www.youtube-nocookie.com",
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",

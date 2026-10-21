@@ -1,6 +1,6 @@
 {
   "checked": "2026-09-06",
-  "note": "Local stills for outbound Watch links. CSP does not allow remote YouTube images. These files are not embeds, autoplay sources, or new editorial selections.",
+  "note": "Local stills for Watch links and the expansion desk's click-to-play covers. CSP does not allow remote YouTube images. A cover loads nothing from YouTube until a reader clicks play; Watch keeps linking out.",
   "assets": [
     {
       "file": "/watch/HaCtG1F_hfE.jpg",
@@ -27,6 +27,34 @@
       "sha256": "e38bd350d92c8d7ed4ce72589e137a54cbdadccf14be85d107a9db0d0799e311",
       "bytes": 262964,
       "context": "Reviewed KhrazeGaming commentary still. Hosted locally for the Watch page preview; playback remains on YouTube."
+    },
+    {
+      "file": "/watch/k9WnZqkAFis.jpg",
+      "videoUrl": "https://www.youtube.com/watch?v=k9WnZqkAFis",
+      "thumbnailSource": "https://i.ytimg.com/vi/k9WnZqkAFis/maxresdefault.jpg",
+      "oembedTitle": "Features Overview: Charting the Unknown | Crimson Desert DLC",
+      "oembedAuthor": "Crimson Desert",
+      "oembedAuthorUrl": "https://www.youtube.com/@CrimsonDesert",
+      "checked": "2026-10-21",
+      "width": 1280,
+      "height": 720,
+      "sha256": "0e36d0abb0ad9575606640490705d615508298e2c7a4f990dcb7c99669e1fdf6",
+      "bytes": 244089,
+      "context": "Official Pearl Abyss / Crimson Desert Features Overview still (Oct 20, 2026). Hosted locally as the expansion desk's click-to-play cover; the player loads from youtube-nocookie.com only after a click."
+    },
+    {
+      "file": "/watch/er6wiBEXYYs.jpg",
+      "videoUrl": "https://www.youtube.com/watch?v=er6wiBEXYYs",
+      "thumbnailSource": "https://i.ytimg.com/vi/er6wiBEXYYs/oardefault.jpg",
+      "oembedTitle": "Dive into the unknown 🌊 #CrimsonDesert #ChartingTheUnknown arrives Oct 29 PT/GMT",
+      "oembedAuthor": "Crimson Desert",
+      "oembedAuthorUrl": "https://www.youtube.com/@CrimsonDesert",
+      "checked": "2026-10-21",
+      "width": 720,
+      "height": 900,
+      "sha256": "6a261b74f5a49ef9f726e599413bc7b2d87bb593125e43c48cadfbbe02b8189d",
+      "bytes": 96444,
+      "context": "Official Pearl Abyss / Crimson Desert diving short still (Oct 8, 2026), the full portrait frame. Hosted locally as the expansion desk's click-to-play cover; the player loads from youtube-nocookie.com only after a click."
     }
   ]
 }

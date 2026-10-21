@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { ClickToPlay } from "@/components/newspaper/ClickToPlay";
 import { DirectionIcon, ReadingLink } from "@/components/newspaper/ReadingLink";
 import { SectionNavigation } from "@/components/newspaper/SectionNavigation";
 import type { CatchUpMilestone } from "@/lib/catchUpContent";
@@ -12,20 +13,49 @@ import {
   expansionVideos,
   launchState,
   NOT_SAID_YET,
+  STORE_PRICE,
+  VIDEO_STILLS,
   type ExpansionVideo,
 } from "@/lib/expansion";
 import { officialWatchSelection } from "@/lib/watchSelections";
+import { parseYouTubeVideoUrl } from "@/lib/youtubeVideoUrl";
 
 const SAID = { id: "said", label: "What Pearl Abyss has said" };
-const NOT_SAID = { id: "not-said", label: "Not said yet" };
 const WATCH = { id: "watch", label: "Official videos" };
+const PRICE = { id: "price", label: "Price" };
+const NOT_SAID = { id: "not-said", label: "Not said yet" };
 const day = (iso: string, year = false) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", ...(year ? { year: "numeric" } : {}), timeZone: "UTC" });
 const utcTime = (iso: string) => `${new Date(iso).toISOString().slice(11, 16)} UTC`;
+const checked = (date: string) => day(`${date}T00:00:00Z`, true);
 
 function lead(at: string | null, now: number): string {
   if (!at) return "No release date announced yet.";
   const state = launchState(at, now);
   return state?.phase === "countdown" ? `Lands ${countdownWords(state.days)}, ${formatUtcTimestamp(at)}.` : `Out since ${formatUtcTimestamp(at)}.`;
+}
+
+function Video({ video }: { video: ExpansionVideo }) {
+  const category = `Official · Crimson Desert${video.publishedAt ? ` · ${day(video.publishedAt)}` : ""}`;
+  const still = VIDEO_STILLS[video.videoId];
+  if (!still) {
+    return (
+      <a className="video-link" href={video.url} target="_blank" rel="noreferrer noopener">
+        <span className="video-category">{category}</span>
+        <strong>{video.label}</strong>
+        <span>Watch on YouTube <DirectionIcon direction="external" /></span>
+      </a>
+    );
+  }
+  return (
+    <figure className={`desk-video${still.height > still.width ? " is-tall" : ""}`}>
+      <ClickToPlay videoId={video.videoId} url={video.url} title={video.label} still={still} />
+      <figcaption>
+        <span className="video-category">{category}</span>
+        <strong>{video.label}</strong>
+        <a href={video.url} target="_blank" rel="noreferrer noopener">Watch on YouTube <DirectionIcon direction="external" /></a>
+      </figcaption>
+    </figure>
+  );
 }
 
 /**
@@ -36,12 +66,13 @@ export function ExpansionDesk({ now, milestones }: { now: number; milestones?: r
   const notices = expansionNotices(now, milestones);
   const release = expansionRelease(notices);
   const state = release ? launchState(release.at, now) : null;
-  const videos: ExpansionVideo[] = expansionVideos(notices);
-  if (!videos.some((video) => video.url === officialWatchSelection.url)) {
-    videos.push({ label: officialWatchSelection.headline, url: officialWatchSelection.url, publishedAt: null });
+  const videos = expansionVideos(notices);
+  const reveal = parseYouTubeVideoUrl(officialWatchSelection.url);
+  if (reveal.ok && !videos.some((video) => video.videoId === reveal.videoId)) {
+    videos.push({ label: officialWatchSelection.headline, url: officialWatchSelection.url, videoId: reveal.videoId, publishedAt: null });
   }
   // "Not said yet" is checked against the notices, so it only shows beside them.
-  const sections = notices.length ? [SAID, NOT_SAID, WATCH] : [SAID, WATCH];
+  const sections = notices.length ? [SAID, WATCH, PRICE, NOT_SAID] : [SAID, WATCH, PRICE];
   return (
     <article className="dispatch-container expansion-desk" id="article-top">
       <a className="skip" href="#article-body">Skip to the desk</a>
@@ -65,6 +96,7 @@ export function ExpansionDesk({ now, milestones }: { now: number; milestones?: r
         <dl>
           <div><dt>Release</dt><dd>{release ? formatUtcTimestamp(release.at) : "Not announced"}</dd></div>
           {state ? <div><dt>Status</dt><dd>{state.phase === "countdown" ? `Lands ${countdownWords(state.days)}` : "Out now"}</dd></div> : null}
+          <div><dt>Price</dt><dd>{STORE_PRICE.text}</dd></div>
         </dl>
         <details><summary>Jump to a section</summary><div className="mobile-contents"><SectionNavigation sections={sections} label="On this desk" variant="rail" /></div></details>
       </section>
@@ -91,27 +123,26 @@ export function ExpansionDesk({ now, milestones }: { now: number; milestones?: r
             </section>
           )) : <p>No official notice about the expansion is on the Hub’s timeline yet.</p>}
 
+          <section id="watch" tabIndex={-1} className="watch-section" aria-labelledby="watch-title">
+            <p className="kicker">Watch</p>
+            <h2 id="watch-title">Official videos</h2>
+            <p className="desk-note">Videos load from YouTube only when you press play.</p>
+            {videos.map((video) => <Video key={video.videoId} video={video} />)}
+          </section>
+
+          <h2 id="price" tabIndex={-1}>Price</h2>
+          <p className="desk-price"><strong>{STORE_PRICE.text}</strong>, checked {checked(STORE_PRICE.checkedAt)}. {STORE_PRICE.note}</p>
+          <ReadingLink variant="source" source={new URL(STORE_PRICE.source.url).hostname} href={STORE_PRICE.source.url}>{STORE_PRICE.source.label}</ReadingLink>
+
           {notices.length ? <>
             <h2 id="not-said" tabIndex={-1}>Not said yet</h2>
-            <p>No notice above gives these. Checked {day(`${NOT_SAID_YET.checkedAt}T00:00:00Z`, true)}.</p>
+            <p>No notice above gives these. Checked {checked(NOT_SAID_YET.checkedAt)}.</p>
             <ul className="desk-open">
               {NOT_SAID_YET.items.map((item) => (
                 <li key={item.text}>{item.text}{"source" in item ? <> <a href={item.source.url} target="_blank" rel="noreferrer noopener">{item.source.label}</a></> : null}</li>
               ))}
             </ul>
           </> : null}
-
-          <section id="watch" tabIndex={-1} className="watch-section" aria-labelledby="watch-title">
-            <p className="kicker">Watch</p>
-            <h2 id="watch-title">Official videos</h2>
-            {videos.map((video) => (
-              <a key={video.url} className="video-link" href={video.url} target="_blank" rel="noreferrer noopener">
-                <span className="video-category">Official · Crimson Desert{video.publishedAt ? ` · ${day(video.publishedAt)}` : ""}</span>
-                <strong>{video.label}</strong>
-                <span>Watch on YouTube <DirectionIcon direction="external" /></span>
-              </a>
-            ))}
-          </section>
           <ReadingLink variant="quiet" className="desk-more" href="/catch-up">Every notice and patch in order</ReadingLink>
         </div>
       </div>

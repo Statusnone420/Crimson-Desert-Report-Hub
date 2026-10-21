@@ -19,13 +19,28 @@ export const NOT_SAID_YET = {
   items: [
     { text: "How long the new content takes to play." },
     { text: "The download size." },
-    { text: "A price. Each store lists its own." },
     {
       text: "A Mac date. The expansion won’t be on the Mac App Store at launch, and Pearl Abyss says it will make a separate announcement if a Mac release is planned.",
       source: { label: "Pearl Abyss · pre-order notice", url: "https://crimsondesert.pearlabyss.com/en-US/News/Notice/Detail?_boardNo=129" },
     },
   ],
 } as const;
+
+/** A store's listed price, checked by hand. Pearl Abyss's notices give none, so it is sourced to the store. */
+export const STORE_PRICE = {
+  text: "$24.99 on Steam (US store)",
+  note: "Other stores and regions may differ.",
+  checkedAt: "2026-10-21",
+  source: { label: "Steam store page", url: "https://store.steampowered.com/app/5001840/" },
+} as const;
+
+export type VideoStill = { src: `/${string}`; width: number; height: number };
+
+/** Local covers for the videos the desk plays in place, recorded in public/watch/sources.json. Others stay links. */
+export const VIDEO_STILLS: Readonly<Record<string, VideoStill>> = {
+  k9WnZqkAFis: { src: "/watch/k9WnZqkAFis.jpg", width: 1280, height: 720 },
+  er6wiBEXYYs: { src: "/watch/er6wiBEXYYs.jpg", width: 720, height: 900 },
+};
 
 /** The expansion's notices the Hub had at `now`, newest first: those that set its date and those about it. */
 export function expansionNotices(now: number, milestones: readonly CatchUpMilestone[] = CATCH_UP_MILESTONES): CatchUpMilestone[] {
@@ -69,7 +84,7 @@ export function countdownWords(days: number): string {
   return days > 1 ? `in ${days} days` : days === 1 ? "tomorrow" : "today";
 }
 
-export type ExpansionVideo = { label: string; url: string; publishedAt: string | null };
+export type ExpansionVideo = { label: string; url: string; videoId: string; publishedAt: string | null };
 
 /** The YouTube videos the expansion's notices link, in notice order, each once. */
 export function expansionVideos(notices: readonly CatchUpMilestone[]): ExpansionVideo[] {
@@ -78,6 +93,6 @@ export function expansionVideos(notices: readonly CatchUpMilestone[]): Expansion
     const video = parseYouTubeVideoUrl(link.url);
     if (!video.ok || seen.has(video.videoId)) return [];
     seen.add(video.videoId);
-    return [{ label: link.label, url: link.url, publishedAt: notice.publishedAt }];
+    return [{ label: link.label, url: link.url, videoId: video.videoId, publishedAt: notice.publishedAt }];
   }));
 }

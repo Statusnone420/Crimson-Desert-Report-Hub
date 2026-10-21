@@ -97,6 +97,7 @@ Depending on configured environment variables, the deployment may use:
 - Steam for public review aggregates, bounded private review classification, and connected-player snapshots when enabled.
 - Twitch and IGDB for aggregate audience context and public game metadata when configured.
 - Original publishers and creator channels linked from the manually reviewed newspaper register.
+- YouTube's privacy-enhanced player (`youtube-nocookie.com`) on the expansion desk. A local still stands in for each video, and the player loads only after a reader clicks play.
 
 Provider keys are server-side only. The check-in endpoint uses Turnstile, same-origin checks, network-hash deduplication, atomic rate limits, and display thresholds.
 
