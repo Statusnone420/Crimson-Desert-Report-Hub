@@ -1,12 +1,20 @@
 export const CONFIRMATION_KINDS = ["have_it", "not_happening", "still_happening", "fixed_for_me"] as const;
 export type ConfirmationKind = (typeof CONFIRMATION_KINDS)[number];
-export type CheckinCounts = Record<ConfirmationKind, number> & { totalCount: number };
+
+/**
+ * The answers to an official fix claim, the only check-ins still taken. The
+ * general "happening to me" and "not happening for me" answers became thumbs
+ * (issue_thumbs); their earlier rows stay stored but are no longer read.
+ */
+export const POLL_KINDS = ["fixed_for_me", "still_happening"] as const;
+export type PollKind = (typeof POLL_KINDS)[number];
+export type CheckinCounts = Record<PollKind, number> & { totalCount: number };
 
 /** A receipt may omit totals if the read after a confirmed write failed. */
 export function parseCheckinCounts(value: unknown): CheckinCounts | null {
   if (!value || typeof value !== "object") return null;
   const counts = value as Record<string, unknown>;
-  const keys = [...CONFIRMATION_KINDS, "totalCount"] as const;
+  const keys = [...POLL_KINDS, "totalCount"] as const;
   if (!keys.every((key) => typeof counts[key] === "number" && Number.isSafeInteger(counts[key]) && (counts[key] as number) >= 0)) return null;
   return Object.fromEntries(keys.map((key) => [key, counts[key]])) as CheckinCounts;
 }

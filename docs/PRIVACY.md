@@ -5,7 +5,8 @@ Crimson Desert Report Hub is an independent fan site. It has no player accounts,
 ## What The Public Registers Mean
 
 - **Historical written reports are evidence.** The public free-form report flow is retired. Existing written reports remain under the prior privacy rules; approved historical excerpts may remain public.
-- **Check-ins are signals.** Anonymous check-ins record what a network says about a public issue on an exact patch. They are tallies, not identity, consensus, or a verdict.
+- **Check-ins are signals.** After an official fix claim, anonymous check-ins record whether a network says the fix worked on an exact patch. They are tallies, not identity, consensus, or a verdict.
+- **Thumbs stay with the person who tapped.** A thumb up or down on a public issue shows only on the device that tapped it. The site never shows how many there are, and thumbs never put an issue on the board.
 - **Scanner links are leads.** Public web links found by the scanner may appear as source-radar context or questions. They never become player evidence merely because they passed a filter.
 - **Official notes are context.** Pearl Abyss patch metadata and claimed fixes start questions; they do not prove a result on every platform.
 
@@ -16,8 +17,8 @@ Public pages may show:
 - Current official patch title, version, publish time, and Pearl Abyss source link. A version that the publisher announces on Steam before its Pearl Abyss notice links to the Steam announcement until the notice appears.
 - Issue titles and neutral summaries.
 - Aggregate historical written-report counts and platform/category counts.
-- Aggregate check-in counts by response and platform.
-- Count-backed labels such as `Community check-ins`, `Earlier player reports`, `Fix claimed — unverified`, `Still happening reported`, or `Fixed for some`. These labels do not establish unique player identities or prove a fix for everyone.
+- Aggregate check-in counts by response and platform. Thumb counts are never shown.
+- Count-backed labels such as `Earlier player reports`, `Fix claimed — unverified`, `Still happening reported`, or `Fixed for some`. These labels do not establish unique player identities or prove a fix for everyone.
 - Public scanner lead links and mapped lead questions.
 - Original Crimson Desert Report Hub articles with cited source links.
 - Automatic official patch rundowns using retained official fix excerpts and source links.
@@ -25,7 +26,7 @@ Public pages may show:
 - Aggregate Steam review sentiment, aggregate Twitch audience, and public IGDB game metadata when those lanes are configured and current.
 - Approved historical report excerpts.
 
-Public pages never intentionally show raw unmoderated report text, Steam review text retained for classification, hashed provider identifiers, network hashes, connected-player snapshots, rejected scanner candidates, raw IP addresses, check-in rows, or the check-in-attempt ledger. Pending and skipped video-review candidates, including review notes, stay in private operator storage until a later publication PR adds an approved Watch entry.
+Public pages never intentionally show raw unmoderated report text, Steam review text retained for classification, hashed provider identifiers, network hashes, connected-player snapshots, rejected scanner candidates, raw IP addresses, check-in rows, thumbs or thumb counts, or the check-in-attempt ledger. Pending and skipped video-review candidates, including review notes, stay in private operator storage until a later publication PR adds an approved Watch entry.
 
 ## Historical Written Reports
 
@@ -39,15 +40,21 @@ One network has one current response for each issue and exact patch. Choosing an
 
 The public UI receives aggregates only. The browser may remember a selected response locally, but that marker cannot prove the server's network-deduplication identity and does not author an optimistic public total.
 
+## Thumbs
+
+Any public issue takes an optional thumb up or down. A thumb needs a Turnstile check but no platform. One network has one thumb for each issue and exact patch: choosing the other thumb replaces it, and tapping the same thumb again deletes it. The browser remembers its own choice locally; that is the only place a thumb appears.
+
+No page, feed, export or response shows a thumb count. The board reads the totals for one purpose: an issue with at least ten thumbs up from different networks, and more ups than downs, ranks slightly above issues with the same evidence. Thumbs never publish an issue, keep one on the board, or change its evidence label. The general "Happening to me" and "Not happening for me" check-ins saved before thumbs were copied into thumbs up and down; the original rows stay stored and are no longer read.
+
 ## Site Contact
 
 The website's `/contact` page explains private on-site problem reporting. A report collects its type, description, page address (without query or fragment), optional email, and a salted one-way network hash for a rolling daily network limit. Creator content removal requests require email for verification. Reports and review notes stay private in the Hub database and admin inbox. No email delivery, GitHub flow, public post, automatic content change, or response schedule is created. Turnstile gates submissions; raw IP addresses are never stored. Game and account support belongs with Pearl Abyss.
 
 ## Network Hashes And Rate Limits
 
-The application does not store raw IP addresses in its database. For check-ins and problem reports, the server derives a salted one-way hash from the request's network for deduplication and rate limits. An IPv4 address is hashed as sent. An IPv6 address is first reduced to its /64 prefix (its first four of eight groups), because one connection usually holds that whole block. The hash is never sent to public pages.
+The application does not store raw IP addresses in its database. For check-ins, thumbs and problem reports, the server derives a salted one-way hash from the request's network for deduplication and rate limits. An IPv4 address is hashed as sent. An IPv6 address is first reduced to its /64 prefix (its first four of eight groups), because one connection usually holds that whole block. The hash is never sent to public pages.
 
-Check-in writes use an atomic database function. A per-network transaction lock serializes concurrent responses for the same hash. The function checks that the target issue remains public, records an accepted response only when allowed, and updates the current response in the same transaction. The private attempt ledger stores only the network hash and timestamp. Older entries are removed by later check-in processing. Each Turnstile token can save one check-in: a private table keeps a SHA-256 fingerprint of each token that saved one, with its time, never the token, network hash, or answer.
+Check-in and thumb writes use atomic database functions. A per-network transaction lock serializes concurrent responses for the same hash. The function checks that the target issue remains public, records an accepted response only when allowed, and updates the current response in the same transaction. The private attempt ledger stores only the network hash and timestamp. Older entries are removed by later check-in processing. Each Turnstile token can save one check-in or one thumb: a private table keeps a SHA-256 fingerprint of each token that saved one, with its time, never the token, network hash, or answer.
 
 Network hashes are an abuse-control approximation, not identity. Shared networks can undercount and network changes can count separately. This is why check-in tallies never become verdicts.
 
@@ -98,7 +105,7 @@ Depending on configured environment variables, the deployment may use:
 - Twitch and IGDB for aggregate audience context and public game metadata when configured.
 - Original publishers and creator channels linked from the manually reviewed newspaper register.
 
-Provider keys are server-side only. The check-in endpoint uses Turnstile, same-origin checks, network-hash deduplication, atomic rate limits, and display thresholds.
+Provider keys are server-side only. The check-in and thumb endpoints use Turnstile, same-origin checks, network-hash deduplication and atomic rate limits. Check-in counts also use display thresholds.
 
 ## Analytics And Ads
 

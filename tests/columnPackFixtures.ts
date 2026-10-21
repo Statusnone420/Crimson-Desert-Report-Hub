@@ -44,7 +44,7 @@ export function notice(overrides: Partial<OfficialNotice>): OfficialNotice {
 
 export function issue(overrides: Partial<IssueAggregate>): IssueAggregate {
   return {
-    id: "00000000-0000-4000-8000-0000000000aa", title: "Crash when opening the map", approvedReports: 0, checkins: 0, checkinNetworks: 0,
+    id: "00000000-0000-4000-8000-0000000000aa", title: "Crash when opening the map", approvedReports: 0,
     publicPosts: 0, postsBySite: {}, officialFixListed: false, stillHappening: false, strength: 1, afterFix: null, ...overrides,
   };
 }
@@ -54,7 +54,7 @@ export function samplePack(): FactPack {
     now: PACK_NOW, notices: [],
     patches: { available: true, editions: [patch("2.03.02", "2026-10-24T09:00:00Z", ["Fixed an issue where the map could crash.", "Fixed horses stuck in fences."])] },
     history: history(),
-    board: { available: true, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, checkins: 5, checkinNetworks: 5, publicPosts: 3, postsBySite: { "Steam Community": 3 } })] },
+    board: { available: true, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, publicPosts: 3, postsBySite: { "Steam Community": 3 } })] },
     previous: null,
   });
 }

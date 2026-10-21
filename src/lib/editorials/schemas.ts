@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Fact ids: one capital letter for the kind (P patch, F fix, S Steam, T Twitch, C issue, K check-ins), then a number. */
+/** Fact ids: one capital letter for the kind (P patch, F fix, S Steam, T Twitch, C issue, K check-ins in earlier packs), then a number. */
 export const FACT_ID = /^[A-Z][0-9]{1,3}$/;
 const FACT_ID_PATTERN = "^[A-Z][0-9]{1,3}$";
 

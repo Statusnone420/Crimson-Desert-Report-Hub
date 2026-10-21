@@ -10,10 +10,10 @@ const row = (over: Partial<ConfirmationRow>): ConfirmationRow => ({
   ...over,
 });
 
-it("accepts only complete nonnegative receipt counts and strips unrelated fields", () => {
-  const counts = { totalCount: 3, have_it: 1, not_happening: 2, fixed_for_me: 0, still_happening: 0 };
-  expect(parseCheckinCounts({ ...counts, privateField: "never expose" })).toEqual(counts);
-  for (const value of [null, {}, { ...counts, have_it: -1 }, { ...counts, have_it: 0.5 }, { ...counts, have_it: "1" }, { ...counts, have_it: Infinity }]) {
+it("accepts only complete nonnegative fix-answer counts and strips everything else", () => {
+  const counts = { totalCount: 3, fixed_for_me: 1, still_happening: 2 };
+  expect(parseCheckinCounts({ ...counts, have_it: 4, not_happening: 5, privateField: "never expose" })).toEqual(counts);
+  for (const value of [null, {}, { ...counts, fixed_for_me: -1 }, { ...counts, fixed_for_me: 0.5 }, { ...counts, still_happening: "1" }, { ...counts, totalCount: Infinity }]) {
     expect(parseCheckinCounts(value)).toBeNull();
   }
 });

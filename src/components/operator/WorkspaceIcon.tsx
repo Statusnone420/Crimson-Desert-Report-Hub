@@ -9,7 +9,6 @@ const paths: Record<OperatorView | "arrow" | "export" | "logout", React.ReactNod
   ai: <><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4M10 10h4v4h-4z"/></>,
   column: <><path d="M4 4h16v16H4z"/><path d="M12 4v16M7 8h2m-2 4h2m-2 4h2m6-8h2m-2 4h2m-2 4h2"/></>,
   videos: <><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/></>,
-  dossiers: <path d="M3 6h7l2 2h9v12H3zM3 8V4h7l2 2h9v2"/>,
   settings: <><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></>,
   arrow: <path d="m9 5 7 7-7 7"/>,
   export: <path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>,

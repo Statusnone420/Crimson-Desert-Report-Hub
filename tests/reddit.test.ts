@@ -14,6 +14,15 @@ describe("classifySignal", () => {
     expect(classifySignal("My horse controls completely lock up randomly").category).toBe("controls_gameplay");
   });
 
+  it("routes on-screen prompts, the HUD and menus to controls rather than graphics", () => {
+    expect(classifySignal("Interaction prompt doesn't show up near ladders").category).toBe("controls_gameplay");
+    expect(classifySignal("Button prompts stay on screen after a cutscene ends").category).toBe("controls_gameplay");
+    expect(classifySignal("HUD and minimap vanish after reloading a save").category).toBe("controls_gameplay");
+    expect(classifySignal("Pause menu ignores the gamepad").category).toBe("controls_gameplay");
+    // "ui" is a whole word: a guide or a build is not the interface.
+    expect(classifySignal("New armor build guide").category).toBe("other");
+  });
+
   it("falls back to other with low confidence", () => {
     const result = classifySignal("Anyone else think the soundtrack is great?");
     expect(result.category).toBe("other");

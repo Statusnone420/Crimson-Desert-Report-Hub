@@ -504,6 +504,19 @@ const issueCheckins = [
   voter_ip_hash: hash,
 }));
 
+// Mirrors the copy in supabase/migrations/20261021120000_issue_thumbs.sql: a
+// general "happening to me" check-in is a thumb up, "not happening" a thumb down.
+const issueThumbs = issueCheckins
+  .filter((row) => row.kind === "have_it" || row.kind === "not_happening")
+  .map((row) => ({
+    id: `thumb-${row.id}`,
+    created_at: row.created_at,
+    cluster_id: row.cluster_id,
+    patch_version: row.patch_version,
+    direction: row.kind === "have_it" ? "up" : "down",
+    voter_ip_hash: row.voter_ip_hash,
+  }));
+
 const officialPatchNotes = [
   {
     id: "official-patch-113",
@@ -799,16 +812,6 @@ const videoPublicationDrafts = [
   },
 ];
 
-const dossierRuns = [
-  {
-    id: "dossier-run-1",
-    created_at: isoMinutesAgo(75),
-    provider: "deterministic",
-    markdown: "# Fixture dossier\n\nThis private fixture output is safe to copy for the operator workflow test.\n",
-    stats: { totalSignals: 3, totalDirectReports: 2, totalVerifiedReports: 1, pendingCount: 1 },
-  },
-];
-
 /**
  * Preview seed override: when PREVIEW_SEED_FILE points at a JSON file, its
  * table arrays replace the built-in Playwright seed in place. This is the
@@ -830,6 +833,7 @@ if (previewSeedFile) {
     automation_settings: automationSettings,
     issue_confirmations: issueConfirmations,
     issue_checkins: issueCheckins,
+    issue_thumbs: issueThumbs,
     official_patch_notes: officialPatchNotes,
     official_patch_claimed_fixes: officialPatchClaimedFixes,
     patch_observations: patchObservations,
@@ -839,7 +843,6 @@ if (previewSeedFile) {
     scanner_feedback_rules: scannerFeedbackRules,
     video_review_candidates: videoReviewCandidates,
     video_publication_drafts: videoPublicationDrafts,
-    dossier_runs: dossierRuns,
     claim_review_pairings: claimReviewPairings,
     claim_review_audit_events: claimReviewAuditEvents,
     claim_review_sync_state: claimReviewSyncState,
@@ -914,6 +917,7 @@ const resettableTables = [
   automationSettings,
   issueConfirmations,
   issueCheckins,
+  issueThumbs,
   officialPatchNotes,
   officialPatchClaimedFixes,
   patchObservations,
@@ -922,7 +926,6 @@ const resettableTables = [
   signalObservationEvents,
   videoReviewCandidates,
   videoPublicationDrafts,
-  dossierRuns,
   claimReviewPairings,
   claimReviewAuditEvents,
   claimReviewSyncState,
@@ -938,9 +941,7 @@ let mockIdSeq = 0;
 let failNextApprovedExcerptInsert = false;
 let claimReviewReadUnavailable = false;
 let claimReviewSyncStateDenied = false;
-let dossierRunsUnavailable = false;
 let failNextVideoMutation = false;
-let bugReportReadsUnavailable = false;
 let automationAdminHistoryUnavailable = false;
 /** Mirrors issue_checkin_tokens: each token fingerprint may save one check-in. */
 const usedCheckinTokenHashes = new Set();
@@ -955,9 +956,7 @@ function resetFixture() {
   failNextApprovedExcerptInsert = false;
   claimReviewReadUnavailable = false;
   claimReviewSyncStateDenied = false;
-  dossierRunsUnavailable = false;
   failNextVideoMutation = false;
-  bugReportReadsUnavailable = false;
   automationAdminHistoryUnavailable = false;
   usedCheckinTokenHashes.clear();
 }
@@ -1387,21 +1386,9 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (url.pathname === "/__test__/dossier-runs-unavailable" && req.method === "POST") {
-    dossierRunsUnavailable = true;
-    sendJson(res, req.method, 200, { unavailable: true });
-    return;
-  }
-
   if (url.pathname === "/__test__/fail-next-video-mutation" && req.method === "POST") {
     failNextVideoMutation = true;
     sendJson(res, req.method, 200, { armed: true });
-    return;
-  }
-
-  if (url.pathname === "/__test__/bug-reports-unavailable" && req.method === "POST") {
-    bugReportReadsUnavailable = true;
-    sendJson(res, req.method, 200, { unavailable: true });
     return;
   }
 
@@ -1479,10 +1466,6 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/rest/v1/bug_reports" && req.method === "GET") {
-    if (bugReportReadsUnavailable) {
-      sendPgError(res, req.method, 500, "fixture approved reports read unavailable", "XX000");
-      return;
-    }
     sendJson(res, req.method, 200, filterRows(bugReports, url));
     return;
   }
@@ -1516,29 +1499,6 @@ const server = createServer(async (req, res) => {
       return;
     }
     sendJson(res, req.method, 200, filterRows(claimReviewSyncState, url));
-    return;
-  }
-
-  if (url.pathname === "/rest/v1/dossier_runs" && req.method === "GET") {
-    if (dossierRunsUnavailable) {
-      sendPgError(res, req.method, 500, "fixture dossier run read unavailable", "XX000");
-      return;
-    }
-    sendJson(res, req.method, 200, filterRows(dossierRuns, url));
-    return;
-  }
-
-  if (url.pathname === "/rest/v1/dossier_runs" && req.method === "POST") {
-    const raw = await readBody(req);
-    const parsed = raw ? JSON.parse(raw) : {};
-    const row = {
-      id: randomUUID(),
-      created_at: new Date(now()).toISOString(),
-      ...parsed,
-    };
-    dossierRuns.unshift(row);
-    const wantsObject = (req.headers.accept ?? "").includes("vnd.pgrst.object");
-    sendJson(res, req.method, 201, wantsObject ? row : [row]);
     return;
   }
 
@@ -1765,6 +1725,11 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/rest/v1/issue_confirmations" && req.method === "GET") {
     sendJson(res, req.method ?? "GET", 200, issueConfirmations);
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/issue_thumbs" && req.method === "GET") {
+    sendJson(res, req.method ?? "GET", 200, filterRows(issueThumbs, url));
     return;
   }
 
@@ -2014,6 +1979,45 @@ const server = createServer(async (req, res) => {
       patch_version: payload.p_patch_version, platform: payload.p_platform, kind: payload.p_kind, voter_ip_hash: payload.p_voter_ip_hash,
     });
     cluster.visibility_revision = Number(cluster.visibility_revision ?? 0) + 1;
+    sendJson(res, req.method, 200, "recorded");
+    return;
+  }
+
+  if (url.pathname === "/rest/v1/rpc/record_issue_thumb" && req.method === "POST") {
+    const payload = JSON.parse(await readBody(req));
+    // Mirrors supabase/migrations/20261021120000_issue_thumbs.sql.
+    if (!["up", "down", "none"].includes(payload.p_direction)) {
+      badInput(res, req.method, "invalid thumb direction");
+      return;
+    }
+    if (!URL_HASH_SHAPE.test(String(payload.p_token_hash ?? ""))) {
+      badInput(res, req.method, "invalid token hash");
+      return;
+    }
+    if (!clusters.some((row) => row.id === payload.p_cluster_id && row.is_public)) {
+      sendJson(res, req.method, 200, "unknown_issue");
+      return;
+    }
+    if (usedCheckinTokenHashes.has(payload.p_token_hash)) {
+      sendJson(res, req.method, 200, "replayed");
+      return;
+    }
+    usedCheckinTokenHashes.add(payload.p_token_hash);
+    const index = issueThumbs.findIndex((row) =>
+      row.cluster_id === payload.p_cluster_id
+      && row.patch_version === payload.p_patch_version
+      && row.voter_ip_hash === payload.p_voter_ip_hash,
+    );
+    if (payload.p_direction === "none") {
+      if (index >= 0) issueThumbs.splice(index, 1);
+    } else if (index >= 0) {
+      Object.assign(issueThumbs[index], { direction: payload.p_direction, created_at: new Date(now()).toISOString() });
+    } else {
+      issueThumbs.push({
+        id: nextMockId("thumb"), created_at: new Date(now()).toISOString(), cluster_id: payload.p_cluster_id,
+        patch_version: payload.p_patch_version, direction: payload.p_direction, voter_ip_hash: payload.p_voter_ip_hash,
+      });
+    }
     sendJson(res, req.method, 200, "recorded");
     return;
   }

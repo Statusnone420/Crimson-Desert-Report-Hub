@@ -51,8 +51,6 @@ export function issueBoard(data: IssuesData): IssueBoard {
       id: cluster.id,
       title: cluster.title,
       approvedReports: cluster.directReportCount,
-      checkins: cluster.confirmations.affectedCount,
-      checkinNetworks: cluster.confirmations.affectedNetworks,
       publicPosts: posts.length,
       postsBySite,
       officialFixListed: claims.length > 0,

@@ -4,7 +4,6 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/app/admin/page", () => ({ default: () => null }));
 vi.mock("@/app/scanner/page", () => ({ default: () => null }));
 vi.mock("@/app/admin/videos/page", () => ({ default: () => null }));
-vi.mock("@/app/admin/compile/page", () => ({ default: () => null }));
 vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.auth }));
 vi.mock("@/lib/previewGuard", () => ({ isAiSettingsPreviewAllowed: mocks.preview, isAiSettingsLiveAllowed: mocks.live }));
 vi.mock("@/lib/aiSettings/store.server", () => ({ readAiDashboard: mocks.dashboard }));

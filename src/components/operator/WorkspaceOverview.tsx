@@ -2,8 +2,7 @@ import type { ReactNode } from "react";
 import { workspaceHref } from "@/lib/operatorWorkspace";
 import { WorkspaceIcon } from "@/components/operator/WorkspaceIcon";
 
-export type WorkspaceDecisionView =
-  "reports" | "claims" | "videos" | "dossiers";
+export type WorkspaceDecisionView = "reports" | "claims" | "videos";
 
 export type WorkspaceDecisionRow = {
   id: string;
@@ -39,7 +38,6 @@ const viewLabels: Record<WorkspaceDecisionView, string> = {
   reports: "Reports",
   claims: "Claim review",
   videos: "Videos",
-  dossiers: "Dossiers",
 };
 
 function availabilityLabel(
@@ -47,7 +45,6 @@ function availabilityLabel(
   state: WorkspaceAvailability,
 ): string {
   if (!state.available) return "Unavailable";
-  if (view === "dossiers") return "Optional compilation tool available";
   if (state.total === null) return "Pending-work total unknown";
   if (view === "reports")
     return `${state.total} report${state.total === 1 ? "" : "s"} awaiting review`;

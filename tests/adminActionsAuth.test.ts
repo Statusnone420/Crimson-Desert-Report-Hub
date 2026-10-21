@@ -18,7 +18,6 @@ const AUTH_SENTINEL = "auth sentinel: admin session required";
 
 const mocks = vi.hoisted(() => ({
   cookieSet: vi.fn(),
-  draftDossierWithAi: vi.fn(),
   from: vi.fn(),
   getCurrentPatchMetadata: vi.fn(),
   redirect: vi.fn(),
@@ -42,7 +41,6 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/adminGuard", () => ({ requireAdmin: mocks.requireAdmin }));
-vi.mock("@/lib/ai", () => ({ draftDossierWithAi: mocks.draftDossierWithAi }));
 vi.mock("@/lib/automation/run", () => ({
   refreshClusterVisibility: mocks.refreshClusterVisibility,
   rescueCandidateSignal: mocks.rescueCandidateSignal,
@@ -73,7 +71,6 @@ const WRITE_ACTIONS: { name: keyof Actions; form: Record<string, string> }[] = [
   },
   { name: "clearClusterFixStatusOverride", form: { cluster_id: "cluster-one" } },
   { name: "setCurrentPatchOverride", form: { patch_version: "1.13.02" } },
-  { name: "compileDossier", form: {} },
   { name: "setAutomationPaused", form: { paused: "true" } },
   { name: "setScannerPolicy", form: { paused: "false", minIntervalMinutes: "120" } },
   {
@@ -124,9 +121,6 @@ beforeEach(() => {
   mocks.refreshClusterVisibility.mockImplementation(() => {
     throw new Error("cluster refresh reached without an admin session");
   });
-  mocks.draftDossierWithAi.mockImplementation(() => {
-    throw new Error("AI drafting reached without an admin session");
-  });
   mocks.getCurrentPatchMetadata.mockImplementation(() => {
     throw new Error("patch metadata read reached without an admin session");
   });
@@ -148,7 +142,6 @@ describe("admin write actions require authentication before any work", () => {
       expect(mocks.rpc).not.toHaveBeenCalled();
       expect(mocks.rescueCandidateSignal).not.toHaveBeenCalled();
       expect(mocks.refreshClusterVisibility).not.toHaveBeenCalled();
-      expect(mocks.draftDossierWithAi).not.toHaveBeenCalled();
       expect(mocks.revalidatePath).not.toHaveBeenCalled();
       expect(mocks.revalidateTag).not.toHaveBeenCalled();
       expect(mocks.redirect).not.toHaveBeenCalled();

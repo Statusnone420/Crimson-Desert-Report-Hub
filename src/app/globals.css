@@ -2362,7 +2362,7 @@ a.wire-item__title:hover { color: var(--dispatch-ink); }
 
 /* ============================================================
    Editorial Dispatch - Operator surfaces (/admin, /scanner
-   admin, /admin/compile). Mono-forward, same rule-band bones.
+   admin). Mono-forward, same rule-band bones.
    ============================================================ */
 
 .op-status-line {
@@ -2798,15 +2798,6 @@ details[open] > .ledger-row .ledger-row__chevron { transform: rotate(90deg); }
 .override-create__form > label:not(.decision-form__confirm) { display: grid; gap: 6px; }
 .override-create__form > label > span:first-child { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dispatch-quiet); }
 .override-create__form textarea { min-height: 76px; resize: vertical; }
-
-/* Compile */
-
-.compile-band { border-top: 2px solid var(--rule-strong); padding: 26px 0; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
-.compile-runs { border-top: 1px solid var(--rule); padding: 26px 0 48px; }
-.compile-run-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--rule-ghost); font-size: 14px; }
-.compile-run-row__mode { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; color: var(--dispatch-quiet); }
-.compile-output { border-top: 1px solid var(--rule); padding: 26px 0 48px; display: flex; flex-direction: column; gap: 14px; }
-.compile-output textarea { background: var(--dispatch-inset); border: 1px solid rgba(236,227,208,0.18); border-radius: var(--r-btn); color: var(--dispatch-ink); }
 
 @media (max-width: 1199px) {
   .monitor-grid { grid-template-columns: 1fr 1fr; }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { forumAuthorKey } from "@/lib/crypto";
 import {
   fetchSteamForumTopics,
   isSteamForumThreadUrl,
@@ -22,10 +23,12 @@ function topicRow(input: {
   lastPost: number;
   replies: number;
   sticky?: boolean;
+  author?: string;
 }): string {
+  const author = input.author ?? "PlayerOne";
   const tooltip = escapeAttribute(
     `\t\t\t<div class="topic_hover_text">\n\t\t\t\t${input.preview}\t\t\t</div>\n` +
-      `\t\t\t<div class="topic_hover_row">\n\t\t\t\tPosted by: <span class="topic_hover_data">PlayerOne</span>, <span class="">${input.posted}</span>\t\t\t</div>\n` +
+      `\t\t\t<div class="topic_hover_row">\n\t\t\t\tPosted by: <span class="topic_hover_data">${author}</span>, <span class="">${input.posted}</span>\t\t\t</div>\n` +
       `\t\t\t\t\t\t\t<div class="topic_hover_row">\n\t\t\t\t\tLast post: <span class="topic_hover_data">PlayerTwo</span>, <span class="">10:23am</span>\t\t\t\t</div>`,
   );
   return `<div data-panel="{&quot;clickOnActivate&quot;:&quot;firstChild&quot;}" role="button" class="forum_topic  unread${input.sticky ? " sticky" : ""}" id="forum_General_45343476_${input.id}"  data-gidforumtopic="${input.id}" data-tooltip-forum="${tooltip}">
@@ -41,7 +44,7 @@ function topicRow(input: {
 \t\t<div class="forum_topic_name ">
 \t\t\t\t\t\t\t\t\t\t\t\t\t${input.title}\t\t\t\t\t\t</div>
 \t\t\t<div class="forum_topic_op">
-\t\t\tPlayerOne\t\t\t\t\t</div>
+\t\t\t${author}\t\t\t\t\t</div>
 \t\t<div style="clear: both;"></div>
 </div>
 `;
@@ -92,8 +95,28 @@ describe("parseSteamForumTopics", () => {
       lastPostAt: "2026-10-04T17:23:25.000Z",
       replyCount: 7,
       sticky: false,
+      authorKey: null,
     });
     expect(JSON.stringify(topic)).not.toMatch(/PlayerOne|PlayerTwo/);
+  });
+
+  it("hands only the opening post's author to the keyer and keeps no name", () => {
+    const keyer = vi.fn((name: string) => forumAuthorKey(name, "test-secret"));
+    const html = [
+      topicRow({ id: "41", title: "Crash after hotfix", preview: "Posted by: Someone Else, Oct 1 @ 1:00pm", posted: "Oct 3 @ 11:18pm", lastPost: unix("2026-10-04T17:00:00Z"), replies: 2 }),
+      topicRow({ id: "42", title: "Map crash", preview: "Map crashes.", posted: "Oct 3 @ 9:00pm", lastPost: unix("2026-10-04T16:00:00Z"), replies: 1, author: "Desert &amp; Rider" }),
+      topicRow({ id: "43", title: "Map crash too", preview: "Same here.", posted: "Oct 3 @ 8:00pm", lastPost: unix("2026-10-04T15:00:00Z"), replies: 0 }),
+    ].join("");
+
+    const topics = parseSteamForumTopics(html, NOW, keyer);
+
+    expect(keyer.mock.calls.map(([name]) => name)).toEqual(["PlayerOne", "Desert & Rider", "PlayerOne"]);
+    expect(topics.map((topic) => topic.authorKey)).toEqual([
+      forumAuthorKey("PlayerOne", "test-secret"),
+      forumAuthorKey("Desert & Rider", "test-secret"),
+      forumAuthorKey("PlayerOne", "test-secret"),
+    ]);
+    expect(JSON.stringify(topics)).not.toMatch(/PlayerOne|PlayerTwo|Desert & Rider/);
   });
 
   it("reads the opening time from the metadata row even when the preview quotes \"Posted by:\"", () => {

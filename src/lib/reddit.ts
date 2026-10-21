@@ -24,7 +24,17 @@ const RULES: { category: Category; confidence: "medium" | "low"; patterns: RegEx
   {
     category: "controls_gameplay",
     confidence: "medium",
-    patterns: [/\bhorse\b/i, /\bmount\b/i, /controls?\b/i, /input/i, /lock(s|ed)? ?up/i, /unresponsive/i],
+    patterns: [
+      /\bhorse\b/i,
+      /\bmount\b/i,
+      /controls?\b/i,
+      /input/i,
+      /lock(s|ed)? ?up/i,
+      /unresponsive/i,
+      // The HUD, menus and on-screen prompts are part of play, not rendering.
+      /\b(?:ui|hud|menus?|keybinds?|key ?bindings?)\b/i,
+      /\b(?:button|interact(?:ion)?|key) prompts?\b/i,
+    ],
   },
   {
     category: "graphics_visual",

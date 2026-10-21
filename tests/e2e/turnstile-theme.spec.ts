@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { collectConsoleProblems, expectHealthyPage, waitForHydration } from "./helpers";
 
 type StubState = {
-  renders: { id: string; sitekey: string; theme: string; size: string }[];
+  renders: { id: string; sitekey: string; theme: string; size: string; appearance?: string }[];
   removed: string[];
   activeIds: string[];
 };
@@ -20,7 +20,7 @@ const STUB_SCRIPT = String.raw`
       const input = document.createElement('input');
       input.type = 'hidden'; input.name = 'cf-turnstile-response'; input.value = token; input.dataset.stubWidget = id; input.dataset.theme = options.theme;
       element.append(input); widgets.set(id, input);
-      state.renders.push({ id, sitekey: options.sitekey, theme: options.theme, size: options.size }); state.activeIds.push(id);
+      state.renders.push({ id, sitekey: options.sitekey, theme: options.theme, size: options.size, appearance: options.appearance }); state.activeIds.push(id);
       options.callback?.(token);
       return id;
     },
@@ -53,20 +53,43 @@ async function installStub(page: Page, theme: "light" | "dark" | null, delayed =
   return { requested, releaseScript, externalRequests, checkinWrites };
 }
 
+// Check-ins answer an official fix claim. This suite has its own mock server,
+// so it confirms the fixture's waiting map claim once and leaves it confirmed.
+const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_TURNSTILE_SUPABASE_PORT ?? 18767}`;
+const CLAIM_CARD = "Map-open crash persists after fix";
+
 async function checkInCard(page: Page) {
-  await page.goto("/issues");
-  await waitForHydration(page);
-  const card = page.getByRole("article").filter({ hasText: "FPS regression since 1.13" });
+  const card = page.getByRole("article").filter({ hasText: CLAIM_CARD });
+  await expect(async () => {
+    await page.goto("/issues", { waitUntil: "domcontentloaded" });
+    await waitForHydration(page);
+    await expect(card.getByRole("button", { name: /^Fixed for me/ })).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(card).toHaveCount(1);
   return card;
 }
 
 async function openWidget(page: Page) {
   const card = await checkInCard(page);
-  await card.getByRole("button", { name: /Happening to me/ }).click();
+  await card.getByRole("button", { name: /^Fixed for me/ }).click();
   await card.getByRole("button", { name: "PC (Steam)", exact: true }).click();
   return card;
 }
+
+test.beforeAll(async ({ browser }, testInfo) => {
+  const page = await browser.newPage({ baseURL: testInfo.project.use.baseURL });
+  try {
+    const confirmed = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/rpc/mutate_claim_review_pairing`, {
+      data: { p_pairing_id: "00000000-0000-4000-8000-000000000201", p_revision: 1, p_action: "confirm", p_cluster_lifecycle_revision: 1, p_actor: "turnstile fixture" },
+    });
+    // The second project finds the claim already confirmed.
+    if (!confirmed.ok()) expect(await confirmed.text()).toContain("claim_review_pairing_stale");
+    const board = await page.request.get("/issues", { headers: { "cache-control": "no-cache" } });
+    expect(board.ok()).toBe(true);
+  } finally {
+    await page.close();
+  }
+});
 
 async function stubState(page: Page) {
   return page.evaluate(() => (window as unknown as { __turnstileStub: StubState }).__turnstileStub);
@@ -104,7 +127,7 @@ test.describe("Turnstile theme integration with a local vendor stub", () => {
     const problems = collectConsoleProblems(page);
     const stub = await installStub(page, "light", true);
     const card = await checkInCard(page);
-    await card.getByRole("button", { name: /Happening to me/ }).click();
+    await card.getByRole("button", { name: /^Fixed for me/ }).click();
     await card.getByRole("button", { name: "PC (Steam)", exact: true }).click();
     await stub.requested;
     await expect(page.locator(".turnstile-widget [data-stub-widget]")).toHaveCount(0);
@@ -118,6 +141,30 @@ test.describe("Turnstile theme integration with a local vendor stub", () => {
     await expectHealthyPage(page, problems);
   });
 
+  test("a thumb's bot check uses the current theme and stays out of sight unless needed", async ({ page }) => {
+    const problems = collectConsoleProblems(page);
+    const stub = await installStub(page, "dark");
+    const thumbWrites: string[] = [];
+    await page.route("**/api/thumbs", async (route) => {
+      thumbWrites.push((route.request().postDataJSON() as { direction: string }).direction);
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, direction: "up", patch_version: "1.13.01" }) });
+    });
+    await page.goto("/issues");
+    await waitForHydration(page);
+    const card = page.getByRole("article").filter({ hasText: "FPS regression since 1.13" });
+    const up = card.getByRole("button", { name: "Happening to me", exact: true });
+    await up.click();
+    // The vendor script loads on the first tap, so the stub may not exist yet.
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __turnstileStub?: StubState }).__turnstileStub?.renders.length ?? 0)).toBe(1);
+    expect((await stubState(page)).renders[0]).toMatchObject({ theme: "dark", sitekey: "1x00000000000000000000AA", size: "compact", appearance: "interaction-only" });
+    // The stub answers at once, the thumb saves, and the check goes away.
+    await expect(up).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(async () => (await stubState(page)).activeIds).toEqual([]);
+    expect(thumbWrites).toEqual(["up"]);
+    expect(stub.checkinWrites).toEqual([]);
+    await expectHealthyPage(page, problems);
+  });
+
   test("theme changes replace the token and preserve the selected check-in", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     const stub = await installStub(page, "light");
@@ -126,7 +173,7 @@ test.describe("Turnstile theme integration with a local vendor stub", () => {
     await page.getByRole("button", { name: "Switch to dark mode" }).click();
     const darkId = await expectCurrentWidget(page, "dark");
     expect(darkId).not.toBe(firstId); expect((await stubState(page)).removed).toContain(firstId);
-    await expect(card.getByText("PC (Steam) · Happening to me")).toBeVisible();
+    await expect(card.getByText("PC (Steam) · Fixed for me")).toBeVisible();
     await expect(card.getByRole("button", { name: "Save check-in", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Switch to light mode" }).click();
     const lightId = await expectCurrentWidget(page, "light");
@@ -140,8 +187,8 @@ test.describe("Turnstile theme integration with a local vendor stub", () => {
     await page.getByRole("button", { name: "Switch to dark mode" }).click();
     await page.getByRole("contentinfo").getByRole("link", { name: "Add a check-in", exact: true }).click();
     await expect(page).toHaveURL(/\/issues$/);
-    const remountedCard = page.getByRole("article").filter({ hasText: "FPS regression since 1.13" });
-    await remountedCard.getByRole("button", { name: /Happening to me/ }).click();
+    const remountedCard = page.getByRole("article").filter({ hasText: CLAIM_CARD });
+    await remountedCard.getByRole("button", { name: /^Fixed for me/ }).click();
     await remountedCard.getByRole("button", { name: "PC (Steam)", exact: true }).click();
     const remountedId = await expectCurrentWidget(page, "dark");
     expect(remountedId).not.toBe(lightId); expect((await stubState(page)).removed).toContain(lightId);

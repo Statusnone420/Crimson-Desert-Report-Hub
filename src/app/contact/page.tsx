@@ -58,8 +58,8 @@ export default function ContactPage() {
             <p className="kicker">The player record</p>
             <h2 id="player-check-ins">Share what you are seeing</h2>
             <p>
-              The issue board accepts anonymous check-ins about listed issues on the current patch. No account is
-              needed on the Hub. Check-ins record player experiences; they are not support tickets.
+              Any listed issue takes an optional thumb up or down, and an official fix takes anonymous check-ins,
+              on the current patch. No account is needed. Neither one is a support ticket.
             </p>
             <div className="reading-resources">
               <ReadingLink variant="source" href="/issues">Find an issue to check in on</ReadingLink>

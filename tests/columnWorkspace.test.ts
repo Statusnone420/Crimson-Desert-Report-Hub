@@ -120,6 +120,13 @@ describe("the Column card", () => {
     expect(html).toContain("7 of 10 left today (UTC)");
     const none = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft: null, studio: { ...studio, rotation: [] }, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
     expect(none).toContain("No thumbs-up drafts or editions yet. Give one a thumbs up and the writer reads it as a voice example, two at most.");
+    // With no saved examples, the page only says the writer has nothing to read when thumbs-up drafts are missing too.
+    const rotationOnly = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft: null, studio: { ...studio, examples: [] }, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
+    expect(rotationOnly).toContain("No voice examples saved here yet.");
+    expect(rotationOnly).not.toContain("style guide alone");
+    expect(rotationOnly).toContain("The writer also reads your thumbs-up drafts and editions as voice examples, two at most: Clear skies.");
+    const empty = renderToStaticMarkup(createElement(ColumnWorkspace, { dashboard: ready(), draft: null, studio: { ...studio, examples: [], rotation: [] }, notice: null, now: NOW, writesDisabled: false, keys: { anthropic: true, openrouter: false } }));
+    expect(empty).toContain("No voice examples yet. The writer follows the style guide alone until you add some.");
     expect(html).toContain("TEST · Try");
     expect(html).toContain("Fable 5.1");
     // A skipped test draft reads its kept text but can't be rated, and says why it skipped in words.

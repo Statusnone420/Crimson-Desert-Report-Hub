@@ -410,20 +410,6 @@ describe("setClusterFixStatus", () => {
   });
 });
 
-describe("compileDossier", () => {
-  it("refuses to compile against the hardcoded fallback patch", async () => {
-    // The dossier labels its whole snapshot with the current version; the
-    // guard runs before any read so nothing is gathered under a guessed patch.
-    const { getCurrentPatchMetadata } = await import("@/lib/officialPatch.server");
-    vi.mocked(getCurrentPatchMetadata).mockResolvedValueOnce({ version: "1.13.01", source: "fallback" } as never);
-
-    const { compileDossier } = await import("@/app/admin/actions");
-
-    await expect(compileDossier(new FormData())).rejects.toThrow("current patch provenance is unknown");
-    expect(mutations).toHaveLength(0);
-  });
-});
-
 describe("clearClusterFixStatusOverride", () => {
   it("clears the override and its synthetic claim date so automation can re-derive status", async () => {
     const { clearClusterFixStatusOverride } = await import("@/app/admin/actions");

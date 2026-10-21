@@ -423,19 +423,6 @@ test.describe("operator workspace flows", () => {
     await expect(page.getByText("This view could not finish loading.")).toHaveCount(0);
   });
 
-  test("a transport abort preserves the Dossier AI selection", async ({ page }) => {
-    await signInAsAdmin(page);
-    await page.goto("/operator?view=dossiers");
-    await waitForHydration(page);
-    const useAi = page.getByRole("checkbox", { name: "Draft prose with AI" });
-    await useAi.check();
-    const aborted = await abortActionBeforeSend(page, () => page.getByRole("button", { name: "Compile now" }).click());
-    await expect(page.getByText(TRANSPORT_MESSAGE)).toBeVisible();
-    await expect(useAi).toBeChecked();
-    expect(aborted()).toBeGreaterThan(0);
-    await expect(page.getByText("This view could not finish loading.")).toHaveCount(0);
-  });
-
   test("video save failures and stale revisions retain the selected editor draft", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
@@ -470,51 +457,6 @@ test.describe("operator workspace flows", () => {
     await expect(staleTitle).toHaveValue("Edited title survives a stale revision");
     await expect(staleNote).toHaveValue("Edited note survives a stale revision.");
     await expectHealthyPage(page, problems);
-  });
-
-  test("a recoverable dossier input read failure preserves the checked AI choice", async ({ page }) => {
-    const problems = collectConsoleProblems(page);
-    await signInAsAdmin(page);
-    await page.goto("/operator?view=dossiers");
-    await waitForHydration(page);
-    const useAi = page.getByRole("checkbox", { name: "Draft prose with AI" });
-    await expect(useAi).toBeEnabled();
-    await useAi.check();
-    expect((await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/bug-reports-unavailable`)).ok()).toBe(true);
-    await submitAction(page, () => page.getByRole("button", { name: "Compile now" }).click());
-    await expect(page.getByText("The dossier inputs could not be read. No dossier was compiled; your selected options are still here.")).toBeVisible();
-    await expect(useAi).toBeChecked();
-    await expectHealthyPage(page, problems);
-  });
-
-  test("compilation redirects to the saved canonical run and its output can be copied", async ({ page }) => {
-    const problems = collectConsoleProblems(page);
-    await signInAsAdmin(page);
-    await page.goto("/operator?view=dossiers");
-    await waitForHydration(page);
-    const redirected = page.waitForURL(/\/operator\?view=dossiers&run=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    await submitAction(page, () => page.getByRole("button", { name: "Compile now" }).click());
-    await redirected;
-    const output = page.getByLabel("Dossier text");
-    await expect(output).not.toHaveValue("");
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
-    await page.getByRole("button", { name: "Copy to clipboard" }).click();
-    await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
-    const normalizeLineEndings = (value: string) => value.replace(/\r\n/g, "\n");
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText().then((text) => text.replace(/\r\n/g, "\n")))).toBe(normalizeLineEndings(await output.inputValue()));
-    await expectHealthyPage(page, problems);
-  });
-
-  test("a missing saved run is explicit and a failed dossier read reaches the route error boundary", async ({ page }) => {
-    await signInAsAdmin(page);
-    await page.goto("/operator?view=dossiers&run=not-a-saved-run");
-    await expect(page.getByText("That saved dossier is no longer available. Choose a run from the list or compile a new dossier.")).toBeVisible();
-
-    const unavailable = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/dossier-runs-unavailable`);
-    expect(unavailable.ok()).toBe(true);
-    await page.goto("/operator?view=dossiers");
-    await expect(page.getByRole("heading", { name: "This view could not finish loading." })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reload this view" })).toBeVisible();
   });
 
   test("overview names each available queue and marks a failed claim read unavailable", async ({ page }) => {
@@ -562,12 +504,12 @@ test.describe("operator workspace flows", () => {
     await expectHealthyPage(page, problems);
   });
 
-  test("seven workspace destinations render in both palettes", async ({ page }, testInfo) => {
+  test("six workspace destinations render in both palettes", async ({ page }, testInfo) => {
     const problems = collectConsoleProblems(page);
     await signInAsAdmin(page);
     const destinations = [
       ["overview", "/operator"], ["reports", "/operator?view=reports"], ["claims", "/operator?view=claims"],
-      ["scanner", "/operator?view=scanner"], ["videos", "/operator?view=videos"], ["dossiers", "/operator?view=dossiers"],
+      ["scanner", "/operator?view=scanner"], ["videos", "/operator?view=videos"],
       ["settings", "/operator?view=settings"],
     ] as const;
     for (const theme of ["light", "dark"] as const) {

@@ -66,10 +66,6 @@ function pollAsk(patchVersion: string): IssueReadoutAsk {
   return { question: `How is it after ${patchVersion}?`, kinds: ["fixed_for_me", "still_happening"] };
 }
 
-function haveItAsk(): IssueReadoutAsk {
-  return { question: "Is this happening to you?", kinds: ["have_it", "not_happening"] };
-}
-
 function pollSummary(input: IssueReadoutInput): { fixedCount: number; stillCount: number; escalated: boolean } {
   const { pollFixedCount, pollStillCount, pollFixedNetworks, pollStillNetworks } = input.confirmations;
   return {
@@ -79,15 +75,13 @@ function pollSummary(input: IssueReadoutInput): { fixedCount: number; stillCount
   };
 }
 
-function evidenceSentence(input: IssueReadoutInput): string {
-  const parts: string[] = [];
-  if (input.directReportCount > 0) parts.push(plural(input.directReportCount, "earlier player report"));
-  if (input.confirmations.affectedCount > 0) {
-    parts.push(`${plural(input.confirmations.affectedCount, "check-in")} saying it is happening on ${input.patchVersion}`);
-  }
-  if (input.confirmations.byKind.not_happening.count > 0) parts.push(`${input.confirmations.byKind.not_happening.count} saying it is not happening`);
-  if (parts.length === 0) return "No community check-ins on this patch yet.";
-  return `${parts.join(" · ")}. Personal experiences, not a measure of all players.`;
+function reportsSentence(directReportCount: number): string {
+  return `${plural(directReportCount, "earlier player report")}. Personal experiences, not a measure of all players.`;
+}
+
+/** The public label for scanner posts, on published issues and the watchlist alike. */
+export function playerPostsSentence(count: number): string {
+  return `Seen in ${plural(count, "player post")}. Not confirmed by Pearl Abyss.`;
 }
 
 function composeUnlocked(input: IssueReadoutInput): IssueReadout {
@@ -139,13 +133,15 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
     };
   }
 
-  if (input.directReportCount > 0 || c.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS) {
+  // Below a fix claim, every state comes from earlier reports and the scanner's
+  // posts alone. Thumbs carry no weight and are never counted in a sentence.
+  if (input.directReportCount > 0) {
     return {
       state: "confirmed",
-      label: c.affectedCount > 0 ? "Community check-ins" : "Earlier player reports",
+      label: "Earlier player reports",
       tone: "crimson",
-      sentence: evidenceSentence(input),
-      ask: haveItAsk(),
+      sentence: reportsSentence(input.directReportCount),
+      ask: null,
       poll: null,
     };
   }
@@ -156,48 +152,29 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
       label: "Source leads unavailable",
       tone: "blue",
       sentence: "Public-source leads can't be read right now. Their count is missing, not zero.",
-      ask: haveItAsk(),
+      ask: null,
       poll: null,
     };
   }
 
   if (input.publicSignalCount > 0) {
-    const playerRead =
-      c.affectedCount > 0
-        ? ` ${plural(c.affectedCount, "check-in")} also ${c.affectedCount === 1 ? "says" : "say"} this is happening — early responses only.`
-        : "";
     return {
       state: "public_sources",
       label: "Public sources",
       tone: "amber",
-      sentence: `Seen in ${plural(input.publicSignalCount, "public source")}. Source links stay leads, not player evidence.${playerRead}`,
-      ask: haveItAsk(),
+      sentence: playerPostsSentence(input.publicSignalCount),
+      ask: null,
       poll: null,
     };
   }
 
   if (input.candidateSignalCount > 0) {
-    const playerRead =
-      c.affectedCount > 0
-        ? ` ${plural(c.affectedCount, "check-in")} also ${c.affectedCount === 1 ? "says" : "say"} this is happening — early responses only.`
-        : "";
     return {
       state: "radar_lead",
       label: "Radar lead",
       tone: "blue",
-      sentence: `The scanner spotted this ${plural(input.candidateSignalCount, "time")} — a lead, not evidence.${playerRead}`,
-      ask: haveItAsk(),
-      poll: null,
-    };
-  }
-
-  if (c.totalCount > 0) {
-    return {
-      state: "watching",
-      label: "Open",
-      tone: "dim",
-      sentence: evidenceSentence(input),
-      ask: haveItAsk(),
+      sentence: playerPostsSentence(input.candidateSignalCount),
+      ask: null,
       poll: null,
     };
   }
@@ -206,31 +183,37 @@ function composeUnlocked(input: IssueReadoutInput): IssueReadout {
     state: "watching",
     label: "Open",
     tone: "dim",
-    sentence: "No community check-ins on this patch yet. The scanner continues checking public sources.",
-    ask: haveItAsk(),
+    sentence: "The scanner keeps checking public sources on this patch.",
+    ask: null,
     poll: null,
   };
 }
 
-/** One brain: every displayed issue state derives from counts here, at read time. */
+/**
+ * One brain: every displayed issue state derives from counts here, at read time.
+ * Check-ins are answers to a fix claim, so only a claim needs them read.
+ */
 export function composeIssueReadout(input: IssueReadoutInput): IssueReadout {
   const hasCurrentClaim = hasClaimContext(input);
+  const answersUnavailable = hasCurrentClaim && input.checkinsAvailable === false;
   if (!input.adminOverride) {
-    if (input.checkinsAvailable === false) {
-      return { state: "watching", hasCurrentClaim, label: "Check-ins unavailable", tone: "blue", sentence: "Current-patch check-ins could not be read. Their count is unavailable; source leads and earlier reports remain separate.", ask: null, poll: null };
+    if (answersUnavailable) {
+      return { state: "watching", hasCurrentClaim, label: "Check-ins unavailable", tone: "blue", sentence: "Answers to the official fix could not be read. Their count is unavailable; source posts and earlier reports remain separate.", ask: null, poll: null };
     }
     return { ...composeUnlocked(input), hasCurrentClaim };
   }
 
   const meta = LOCKED_META[input.storedFixStatus] ?? LOCKED_META.reported;
-  const claim = hasClaimContext(input);
+  const evidence = answersUnavailable
+    ? " Answers to the official fix are unavailable; their count is not zero."
+    : input.directReportCount > 0 ? ` ${reportsSentence(input.directReportCount)}` : "";
   return {
     state: "locked",
     hasCurrentClaim,
     label: meta.label,
     tone: meta.tone,
-    sentence: `Set by the maintainer. ${input.checkinsAvailable === false ? "Current-patch check-ins are unavailable; their count is not zero." : evidenceSentence(input)}`,
-    ask: input.checkinsAvailable === false ? null : claim ? pollAsk(input.patchVersion) : haveItAsk(),
-    poll: input.checkinsAvailable !== false && claim ? pollSummary(input) : null,
+    sentence: `Set by the maintainer.${evidence}`,
+    ask: hasCurrentClaim && !answersUnavailable ? pollAsk(input.patchVersion) : null,
+    poll: hasCurrentClaim && !answersUnavailable ? pollSummary(input) : null,
   };
 }

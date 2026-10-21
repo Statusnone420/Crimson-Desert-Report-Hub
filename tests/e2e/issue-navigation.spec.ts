@@ -1,7 +1,7 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { refreshFixtureReads, signInAsAdmin, waitForHydration } from "./helpers";
-import { choosePlatform, installTurnstile } from "./checkin-helpers";
+import { installTurnstile } from "./checkin-helpers";
 
 const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 const CANDIDATE_ONLY_ID = "00000000-0000-4000-8000-000000000099";
@@ -90,149 +90,64 @@ test.describe("mutating issue navigation fixture", () => {
   });
 
   for (const width of [1440, 390]) {
-    test(`saved check-ins refresh server totals without reloading at ${width}px`, async ({ page, request }) => {
+    test(`a thumb saves, switches and is taken back without a count or a board change at ${width}px`, async ({ page, request }) => {
       await page.setViewportSize({ width, height: 900 });
       await installTurnstile(page);
       await signInAsAdmin(page);
       try {
         await seedCandidateOnlyWatchlist(page);
         await revalidatePublicIssues(page);
-        await expect(async () => {
-          await page.goto("/issues");
-          await waitForHydration(page);
-          await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
-          await expect(page.locator(`#issue-${CANDIDATE_ONLY_ID}`)).toBeVisible({ timeout: 1_000 });
-        }).toPass({ timeout: 30_000 });
+        const openWatchlist = async () => {
+          await expect(async () => {
+            await page.goto("/issues");
+            await waitForHydration(page);
+            await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
+            await expect(page.locator(`#issue-${CANDIDATE_ONLY_ID}`)).toBeVisible({ timeout: 1_000 });
+          }).toPass({ timeout: 30_000 });
+        };
+        await openWatchlist();
 
         const card = page.locator(`#issue-${CANDIDATE_ONLY_ID}`);
-        const notHappening = card.getByRole("button", { name: /^Not happening for me/ });
-        await expect(notHappening.locator(".tap-btn__count")).toHaveText("0");
-        for (let attempt = 0; attempt < 2; attempt++) {
-          await choosePlatform(card, /^Not happening for me/);
-          const posted = page.waitForResponse((response) => response.url().endsWith("/api/confirmations") && response.request().method() === "POST");
-          await card.getByRole("button", { name: "Save check-in", exact: true }).click();
-          expect((await posted).status()).toBe(201);
-          await expect(card.getByText(/Saved for patch 1\.13\.01/)).toBeVisible();
-          await expect(notHappening.locator(".tap-btn__count")).toHaveText("1");
-        }
+        const up = card.getByRole("button", { name: "Happening to me", exact: true });
+        const down = card.getByRole("button", { name: "Not happening for me", exact: true });
+        const stored = async () => {
+          const rows = await page.request.get(`${MOCK_SUPABASE_ORIGIN}/rest/v1/issue_thumbs?cluster_id=eq.${CANDIDATE_ONLY_ID}`);
+          return ((await rows.json()) as { direction: string }[]).map((row) => row.direction);
+        };
+        const tap = async (button: Locator) => {
+          const posted = page.waitForResponse((response) => response.url().endsWith("/api/thumbs") && response.request().method() === "POST");
+          await button.click();
+          expect((await posted).status()).toBe(200);
+        };
 
-        await choosePlatform(card, /^Happening to me/);
-        const replacement = page.waitForResponse((response) => response.url().endsWith("/api/confirmations") && response.request().method() === "POST");
-        await card.getByRole("button", { name: "Save check-in", exact: true }).click();
-        expect((await replacement).status()).toBe(201);
-        await expect(card.getByRole("button", { name: /^Happening to me/ }).locator(".tap-btn__count")).toHaveText("1");
-        await expect(notHappening.locator(".tap-btn__count")).toHaveText("0");
-        await expect(card.getByText("1 check-in · Patch 1.13.01", { exact: true })).toBeVisible();
-        await expect(card).toBeInViewport();
-        await expect(card.getByRole("button", { name: /^Happening to me/ })).toBeFocused();
-        await expect(card.getByRole("button", { name: /^Happening to me/ })).toBeInViewport();
-        await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
-        await expect(card).toHaveCount(0);
-        await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Published issues/ }).click();
+        await tap(up);
+        await expect(up).toHaveAttribute("aria-pressed", "true");
+        expect(await stored()).toEqual(["up"]);
+        await tap(down);
+        await expect(down).toHaveAttribute("aria-pressed", "true");
+        await expect(up).toHaveAttribute("aria-pressed", "false");
+        expect(await stored()).toEqual(["down"]);
+        await tap(down);
+        await expect(down).toHaveAttribute("aria-pressed", "false");
+        expect(await stored()).toEqual([]);
+        await tap(up);
+        expect(await stored()).toEqual(["up"]);
+        await expect(card.locator(".tap-btn__count")).toHaveCount(0);
 
-        // With its lead withdrawn, the sole affected answer is the only reason
-        // this issue has a full card. Replacing it must still show the receipt.
-        const withdrawn = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/source_signals?id=eq.candidate-only-signal`, {
-          data: { public_status: "hidden" },
-        });
-        expect(withdrawn.ok()).toBe(true);
-        await choosePlatform(card, /^Not happening for me/);
-        const lastAffected = page.waitForResponse((response) => response.url().endsWith("/api/confirmations") && response.request().method() === "POST");
-        await card.getByRole("button", { name: "Save check-in", exact: true }).click();
-        expect((await lastAffected).status()).toBe(201);
-        await expect(notHappening.locator(".tap-btn__count")).toHaveText("1");
-        await expect(card.getByRole("button", { name: /^Happening to me/ }).locator(".tap-btn__count")).toHaveText("0");
-        await expect(card.getByText(/Saved for patch 1\.13\.01/)).toBeVisible();
-        await expect(notHappening).toBeFocused();
-        await expect(notHappening).toBeInViewport();
-
-        // Client props are public even when the component hides their content.
-        // A fresh reader must receive neither the title nor ID in HTML or RSC.
-        // Immediate receipt totals no longer imply that the route refresh has
-        // finished. Wait for the server to remove the topic from the board.
-        await expect(card.getByText("Your check-in receipt. This topic is no longer on the public board.", { exact: true })).toBeVisible();
-        const publicHeaders: Record<string, string>[] = [{}, { RSC: "1" }];
-        for (const headers of publicHeaders) {
-          const publicBoard = await request.get("/issues", { headers });
-          expect(publicBoard.status()).toBe(200);
-          expect(publicBoard.headers()["content-type"]).toContain(headers.RSC ? "text/x-component" : "text/html");
-          const payload = await publicBoard.text();
-          expect(payload).not.toContain(CANDIDATE_ONLY_ID);
-          expect(payload).not.toContain("Candidate-only watchlist check-in");
-        }
-
-        // Keeping a receipt does not publish the monitored topic for everyone.
+        // A thumb never moves a topic: a fresh render keeps it on the watchlist.
+        await revalidatePublicIssues(page);
+        await openWatchlist();
+        await expect(card.getByRole("button", { name: "Happening to me", exact: true })).toHaveAttribute("aria-pressed", "true");
         await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Published issues/ }).click();
         await expect(card).toHaveCount(0);
-        await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
-        await expect(card).toHaveCount(0);
-        await page.reload();
-        await expect(card).toHaveCount(0);
-      } finally {
-        const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
-        expect(reset.ok()).toBe(true);
-        await revalidatePublicIssues(page);
-        await expect(async () => {
-          await page.goto(`/issues#issue-${CANDIDATE_ONLY_ID}`);
-          await expect(page.locator(`#issue-${CANDIDATE_ONLY_ID}`)).toHaveCount(0);
-        }).toPass({ timeout: 30_000 });
-      }
-    });
-  }
 
-  for (const width of [1440, 390]) {
-    test(`a replacement save survives a publication-changing refresh at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await installTurnstile(page);
-      await signInAsAdmin(page);
-      let releaseRefresh!: () => void;
-      let releasePost!: () => void;
-      let refreshStarted!: () => void;
-      const heldRefresh = new Promise<void>((resolve) => { releaseRefresh = resolve; });
-      const heldPost = new Promise<void>((resolve) => { releasePost = resolve; });
-      const refreshing = new Promise<void>((resolve) => { refreshStarted = resolve; });
-      try {
-        await seedCandidateOnlyWatchlist(page);
-        await revalidatePublicIssues(page);
-        await expect(async () => {
-          await page.goto("/issues");
-          await waitForHydration(page);
-          await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
-          await expect(page.locator(`#issue-${CANDIDATE_ONLY_ID}`)).toBeVisible({ timeout: 1_000 });
-        }).toPass({ timeout: 30_000 });
-        let refreshes = 0;
-        let posts = 0;
-        await page.route("**/issues?*", async (route) => {
-          if (route.request().headers().rsc === "1" && ++refreshes === 1) { refreshStarted(); await heldRefresh; }
-          await route.continue();
-        });
-        await page.route("**/api/confirmations", async (route) => {
-          if (++posts === 2) await heldPost;
-          await route.continue();
-        });
-        const card = page.locator(`#issue-${CANDIDATE_ONLY_ID}`);
-        await choosePlatform(card, /^Happening to me/);
-        await card.getByRole("button", { name: "Save check-in", exact: true }).click();
-        await refreshing;
-        await expect(card.getByRole("button", { name: /^Happening to me/ }).locator(".tap-btn__count")).toHaveText("1");
-        await choosePlatform(card, /^Not happening for me/);
-        await card.getByRole("button", { name: "Save check-in", exact: true }).click();
-        await expect(card.getByText("Recording your answer…", { exact: true })).toBeVisible();
-        releaseRefresh();
-        await expect(card.locator(".dispatch-byline")).toContainText("1 check-in · Patch 1.13.01");
-        const withdrawn = await page.request.patch(`${MOCK_SUPABASE_ORIGIN}/rest/v1/source_signals?id=eq.candidate-only-signal`, { data: { public_status: "hidden" } });
-        expect(withdrawn.ok()).toBe(true);
-        const saved = page.waitForResponse((response) => response.url().endsWith("/api/confirmations") && response.request().method() === "POST");
-        releasePost();
-        expect((await saved).status()).toBe(201);
-        const answer = card.getByRole("button", { name: /^Not happening for me/ });
-        await expect(answer).toHaveAttribute("aria-pressed", "true");
-        await expect(answer.locator(".tap-btn__count")).toHaveText("1");
-        await expect(card.getByText("Your check-in receipt. This topic is no longer on the public board.", { exact: true })).toBeVisible();
-        await expect(answer).toBeFocused();
+        // Neither the HTML nor the RSC payload carries thumb totals or network hashes.
+        for (const headers of [{}, { RSC: "1" }] as Record<string, string>[]) {
+          const board = await request.get("/issues", { headers });
+          expect(board.status()).toBe(200);
+          expect(await board.text()).not.toMatch(/rankScore|issue_thumbs|voter_ip_hash|"(?:up|down)":\s*\d/);
+        }
       } finally {
-        releaseRefresh(); releasePost();
-        await page.unrouteAll({ behavior: "wait" });
         const reset = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`);
         expect(reset.ok()).toBe(true);
         await revalidatePublicIssues(page);
@@ -243,6 +158,53 @@ test.describe("mutating issue navigation fixture", () => {
       }
     });
   }
+
+  test("a topic published from player posts alone shows on the board with its label", async ({ page }) => {
+    await signInAsAdmin(page);
+    const topic = { id: "00000000-0000-4000-8000-000000000097", title: "Inventory freeze after patch 1.13.01" };
+    try {
+      const cluster = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/issue_clusters`, {
+        data: {
+          id: topic.id, slug: "inventory-freeze-threads", title: topic.title, category: "controls_gameplay",
+          description: "Opening the inventory freezes the game for a few seconds.", fix_status: "reported",
+          confidence: "medium", is_public: true, admin_override: false,
+        },
+      });
+      expect(cluster.ok(), "player-thread cluster fixture insert failed").toBe(true);
+      for (const thread of ["701", "702", "703"]) {
+        const signal = await page.request.post(`${MOCK_SUPABASE_ORIGIN}/rest/v1/source_signals`, {
+          data: {
+            id: `thread-signal-${thread}`, cluster_id: topic.id, source: "web_search", source_type: "web_search",
+            source_url: `https://steamcommunity.com/app/3321460/discussions/0/582810005140000${thread}/`,
+            title: "Crimson Desert inventory freeze", summary: "Opening the inventory freezes Crimson Desert after patch 1.13.01.",
+            source_published_at: "2026-07-19T12:00:00.000Z", public_status: "public", category: "controls_gameplay",
+            confidence: "medium", observed_at: "2026-07-19T12:00:00.000Z",
+          },
+        });
+        expect(signal.ok(), "player-thread signal fixture insert failed").toBe(true);
+      }
+      await revalidatePublicIssues(page);
+      const card = page.locator(`#issue-${topic.id}`);
+      await expect(async () => {
+        await page.goto("/issues");
+        await waitForHydration(page);
+        await expect(card).toBeVisible({ timeout: 1_000 });
+      }).toPass({ timeout: 30_000 });
+
+      await expect(page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Published issues/ })).toHaveAttribute("aria-pressed", "true");
+      await expect(card.getByRole("heading", { name: topic.title, exact: true })).toBeVisible();
+      await expect(card.getByText("Seen in 3 player posts. Not confirmed by Pearl Abyss.", { exact: true })).toBeVisible();
+      await expect(card.getByRole("button", { name: "Happening to me", exact: true })).toBeVisible();
+      await expect(card.locator(".dispatch-byline")).toHaveText("Patch 1.13.01");
+    } finally {
+      expect((await page.request.post(`${MOCK_SUPABASE_ORIGIN}/__test__/reset`)).ok()).toBe(true);
+      await revalidatePublicIssues(page);
+      await expect(async () => {
+        await page.goto("/issues");
+        await expect(page.locator(`#issue-${topic.id}`)).toHaveCount(0);
+      }).toPass({ timeout: 30_000 });
+    }
+  });
 
   test("retired issue links reveal published and candidate-only watchlist check-ins", async ({ page }) => {
     await signInAsAdmin(page);
@@ -295,7 +257,7 @@ test.describe("mutating issue navigation fixture", () => {
     }
   });
 
-  test("a watchlist check-in ends at its buttons, so the next topic follows", async ({ page }) => {
+  test("a watchlist thumb control ends at its buttons, so the next topic follows", async ({ page }) => {
     await signInAsAdmin(page);
     try {
       await seedCandidateOnlyWatchlist(page);
@@ -309,21 +271,21 @@ test.describe("mutating issue navigation fixture", () => {
           await page.getByRole("group", { name: "Choose board view" }).getByRole("button", { name: /Watchlist/ }).click();
           await expect(page.locator(`#issue-${SECOND_CANDIDATE_TOPIC.id}`)).toBeVisible({ timeout: 1_000 });
         }).toPass({ timeout: 30_000 });
-        // Both topics sit in one category column. A flex basis left from the old
-        // row layout once made the first check-in block 360px tall, which left an
-        // empty band above the second topic.
+        // Both topics sit in one category column. A flex basis left from an old
+        // row layout once made the first block 360px tall, which left an empty
+        // band above the second topic.
         const layout = await page.locator(".watch-category").filter({ has: page.locator(`#issue-${CANDIDATE_ONLY_ID}`) }).evaluate((column) => {
           const [entry, next] = column.querySelectorAll<HTMLElement>(".watch-entry");
-          const buttons = entry.querySelectorAll(".confirmation-checkin__row .tap-btn");
+          const buttons = entry.querySelectorAll(".issue-thumbs__button");
           const lastButton = buttons[buttons.length - 1].getBoundingClientRect();
           return {
             entries: column.querySelectorAll(".watch-entry").length,
-            band: entry.querySelector(".confirmation-checkin")!.getBoundingClientRect().bottom - lastButton.bottom,
+            band: entry.querySelector(".issue-thumbs")!.getBoundingClientRect().bottom - lastButton.bottom,
             gap: next.getBoundingClientRect().top - lastButton.bottom - Number.parseFloat(getComputedStyle(entry).paddingBottom),
           };
         });
         expect(layout.entries).toBe(2);
-        expect(Math.abs(layout.band), `empty band under the check-in buttons at ${width}px`).toBeLessThan(1);
+        expect(Math.abs(layout.band), `empty band under the thumbs at ${width}px`).toBeLessThan(1);
         expect(Math.abs(layout.gap), `space before the next topic beyond the entry padding at ${width}px`).toBeLessThan(1);
       }
     } finally {

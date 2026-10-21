@@ -52,7 +52,7 @@ const valid = {
   kind: "still_happening",
   turnstile_token: "valid-token",
 };
-const savedCounts = { totalCount: 1, have_it: 0, not_happening: 0, fixed_for_me: 0, still_happening: 1 };
+const savedCounts = { totalCount: 1, fixed_for_me: 0, still_happening: 1 };
 
 function makeRequest(
   body: unknown,
@@ -229,7 +229,7 @@ describe("POST /api/confirmations", () => {
     ["current_patch_unavailable", 503],
   ])("surfaces the atomic writer's %s result without confirming a save", async (outcome, status) => {
     state.rpcOutcome = outcome as string;
-    const res = await POST(makeRequest({ ...valid, kind: "have_it" }));
+    const res = await POST(makeRequest({ ...valid, kind: "fixed_for_me" }));
     expect(res.status).toBe(status);
     expect(await res.json()).toEqual({ error: outcome });
     expect(confirmationRpc).toHaveBeenCalledOnce();
@@ -288,11 +288,13 @@ describe("POST /api/confirmations", () => {
     }
   });
 
-  it("accepts the new not_happening stance", async () => {
-    const res = await POST(makeRequest({ ...valid, kind: "not_happening" }));
-    expect(res.status).toBe(201);
-    const [, args] = confirmationRpc.mock.calls[0] as unknown as [string, Record<string, unknown>];
-    expect(args.p_kind).toBe("not_happening");
+  it.each(["have_it", "not_happening"])("refuses the general %s answer, which is a thumb now", async (kind) => {
+    cacheMocks.verifyTurnstile.mockClear();
+    const res = await POST(makeRequest({ ...valid, kind }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "validation" });
+    expect(confirmationRpc).not.toHaveBeenCalled();
+    expect(cacheMocks.verifyTurnstile).not.toHaveBeenCalled();
   });
 
   it("refuses writes if the required RPC disappears after the production build preflight", async () => {
