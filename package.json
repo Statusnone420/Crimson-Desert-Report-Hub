@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "verify": "npm exec --yes --package=node@22.23.2 --package=npm@11.12.1 -- npm run verify:run --",
+    "verify": "npm exec --yes --package=node@22.23.4 --package=npm@11.12.1 -- npm run verify:run --",
     "verify:run": "node scripts/verify.mjs",
     "verify:core": "npm run verify -- --core",
     "verify:browser": "npm run verify -- --browser",
