@@ -40,7 +40,7 @@ Crimson Desert Report Hub is a newspaper for one game. It puts the developer's o
 | --- | --- |
 | **[News](https://crimsonreporthub.com/news)** | Original Hub reports, each with its sources, plus selected press and creator coverage that links back to the publisher. |
 | **[Patch record](https://crimsonreporthub.com/patches)** | Every retained official patch, an automatic rundown of its stated fixes, and an [archive](https://crimsonreporthub.com/patches#archive) where each version keeps its own claim record. |
-| **[Issue Board](https://crimsonreporthub.com/issues)** | Anonymous check-ins: **Happening to me**, **Not happening for me**, and, after an official fix, **Fixed for me** or **Still happening**. Each exact patch, hotfixes included, starts a fresh tally. |
+| **[Issue Board](https://crimsonreporthub.com/issues)** | Known issues from public player posts and the official patch notes. After an official fix, anonymous check-ins answer **Fixed for me** or **Still happening**. Any issue takes an optional thumb up or down that only the person who tapped it sees. Each exact patch, hotfixes included, starts fresh. |
 | **[Observatory](https://crimsonreporthub.com/observatory)** | Steam review mood, players online, Twitch audience and source radar, each labelled as context, never as proof. |
 | **[Catch Up](https://crimsonreporthub.com/catch-up)** | Away for a while? Pick the last patch you played and read everything that changed since. |
 | **[Watch](https://crimsonreporthub.com/watch)** | Official video and selected creator coverage, linked to the original channels. |
@@ -50,7 +50,7 @@ Crimson Desert Report Hub is a newspaper for one game. It puts the developer's o
 
 - **Separate registers.** Official claims, player check-ins, source-radar links and editorial coverage each keep their own label. A link is a lead, not evidence; a developer's fix claim is not proof that a problem is gone.
 - **Silence is not "fixed".** No reports means no reports. Empty boards say so instead of inventing activity.
-- **Nothing to track.** No player accounts, ads or analytics trackers. Check-ins and private problem reports use Cloudflare Turnstile, and the database stores salted one-way network hashes, never raw IP addresses.
+- **Nothing to track.** No player accounts, ads or analytics trackers. Check-ins, thumbs and private problem reports use Cloudflare Turnstile, and the database stores salted one-way network hashes, never raw IP addresses.
 - **Private by default.** Raw submissions, rejected scanner candidates and private problem reports never reach public pages, feeds or exports.
 
 Read the [privacy model](docs/PRIVACY.md) and the [architecture](docs/ARCHITECTURE.md) for the details.

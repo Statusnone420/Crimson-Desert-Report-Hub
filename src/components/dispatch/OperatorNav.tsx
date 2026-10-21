@@ -16,12 +16,11 @@ const OPERATOR_PAGES: Array<{ key: OperatorNavKey; view: OperatorView; label: st
   { key: "ai", view: "ai", label: "AI settings" },
   { key: "column", view: "column", label: "Column" },
   { key: "videos", view: "videos", label: "Videos" },
-  { key: "compile", view: "dossiers", label: "Dossiers" },
   { key: "settings", view: "settings", label: "Settings & tools" },
 ];
 
 // Views no longer in regular use stay reachable by link; the sidebar lists one only while it is open.
-const RETIRED_FROM_NAV = new Set<OperatorNavKey>(["review", "videos", "compile"]);
+const RETIRED_FROM_NAV = new Set<OperatorNavKey>(["review", "videos"]);
 
 /**
  * Operator navigation split into two registers (Phase 4): page destinations on

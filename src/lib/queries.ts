@@ -19,6 +19,8 @@ import { readCurrentScannerBudgetCapped } from "@/lib/automation/budgetState.ser
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
 import { readCheckinsForPatch } from "@/lib/checkins.server";
+import { thumbsRankBonus, type ThumbTally } from "@/lib/thumbs";
+import { readThumbTallies } from "@/lib/thumbs.server";
 import { getCurrentPatchMetadata, readClaimedFixesForCurrentPatch } from "@/lib/officialPatch.server";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
 import {
@@ -277,6 +279,20 @@ async function readCurrentCheckinContext(supabase: ReturnType<typeof createServi
     }),
   ]);
   return { ...current, earlier };
+}
+
+/**
+ * Thumb totals for the rank bonus. They set order only, never what a page shows
+ * or publishes, and no page shows a thumb count, so a failed read is logged and
+ * the board ranks on evidence alone.
+ */
+async function readThumbRankContext(supabase: ReturnType<typeof createServiceClient>, patchVersion: string) {
+  try {
+    return (await readThumbTallies(supabase, patchVersion)).byCluster;
+  } catch (error) {
+    console.error("[thumbs] Current-patch thumbs unavailable; ranking on evidence alone", error);
+    return {} as Record<string, ThumbTally>;
+  }
 }
 
 export function filterPatchFamilyReports<T extends { patch_version: string | null }>(
@@ -541,6 +557,8 @@ type ClusterCounts = {
   checkinsAvailable: boolean;
   reportPlatformCounts: Record<string, number>;
   patchVersion: string;
+  /** This patch's thumbs, read only for the rank bonus. */
+  thumbs?: ThumbTally;
 };
 
 export type DecoratedCluster = ClusterRow & {
@@ -558,7 +576,10 @@ export type DecoratedCluster = ClusterRow & {
   checkinsAvailable?: boolean;
   reportPlatformCounts: Record<string, number>;
   readout: IssueReadout;
+  /** Evidence only. Whether an issue gets a full card depends on this, never on thumbs. */
   strengthScore: number;
+  /** Board order: the evidence score plus the small thumbs bonus. */
+  rankScore: number;
 };
 
 /** One decoration path for dashboard + issues: counts in, readout out. */
@@ -582,6 +603,7 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
   });
   // Confirmations join the ranking only once their tally is escalated (>= threshold networks).
   const escalatedConfirms = confirmations.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS ? confirmations.affectedCount : 0;
+  const strengthScore = counts.signalCount + counts.directReportCount * 3 + escalatedConfirms;
   return {
     ...cluster,
     count: counts.directReportCount,
@@ -598,7 +620,8 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
     checkinsAvailable: counts.checkinsAvailable,
     reportPlatformCounts: counts.reportPlatformCounts,
     readout,
-    strengthScore: counts.signalCount + counts.directReportCount * 3 + escalatedConfirms,
+    strengthScore,
+    rankScore: strengthScore + thumbsRankBonus(counts.thumbs),
   };
 }
 
@@ -1013,7 +1036,10 @@ async function readDashboardData() {
   });
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
-  const checkinContext = await readCurrentCheckinContext(supabase, currentPatch.version);
+  const [checkinContext, thumbTallies] = await Promise.all([
+    readCurrentCheckinContext(supabase, currentPatch.version),
+    readThumbRankContext(supabase, currentPatch.version),
+  ]);
   const publicClusters = clusterData as ClusterRow[];
   const fixClaimedAtByCluster = Object.fromEntries(
     publicClusters.map((cluster) => [
@@ -1051,9 +1077,10 @@ async function readDashboardData() {
         checkinsAvailable: checkinContext.available,
         reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
         patchVersion: currentPatch.version,
+        thumbs: thumbTallies[cluster.id],
       }),
     )
-    .sort((a, b) => b.strengthScore - a.strengthScore);
+    .sort((a, b) => b.rankScore - a.rankScore);
 
   return {
     total: currentReportRows.length,
@@ -1147,7 +1174,10 @@ async function getIssuesDataUncached() {
   );
 
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
-  const checkinContext = await readCurrentCheckinContext(supabase, currentPatch.version);
+  const [checkinContext, thumbTallies] = await Promise.all([
+    readCurrentCheckinContext(supabase, currentPatch.version),
+    readThumbRankContext(supabase, currentPatch.version),
+  ]);
 
   const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
@@ -1174,9 +1204,10 @@ async function getIssuesDataUncached() {
         checkinsAvailable: checkinContext.available,
         reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
         patchVersion: currentPatch.version,
+        thumbs: thumbTallies[cluster.id],
       }),
     )
-    .sort((a, b) => b.strengthScore - a.strengthScore);
+    .sort((a, b) => b.rankScore - a.rankScore);
 
   const signalsByCluster: Record<string, SignalRow[]> = {};
   for (const signal of signalRows) {

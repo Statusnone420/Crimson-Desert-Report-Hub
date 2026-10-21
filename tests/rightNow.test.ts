@@ -187,7 +187,7 @@ describe("buildRightNowReadout", () => {
     expect(readout.worthChecking[0]).toMatchObject({
       statusLabel: "Radar lead",
       countSummary: "0 reports · 0 public sources · 2 leads",
-      actionLabel: "Add your tap",
+      actionLabel: "View evidence",
     });
     expect(JSON.stringify(readout.worthChecking)).not.toContain("http");
     expect(JSON.stringify(readout.worthChecking)).not.toContain("reddit.com");

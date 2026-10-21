@@ -3,14 +3,13 @@ import { signInAsAdmin } from "./helpers";
 
 const STANDARD_VIEWPORT = { width: 1440, height: 1100 };
 const WIDE_VIEWPORT = { width: 2560, height: 1100 };
-const views = ["overview", "reports", "claims", "scanner", "videos", "dossiers", "settings"] as const;
+const views = ["overview", "reports", "claims", "scanner", "videos", "settings"] as const;
 const viewHeadings: Record<(typeof views)[number], string> = {
   overview: "Overview",
   reports: "Reports",
   claims: "Claim review",
   scanner: "Scanner workspace",
   videos: "Video review",
-  dossiers: "Compile dossier",
   settings: "Settings & tools",
 };
 

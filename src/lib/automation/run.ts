@@ -42,7 +42,7 @@ import {
 } from "@/lib/automation/feedback";
 import { readActiveFeedbackRulePages } from "@/lib/automation/feedbackRules.server";
 import { buildMemorySearchQueries, chooseScanIntent, eligibleLaneCount, type ScanIntent, type ScanMemory } from "@/lib/automation/memory";
-import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
+import { countDistinctPlayerThreads, resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
 import {
   hasCrimsonDesertContext,
   hasUnsupportedSourceContext,
@@ -65,7 +65,7 @@ import {
 import { resolveBurstState } from "@/lib/automation/schedule";
 import { getAutomationControlState, type AutomationSettingsClient, type ScannerPolicy } from "@/lib/automation/settings";
 import { CATEGORIES, type Category, type Platform } from "@/lib/constants";
-import { externalIdHash } from "@/lib/crypto";
+import { externalIdHash, forumAuthorKey } from "@/lib/crypto";
 import { belongsToPatchFamily, isCurrentPatchVerified } from "@/lib/patchWatch";
 import {
   features,
@@ -397,8 +397,9 @@ type SourceInput = {
    * Present on threads read directly from the Steam Community forum, including
    * one merged into a search result for the same page (`viaSearch`). Carries the
    * opening-date status, the forum text fingerprint, the fingerprint of the
-   * title and body this candidate sends to extraction, and any processing proof
-   * already stored for the thread on the current patch.
+   * title and body this candidate sends to extraction, any processing proof
+   * already stored for the thread on the current patch, and the keyed hash of
+   * the opening post's author (never the name).
    */
   forum?: {
     forumTextHash: string;
@@ -407,6 +408,7 @@ type SourceInput = {
     patchVersion: string;
     viaSearch?: boolean;
     proof: ForumProcessingProof | null;
+    authorKey?: string | null;
   };
 };
 
@@ -453,7 +455,7 @@ type SourceSignalRow = {
   category?: Category | string | null;
   confidence?: "low" | "medium" | "high" | null;
   observed_at?: string | null;
-  extracted_facts?: { platform?: Platform | null; sourcePatchVersions?: unknown } | null;
+  extracted_facts?: { platform?: Platform | null; sourcePatchVersions?: unknown; authorKey?: unknown } | null;
   title?: string | null;
   summary?: string | null;
   source_published_at?: string | null;
@@ -639,13 +641,35 @@ function signalDomain(row: SourceSignalRow): string | null {
   }
 }
 
+const PROMOTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
 function domainCounts(rows: SourceSignalRow[], now: Date): { independentDomainCount: number; trustedDomainCount: number } {
-  const recentWindowMs = 14 * 24 * 60 * 60 * 1000;
   const hostnames = rows
-    .filter((row) => isObservedWithinWindow(row, now, recentWindowMs))
+    .filter((row) => isObservedWithinWindow(row, now, PROMOTION_WINDOW_MS))
     .map(signalDomain)
     .filter((domain): domain is string => Boolean(domain));
   return countIndependentDomains(hostnames);
+}
+
+/** A forum thread's comment pages are one thread; any other page is its own. */
+function playerThreadKey(row: SourceSignalRow): string | null {
+  const url = row.canonical_url ?? row.source_url ?? null;
+  if (!url) return null;
+  const topic = steamForumTopicId(url);
+  return topic ? `steam-forum:${topic}` : url;
+}
+
+function storedAuthorKey(facts: unknown): string | null {
+  const key = facts && typeof facts === "object" ? (facts as Record<string, unknown>).authorKey : null;
+  return typeof key === "string" && /^[0-9a-f]{64}$/.test(key) ? key : null;
+}
+
+function distinctPlayerThreadCount(rows: SourceSignalRow[], now: Date): number {
+  return countDistinctPlayerThreads(
+    rows
+      .filter((row) => isObservedWithinWindow(row, now, PROMOTION_WINDOW_MS))
+      .map((row) => ({ threadKey: playerThreadKey(row), authorKey: storedAuthorKey(row.extracted_facts) })),
+  );
 }
 
 function lastObservedAt(rows: SourceSignalRow[]): string | null {
@@ -1110,7 +1134,8 @@ export function forumSourceTextHash(title: string, text: string): string {
  * stored lead (`active_after_patch`), but never makes it current evidence.
  * An opening time Steam shows but that cannot be read is passed through as is,
  * which the date gate rejects as invalid_source_date before any extraction call.
- * Author names are never read into the candidate.
+ * Author names never enter the candidate: only a keyed hash of the opening
+ * post's author does, so separate threads from one player count once.
  *
  * Every thread carries any processing proof stored for it on the current patch.
  * Threads without matching proof come first and take the 10 slots; threads whose
@@ -1126,17 +1151,28 @@ async function collectSteamForumInputs(
 ): Promise<SourceInput[]> {
   if (!steamForumEnabled()) return [];
   try {
+    const secret = process.env.SESSION_SECRET;
     const topics = await fetchSteamForumTopics({
       since: new Date(now.getTime() - STEAM_FORUM_LOOKBACK_MS),
       now,
       maxPages: STEAM_FORUM_MAX_PAGES,
       fetchImpl: scannerSourceFetch(),
+      authorKey: (name) => forumAuthorKey(name, secret),
     });
-    const proofs = await loadForumProcessingProofs(
+    const stored = await loadStoredForumThreads(
       supabase,
       topics.map((topic) => canonicalizeUrl(topic.url)),
       currentPatch,
     );
+    try {
+      await recordForumAuthorKeys(supabase, result, topics, stored, now);
+    } catch (error) {
+      // The key only lets a stored thread count toward the player-thread rule.
+      // Missing it this run leaves that thread uncounted, so intake goes on.
+      result.status = result.status === "success" ? "partial" : result.status;
+      result.errors.push(toErrorMessage(error, "Steam forum author keys could not be saved"));
+      result.skips.push("steam_forum_author_keys_failed");
+    }
     const inputs: SourceInput[] = topics.map((topic) => {
       const forumTextHash = forumSourceTextHash(topic.title, topic.preview);
       return {
@@ -1154,7 +1190,8 @@ async function collectSteamForumInputs(
           inputHash: forumTextHash,
           postedAtStatus: topic.postedAtStatus,
           patchVersion: currentPatch.version,
-          proof: proofs.get(canonicalizeUrl(topic.url)) ?? null,
+          proof: stored.get(canonicalizeUrl(topic.url))?.proof ?? null,
+          authorKey: topic.authorKey,
         },
       };
     });
@@ -1181,24 +1218,67 @@ export function forumProcessingProof(value: unknown): ForumProcessingProof | nul
     : null;
 }
 
-/** Canonical URL -> processing proof stored for the thread on the current patch. */
-async function loadForumProcessingProofs(
+type StoredForumThread = {
+  id: string;
+  clusterId: string | null;
+  facts: Record<string, unknown>;
+  /** Processing proof stored on the current patch, or null. */
+  proof: ForumProcessingProof | null;
+};
+
+/** Canonical URL -> the row already stored for the thread. */
+async function loadStoredForumThreads(
   supabase: ReturnType<typeof createServiceClient>,
   canonicalUrls: string[],
   currentPatch: CurrentPatchContext,
-): Promise<Map<string, ForumProcessingProof>> {
-  const proofs = new Map<string, ForumProcessingProof>();
-  if (canonicalUrls.length === 0) return proofs;
+): Promise<Map<string, StoredForumThread>> {
+  const stored = new Map<string, StoredForumThread>();
+  if (canonicalUrls.length === 0) return stored;
   const { data, error } = await supabase
     .from("source_signals")
-    .select("canonical_url, extracted_facts")
+    .select("id, cluster_id, canonical_url, extracted_facts")
     .in("canonical_url", canonicalUrls);
   if (error) throw new Error(`Steam forum memory read failed: ${error.message}`);
-  for (const row of (data ?? []) as { canonical_url: string | null; extracted_facts: Record<string, unknown> | null }[]) {
-    const proof = forumProcessingProof(row.extracted_facts?.forumProcessed);
-    if (row.canonical_url && proof && proof.patchVersion === currentPatch.version) proofs.set(row.canonical_url, proof);
+  for (const row of (data ?? []) as { id: string | null; cluster_id: string | null; canonical_url: string | null; extracted_facts: Record<string, unknown> | null }[]) {
+    if (!row.id || !row.canonical_url) continue;
+    const facts = row.extracted_facts ?? {};
+    const proof = forumProcessingProof(facts.forumProcessed);
+    stored.set(row.canonical_url, {
+      id: row.id,
+      clusterId: row.cluster_id ?? null,
+      facts,
+      proof: proof && proof.patchVersion === currentPatch.version ? proof : null,
+    });
   }
-  return proofs;
+  return stored;
+}
+
+/**
+ * Saves the author key on threads kept by an earlier run. An unchanged thread
+ * skips extraction and is never written again, so without this it could not
+ * count toward the player-thread rule. Only the key is written; each cluster
+ * that gains a key is checked again for publication.
+ */
+async function recordForumAuthorKeys(
+  supabase: ReturnType<typeof createServiceClient>,
+  result: AutomationResult,
+  topics: { url: string; authorKey: string | null }[],
+  stored: Map<string, StoredForumThread>,
+  now: Date,
+): Promise<void> {
+  const touchedClusters = new Set<string>();
+  for (const topic of topics) {
+    const row = topic.authorKey ? stored.get(canonicalizeUrl(topic.url)) : undefined;
+    if (!row || storedAuthorKey(row.facts) === topic.authorKey) continue;
+    const facts = { ...row.facts, authorKey: topic.authorKey };
+    const { error } = await supabase.from("source_signals").update({ extracted_facts: facts }).eq("id", row.id);
+    if (error) throw new Error(`Steam forum author key write failed: ${error.message}`);
+    row.facts = facts;
+    if (row.clusterId) touchedClusters.add(row.clusterId);
+  }
+  for (const clusterId of touchedClusters) {
+    if (await refreshClusterStats(supabase, clusterId, now)) result.clustersPromoted += 1;
+  }
 }
 
 /**
@@ -2736,6 +2816,7 @@ async function upsertSignal(
       ...(storedSourceActiveAt({ sourceActiveAt: signal.sourceActiveAt })
         ? { sourceActiveAt: signal.sourceActiveAt as string }
         : {}),
+      ...(signal.forum?.authorKey ? { authorKey: signal.forum.authorKey } : {}),
     },
     category: signal.extraction.category,
     confidence: signal.extraction.confidence,
@@ -2761,9 +2842,13 @@ async function upsertSignal(
     // proof an earlier successful forum extraction left, so overlap with search
     // cannot erase it.
     const priorProof = forumProcessingProof((existing.extracted_facts as Record<string, unknown> | null | undefined)?.forumProcessed);
-    const withProof = !("forumProcessed" in baseRow.extracted_facts) && priorProof
-      ? { ...baseRow.extracted_facts, forumProcessed: priorProof }
-      : baseRow.extracted_facts;
+    const priorAuthorKey = storedAuthorKey(existing.extracted_facts);
+    const withProof = {
+      ...baseRow.extracted_facts,
+      ...(!("forumProcessed" in baseRow.extracted_facts) && priorProof ? { forumProcessed: priorProof } : {}),
+      // A search sighting carries no author: keep the one the forum gave.
+      ...(!("authorKey" in baseRow.extracted_facts) && priorAuthorKey ? { authorKey: priorAuthorKey } : {}),
+    };
     // The same rule for activity: a sighting without the forum's last-reply time
     // (or with an older one) keeps the latest activity already stored.
     const priorActiveAt = storedSourceActiveAt(existing.extracted_facts);
@@ -2896,10 +2981,14 @@ async function refreshClusterStats(
         sourceSignalEligibility(signal, activeCurrentPatch).canPublish,
     );
     const { independentDomainCount, trustedDomainCount } = domainCounts(publishableSignals, now);
+    // The same publishable set as the domain counts, so the stale-source,
+    // off-topic, provider-context and operator guards hold for threads too.
+    const playerThreads = distinctPlayerThreadCount(publishableSignals, now);
 
     const automaticDecision = shouldPromoteSignalCluster({
       independentDomainCount,
       trustedDomainCount,
+      distinctPlayerThreadCount: playerThreads,
       directReportCount: currentPatchReportCount,
       hasAdminForcePublic: false,
       hasAdminForceHidden: false,
@@ -2908,6 +2997,7 @@ async function refreshClusterStats(
       ? shouldPromoteSignalCluster({
           independentDomainCount,
           trustedDomainCount,
+          distinctPlayerThreadCount: playerThreads,
           directReportCount: currentPatchReportCount,
           hasAdminForcePublic: cluster.admin_visibility_override === "force_public",
           hasAdminForceHidden: cluster.admin_visibility_override === "force_hidden",

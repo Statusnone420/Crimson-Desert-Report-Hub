@@ -37,11 +37,11 @@ test("the retired report path permanently redirects to the issue board", async (
   await expect(page.locator("#report-form")).toHaveCount(0);
 });
 
-test("a changed answer stays on its patch while a fresh hotfix starts with its own local key", async ({ page }) => {
+test("a changed thumb stays on its patch while a fresh hotfix starts with its own local key", async ({ page }) => {
   const clusterId = "00000000-0000-4000-8000-000000000001";
   await page.addInitScript(({ currentKey, hotfixKey }) => {
-    localStorage.setItem(currentKey, "have_it");
-    localStorage.setItem(hotfixKey, "fixed_for_me");
+    localStorage.setItem(currentKey, "up");
+    localStorage.setItem(hotfixKey, "up");
     Object.assign(window, { turnstile: {
       render(container: HTMLElement, options: { callback?: (token: string) => void }) {
         const input = document.createElement("input");
@@ -55,30 +55,28 @@ test("a changed answer stays on its patch while a fresh hotfix starts with its o
       remove: () => {},
     } });
   }, {
-    currentKey: `cd-checkin-${clusterId}-1.13.01`,
-    hotfixKey: `cd-checkin-${clusterId}-1.13.02`,
+    currentKey: `cd-thumb-${clusterId}-1.13.01`,
+    hotfixKey: `cd-thumb-${clusterId}-1.13.02`,
   });
   await page.route("https://challenges.cloudflare.com/**", (route) => route.fulfill({ contentType: "application/javascript", body: "" }));
-  await page.route("**/api/confirmations", (route) => route.fulfill({
-    status: 201,
+  await page.route("**/api/thumbs", (route) => route.fulfill({
+    status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ ok: true, kind: "not_happening", platform: "pc_steam", patch_version: "1.13.01" }),
+    body: JSON.stringify({ ok: true, direction: "down", patch_version: "1.13.01" }),
   }));
   await page.goto("/issues");
   await waitForHydration(page);
   const card = page.locator(`#issue-${clusterId}`);
-  await expect(card.getByRole("button", { name: /Happening to me/ })).toHaveAttribute("aria-pressed", "true");
-  await card.getByRole("button", { name: /Not happening for me/ }).click();
-  await card.getByRole("button", { name: "PC (Steam)", exact: true }).click();
-  await card.getByRole("button", { name: "Save check-in", exact: true }).click();
-  await expect(card.getByText(/Saved for patch 1\.13\.01/)).toBeVisible();
+  await expect(card.getByRole("button", { name: "Happening to me", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await card.getByRole("button", { name: "Not happening for me", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Not happening for me", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => page.evaluate(({ currentKey, hotfixKey }) => ({
     current: localStorage.getItem(currentKey),
     hotfix: localStorage.getItem(hotfixKey),
   }), {
-    currentKey: `cd-checkin-${clusterId}-1.13.01`,
-    hotfixKey: `cd-checkin-${clusterId}-1.13.02`,
-  })).toEqual({ current: "not_happening", hotfix: "fixed_for_me" });
+    currentKey: `cd-thumb-${clusterId}-1.13.01`,
+    hotfixKey: `cd-thumb-${clusterId}-1.13.02`,
+  })).toEqual({ current: "down", hotfix: "up" });
 });
 
 test("old scanner bookmarks preserve the authenticated workspace destination", async ({ page }) => {

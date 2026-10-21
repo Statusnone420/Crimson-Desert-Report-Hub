@@ -202,7 +202,6 @@
 .newspaper .np-error { border: 1px solid var(--line); border-radius: 4px; padding: 18px 20px; background: var(--control-surface); }
 
 /* A check-in belongs beside the issue, with its patch and saved state in view. */
-.newspaper .board-contribution-note { margin-top: 18px; color: var(--muted); font: 14px/1.6 var(--sans), sans-serif; }
 .newspaper .dispatch-actions { flex-direction: column; align-items: stretch; }
 .newspaper .confirmation-checkin__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .newspaper .confirmation-checkin__heading .confirmation-checkin__question { margin: 0; }
@@ -217,6 +216,20 @@
 .newspaper button.checkin-save:disabled { opacity: .45; cursor: default; }
 .newspaper :is(.checkin-unavailable, .checkin-history) { margin: 0; color: var(--muted); font: 13px/1.6 var(--sans), sans-serif; }
 .newspaper .checkin-unavailable { border-left: 2px solid var(--blue); padding-left: 12px; }
+/* A thumb is this device's own choice, never a count: lit green or red only for the person who tapped it. */
+.newspaper .issue-thumbs__row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.newspaper .issue-thumbs__prompt { color: var(--muted); font: 14px/1.5 var(--sans), sans-serif; }
+.newspaper .issue-thumbs__buttons { display: flex; gap: 8px; }
+.newspaper .issue-thumbs__button { display: inline-grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); transition: border-color var(--control-duration), background-color var(--control-duration), color var(--control-duration); }
+.newspaper .issue-thumbs__button:not(:disabled):hover { border-color: var(--ink); }
+.newspaper .issue-thumbs__button--up[aria-pressed="true"] { border-color: var(--green); background: var(--green); color: var(--paper); }
+.newspaper .issue-thumbs__button--down[aria-pressed="true"] { border-color: var(--red); background: var(--red); color: var(--paper); }
+.newspaper .issue-thumbs__button:disabled { cursor: wait; opacity: .6; }
+.newspaper .issue-thumbs__icon { width: 20px; height: 20px; background: currentColor; -webkit-mask: url(/icons/thumbs-up.svg) center / contain no-repeat; mask: url(/icons/thumbs-up.svg) center / contain no-repeat; }
+.newspaper .issue-thumbs__button--down .issue-thumbs__icon { transform: rotate(180deg); }
+.newspaper .issue-thumbs__note { margin: 0; color: var(--muted); font: 13px/1.5 var(--sans), sans-serif; }
+.newspaper .issue-thumbs__note:not(:empty) { margin-top: 8px; }
+.newspaper .issue-thumbs__note--error { color: var(--red); }
 .newspaper .watch-entry .dispatch-actions { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
 .newspaper .watch-entry .confirmation-checkin__question { font-size: 23px; }
 .newspaper .watch-entry .confirmation-checkin__row { grid-template-columns: 1fr; }

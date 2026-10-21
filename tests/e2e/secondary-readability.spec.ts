@@ -48,8 +48,10 @@ test.describe("secondary public states remain readable", () => {
     await expect(watchlist).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(".board-watchlist .watch-entry")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "No public watchlist topics yet." })).toBeVisible();
-    await expect(page.getByRole("status")).toHaveText("Showing 0 of 0 public watchlist topics");
+    // An empty view adds no zero count of its own; a search brings the count back.
+    await expect(page.locator(".board-results-note")).toHaveCount(0);
     await page.getByLabel("Find an issue").fill("frame rate");
+    await expect(page.locator(".board-results-note").getByRole("status")).toContainText("Showing 0 of 0 public watchlist topics");
     const reset = page.getByRole("button", { name: "Show all watchlist topics →" });
     await expectStandaloneTargets(reset);
     await reset.click();
@@ -104,7 +106,7 @@ test.describe("secondary public states remain readable", () => {
     await expect(page).toHaveURL(/\/issues$/);
     await expect(page.locator("#report-form, .filing-errors")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Review report|Send report/ })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "What are you seeing?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Known issues", exact: true })).toBeVisible();
     await expectHealthyPage(page, problems);
   });
 });

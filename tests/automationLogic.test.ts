@@ -5,12 +5,21 @@ vi.mock("server-only", () => ({}));
 import { AUTOMATION_TASK_SETTINGS, maxOpenRouterRequestCostUsd } from "@/lib/automation/budget";
 import { canonicalizeUrl, semanticFingerprint } from "@/lib/automation/dedupe";
 import {
+  cleanFirstLine,
   deterministicExtract,
+  extractionRequest,
   extractSignalWithOpenRouter,
   parseOpenRouterExtraction,
+  usableIssueTitle,
 } from "@/lib/automation/extract";
+import { STEAM_REVIEW_SOURCE_URL } from "@/lib/automation/steam";
 import { countIndependentDomains, domainTier, isProviderContextSource, registrableDomain } from "@/lib/automation/domains";
-import { resolveSignalPublicStatus, shouldPromoteSignalCluster } from "@/lib/automation/promote";
+import {
+  countDistinctPlayerThreads,
+  MIN_DISTINCT_PLAYER_THREADS,
+  resolveSignalPublicStatus,
+  shouldPromoteSignalCluster,
+} from "@/lib/automation/promote";
 import { evaluateCurrentPatchEligibility } from "@/lib/automation/eligibility";
 import { buildMemorySearchQueries, chooseScanIntent } from "@/lib/automation/memory";
 import { preScreenCandidate, shouldKeepExtractedSignal } from "@/lib/automation/relevance";
@@ -146,6 +155,51 @@ describe("automation extraction", () => {
       llmCallsUsed: 1,
       llmCostUsd: 0.00002,
     });
+  });
+
+  it("never saves a title that names nothing; the source's own first line takes its place", async () => {
+    const reply = (issueTitle: string) => vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify({
+          issueTitle, category: "crash_startup", platform: "pc_steam", confidence: "medium",
+          summary: "A player reports crashes on launch.", clusterAssignment: "unsure",
+          clusterReason: "No known cluster is a sure match.", clusterSlug: null,
+        }) } }],
+        usage: { cost: 0.00002 },
+      }),
+    }));
+    const options = { env: { OPENROUTER_API_KEY: "key" }, llmCallsRemaining: 1, llmBudgetRemainingUsd: 1 };
+    const review = {
+      title: "Crimson Desert player issue on Steam",
+      snippet: "\n[b]Crashes on launch[/b] since the hotfix, see https://example.com/log\nSecond line.",
+      url: STEAM_REVIEW_SOURCE_URL,
+    };
+
+    expect((await extractSignalWithOpenRouter(review, { ...options, fetcher: reply("]}") })).issueTitle)
+      .toBe("Crashes on launch since the hotfix, see");
+    expect((await extractSignalWithOpenRouter(crashCandidate, { ...options, fetcher: reply("null") })).issueTitle)
+      .toBe(crashCandidate.title);
+    expect((await extractSignalWithOpenRouter(review, { ...options, fetcher: reply("Crash on launch") })).issueTitle)
+      .toBe("Crash on launch");
+  });
+
+  it("cleans a fallback title and keeps it short", () => {
+    expect(cleanFirstLine("  {}  \n\"Map [i]crash[/i]\" on <PS5>")).toBe("Map crash on PS5");
+    expect(cleanFirstLine("]} ``` []")).toBeNull();
+    const long = cleanFirstLine(`${"word ".repeat(40)}end`)!;
+    expect(long.length).toBeLessThanOrEqual(120);
+    expect(long.endsWith("word")).toBe(true);
+    expect(usableIssueTitle("]}", { title: "  ", snippet: "[]", url: "https://example.com" })).toBe("Crimson Desert community signal");
+  });
+
+  it("tells the model what each category covers and that a feature request is not a report", () => {
+    const request = extractionRequest(crashCandidate, "openai/gpt-5.6-luna", []);
+    const prompt = request.messages.map((message) => message.content).join(" ");
+    expect(prompt).toContain("controls_gameplay is input, controls, mounts, combat, menus, the HUD and on-screen button or interaction prompts");
+    expect(prompt).toContain("graphics_visual is rendering, textures, lighting, shadows and visual artifacts");
+    expect(prompt).toContain("set it to false for praise, news, guides, feature requests and suggestions");
   });
 
   it("deterministically classifies common issue language", () => {
@@ -1095,6 +1149,7 @@ describe("automation promotion", () => {
       shouldPromoteSignalCluster({
         independentDomainCount: 1,
         trustedDomainCount: 0,
+        distinctPlayerThreadCount: 0,
         directReportCount: 0,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
@@ -1107,6 +1162,7 @@ describe("automation promotion", () => {
       shouldPromoteSignalCluster({
         independentDomainCount: 2,
         trustedDomainCount: 1,
+        distinctPlayerThreadCount: 0,
         directReportCount: 0,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
@@ -1119,6 +1175,7 @@ describe("automation promotion", () => {
       shouldPromoteSignalCluster({
         independentDomainCount: 3,
         trustedDomainCount: 0,
+        distinctPlayerThreadCount: 0,
         directReportCount: 0,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
@@ -1131,6 +1188,7 @@ describe("automation promotion", () => {
       shouldPromoteSignalCluster({
         independentDomainCount: 2,
         trustedDomainCount: 0,
+        distinctPlayerThreadCount: 0,
         directReportCount: 0,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
@@ -1143,6 +1201,7 @@ describe("automation promotion", () => {
       shouldPromoteSignalCluster({
         independentDomainCount: 0,
         trustedDomainCount: 0,
+        distinctPlayerThreadCount: 0,
         directReportCount: 1,
         hasAdminForcePublic: false,
         hasAdminForceHidden: false,
@@ -1155,6 +1214,7 @@ describe("automation promotion", () => {
       shouldPromoteSignalCluster({
         independentDomainCount: 0,
         trustedDomainCount: 0,
+        distinctPlayerThreadCount: 0,
         directReportCount: 0,
         hasAdminForcePublic: true,
         hasAdminForceHidden: false,
@@ -1167,11 +1227,80 @@ describe("automation promotion", () => {
       shouldPromoteSignalCluster({
         independentDomainCount: 3,
         trustedDomainCount: 3,
+        distinctPlayerThreadCount: 0,
         directReportCount: 3,
         hasAdminForcePublic: true,
         hasAdminForceHidden: true,
       }),
     ).toEqual({ publicStatus: "hidden", reason: "admin_force_hidden" });
+  });
+
+  const oneSite = {
+    independentDomainCount: 1,
+    trustedDomainCount: 1,
+    directReportCount: 0,
+    hasAdminForcePublic: false,
+    hasAdminForceHidden: false,
+  };
+
+  it(`promotes ${MIN_DISTINCT_PLAYER_THREADS} threads from ${MIN_DISTINCT_PLAYER_THREADS} different players on one site`, () => {
+    expect(MIN_DISTINCT_PLAYER_THREADS).toBe(3);
+    expect(shouldPromoteSignalCluster({ ...oneSite, distinctPlayerThreadCount: MIN_DISTINCT_PLAYER_THREADS }))
+      .toEqual({ publicStatus: "public", reason: "distinct_player_threads" });
+  });
+
+  it("keeps one thread short of the rule private", () => {
+    expect(shouldPromoteSignalCluster({ ...oneSite, distinctPlayerThreadCount: MIN_DISTINCT_PLAYER_THREADS - 1 }))
+      .toEqual({ publicStatus: "private", reason: "below_threshold" });
+  });
+
+  it("keeps the domain rules and their reasons ahead of the thread rule", () => {
+    expect(shouldPromoteSignalCluster({ ...oneSite, independentDomainCount: 2, distinctPlayerThreadCount: 5 }))
+      .toEqual({ publicStatus: "public", reason: "two_independent_domains_trusted" });
+    expect(shouldPromoteSignalCluster({ ...oneSite, independentDomainCount: 3, trustedDomainCount: 0, distinctPlayerThreadCount: 5 }))
+      .toEqual({ publicStatus: "public", reason: "three_independent_domains" });
+  });
+
+  it("lets force hidden win over enough player threads", () => {
+    expect(shouldPromoteSignalCluster({ ...oneSite, hasAdminForceHidden: true, distinctPlayerThreadCount: 10 }))
+      .toEqual({ publicStatus: "hidden", reason: "admin_force_hidden" });
+  });
+});
+
+describe("countDistinctPlayerThreads", () => {
+  const key = (letter: string) => letter.repeat(64);
+
+  it("counts one thread per author", () => {
+    expect(countDistinctPlayerThreads([
+      { threadKey: "t1", authorKey: key("a") },
+      { threadKey: "t2", authorKey: key("b") },
+      { threadKey: "t3", authorKey: key("c") },
+    ])).toBe(3);
+  });
+
+  it("counts the same author's threads once", () => {
+    expect(countDistinctPlayerThreads([
+      { threadKey: "t1", authorKey: key("a") },
+      { threadKey: "t2", authorKey: key("a") },
+      { threadKey: "t3", authorKey: key("b") },
+    ])).toBe(2);
+  });
+
+  it("counts the same thread once, even with two author keys", () => {
+    expect(countDistinctPlayerThreads([
+      { threadKey: "t1", authorKey: key("a") },
+      { threadKey: "t1", authorKey: key("a") },
+      { threadKey: "t1", authorKey: key("b") },
+      { threadKey: "t2", authorKey: key("c") },
+    ])).toBe(2);
+  });
+
+  it("never counts a thread without a known author", () => {
+    expect(countDistinctPlayerThreads([
+      { threadKey: "t1", authorKey: null },
+      { threadKey: "t2", authorKey: null },
+      { threadKey: null, authorKey: key("a") },
+    ])).toBe(0);
   });
 });
 

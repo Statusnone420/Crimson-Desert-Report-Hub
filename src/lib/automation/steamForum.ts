@@ -51,7 +51,12 @@ export type SteamForumTopic = {
   lastPostAt: string;
   replyCount: number;
   sticky: boolean;
+  /** Keyed hash of the opening post's author, or null. The name itself is never kept. */
+  authorKey: string | null;
 };
+
+/** Turns an author's display name into a keyed hash; see forumAuthorKey. */
+export type AuthorKeyer = (displayName: string) => string | null;
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
@@ -107,7 +112,7 @@ export function parseSteamForumTime(value: string, now: Date): string | null {
   return new Date(time).toISOString();
 }
 
-export function parseSteamForumTopics(html: string, now: Date): SteamForumTopic[] {
+export function parseSteamForumTopics(html: string, now: Date, authorKey: AuthorKeyer = () => null): SteamForumTopic[] {
   const topics: SteamForumTopic[] = [];
   const blocks = html.split(/<div\b[^>]*\bclass="forum_topic\b/).slice(1);
   for (const block of blocks) {
@@ -129,6 +134,7 @@ export function parseSteamForumTopics(html: string, now: Date): SteamForumTopic[
     // reply's time; neither may stand in for the opening post's time.
     const postedRow = tooltip.match(/<div class="topic_hover_row">\s*Posted by:([\s\S]*?)<\/div>/)?.[1] ?? "";
     const postedText = postedRow.match(/<\/span>\s*,\s*<span[^>]*>([^<]*)<\/span>/)?.[1] ?? "";
+    const authorName = textOf(postedRow.match(/^\s*<span[^>]*>([\s\S]*?)<\/span>\s*,/)?.[1] ?? "");
     const replyText = block.match(/class="forum_topic_reply_count">[\s\S]*?(\d[\d,]*)\s*<\/div>/)?.[1] ?? "0";
     const postedDisplay = decodeEntities(postedText).trim();
     const postedAt = postedDisplay ? parseSteamForumTime(postedDisplay, now) : null;
@@ -143,6 +149,7 @@ export function parseSteamForumTopics(html: string, now: Date): SteamForumTopic[
       lastPostAt: new Date(Number(lastPost) * 1000).toISOString(),
       replyCount: Number(replyText.replace(/,/g, "")),
       sticky: classes.includes("sticky"),
+      authorKey: authorName ? authorKey(authorName) : null,
     });
   }
   return topics;
@@ -158,7 +165,8 @@ export async function fetchSteamForumTopics({
   now,
   maxPages,
   fetchImpl = fetch,
-}: { since: Date; now: Date; maxPages: number; fetchImpl?: FetchLike }): Promise<SteamForumTopic[]> {
+  authorKey,
+}: { since: Date; now: Date; maxPages: number; fetchImpl?: FetchLike; authorKey?: AuthorKeyer }): Promise<SteamForumTopic[]> {
   const found = new Map<string, SteamForumTopic>();
   for (let page = 1; page <= maxPages; page += 1) {
     const url = new URL(STEAM_FORUM_URL);
@@ -170,7 +178,7 @@ export async function fetchSteamForumTopics({
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) throw new Error(`Steam forum request failed (${response.status})`);
-    const topics = parseSteamForumTopics(await response.text(), now).filter((topic) => !topic.sticky);
+    const topics = parseSteamForumTopics(await response.text(), now, authorKey).filter((topic) => !topic.sticky);
     if (page === 1 && topics.length === 0) throw new Error("Steam forum page had no readable topics");
     let reachedOlder = topics.length === 0;
     for (const topic of topics) {

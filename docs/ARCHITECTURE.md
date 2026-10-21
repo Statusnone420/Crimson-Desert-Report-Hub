@@ -12,7 +12,7 @@ This is the public architecture contract: enough structure to review the privacy
 | `/watch` | Official video and selected creator coverage, with links to the original channels. |
 | `/patches` | Current official patch record, stated fix claims, player responses, and an archive of retained official versions. |
 | `/patches/[version]` | Permanent historical claim record; does not reuse current player verdicts. `/patches/archive` redirects to `/patches#archive`. |
-| `/issues` | Issue board with evidence counts, reviewed links, player responses, and patch-scoped readouts. An empty board shows only the scanner's thread and topic counts for the patch. |
+| `/issues` | Issue board with evidence counts, reviewed links, answers to official fixes, optional thumbs that only the tapper sees, and patch-scoped readouts. An empty board shows only the scanner's thread and topic counts for the patch. |
 | `/observatory` | Aggregate Steam, Twitch, IGDB, and source-radar context with collection-health labels: the week before and after each official update with a one-sentence summary of the newest, a day-by-day chart of new Steam reviews, Twitch viewers and Steam players (one at a time, with updates marked and today's partial day kept out of averages), and each day's Steam reviews against the usual positive share of the recorded full days. |
 | `/report` | Permanent redirect to `/issues`, preserving valid issue references. `POST /api/reports` returns 410 without reading a payload or writing data. |
 | `/scanner` | Permanent redirect to `/observatory`. Signed-in diagnostics and review actions live at `/operator?view=scanner`; model, budget, schedule, and search settings live at `/operator?view=ai`. |
@@ -42,7 +42,7 @@ The hub does not collapse every input into one score:
 
 1. **Official context** supplies the current patch and the publisher's stated fix claims.
 2. **Historical player reports** are retained structured accounts; only approved excerpts may be public. New written-report intake is retired.
-3. **Player responses** are anonymous, patch- and platform-scoped signals such as *Still happening* or *Fixed for me*.
+3. **Player responses** are anonymous, patch- and platform-scoped answers to an official fix: *Still happening* or *Fixed for me*. A thumb up or down is separate: only the device that tapped it shows it, and it never decides what is published.
 4. **Source-radar links** are public leads that help form questions; a link is never evidence merely because the scanner found it.
 
 Patch observations remain in the authenticated scanner context archive for diagnostics and moderation. They no longer supply front-page articles. Their identity remains scoped to both URL and patch so an older patch's record cannot silently move into a newer patch.

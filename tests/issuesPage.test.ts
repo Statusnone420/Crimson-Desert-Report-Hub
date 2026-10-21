@@ -58,8 +58,32 @@ it("shows the exact official scope beside a broad historical issue", async () =>
   expect(markup).toContain("starting a new game with DLSS Frame Generation enabled.");
   expect(markup).toContain(`/patches#claim-${"a".repeat(64)}`);
   expect(markup).toContain("Published issues");
-  expect(markup).toContain("0 check-ins · Patch 2.02.00");
+  expect(markup).toContain('<p class="dispatch-byline">Patch 2.02.00</p>');
+  expect(markup).not.toMatch(/\d+ check-ins?\b/);
+  // A claim with no answers yet adds no zero line.
+  expect(markup).not.toContain("No responses after this claim yet");
   expect(markup).not.toContain("launch hangs after patch 1.13.00");
+});
+
+it("gives an issue without a fix claim a thumb control that carries no count", async () => {
+  const data = issueData();
+  mocks.getIssuesData.mockResolvedValue({
+    ...data,
+    clusters: [{ ...data.clusters[0], strengthScore: 3, signalCount: 3, readout: {
+      label: "Public sources", tone: "amber", sentence: "Seen in 3 player posts. Not confirmed by Pearl Abyss.", ask: null, poll: null,
+    } }],
+    officialClaimsByCluster: {},
+    officialClaimsUnavailable: false,
+  });
+  const markup = renderToStaticMarkup(await IssuesPage());
+  expect(markup).toContain("Seen in 3 player posts. Not confirmed by Pearl Abyss.");
+  expect(markup).toContain('aria-label="Happening to me"');
+  expect(markup).toContain('aria-label="Not happening for me"');
+  expect(markup.match(/aria-pressed="false"/g)?.length).toBeGreaterThanOrEqual(2);
+  expect(markup).not.toMatch(/confirmation-checkin|tap-btn__count|Save check-in/);
+  const thumbs = markup.match(/<div class="issue-thumbs">[\s\S]*?<p class="issue-thumbs__note"/)?.[0] ?? "";
+  expect(thumbs).toContain("Happening to you on 2.02.00?");
+  expect(thumbs.replaceAll("2.02.00", "").replace(/ (?:id|aria-labelledby)="[^"]*"/g, "")).not.toMatch(/\d/);
 });
 
 
@@ -93,7 +117,7 @@ it("retains a claim-only published card when current check-ins are unavailable",
   const markup = renderToStaticMarkup(await IssuesPage());
   expect(markup).toContain("Showing 1 of 1 published issue");
   expect(markup).toContain("Fixed the world-map crash.");
-  expect(markup).toContain("Current check-ins unavailable");
+  expect(markup).toContain("Answers to this fix could not be loaded.");
   expect(markup).not.toContain("0 check-ins");
   expect(markup).not.toContain("No responses after this claim yet");
 });
