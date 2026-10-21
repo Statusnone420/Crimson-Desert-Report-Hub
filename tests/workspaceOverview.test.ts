@@ -9,7 +9,6 @@ const baseProps: WorkspaceOverviewProps = {
     reports: { available: true, total: 0 },
     claims: { available: true, total: 0 },
     videos: { available: true, total: 0 },
-    dossiers: { available: true, total: 0 },
   },
   health: createElement("p", null, "Healthy"),
   recentActivity: [],

@@ -15,7 +15,7 @@ import { buildCatchUpMilestones } from "@/lib/catchUpContent";
 import { CatchUpMilestones } from "@/components/catchup/CatchUpMilestones";
 
 export type PublicNavKey = "brief" | "news" | "watch" | "issues" | "patches" | "observatory" | "method" | "report";
-export type OperatorNavKey = "overview" | "review" | "problem-reports" | "claims" | "videos" | "scanner" | "ai" | "column" | "compile" | "settings";
+export type OperatorNavKey = "overview" | "review" | "problem-reports" | "claims" | "videos" | "scanner" | "ai" | "column" | "settings";
 
 /** Deterministic dateline: UTC so server rendering never depends on host locale. */
 export function dispatchDateline(date: Date = new Date()): string {
@@ -50,7 +50,7 @@ export async function OperatorShell({
 }) {
   const patch = await getCurrentPatchMetadata();
   const family = patchFamilyKey(patch.version);
-  const view: OperatorView = active === "review" ? "reports" : active === "compile" ? "dossiers" : active ?? "overview";
+  const view: OperatorView = active === "review" ? "reports" : active ?? "overview";
   return (
     <div className="operator-newspaper operator-workspace">
       <a className="workspace-skip-link" href="#main-content">Skip to workspace</a>

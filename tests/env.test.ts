@@ -15,7 +15,6 @@ describe("computeFeatures", () => {
   it("everything off with no keys", () => {
     expect(computeFeatures({})).toEqual({
       turnstile: false,
-      ai: false,
       xSearch: false,
       webSearch: false,
       automation: false,
@@ -29,14 +28,6 @@ describe("computeFeatures", () => {
       REDDIT_USER_AGENT: "c",
     });
     expect(Object.keys(features).some((key) => /reddit/i.test(key))).toBe(false);
-  });
-
-  it("ai requires OpenRouter with the approved automation model", () => {
-    expect(computeFeatures({ GROQ_API_KEY: "g" }).ai).toBe(false);
-    expect(computeFeatures({ OPENROUTER_API_KEY: "o" }).ai).toBe(true);
-    expect(
-      computeFeatures({ OPENROUTER_API_KEY: "o", OPENROUTER_AUTOMATION_MODEL: "deepseek/deepseek-v4-pro" }).ai,
-    ).toBe(false);
   });
 
   it("turnstile requires both the public site key and secret", () => {
@@ -72,7 +63,7 @@ describe("computeFeatures", () => {
         TURNSTILE_SECRET_KEY: "t",
         GROQ_API_KEY: " ",
       }),
-    ).toEqual({ turnstile: false, ai: false, xSearch: false, webSearch: false, automation: false });
+    ).toEqual({ turnstile: false, xSearch: false, webSearch: false, automation: false });
   });
 });
 

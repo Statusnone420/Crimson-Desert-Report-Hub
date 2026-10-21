@@ -30,7 +30,7 @@ const expectedDescriptions = {
   "/watch":
     "The Crimson Desert reveal trailer and selected creator coverage of Charting the Unknown, with links to the original videos.",
   "/issues":
-    "Compare Crimson Desert issues, official fixes and anonymous community check-ins on the current patch. No account or written report.",
+    "Known Crimson Desert issues on the current patch, from public player posts and the official fix notes.",
   "/about":
     "How Crimson Desert Report Hub sources its journalism, credits creators, and keeps news separate from player reports and official fix claims.",
   "/contact":

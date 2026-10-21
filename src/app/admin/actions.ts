@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { countBy } from "@/lib/aggregates";
 import { hashValue } from "@/lib/automation/dedupe";
 import {
   isScannerDecision,
@@ -22,9 +21,6 @@ import {
 import { FIX_STATUSES } from "@/lib/constants";
 import { requireAdmin } from "@/lib/adminGuard";
 import { revokeAdminSessions } from "@/lib/adminSessions.server";
-import { draftDossierWithAi } from "@/lib/ai";
-import { buildDeterministicDossier, type DossierCluster, type DossierVerifiedReport } from "@/lib/dossier";
-import { features } from "@/lib/env";
 import { LIFECYCLE_LABELS } from "@/lib/lifecycle";
 import { isValidPatchVersion } from "@/lib/officialPatch";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
@@ -49,72 +45,6 @@ export async function signOutEverywhere() {
   const store = await cookies();
   store.set(ADMIN_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
   redirect("/admin/login");
-}
-
-type CompileReportRow = {
-  category: string | null;
-  platform: string | null;
-  cluster_id: string | null;
-  evidence_url: string | null;
-  repro_steps: string | null;
-  issue_title: string;
-};
-
-type CompileClusterRow = {
-  id: string;
-  title: string;
-  fix_status: string;
-  confidence: string;
-};
-
-type CompileSignalRow = {
-  cluster_id: string | null;
-  source: string;
-  source_url: string;
-  title: string | null;
-  summary: string;
-  category: string;
-  observed_at: string;
-};
-
-type RelatedReport<T> = T | T[] | null;
-
-type CompileVerifiedRow = {
-  report_id: string;
-  excerpt_text: string;
-  bug_reports: RelatedReport<{ cluster_id: string | null; issue_title: string | null; platform: string | null }>;
-};
-
-function relatedReport<T>(value: RelatedReport<T>): T | null {
-  return Array.isArray(value) ? (value[0] ?? null) : value;
-}
-
-function throwReadError(label: string, error: { message: string } | null): void {
-  if (error) throw new Error(`${label} read failed: ${error.message}`);
-}
-
-function distinctVerifiedReports(rows: CompileVerifiedRow[]): DossierVerifiedReport[] {
-  const reports = new Map<string, DossierVerifiedReport>();
-  for (const row of rows) {
-    if (reports.has(row.report_id)) continue;
-    const report = relatedReport(row.bug_reports);
-    reports.set(row.report_id, {
-      reportId: row.report_id,
-      title: report?.issue_title ?? "Verified report",
-      excerpt: row.excerpt_text,
-      platform: report?.platform ?? null,
-    });
-  }
-  return [...reports.values()];
-}
-
-function distinctVerifiedClusterRows(rows: CompileVerifiedRow[]): { cluster_id: string | null }[] {
-  const clustersByReport = new Map<string, { cluster_id: string | null }>();
-  for (const row of rows) {
-    if (clustersByReport.has(row.report_id)) continue;
-    clustersByReport.set(row.report_id, { cluster_id: relatedReport(row.bug_reports)?.cluster_id ?? null });
-  }
-  return [...clustersByReport.values()];
 }
 
 export async function moderateReport(formData: FormData): Promise<void> {
@@ -306,130 +236,6 @@ export async function setCurrentPatchOverride(formData: FormData): Promise<void>
   revalidatePath("/admin");
   revalidatePath("/operator");
   revalidatePublicSurfaces();
-}
-
-export async function compileDossier(formData: FormData): Promise<void> {
-  await requireAdmin();
-  assertProductionWriteAllowed();
-  const useAi = formData.get("use_ai") === "on";
-  const supabase = createServiceClient();
-  const currentPatch = await getCurrentPatchMetadata(supabase);
-  if (currentPatch.source === "fallback") {
-    // The dossier labels its whole snapshot with this version; fallback means
-    // the patch read returned nothing or failed, so the label would be a guess.
-    throw new Error(
-      "current patch provenance is unknown: the patch read returned nothing or failed, so this dossier cannot be labelled",
-    );
-  }
-
-  const { data: reports, error: reportsError } = await supabase
-    .from("bug_reports")
-    .select("category, platform, cluster_id, evidence_url, repro_steps, issue_title")
-    .eq("moderation_status", "approved");
-  throwReadError("approved reports", reportsError);
-  const rows = (reports ?? []) as CompileReportRow[];
-
-  const { data: clusterData, error: clustersError } = await supabase
-    .from("issue_clusters")
-    .select("id, title, fix_status, confidence");
-  throwReadError("issue clusters", clustersError);
-  const clusterRows = (clusterData ?? []) as CompileClusterRow[];
-
-  const { data: signals, error: signalsError } = await supabase
-    .from("source_signals")
-    .select("cluster_id, source, source_url, title, summary, category, observed_at")
-    .eq("public_status", "public")
-    .order("observed_at", { ascending: false });
-  throwReadError("community signals", signalsError);
-  const signalRows = (signals ?? []) as CompileSignalRow[];
-
-  const { data: verified, error: verifiedError } = await supabase
-    .from("approved_excerpts")
-    .select("report_id, excerpt_text, bug_reports(cluster_id, issue_title, platform)")
-    .order("created_at", { ascending: false })
-    .limit(1000);
-  throwReadError("verified reports", verifiedError);
-  const verifiedRows = (verified ?? []) as CompileVerifiedRow[];
-  const verifiedReports = distinctVerifiedReports(verifiedRows);
-
-  const { count: pendingCount, error: pendingError } = await supabase
-    .from("bug_reports")
-    .select("id", { count: "exact", head: true })
-    .eq("moderation_status", "pending");
-  throwReadError("pending reports", pendingError);
-
-  const directByCluster = countBy(rows, (report) => report.cluster_id);
-  const signalByCluster = countBy(signalRows, (signal) => signal.cluster_id);
-  const verifiedByCluster = countBy(distinctVerifiedClusterRows(verifiedRows), (verifiedReport) => verifiedReport.cluster_id);
-  const clusterTitleById = new Map(clusterRows.map((cluster) => [cluster.id, cluster.title]));
-
-  const clusters: DossierCluster[] = clusterRows.map((cluster) => {
-    const reportsForCluster = rows.filter((report) => report.cluster_id === cluster.id);
-    const platCounts = Object.entries(countBy(reportsForCluster, (report) => report.platform)).sort((a, b) => b[1] - a[1]);
-    const directReportCount = directByCluster[cluster.id] ?? 0;
-    return {
-      title: cluster.title,
-      fixStatus: cluster.fix_status,
-      confidence: cluster.confidence,
-      count: directReportCount,
-      signalCount: signalByCluster[cluster.id] ?? 0,
-      directReportCount,
-      verifiedReportCount: verifiedByCluster[cluster.id] ?? 0,
-      topPlatform: platCounts[0]?.[0] ?? null,
-    };
-  });
-
-  const deterministic = buildDeterministicDossier({
-    generatedAt: new Date().toISOString(),
-    patchVersion: currentPatch.version,
-    totalSignals: signalRows.length,
-    totalDirectReports: rows.length,
-    totalVerifiedReports: verifiedReports.length,
-    pendingCount: pendingCount ?? 0,
-    byCategory: countBy(rows, (report) => report.category),
-    platforms: countBy(rows, (report) => report.platform),
-    clusters,
-    communitySignals: signalRows.map((signal) => ({
-      title: signal.title?.trim() || signal.summary,
-      source: signal.source,
-      url: signal.source_url,
-      summary: signal.summary,
-      category: signal.category,
-      clusterTitle: signal.cluster_id ? (clusterTitleById.get(signal.cluster_id) ?? null) : null,
-    })),
-    reproNotes: rows
-      .filter((report) => report.repro_steps)
-      .slice(0, 15)
-      .map((report) => ({ title: report.issue_title, steps: String(report.repro_steps) })),
-    directReportEvidenceUrls: [
-      ...new Set(rows.map((report) => report.evidence_url).filter((url): url is string => Boolean(url))),
-    ].slice(0, 30),
-    verifiedReports,
-  });
-
-  let markdown = deterministic;
-  let provider = "deterministic";
-  if (useAi && features().ai) {
-    const drafted = await draftDossierWithAi(deterministic);
-    if (drafted) ({ markdown, provider } = drafted);
-  }
-
-  const { data: run, error } = await supabase
-    .from("dossier_runs")
-    .insert({
-      markdown,
-      provider,
-      stats: {
-        totalSignals: signalRows.length,
-        totalDirectReports: rows.length,
-        totalVerifiedReports: verifiedReports.length,
-        pendingCount: pendingCount ?? 0,
-      },
-    })
-    .select("id")
-    .single();
-  if (error) throw new Error(error.message);
-  redirect(`/operator?view=dossiers&run=${encodeURIComponent(run.id)}`);
 }
 
 export async function setAutomationPaused(formData: FormData): Promise<void> {

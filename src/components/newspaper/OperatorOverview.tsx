@@ -186,8 +186,8 @@ export function OperatorOverview({ data }: { data: OperatorOverviewData }) {
       </div>
       <RunRecord runs={data.runs} unavailable={!data.operatorReadAvailable} />
       <section className="op-tools" aria-labelledby="op-tools-title">
-        <div><p className="op-eyebrow">Operator tools</p><h2 id="op-tools-title">Inspect first. Act in the right console.</h2><p>These links open existing authenticated controls. This overview does not change reports, scanner state, providers, or dossiers.</p></div>
-        <div className="op-tool-links"><Link className="op-link" href={workspaceHref("scanner")}>Scanner monitor →</Link><Link className="op-link" href="/admin">Report review →</Link><Link className="op-link" href="/admin/compile">Dossiers →</Link></div>
+        <div><p className="op-eyebrow">Operator tools</p><h2 id="op-tools-title">Inspect first. Act in the right console.</h2><p>These links open existing authenticated controls. This overview does not change reports, scanner state, or providers.</p></div>
+        <div className="op-tool-links"><Link className="op-link" href={workspaceHref("scanner")}>Scanner monitor →</Link><Link className="op-link" href="/admin">Report review →</Link></div>
       </section>
       <div className="op-footer"><Link href="/">← Back to the paper</Link><a href="#operator-top">Back to top ↑</a></div>
     </div>

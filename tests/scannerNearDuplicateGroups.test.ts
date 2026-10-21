@@ -120,5 +120,7 @@ describe("the private lead list title", () => {
     expect(leadTitle(row({ source: "web_search", title: "Thread title" }))).toBe("Thread title");
     expect(leadTitle(row({ extracted_facts: null }))).toBe("Crimson Desert player issue on Steam");
     expect(leadTitle(row({ extracted_facts: { issueTitle: "   " } }))).toBe("Crimson Desert player issue on Steam");
+    // A junk title saved before extraction caught it names nothing.
+    expect(leadTitle(row({ extracted_facts: { issueTitle: "]}" } }))).toBe("Crimson Desert player issue on Steam");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_CLUSTER_CONFIRMATIONS, type ClusterConfirmations } from "@/lib/confirmations";
-import { composeIssueReadout, DISPLAY_THRESHOLD_NETWORKS, type IssueReadoutInput } from "@/lib/readout";
+import { composeIssueReadout, DISPLAY_THRESHOLD_NETWORKS, playerPostsSentence, type IssueReadoutInput } from "@/lib/readout";
 
 function confirmations(over: Partial<ClusterConfirmations> = {}): ClusterConfirmations {
   return { ...EMPTY_CLUSTER_CONFIRMATIONS, byPlatform: {}, ...over };
@@ -109,103 +109,73 @@ describe("composeIssueReadout", () => {
     expect(readout.poll).toBeNull();
   });
 
-  it("keeps earlier reports separate from community responses", () => {
-    const readout = composeIssueReadout(base({ directReportCount: 2 }));
+  it("keeps earlier reports separate from the scanner's posts", () => {
+    const readout = composeIssueReadout(base({ directReportCount: 2, publicSignalCount: 3 }));
     expect(readout.state).toBe("confirmed");
     expect(readout.label).toBe("Earlier player reports");
     expect(readout.tone).toBe("crimson");
-    expect(readout.sentence).toContain("2");
-    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
-  });
-
-  it("labels anonymous responses without claiming verified players", () => {
-    const readout = composeIssueReadout(
-      base({ confirmations: confirmations({ affectedCount: 4, affectedNetworks: 3 }) }),
-    );
-    expect(readout.state).toBe("confirmed");
-    expect(readout.label).toBe("Community check-ins");
+    expect(readout.sentence).toBe("2 earlier player reports. Personal experiences, not a measure of all players.");
+    expect(readout.ask).toBeNull();
   });
 
   it("labels a single report as earlier history", () => {
     const readout = composeIssueReadout(base({ directReportCount: 1 }));
     expect(readout.state).toBe("confirmed");
     expect(readout.label).toBe("Earlier player reports");
-    expect(readout.tone).toBe("crimson");
-    expect(readout.sentence).toContain("1");
-    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
+    expect(readout.sentence).toContain("1 earlier player report.");
+    expect(readout.ask).toBeNull();
   });
 
-  it("does not sum a report and network into verified players", () => {
-    const readout = composeIssueReadout(
-      base({ directReportCount: 1, confirmations: confirmations({ affectedCount: 1, affectedNetworks: 1 }) }),
-    );
-    expect(readout.state).toBe("confirmed");
-    expect(readout.label).toBe("Community check-ins");
+  it("gives earlier general check-ins no weight: they neither confirm nor appear", () => {
+    const readout = composeIssueReadout(base({
+      confirmations: confirmations({
+        totalCount: 5,
+        affectedCount: 4,
+        affectedNetworks: 3,
+        byKind: { ...EMPTY_CLUSTER_CONFIRMATIONS.byKind, have_it: { count: 4, networks: 3 }, not_happening: { count: 1, networks: 1 } },
+      }),
+    }));
+    expect(readout.state).toBe("watching");
+    expect(readout.label).toBe("Open");
+    expect(readout.sentence).toBe("The scanner keeps checking public sources on this patch.");
   });
 
-  it("a single confirming network does not confirm; falls through to signals", () => {
+  it("labels the scanner's posts the same way on published issues and the watchlist", () => {
+    const published = composeIssueReadout(base({ publicSignalCount: 3 }));
+    expect(published.state).toBe("public_sources");
+    expect(published.tone).toBe("amber");
+    expect(published.sentence).toBe("Seen in 3 player posts. Not confirmed by Pearl Abyss.");
+    expect(published.ask).toBeNull();
+
+    const watched = composeIssueReadout(base({ candidateSignalCount: 1 }));
+    expect(watched.state).toBe("radar_lead");
+    expect(watched.tone).toBe("blue");
+    expect(watched.sentence).toBe("Seen in 1 player post. Not confirmed by Pearl Abyss.");
+    expect(playerPostsSentence(2)).toBe("Seen in 2 player posts. Not confirmed by Pearl Abyss.");
+  });
+
+  it("never adds a check-in count to the scanner's posts", () => {
     const readout = composeIssueReadout(
       base({ publicSignalCount: 1, confirmations: confirmations({ affectedCount: 1, affectedNetworks: 1 }) }),
     );
     expect(readout.state).toBe("public_sources");
-    expect(readout.tone).toBe("amber");
-    expect(readout.sentence).toContain("1 check-in");
-    expect(readout.sentence).not.toContain("no player here has confirmed");
+    expect(readout.sentence).not.toMatch(/check-in/i);
   });
 
-  it("public-source leads stay useful at N=0 without waiting-for-players copy", () => {
-    const readout = composeIssueReadout(base({ publicSignalCount: 2 }));
-    expect(readout.state).toBe("public_sources");
-    expect(readout.sentence).toContain("2 public sources");
-    expect(readout.sentence).toContain("leads, not player evidence");
-    expect(readout.sentence).not.toMatch(/no player|waiting|until players/i);
-  });
-
-  it("keeps a lone confirmation visible without escalating it into a verdict", () => {
-    const readout = composeIssueReadout(
-      base({
-        confirmations: confirmations({
-          totalCount: 1,
-          affectedCount: 1,
-          affectedNetworks: 1,
-          byKind: {
-            have_it: { count: 1, networks: 1 },
-            not_happening: { count: 0, networks: 0 },
-            still_happening: { count: 0, networks: 0 },
-            fixed_for_me: { count: 0, networks: 0 },
-          },
-        }),
-      }),
-    );
-
-    expect(readout.state).toBe("watching");
-    expect(readout.sentence).toContain("1 check-in");
-    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
-  });
-
-  it("candidates only reads as a radar lead, not evidence", () => {
-    const readout = composeIssueReadout(base({ candidateSignalCount: 2 }));
-    expect(readout.state).toBe("radar_lead");
-    expect(readout.tone).toBe("blue");
-    expect(readout.sentence).toContain("not evidence");
-    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
-  });
-
-  it("keeps a sub-threshold player count visible on a radar lead", () => {
-    const readout = composeIssueReadout(
-      base({ candidateSignalCount: 1, confirmations: confirmations({ affectedCount: 1, affectedNetworks: 1 }) }),
-    );
-    expect(readout.state).toBe("radar_lead");
-    expect(readout.sentence).toContain("1 check-in");
-    expect(readout.sentence).not.toContain("until players confirm");
-  });
-
-  it("a visible quiet issue still accepts a personal response", () => {
+  it("a quiet issue reads from the scanner, never from visitors", () => {
     const readout = composeIssueReadout(base());
     expect(readout.state).toBe("watching");
     expect(readout.tone).toBe("dim");
-    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
+    expect(readout.sentence).toBe("The scanner keeps checking public sources on this patch.");
+    expect(readout.ask).toBeNull();
     expect(readout.poll).toBeNull();
+  });
+
+  it("an unread check-in table changes nothing without a fix claim", () => {
+    const readout = composeIssueReadout(base({ checkinsAvailable: false, publicSignalCount: 2 }));
+    expect(readout.state).toBe("public_sources");
+    expect(readout.hasCurrentClaim).toBe(false);
+    expect(readout.sentence).toBe("Seen in 2 player posts. Not confirmed by Pearl Abyss.");
   });
 
   it("never begs: zero-input sentences avoid crowd language", () => {
@@ -226,17 +196,6 @@ describe("composeIssueReadout", () => {
       base({ fixClaimedAt: "2026-07-08T00:00:00Z", confirmations: confirmations({ pollFixedCount: 1, pollFixedNetworks: 1 }) }),
     );
     expect(withClaim.poll).toEqual({ fixedCount: 1, stillCount: 0, escalated: false });
-  });
-
-  it("negative responses never confirm or erase an issue", () => {
-    const readout = composeIssueReadout(base({ confirmations: confirmations({
-      totalCount: 4,
-      byKind: { ...EMPTY_CLUSTER_CONFIRMATIONS.byKind, not_happening: { count: 4, networks: 4 } },
-    }) }));
-    expect(readout.state).toBe("watching");
-    expect(readout.poll).toBeNull();
-    expect(readout.sentence).toContain("4 saying it is not happening");
-    expect(readout.ask?.kinds).toEqual(["have_it", "not_happening"]);
   });
 
   it("an unread check-in table is not zero responses or a quiet fix verdict", () => {

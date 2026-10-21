@@ -4,7 +4,6 @@ type EnvLike = Record<string, string | undefined>;
 
 export type Features = {
   turnstile: boolean;
-  ai: boolean;
   xSearch: boolean;
   webSearch: boolean;
   automation: boolean;
@@ -26,11 +25,9 @@ function hasApprovedAutomationModel(env: EnvLike): boolean {
 
 export function computeFeatures(env: EnvLike): Features {
   const webSearch = hasEnvValue(env.TAVILY_API_KEY);
-  const ai = hasEnvValue(env.OPENROUTER_API_KEY) && hasApprovedAutomationModel(env);
 
   return {
     turnstile: hasEnvValue(env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) && hasEnvValue(env.TURNSTILE_SECRET_KEY),
-    ai,
     xSearch: hasEnvValue(env.XAI_API_KEY),
     webSearch,
     automation: webSearch,

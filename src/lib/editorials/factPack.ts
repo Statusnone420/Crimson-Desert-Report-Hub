@@ -7,8 +7,9 @@ import { patchPath } from "@/lib/patchPublications";
 /**
  * The column's only input: public, aggregate, reviewed data. Official patch notes and
  * listed fixes, the official Pearl Abyss notices the Hub keeps, public issue aggregates,
- * Steam and Twitch aggregates and check-in counts. Never raw reports, rejected candidates,
- * private source text, individual check-ins, usernames or links to individual posts.
+ * Steam and Twitch aggregates and counts of answers to listed fixes. Never raw reports,
+ * rejected candidates, private source text, individual check-ins, thumbs (the site never
+ * shows a thumb count), usernames or links to individual posts.
  */
 export type EvidenceLabel = "Confirmed" | "Reported" | "One report";
 export type StatusLabel = "Fixed (per patch notes)" | "Still happening";
@@ -80,8 +81,6 @@ export type IssueAggregate = {
   id: string;
   title: string;
   approvedReports: number;
-  checkins: number;
-  checkinNetworks: number;
   publicPosts: number;
   postsBySite: Record<string, number>;
   officialFixListed: boolean;
@@ -141,14 +140,13 @@ export function patchKind(version: string): "update" | "hotfix" {
 
 /**
  * Evidence labels never go past what the public issue page shows. Confirmed: Pearl
- * Abyss lists a fix. Reported: two or more approved reports, or check-ins from two or
- * more networks (the Hub's two-network rule). One report: a single one of either.
- * Forum links alone earn no label: links are not people, and the scanner reads no authors.
+ * Abyss lists a fix. Reported: two or more approved reports. One report: a single one.
+ * Forum posts alone earn no label here; the issue page counts them as player posts.
  */
 export function evidenceLabel(issue: IssueAggregate): EvidenceLabel | null {
   if (issue.officialFixListed) return "Confirmed";
-  if (issue.approvedReports >= 2 || issue.checkinNetworks >= 2) return "Reported";
-  if (issue.approvedReports === 1 || issue.checkinNetworks === 1) return "One report";
+  if (issue.approvedReports >= 2) return "Reported";
+  if (issue.approvedReports === 1) return "One report";
   return null;
 }
 
@@ -418,7 +416,6 @@ export function buildFactPack(input: FactPackInput): FactPack {
         label ? `Evidence: ${label}.` : "Evidence: forum links only, no label.",
         status ? `Status: ${status}.` : null,
         issue.approvedReports ? `${issue.approvedReports} approved player ${issue.approvedReports === 1 ? "report" : "reports"} on patch ${board.patchVersion}.` : null,
-        issue.checkins ? `${issue.checkins} "happening to me" ${issue.checkins === 1 ? "check-in" : "check-ins"} on patch ${board.patchVersion}.` : null,
         issue.publicPosts ? `Mentioned in ${issue.publicPosts} public ${issue.publicPosts === 1 ? "post" : "posts"} (${Object.entries(issue.postsBySite).map(([site, count]) => `${site} ${count}`).join(", ")}).` : null,
         after ? `The notes for patch ${board.patchVersion} list a fix for it.` : null,
         since.length ? `Since that fix: ${since.join(", ")}.` : null,
@@ -427,22 +424,11 @@ export function buildFactPack(input: FactPackInput): FactPack {
       add("C", {
         text: `Known issue "${issue.title}". ${parts.join(" ")}`,
         period: `Patch ${board.patchVersion}`,
-        value: issue.approvedReports + issue.checkins,
+        value: issue.approvedReports,
         ...(label ? { label } : {}),
         ...(status ? { status } : {}),
         ...(check ? { check } : {}),
         source: { label: `"${issue.title}" on the issue board, Report Hub`, url: `/issues#issue-${issue.id}` },
-      });
-    }
-    // A zero total stays out of the pack: the column never writes about an empty board.
-    const checkins = board.issues.reduce((sum, issue) => sum + issue.checkins, 0);
-    const withCheckins = board.issues.filter((issue) => issue.checkins > 0).length;
-    if (checkins > 0) {
-      add("K", {
-        text: `Players added ${NUMBER.format(checkins)} "happening to me" ${checkins === 1 ? "check-in" : "check-ins"} across ${withCheckins} known ${withCheckins === 1 ? "issue" : "issues"} on patch ${board.patchVersion}.`,
-        period: `Patch ${board.patchVersion}`,
-        value: checkins,
-        source: { label: "Issue board, Report Hub", url: "/issues" },
       });
     }
   } else gaps.push("issues_unavailable");

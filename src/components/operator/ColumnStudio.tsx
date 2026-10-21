@@ -44,7 +44,9 @@ export function ColumnStudio({ studio, writesDisabled }: { studio: Studio | null
             <form action={moveVoiceExampleAction}><input type="hidden" name="id" value={example.id} /><input type="hidden" name="direction" value="down" /><Button disabled={writesDisabled || index === studio.examples.length - 1} pendingText="Moving…">Move down</Button></form>
             <form action={deleteVoiceExampleAction}><input type="hidden" name="id" value={example.id} /><Button disabled={writesDisabled} pendingText="Removing…" danger>Remove</Button></form>
           </div>
-        </li>)}</ol> : <p className="workspace-note">No voice examples yet. The writer follows the style guide alone until you add some.</p>}
+        </li>)}</ol> : <p className="workspace-note">{studio.rotation.length
+          ? "No voice examples saved here yet."
+          : "No voice examples yet. The writer follows the style guide alone until you add some."}</p>}
         {studio.examples.length < MAX_VOICE_EXAMPLES ? <details>
           <summary>Add a voice example</summary>
           <form action={saveVoiceExampleAction} className="workspace-form">

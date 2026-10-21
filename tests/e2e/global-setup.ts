@@ -14,7 +14,7 @@ export const routes: WarmUpRoutes = {
   missingPages: ["/missing-public-page", "/editorials/scattered-softlocks-in-the-north"],
   operatorPages: [...OPERATOR_VIEWS.map((view) => workspaceHref(view)), "/admin", "/admin/problem-reports", "/admin/source-monitor"],
   apiRoutes: [
-    "/api/confirmations", "/api/reports", "/api/problem-reports", "/api/admin/session", "/api/admin/problem-reports",
+    "/api/confirmations", "/api/thumbs", "/api/reports", "/api/problem-reports", "/api/admin/session", "/api/admin/problem-reports",
     "/api/admin/problem-reports/10000000-0000-4000-8000-000000000001", "/api/admin/video-review-brief",
   ],
 };

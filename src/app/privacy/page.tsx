@@ -27,9 +27,9 @@ export default async function PrivacyPage() {
       >
         <dl className="method-registers">
           <dt className="method-registers__term">No accounts</dt>
-          <dd className="method-registers__def">There is no player sign-in or registration. Check-ins do not ask for email.</dd>
+          <dd className="method-registers__def">There is no player sign-in or registration. Check-ins and thumbs do not ask for email.</dd>
           <dt className="method-registers__term">One current response</dt>
-          <dd className="method-registers__def">A network can hold one current check-in for each public issue and exact patch.</dd>
+          <dd className="method-registers__def">A network can hold one current check-in and one thumb for each public issue and exact patch.</dd>
           <dt className="method-registers__term">No raw IP storage</dt>
           <dd className="method-registers__def">The database does not store raw IP addresses.</dd>
           <dt className="method-registers__term">No ads or trackers</dt>
@@ -50,6 +50,10 @@ export default async function PrivacyPage() {
           <p>
             Choosing another response replaces the previous response from that network for the same issue and exact
             patch. People sharing a network share that response. Check-in totals do not verify unique players.
+          </p>
+          <p>
+            A thumb up or down works the same way, and tapping it again takes it back. Only your device shows your
+            thumb; the site never shows how many there are.
           </p>
           <p>
             Crimson Desert Report Hub is an independent fan site and is not affiliated with or endorsed by Pearl

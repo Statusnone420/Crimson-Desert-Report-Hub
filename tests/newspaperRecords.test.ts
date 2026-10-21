@@ -14,7 +14,6 @@ const issue = (overrides: Partial<IssueBoardEntry> = {}): IssueBoardEntry => ({
   directReportCount: 1,
   signalCount: 0,
   candidateSignalCount: 0,
-  confirmationCount: 0,
   reportPlatforms: [],
   platformCounts: [],
   excerpts: [],

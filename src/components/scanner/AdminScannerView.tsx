@@ -100,7 +100,8 @@ export function leadTitle(signal: AdminSignalRow): string {
   const issueTitle = facts && typeof facts === "object" && "issueTitle" in facts && typeof facts.issueTitle === "string"
     ? facts.issueTitle.trim()
     : "";
-  if (signal.source === "steam_review" && issueTitle) return issueTitle;
+  // A title saved before junk titles were caught, such as "]}", names nothing.
+  if (signal.source === "steam_review" && /[\p{L}\p{N}]/u.test(issueTitle)) return issueTitle;
   return signal.title ?? "Untitled source lead";
 }
 
