@@ -5,6 +5,7 @@ const supabasePort = Number(process.env.PLAYWRIGHT_TURNSTILE_SUPABASE_PORT ?? 18
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.turnstile.ts",
   testMatch: "turnstile-theme.spec.ts",
   timeout: 60_000,
   expect: { timeout: 10_000 },

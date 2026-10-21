@@ -213,6 +213,8 @@ test.describe("public newspaper readability", () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem("newspaper-theme"))).toBe("dark");
 
     await page.getByRole("link", { name: "Privacy", exact: true }).click();
+    // The front page is dark too, so confirm the navigation finished before checking the theme.
+    await expect(page).toHaveURL(/\/privacy$/);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#000000");
     await page.reload();
