@@ -195,8 +195,8 @@ export default async function AboutPage() {
               <span className="method-row__ask">When does a source link go public?</span>
               <span className="method-row__mark" aria-hidden="true" />
               <span className="method-row__say">
-                When a trusted source lines up with an approved player report, or several independent sources say
-                the same thing. It stays a lead either way.
+                When a trusted source lines up with an approved player report, or several independent sources or
+                players say the same thing. It stays a lead either way.
               </span>
             </summary>
             <div className="method-row__more">

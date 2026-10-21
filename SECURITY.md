@@ -34,7 +34,7 @@ Only the current `main` branch is supported.
 - Cron and preview routes require `CRON_SECRET`. Admin routes require a signed session cookie. A session lasts 30 days and renews itself with use; "Sign out everywhere" in the operator menu ends every session at once. Admin sign-in attempts are rate-limited per network.
 - Public report text is moderation-gated before it appears in public.
 - The database stores salted one-way network hashes, never raw IP addresses. An IPv6 address counts by its /64 network.
-- Check-in writes use a service-role-only database function. It takes the shared visibility lock, then cluster and network locks, rechecks public issue visibility in the same transaction, and enforces a limit of 20 attempts per network per hour.
-- Each verified Turnstile token can save one check-in or one problem report. The database keeps a SHA-256 hash of the token, never the token, so a replayed token is refused.
-- Private problem reports, confirmation hashes, attempt rows and individual check-ins never reach public pages; only aggregates do.
+- Check-in and thumb writes use service-role-only database functions. Each takes the shared visibility lock, then cluster and network locks, rechecks public issue visibility in the same transaction, and enforces a limit of 20 attempts per network per hour.
+- Each verified Turnstile token can save one check-in, one thumb or one problem report. The database keeps a SHA-256 hash of the token, never the token, so a replayed token is refused.
+- Private problem reports, confirmation hashes, attempt rows, individual check-ins and thumbs never reach public pages. Check-ins appear only as aggregates; thumb counts are never shown.
 - The Reddit API is permanently off. Public Reddit pages can enter only as ordinary web-discovery leads.

@@ -105,7 +105,7 @@ test.describe("integrated newspaper public UI", () => {
     await expect(page.getByRole("contentinfo").getByRole("link", { name: "Source code on GitHub", exact: true })).toHaveAttribute("href", SOURCE_URL);
     await expect(page.getByRole("contentinfo").getByRole("link", { name: "Add a check-in", exact: true })).toHaveAttribute("href", "/issues");
     await expect(page.locator("#lead").getByRole("link", { name: "Charting the Unknown delayed two weeks to October 29" })).toHaveAttribute("href", "/articles/charting-the-unknown-delay");
-    await expect(page.getByText(/Add a quick check-in to an existing issue/)).toBeVisible();
+    await expect(page.getByText("What players are running into on this patch.", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: /All \d+ published issues/ })).toHaveAttribute("href", "/issues");
     await expect(page.getByRole("heading", { name: "FPS regression since 1.13" })).toHaveCount(0);
     await expect(page.getByText("The game in numbers")).toBeVisible();
@@ -173,15 +173,16 @@ test.describe("integrated newspaper public UI", () => {
       window.localStorage.setItem("cd-checkin-00000000-0000-4000-8000-000000000001-1.13.01", "have_it");
     });
     await page.goto("/issues");
-    await expect(page.getByRole("heading", { name: "What are you seeing?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Known issues", exact: true })).toBeVisible();
     const board = page.locator("#board");
     await expect(board.getByRole("group", { name: "Choose board view" })).toBeVisible();
     await expect(board.getByLabel("Find an issue")).toBeVisible();
     await expect(board.getByLabel("Category")).toBeVisible();
     const card = page.getByRole("article").filter({ hasText: "FPS regression since 1.13" });
     await expect(card).toHaveCount(1);
-    await expect(card.getByRole("button", { name: /Happening to me/ })).toHaveAttribute("aria-pressed", "true");
-    await expect(card.getByText("Patch 1.13.01", { exact: true })).toBeVisible();
+    // An answer this device saved before thumbs shows as its thumb.
+    await expect(card.getByRole("button", { name: "Happening to me", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(card.getByText("Happening to you on 1.13.01?", { exact: true })).toBeVisible();
     await expectNoPrivateMarkers(page);
     await expectHealthyPage(page, problems);
   });
@@ -205,7 +206,7 @@ test.describe("integrated newspaper public UI", () => {
     // mock server; wait past the default expect timeout before asserting.
     await page.waitForURL(/\/privacy$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { name: "Privacy" })).toBeVisible();
-    await expect(page.getByText("There is no player sign-in or registration. Check-ins do not ask for email.")).toBeVisible();
+    await expect(page.getByText("There is no player sign-in or registration. Check-ins and thumbs do not ask for email.")).toBeVisible();
     await expect(page.getByText("The database does not store raw IP addresses.")).toBeVisible();
     await expect(page.getByRole("link", { name: "Method · privacy" })).toHaveAttribute("href", "/about#privacy");
     await expect(page.getByRole("main").locator('a[href="https://github.com/Statusnone420/Crimson-Desert-Report-Hub"], a[href^="https://github.com/Statusnone420/Crimson-Desert-Report-Hub/"]')).toHaveCount(0);
@@ -261,7 +262,7 @@ test.describe("integrated newspaper public UI", () => {
     await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 
-  test("operator routes keep sign-in, export recovery, and compile controls reachable", async ({ page }) => {
+  test("operator routes keep sign-in and export recovery reachable", async ({ page }) => {
     const problems = collectConsoleProblems(page);
     await page.goto("/");
     const footer = page.getByRole("contentinfo");
@@ -290,15 +291,11 @@ test.describe("integrated newspaper public UI", () => {
     await expect(operator.getByRole("link", { name: "Reports", exact: true })).toHaveAttribute("aria-current", "page");
     // Retired views leave the sidebar but stay reachable; one shows only while it is open.
     await expect(operator.getByRole("link", { name: "Videos" })).toHaveCount(0);
-    await expect(operator.getByRole("link", { name: "Dossiers" })).toHaveCount(0);
     await expect(operator.getByRole("link", { name: "Scanner" })).toHaveAttribute("href", "/operator?view=scanner");
     await page.getByRole("button", { name: /Export CSV/ }).click();
     await expect(page.getByText("Export all report-review rows?")).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText("Export all report-review rows?")).toHaveCount(0);
-    await page.goto("/operator?view=dossiers");
-    await expect(page.getByRole("heading", { name: "Compile dossier" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Compile now" })).toBeVisible();
     await expectHealthyPage(page, problems);
   });
 

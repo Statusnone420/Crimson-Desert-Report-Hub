@@ -53,7 +53,7 @@ test("missing services stay unavailable instead of becoming a false zero", async
 
   await page.goto("/issues");
   await expect(page.getByRole("heading", { name: "The issue board is unavailable." })).toBeVisible();
-  await expect(page.getByText("The public issue records could not be read. Check-ins need a visible issue; try again later.")).toBeVisible();
+  await expect(page.getByText("The public issue records could not be read. Try again later.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Read the patch record" })).toHaveAttribute("href", "/patches");
   await expectNoSyntheticCrowd(page);
 
@@ -95,7 +95,7 @@ test("connected empty tables render honest zero states", async ({ page }) => {
   await expectNoSyntheticCrowd(page);
 
   await page.goto("/issues");
-  await expect(page.getByRole("heading", { name: "What are you seeing?" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Known issues", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: /No published issues yet for/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Published issues 0" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Watchlist 0" })).toBeVisible();

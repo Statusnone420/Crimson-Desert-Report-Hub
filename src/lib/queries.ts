@@ -19,6 +19,8 @@ import { readCurrentScannerBudgetCapped } from "@/lib/automation/budgetState.ser
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
 import { computeClusterConfirmations, type ClusterConfirmations, type ConfirmationRow } from "@/lib/confirmations";
 import { readCheckinsForPatch } from "@/lib/checkins.server";
+import { thumbsRankBonus, type ThumbTally } from "@/lib/thumbs";
+import { readThumbTallies } from "@/lib/thumbs.server";
 import { getCurrentPatchMetadata, readClaimedFixesForCurrentPatch } from "@/lib/officialPatch.server";
 import { displayCandidateCount } from "@/lib/observatoryMetrics";
 import {
@@ -277,6 +279,23 @@ async function readCurrentCheckinContext(supabase: ReturnType<typeof createServi
     }),
   ]);
   return { ...current, earlier };
+}
+
+/**
+ * Thumb totals for the issue board's order. A failed read, or a database
+ * without the thumbs table yet, comes back unavailable so the board can say
+ * that its order leaves thumbs out.
+ */
+async function readThumbRankContext(
+  supabase: ReturnType<typeof createServiceClient>,
+  patchVersion: string,
+): Promise<{ byCluster: Record<string, ThumbTally>; available: boolean }> {
+  try {
+    return await readThumbTallies(supabase, patchVersion);
+  } catch (error) {
+    console.error("[thumbs] Current-patch thumbs unavailable; the board orders on evidence alone", error);
+    return { byCluster: {}, available: false };
+  }
 }
 
 export function filterPatchFamilyReports<T extends { patch_version: string | null }>(
@@ -541,6 +560,8 @@ type ClusterCounts = {
   checkinsAvailable: boolean;
   reportPlatformCounts: Record<string, number>;
   patchVersion: string;
+  /** This patch's thumbs, read only for the rank bonus. */
+  thumbs?: ThumbTally;
 };
 
 export type DecoratedCluster = ClusterRow & {
@@ -558,7 +579,10 @@ export type DecoratedCluster = ClusterRow & {
   checkinsAvailable?: boolean;
   reportPlatformCounts: Record<string, number>;
   readout: IssueReadout;
+  /** Evidence only. Full cards and every list except the issue board follow this, never thumbs. */
   strengthScore: number;
+  /** The issue board's order: the evidence score plus the small thumbs bonus. Only the board reads thumbs. */
+  rankScore: number;
 };
 
 /** One decoration path for dashboard + issues: counts in, readout out. */
@@ -582,6 +606,7 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
   });
   // Confirmations join the ranking only once their tally is escalated (>= threshold networks).
   const escalatedConfirms = confirmations.affectedNetworks >= DISPLAY_THRESHOLD_NETWORKS ? confirmations.affectedCount : 0;
+  const strengthScore = counts.signalCount + counts.directReportCount * 3 + escalatedConfirms;
   return {
     ...cluster,
     count: counts.directReportCount,
@@ -598,7 +623,8 @@ function decorateCluster(cluster: ClusterRow & { count: number }, counts: Cluste
     checkinsAvailable: counts.checkinsAvailable,
     reportPlatformCounts: counts.reportPlatformCounts,
     readout,
-    strengthScore: counts.signalCount + counts.directReportCount * 3 + escalatedConfirms,
+    strengthScore,
+    rankScore: strengthScore + thumbsRankBonus(counts.thumbs),
   };
 }
 
@@ -1147,7 +1173,10 @@ async function getIssuesDataUncached() {
   );
 
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
-  const checkinContext = await readCurrentCheckinContext(supabase, currentPatch.version);
+  const [checkinContext, thumbContext] = await Promise.all([
+    readCurrentCheckinContext(supabase, currentPatch.version),
+    readThumbRankContext(supabase, currentPatch.version),
+  ]);
 
   const directByCluster = countClusterIds(currentReportRows);
   const signalByCluster = countClusterIds(signalRows);
@@ -1174,8 +1203,11 @@ async function getIssuesDataUncached() {
         checkinsAvailable: checkinContext.available,
         reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
         patchVersion: currentPatch.version,
+        thumbs: thumbContext.byCluster[cluster.id],
       }),
     )
+    // Evidence order: the column's fact pack and the scanner's count read this
+    // list too. The board page alone applies boardOrder.
     .sort((a, b) => b.strengthScore - a.strengthScore);
 
   const signalsByCluster: Record<string, SignalRow[]> = {};
@@ -1212,6 +1244,7 @@ async function getIssuesDataUncached() {
   return {
     clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed,
     checkinsAvailable: checkinContext.available,
+    thumbsAvailable: thumbContext.available,
     officialClaimsByCluster: claimContext.byCluster,
     officialClaimsUnavailable: claimContext.unavailable,
   };

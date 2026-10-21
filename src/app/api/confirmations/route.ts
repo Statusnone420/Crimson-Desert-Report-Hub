@@ -3,14 +3,15 @@ import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { PUBLIC_DASHBOARD_TAG, PUBLIC_ISSUES_TAG } from "@/lib/cacheTags";
-import { CONFIRMATION_KINDS, type CheckinCounts } from "@/lib/confirmations";
+import { POLL_KINDS, type CheckinCounts } from "@/lib/confirmations";
 import { readCheckinCounts } from "@/lib/checkins.server";
 import { PLATFORMS } from "@/lib/constants";
-import { hashIp, ipNetwork } from "@/lib/crypto";
+import { hashIp } from "@/lib/crypto";
 import { requiredEnv } from "@/lib/env";
 import { getCurrentPatchMetadata } from "@/lib/officialPatch.server";
 import { isCurrentPatchVerified } from "@/lib/patchWatch";
 import { isVercelPreview } from "@/lib/previewGuard";
+import { isSameOriginRequest, requestNetwork } from "@/lib/publicWrite.server";
 import { createServiceClient, hasSupabaseServiceConfig } from "@/lib/supabase";
 import { isMissingSupabaseRpc } from "@/lib/supabaseCompatibility";
 import { verifyTurnstile } from "@/lib/turnstile";
@@ -19,27 +20,16 @@ const confirmationSchema = z.object({
   cluster_id: z.uuid(),
   patch_version: z.string().trim().min(1).max(20),
   platform: z.enum(PLATFORMS),
-  kind: z.enum(CONFIRMATION_KINDS),
+  // General "happening to me" answers are thumbs now (/api/thumbs).
+  kind: z.enum(POLL_KINDS),
   turnstile_token: z.string().min(1).max(2048),
 });
-
-function isSameOrigin(req: Request): boolean {
-  const fetchSite = req.headers.get("sec-fetch-site");
-  if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
-  const origin = req.headers.get("origin");
-  if (!origin) return false;
-  try {
-    return new URL(origin).origin === new URL(req.url).origin;
-  } catch {
-    return false;
-  }
-}
 
 export async function POST(req: Request) {
   if (isVercelPreview()) {
     return NextResponse.json({ error: "preview_writes_disabled" }, { status: 403 });
   }
-  if (!isSameOrigin(req)) {
+  if (!isSameOriginRequest(req)) {
     return NextResponse.json({ error: "cross_site_rejected" }, { status: 403 });
   }
   if (req.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
@@ -61,14 +51,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "current_patch_unavailable" }, { status: 503 });
   }
 
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-  const network = ip ? ipNetwork(ip) : null;
-  if (!ip || !network) {
+  const client = requestNetwork(req);
+  if (!client) {
     // One-voice dedup keys on the network hash; an unattributable tap can't be counted.
     return NextResponse.json({ error: "no_client_ip" }, { status: 400 });
   }
 
-  const captcha = await verifyTurnstile(parsed.data.turnstile_token, ip);
+  const captcha = await verifyTurnstile(parsed.data.turnstile_token, client.ip);
   if (captcha.skipped) {
     return NextResponse.json({ error: "turnstile_unavailable" }, { status: 503 });
   }
@@ -76,7 +65,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "captcha_failed" }, { status: 400 });
   }
 
-  const voterIpHash = hashIp(network, requiredEnv("SESSION_SECRET"));
+  const voterIpHash = hashIp(client.network, requiredEnv("SESSION_SECRET"));
 
   const supabase = createServiceClient();
 

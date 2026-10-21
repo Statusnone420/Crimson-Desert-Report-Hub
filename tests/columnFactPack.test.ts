@@ -12,9 +12,7 @@ describe("evidence labels", () => {
   it("never go past what the public issue page shows", () => {
     expect(evidenceLabel(issue({ officialFixListed: true }))).toBe("Confirmed");
     expect(evidenceLabel(issue({ approvedReports: 2 }))).toBe("Reported");
-    expect(evidenceLabel(issue({ checkinNetworks: 2 }))).toBe("Reported");
     expect(evidenceLabel(issue({ approvedReports: 1 }))).toBe("One report");
-    expect(evidenceLabel(issue({ checkinNetworks: 1, checkins: 1 }))).toBe("One report");
     // Ten forum links are not ten people: no label at all.
     expect(evidenceLabel(issue({ publicPosts: 10, postsBySite: { "Steam Community": 10 } }))).toBeNull();
   });
@@ -29,7 +27,7 @@ describe("evidence labels", () => {
 describe("the fact pack", () => {
   it("gives every fact a stable id, a period and a public Hub or Pearl Abyss source", () => {
     const pack = samplePack();
-    expect(pack.facts.map((fact) => fact.id)).toEqual(["P1", "F1", "F2", "S1", "S2", "S3", "S4", "T1", "C1", "K1"]);
+    expect(pack.facts.map((fact) => fact.id)).toEqual(["P1", "F1", "F2", "S1", "S2", "S3", "S4", "T1", "C1"]);
     for (const fact of pack.facts) {
       expect(isPublicSourceUrl(fact.source.url)).toBe(true);
       expect(fact.period).toBeTruthy();
@@ -38,9 +36,10 @@ describe("the fact pack", () => {
     expect(pack.facts.find((fact) => fact.id === "P1")?.text).toBe("Patch 2.03.02 (hotfix) official notes published Oct 24, 09:00 UTC. The notes list 2 fixes.");
   });
 
-  it("holds aggregates only: no post links, no report text, no hashes", () => {
+  it("holds aggregates only: no post links, no report text, no hashes, no thumb or general check-in counts", () => {
     const text = JSON.stringify(samplePack());
     expect(text).not.toMatch(/steamcommunity\.com|reddit\.com\/r\/|voter_ip_hash|network_hash/);
+    expect(text).not.toMatch(/happening to me|thumb/i);
     expect(text).toContain("Steam Community 3");
   });
 
@@ -60,7 +59,7 @@ describe("the fact pack", () => {
       now: PACK_NOW, notices: [],
       patches: { available: true, editions: [patch("2.04.00", "2026-10-26T09:00:00Z"), patch("2.03.02", "2026-10-24T09:00:00Z")] },
       history: history(25_000, 4_000),
-      board: { available: true, patchVersion: "2.04.00", issues: [issue({ approvedReports: 2 }), issue({ id: "00000000-0000-4000-8000-0000000000bb", checkinNetworks: 2, checkins: 2 })] },
+      board: { available: true, patchVersion: "2.04.00", issues: [issue({ approvedReports: 2 }), issue({ id: "00000000-0000-4000-8000-0000000000bb", approvedReports: 2 })] },
       previous: first.metrics,
     });
     expect(pack.deltas).toEqual({ newPatchVersions: ["2.04.00"], newUpdate: true, newPatternIssueIds: ["00000000-0000-4000-8000-0000000000bb"], newVerdictIssueIds: [], newNoticeIds: [], upcomingReleaseIds: [] });
@@ -73,7 +72,7 @@ describe("the fact pack", () => {
       now: PACK_NOW, notices: [],
       patches: { available: true, editions: [patch("2.03.02", "2026-10-24T09:00:00Z", ["Fixed an issue where the map could crash.", "Fixed horses stuck in fences."])] },
       history: history(25_000, 4_000),
-      board: { available: true, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, checkins: 5, checkinNetworks: 5, publicPosts: 3, postsBySite: { "Steam Community": 3 } })] },
+      board: { available: true, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, publicPosts: 3, postsBySite: { "Steam Community": 3 } })] },
       previous: samplePack().metrics,
     });
     expect(swing.facts.find((fact) => fact.text.startsWith("Steam players online averaged"))?.text).toContain("up 25% since the last edition");
@@ -92,7 +91,7 @@ describe("the fact pack", () => {
 
   it("always describes the newly Reported issues that raise the score, even past the first eight", () => {
     const strong = Array.from({ length: 9 }, (_, index) => issue({ id: `00000000-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`, title: `Old ${index}`, strength: 50 - index, approvedReports: 2 }));
-    const fresh = issue({ id: "00000000-0000-4000-8000-0000000002aa", title: "New and weak", strength: 1, checkinNetworks: 2, checkins: 2 });
+    const fresh = issue({ id: "00000000-0000-4000-8000-0000000002aa", title: "New and weak", strength: 1, approvedReports: 2 });
     const previous = { ...samplePack().metrics, patternIssueIds: strong.map((item) => item.id) };
     const pack = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, history: history(), previous,
       board: { available: true, patchVersion: "2.03.02", issues: [...strong, fresh] } });
@@ -121,7 +120,7 @@ describe("the fact pack", () => {
 
   it("carries the last known metrics forward for data it can't read, so the next edition compares fairly", () => {
     const patches = { available: true as const, editions: [patch("2.03.02", "2026-10-24T09:00:00Z", ["Fixed an issue where the map could crash.", "Fixed horses stuck in fences."])] };
-    const board = { available: true as const, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2, checkins: 5, checkinNetworks: 5 })] };
+    const board = { available: true as const, patchVersion: "2.03.02", issues: [issue({ approvedReports: 2 })] };
     const first = buildFactPack({ now: PACK_NOW, notices: [], patches, history: history(), board, previous: null });
     const outage = buildFactPack({ now: PACK_NOW, notices: [], patches: { available: false }, board: { available: false }, previous: first.metrics,
       history: { ...history(), lanes: { players: "unavailable", twitch: "unavailable", reviews: "unavailable" } } });

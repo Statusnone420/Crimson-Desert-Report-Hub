@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashValue, semanticFingerprint } from "@/lib/automation/dedupe";
-import { externalIdHash } from "@/lib/crypto";
+import { externalIdHash, forumAuthorKey } from "@/lib/crypto";
 import { matchesOrExpression } from "./fixtures/postgrestOr";
 
 const mocks = vi.hoisted(() => ({
@@ -1246,7 +1246,7 @@ describe("runAutomationMonitor", () => {
       }],
       issue_checkins: [{
         id: "checkin-current", cluster_id: "cluster-checkin-retained", patch_version: "1.13.00",
-        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+        platform: "pc_steam", kind: "still_happening", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
       }],
     });
     const { refreshClusterVisibility } = await importRunner();
@@ -1265,6 +1265,24 @@ describe("runAutomationMonitor", () => {
     expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false, public_signal_count: 0 });
   });
 
+  it("gives thumbs and general check-ins no weight: they never hold an automatic issue on the board", async () => {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-general-only", category: "performance", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: true, is_public: true,
+      }],
+      issue_checkins: ["have_it", "not_happening"].map((kind, index) => ({
+        id: `checkin-general-${index}`, cluster_id: "cluster-general-only", patch_version: "1.13.00",
+        platform: "pc_steam", kind, voter_ip_hash: `network-${index}`, created_at: "2026-07-05T12:00:00.000Z",
+      })),
+    });
+    const { refreshClusterVisibility } = await importRunner();
+
+    await refreshClusterVisibility("cluster-general-only", new Date("2026-07-05T12:00:00.000Z"));
+
+    expect(tables.issue_clusters[0]).toMatchObject({ auto_public: false, is_public: false });
+  });
+
   it("does not publish a private issue or its private source because it has a current check-in", async () => {
     resetDb({
       issue_clusters: [{
@@ -1273,7 +1291,7 @@ describe("runAutomationMonitor", () => {
       }],
       issue_checkins: [{
         id: "checkin-private", cluster_id: "cluster-checkin-private", patch_version: "1.13.00",
-        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+        platform: "pc_steam", kind: "still_happening", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
       }],
       source_signals: [{
         id: "signal-private", cluster_id: "cluster-checkin-private", source: "web_search", source_type: "web_search",
@@ -1302,7 +1320,7 @@ describe("runAutomationMonitor", () => {
       }],
       issue_checkins: [{
         id: "checkin-hidden", cluster_id: "cluster-checkin-hidden", patch_version: "1.13.00",
-        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+        platform: "pc_steam", kind: "still_happening", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
       }],
     });
     const { refreshClusterVisibility } = await importRunner();
@@ -1367,7 +1385,7 @@ describe("runAutomationMonitor", () => {
       ],
       issue_checkins: [{
         id: "checkin-force-public", cluster_id: "cluster-private", patch_version: "1.13.00",
-        platform: "pc_steam", kind: "have_it", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
+        platform: "pc_steam", kind: "still_happening", voter_ip_hash: "network-a", created_at: "2026-07-05T12:00:00.000Z",
       }],
     });
     const { refreshClusterVisibility } = await importRunner();
@@ -3585,7 +3603,7 @@ describe("runAutomationMonitor", () => {
         public_status: "private", extracted_facts: {},
       })),
       issue_checkins: heldIds.filter((_, index) => index % 2 === 0).map((id) => ({
-        id: `checkin-${id}`, cluster_id: id, patch_version: "1.13.00", platform: "pc_steam", kind: "have_it",
+        id: `checkin-${id}`, cluster_id: id, patch_version: "1.13.00", platform: "pc_steam", kind: "still_happening",
         voter_ip_hash: `network-${id}`, created_at: "2026-07-05T11:00:00.000Z",
       })),
     });
@@ -9178,6 +9196,101 @@ describe("Free context captures beside paid work", () => {
   });
 });
 
+describe("player-thread publication", () => {
+  const NOW = new Date("2026-07-05T12:00:00.000Z");
+  const FORUM = "https://steamcommunity.com/app/3321460/discussions/0/";
+  const author = (letter: string) => letter.repeat(64);
+
+  function thread(id: string, authorKey: string | null, overrides: Row = {}): Row {
+    const url = `${FORUM}58281000514000${id}`;
+    return {
+      id: `signal-thread-${id}`, cluster_id: "cluster-threads", source: "web_search", source_type: "web_search",
+      source_url: url, canonical_url: url, source_domain: "steamcommunity.com",
+      title: "Crimson Desert map crash on PS5", summary: "Opening the map crashes the game on PS5 since patch 1.13.00.",
+      category: "crash_startup", confidence: "high", observed_at: "2026-07-05T11:00:00.000Z",
+      source_published_at: "2026-07-05T10:00:00.000Z", public_status: "private", promotion_reason: "below_threshold",
+      extracted_facts: authorKey ? { authorKey } : {},
+      ...overrides,
+    };
+  }
+
+  function seed(signals: Row[]) {
+    resetDb({
+      issue_clusters: [{
+        id: "cluster-threads", category: "crash_startup", visibility_revision: 1,
+        admin_visibility_override: null, auto_public: false, is_public: false,
+      }],
+      source_signals: signals,
+    });
+    honorSourceSignalProjection = true;
+  }
+
+  async function refresh() {
+    const { refreshClusterVisibility } = await importRunner();
+    await refreshClusterVisibility("cluster-threads", NOW);
+    return tables.issue_clusters[0];
+  }
+
+  it("publishes three Steam threads from three different players", async () => {
+    seed([thread("01", author("a")), thread("02", author("b")), thread("03", author("c"))]);
+
+    expect(await refresh()).toMatchObject({ is_public: true, auto_public: true, public_signal_count: 3 });
+    for (const signal of tables.source_signals) {
+      expect(signal).toMatchObject({ public_status: "public", promotion_reason: "distinct_player_threads" });
+    }
+  });
+
+  it("keeps two players' threads private", async () => {
+    seed([thread("01", author("a")), thread("02", author("b"))]);
+
+    expect(await refresh()).toMatchObject({ is_public: false, public_signal_count: 0 });
+    expect(tables.source_signals.map((signal) => signal.promotion_reason)).toEqual(["below_threshold", "below_threshold"]);
+  });
+
+  it("counts one player's threads once", async () => {
+    seed([thread("01", author("a")), thread("02", author("a")), thread("03", author("b"))]);
+
+    expect(await refresh()).toMatchObject({ is_public: false });
+  });
+
+  it("does not count threads without an author key", async () => {
+    seed([thread("01", author("a")), thread("02", author("b")), thread("03", null), thread("04", null)]);
+
+    expect(await refresh()).toMatchObject({ is_public: false });
+  });
+
+  it.each<[string, Row]>([
+    ["opened before the current patch", { source_published_at: "2026-07-01T10:00:00.000Z", summary: "Opening the map crashes the game on PS5." }],
+    ["last processed more than 14 days ago", { observed_at: "2026-06-20T11:00:00.000Z" }],
+    ["on another game's forum", {
+      source_url: "https://steamcommunity.com/app/1245620/discussions/0/582810005140000099",
+      canonical_url: "https://steamcommunity.com/app/1245620/discussions/0/582810005140000099",
+      title: "Map crash on PS5", summary: "Opening the map crashes the game on PS5.",
+    }],
+    ["about a repack", { title: "Crimson Desert repack map crash", summary: "The repack crashes when the map opens." }],
+    ["a Steam review", { source: "steam_review", source_type: "steam_review", source_domain: "store.steampowered.com" }],
+  ])("does not count a third thread %s", async (_label, overrides) => {
+    seed([thread("01", author("a")), thread("02", author("b")), thread("03", author("c"), overrides)]);
+
+    expect(await refresh()).toMatchObject({ is_public: false, public_signal_count: 0 });
+  });
+
+  it("never reads thumbs when deciding whether an issue is public", async () => {
+    seed([thread("01", author("a")), thread("02", author("b"))]);
+
+    expect(await refresh()).toMatchObject({ is_public: false });
+    expect(mocks.from.mock.calls.map(([table]) => table)).not.toContain("issue_thumbs");
+  });
+
+  it("keeps force hidden ahead of the thread rule", async () => {
+    seed([thread("01", author("a")), thread("02", author("b")), thread("03", author("c"))]);
+    tables.issue_clusters[0].admin_visibility_override = "force_hidden";
+
+    expect(await refresh()).toMatchObject({ is_public: false, auto_public: true, visibility_restore_is_public: true });
+    expect(tables.source_signals.every((signal) => signal.public_status === "hidden")).toBe(true);
+  });
+});
+
 describe("Steam forum intake", () => {
   const NOW = new Date("2026-07-05T12:00:00.000Z");
   const FORUM = "https://steamcommunity.com/app/3321460/discussions/0/";
@@ -9377,6 +9490,117 @@ describe("Steam forum intake", () => {
     expect(result.errors).toContainEqual(expect.stringContaining("Steam forum request failed (503)"));
     expect(mocks.tavilySearch).toHaveBeenCalled();
     expect(result.signalsInserted).toBeGreaterThan(0);
+  });
+
+  describe("author keys", () => {
+    const SECRET = "test-session-secret";
+    beforeEach(() => {
+      process.env.SESSION_SECRET = SECRET;
+    });
+    afterEach(() => {
+      delete process.env.SESSION_SECRET;
+    });
+
+    it("hashes the opening post's author with the session secret and stores only the key", async () => {
+      const key = forumAuthorKey("PlayerOne", SECRET)!;
+      const topic = { ...forumTopic(), authorKey: key };
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      mocks.tavilySearch.mockResolvedValue([]);
+      const { runAutomationMonitor } = await importRunner();
+
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      const keyer = mocks.fetchSteamForumTopics.mock.calls[0][0].authorKey as (name: string) => string | null;
+      expect(keyer("PlayerOne")).toBe(key);
+      expect(keyer("PlayerOne")).not.toBe(forumAuthorKey("PlayerOne", "another-secret"));
+      const stored = sourceSignalRows().find((row) => row.source_url === canonical(topic));
+      expect(stored?.extracted_facts).toMatchObject({ authorKey: key });
+      expect(JSON.stringify(sourceSignalRows())).not.toContain("PlayerOne");
+    });
+
+    async function seedUnchangedThread() {
+      const topic = forumTopic({ topicId: "582810005140000003" });
+      const { forumSourceTextHash } = await importRunner();
+      const proof = { forumTextHash: forumSourceTextHash(topic.title, topic.preview), inputHash: forumSourceTextHash(topic.title, topic.preview), patchVersion: "1.13.00" };
+      const keyed = (id: string, key: string): Row => ({
+        id: `signal-${id}`, cluster_id: "cluster-map", source: "web_search", source_type: "web_search",
+        source_url: `${FORUM}${id}`, canonical_url: `${FORUM}${id}`, source_domain: "steamcommunity.com",
+        external_id_hash: externalIdHash("web_search", `${FORUM}${id}`),
+        title: topic.title, summary: "Map crash on PS5.", category: "crash_startup", confidence: "high",
+        observed_at: "2026-07-05T08:00:00.000Z", source_published_at: topic.postedAt, public_status: "private",
+        promotion_reason: "below_threshold", extraction_provider: "openrouter", seen_count: 1,
+        extracted_facts: { issueTitle: "Map crash on PS5", authorKey: key },
+      });
+      resetDb({
+        issue_clusters: [{ id: "cluster-map", category: "crash_startup", visibility_revision: 1, admin_visibility_override: null, auto_public: false, is_public: false }],
+        source_signals: [
+          keyed("582810005140000001", "a".repeat(64)),
+          keyed("582810005140000002", "b".repeat(64)),
+          { ...keyed("582810005140000003", "unused"), id: "signal-unchanged", source_url: canonical(topic), canonical_url: canonical(topic),
+            external_id_hash: externalIdHash("web_search", canonical(topic)),
+            extracted_facts: { issueTitle: "Map crash on PS5", forumProcessed: proof } },
+        ],
+      });
+      configureProviders();
+      honorSourceSignalProjection = true;
+      mocks.fetchSteamForumTopics.mockResolvedValue([{ ...topic, authorKey: "c".repeat(64) }]);
+      mocks.tavilySearch.mockResolvedValue([]);
+      return topic;
+    }
+
+    it("saves the key on an unchanged thread without extracting it again, then checks its issue", async () => {
+      const topic = await seedUnchangedThread();
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(extractionsFor(canonical(topic))).toHaveLength(0);
+      expect(result.skips).toContain("steam_forum_unchanged");
+      expect(sourceSignalRows().find((row) => row.id === "signal-unchanged")).toMatchObject({
+        seen_count: 1,
+        extracted_facts: { issueTitle: "Map crash on PS5", authorKey: "c".repeat(64), forumProcessed: expect.any(Object) },
+        public_status: "public",
+        promotion_reason: "distinct_player_threads",
+      });
+      expect(tables.issue_clusters[0]).toMatchObject({ is_public: true, auto_public: true });
+      expect(result.clustersPromoted).toBeGreaterThanOrEqual(1);
+    });
+
+    it("keeps reading the forum when the key cannot be saved", async () => {
+      const topic = await seedUnchangedThread();
+      updateFailure = { table: "source_signals", column: "extracted_facts", message: "permission denied", once: true };
+      const { runAutomationMonitor } = await importRunner();
+
+      const result = await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      expect(result.status).toBe("partial");
+      expect(result.skips).toContain("steam_forum_author_keys_failed");
+      expect(result.skips).not.toContain("steam_forum_failed");
+      expect(result.skips).toContain("steam_forum_unchanged");
+      expect(sourceSignalRows().find((row) => row.id === "signal-unchanged")?.extracted_facts).not.toHaveProperty("authorKey");
+      expect(tables.issue_clusters[0]).toMatchObject({ is_public: false });
+      expect(extractionsFor(canonical(topic))).toHaveLength(0);
+    });
+
+    it("keeps the forum's key when a search result for the thread carries none", async () => {
+      const topic = { ...forumTopic(), authorKey: "d".repeat(64) };
+      mocks.fetchSteamForumTopics.mockResolvedValue([topic]);
+      mocks.tavilySearch.mockResolvedValue([]);
+      const { runAutomationMonitor } = await importRunner();
+      await runAutomationMonitor({ mode: "manual", now: NOW });
+
+      mocks.fetchSteamForumTopics.mockResolvedValue([]);
+      mocks.tavilySearch.mockResolvedValue([{
+        title: `${topic.title} :: Crimson Desert General Discussions`, url: topic.url,
+        snippet: "Opening the map crashes the game every time on PS5. Verified files, still crashing.",
+        sourceDomain: "steamcommunity.com", observedAt: "2026-07-05T13:00:00.000Z",
+      }]);
+      await runAutomationMonitor({ mode: "manual", now: new Date("2026-07-05T13:00:00.000Z") });
+
+      const reobserved = sourceSignalRows().find((row) => row.source_url === canonical(topic));
+      expect(reobserved?.seen_count).toBe(2);
+      expect(reobserved?.extracted_facts).toMatchObject({ authorKey: "d".repeat(64) });
+    });
   });
 
   describe("repeat work", () => {

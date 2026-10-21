@@ -9,7 +9,6 @@ import { isAiSettingsLiveAllowed, isAiSettingsPreviewAllowed, isVercelPreview } 
 import ScannerPage from "@/app/scanner/page";
 import VideoReviewPage from "@/app/admin/videos/page";
 import ProblemReportsPage from "@/app/admin/problem-reports/page";
-import CompilePage from "@/app/admin/compile/page";
 import { OverviewScannerHealth } from "@/components/operator/OverviewScannerHealth";
 import {
   WorkspaceOverview,
@@ -59,20 +58,18 @@ function unavailableExecution(detail: string): ScannerExecutionRead {
 export default async function OperatorPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ view?: string; item?: string; run?: string; section?: string; edition?: string; notice?: string }>;
+  searchParams?: Promise<{ view?: string; item?: string; section?: string; edition?: string; notice?: string }>;
 } = {}) {
   const rawParams = await searchParams;
   const params = {
     view: typeof rawParams?.view === "string" ? rawParams.view : undefined,
     item: typeof rawParams?.item === "string" ? rawParams.item : undefined,
-    run: typeof rawParams?.run === "string" ? rawParams.run : undefined,
     section: rawParams?.section === "collection" ? "collection" : undefined,
   };
   const view = operatorView(params?.view);
   await requireAdmin(
     workspaceHref(view, {
       ...(params.item ? { item: params.item } : {}),
-      ...(params.run ? { run: params.run } : {}),
       ...(view === "scanner" && params.section ? { section: params.section } : {}),
     }),
   );
@@ -108,8 +105,6 @@ export default async function OperatorPage({
     return (
       <VideoReviewPage searchParams={Promise.resolve({ item: params?.item })} />
     );
-  if (view === "dossiers")
-    return <CompilePage searchParams={Promise.resolve({ run: params?.run })} />;
   const client = createServiceClient();
   const [reportsRead, claimsRead, videosRead] = await Promise.allSettled([
     readReportReviewQueue(client),
@@ -240,7 +235,6 @@ export default async function OperatorPage({
             available: videos !== null,
             total: videos ? videoTasks.length : null,
           },
-          dossiers: { available: true, total: 0 },
         }}
         health={<OverviewScannerHealth health={health} />}
         recentActivity={runs.slice(0, 5).map((run, index) => ({

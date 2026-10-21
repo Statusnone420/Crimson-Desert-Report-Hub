@@ -5,7 +5,7 @@ import { OPERATOR_VIEWS, workspaceHref, type OperatorView } from "@/lib/operator
  * so the value is attacker-suppliable; anything outside this exact list falls
  * back to the console home rather than turning sign-in into an open redirect.
  */
-const RETURN_TARGETS = ["/admin", "/admin/compile", "/admin/videos", "/admin/problem-reports", "/operator"] as const;
+const RETURN_TARGETS = ["/admin", "/admin/videos", "/admin/problem-reports", "/operator"] as const;
 
 export function resolveLoginReturn(from: string | null | undefined): string {
   if (from === "/scanner") return workspaceHref("scanner");
@@ -14,7 +14,7 @@ export function resolveLoginReturn(from: string | null | undefined): string {
     const view = query.get("view");
     if (view && (OPERATOR_VIEWS as readonly string[]).includes(view) && query.getAll("view").length === 1) {
       const extra: Record<string, string> = {};
-      for (const key of ["item", "run"]) {
+      for (const key of ["item"]) {
         const value = query.get(key);
         if (value && value.length <= 200 && query.getAll(key).length === 1) extra[key] = value;
       }

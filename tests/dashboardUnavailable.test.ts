@@ -184,6 +184,24 @@ describe("dashboard loader under a failed read", () => {
     expect(data.claimedFixes).toEqual([]);
   });
 
+  it("reads thumbs only for the issue board, which reports them unavailable when the read fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation((table: string) =>
+      table === "issue_thumbs" ? failingQuery("permission denied for table issue_thumbs") : okQuery(),
+    );
+    const { getDashboardData, getIssuesData } = await import("@/lib/queries");
+    const dashboard = await getDashboardData();
+
+    expect(mocks.from.mock.calls.map(([table]) => table)).not.toContain("issue_thumbs");
+    expect(dashboard.evidenceUnavailable).toBe(false);
+
+    const issues = await getIssuesData();
+
+    expect(mocks.from.mock.calls.map(([table]) => table)).toContain("issue_thumbs");
+    expect(issues.boardReadFailed).toBe(false);
+    expect(issues.thumbsAvailable).toBe(false);
+  });
+
   it("keeps the evidence board when only the claims register fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.from.mockImplementation(() => okQuery());

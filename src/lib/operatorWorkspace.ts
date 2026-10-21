@@ -1,4 +1,4 @@
-export const OPERATOR_VIEWS = ["overview", "reports", "problem-reports", "claims", "scanner", "ai", "column", "videos", "dossiers", "settings"] as const;
+export const OPERATOR_VIEWS = ["overview", "reports", "problem-reports", "claims", "scanner", "ai", "column", "videos", "settings"] as const;
 export type OperatorView = (typeof OPERATOR_VIEWS)[number];
 
 export function operatorView(value: string | string[] | undefined): OperatorView {
@@ -15,5 +15,5 @@ export function workspaceHref(view: OperatorView, extra?: Record<string, string>
 
 export const WORKSPACE_LABELS: Record<OperatorView, string> = {
   overview: "Overview", reports: "Reports", "problem-reports": "Reports inbox", claims: "Claim review", scanner: "Scanner",
-  ai: "AI settings", column: "Column", videos: "Videos", dossiers: "Dossiers", settings: "Settings & tools",
+  ai: "AI settings", column: "Column", videos: "Videos", settings: "Settings & tools",
 };

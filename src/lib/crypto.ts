@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { isIP } from "node:net";
 
 export function normalizeTitle(title: string): string {
@@ -54,4 +54,16 @@ export function ipNetwork(address: string): string | null {
 
 export function externalIdHash(source: string, externalId: string): string {
   return createHash("sha256").update(`${source}:${externalId}`).digest("hex");
+}
+
+/**
+ * A keyed one-way hash of a forum author's display name, so separate threads
+ * from one player can be told apart without storing who wrote them. Case and
+ * spacing are ignored. Null for an empty name or a missing secret.
+ */
+export function forumAuthorKey(displayName: string, secret: string | undefined): string | null {
+  const name = displayName.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+  const key = secret?.trim();
+  if (!name || !key) return null;
+  return createHmac("sha256", key).update(`forum-author:${name}`).digest("hex");
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hashIp, ipNetwork, normalizeTitle, reportFingerprint } from "@/lib/crypto";
+import { forumAuthorKey, hashIp, ipNetwork, normalizeTitle, reportFingerprint } from "@/lib/crypto";
 
 describe("normalizeTitle", () => {
   it("lowercases, strips punctuation, collapses whitespace", () => {
@@ -69,5 +69,22 @@ describe("ipNetwork", () => {
     "203.0.113.7%eth0", "[2001:db8::1]", "2001:db8::1::2", "2001:db8::1/64", "fe80::1%", "2001:db8::g",
   ])("rejects %j", (value) => {
     expect(ipNetwork(value)).toBeNull();
+  });
+});
+
+describe("forumAuthorKey", () => {
+  it("is a keyed hash that ignores case and spacing", () => {
+    const key = forumAuthorKey("Desert Rider", "secret-one");
+    expect(key).toMatch(/^[a-f0-9]{64}$/);
+    expect(forumAuthorKey("  desert   RIDER ", "secret-one")).toBe(key);
+    expect(forumAuthorKey("Desert Rider", "secret-two")).not.toBe(key);
+    expect(forumAuthorKey("Desert Rider 2", "secret-one")).not.toBe(key);
+    expect(key).not.toContain("desert");
+  });
+
+  it("returns null without a name or a secret", () => {
+    expect(forumAuthorKey("   ", "secret-one")).toBeNull();
+    expect(forumAuthorKey("Desert Rider", undefined)).toBeNull();
+    expect(forumAuthorKey("Desert Rider", "  ")).toBeNull();
   });
 });
