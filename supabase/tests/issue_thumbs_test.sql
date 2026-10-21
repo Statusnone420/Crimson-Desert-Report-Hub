@@ -1,5 +1,5 @@
 begin;
-select plan(42);
+select plan(43);
 
 insert into public.issue_clusters (id, slug, title, category, description, fix_status, confidence, is_public)
 values

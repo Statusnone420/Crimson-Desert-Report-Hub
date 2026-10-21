@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { needsFullIssueCard } from "@/lib/evidence";
-import { THUMBS_BONUS_MIN_UPS, THUMBS_RANK_BONUS, thumbsRankBonus } from "@/lib/thumbs";
+import { boardOrder, THUMBS_BONUS_MIN_UPS, THUMBS_RANK_BONUS, thumbsRankBonus } from "@/lib/thumbs";
 
 type Row = Record<string, unknown>;
 
@@ -67,7 +67,8 @@ beforeEach(() => {
   db.reads.length = 0;
   db.failures = {};
   db.tables = {
-    issue_clusters: ["more-posts", "one-post-thumbs", "one-post", "nine-ups", "tied", "thumbs-only"].map(cluster),
+    // The thumbs topic comes last among equal evidence, so only the bonus can lift it.
+    issue_clusters: ["more-posts", "one-post", "nine-ups", "tied", "one-post-thumbs", "thumbs-only"].map(cluster),
     bug_reports: [],
     source_signals: [
       signal("101", "more-posts"), signal("102", "more-posts"),
@@ -97,8 +98,15 @@ async function board() {
   const { getIssuesData } = await import("@/lib/queries");
   const data = await getIssuesData();
   const byId = Object.fromEntries(data.clusters.map((item) => [item.id, item]));
-  return { data, byId, order: data.clusters.map((item) => item.id) };
+  return {
+    data,
+    byId,
+    evidenceOrder: data.clusters.map((item) => item.id),
+    order: boardOrder(data.clusters).map((item) => item.id),
+  };
 }
+
+const EVIDENCE_ORDER = ["more-posts", "one-post", "nine-ups", "tied", "one-post-thumbs", "thumbs-only"];
 
 describe("thumbs rank bonus", () => {
   it(`starts at ${THUMBS_BONUS_MIN_UPS} thumbs up and needs more ups than downs`, () => {
@@ -113,16 +121,26 @@ describe("thumbs rank bonus", () => {
     expect(THUMBS_RANK_BONUS).toBeLessThan(1);
   });
 
-  it("orders equal evidence and never outranks more evidence", async () => {
+  it("orders equal evidence on the board and never outranks more evidence", async () => {
     const { byId, order } = await board();
 
     expect(byId["one-post-thumbs"]).toMatchObject({ strengthScore: 1, rankScore: 1 + THUMBS_RANK_BONUS });
     expect(byId["nine-ups"]).toMatchObject({ strengthScore: 1, rankScore: 1 });
     expect(byId["tied"]).toMatchObject({ strengthScore: 1, rankScore: 1 });
-    expect(order.indexOf("more-posts")).toBeLessThan(order.indexOf("one-post-thumbs"));
-    for (const plain of ["one-post", "nine-ups", "tied"]) {
-      expect(order.indexOf("one-post-thumbs")).toBeLessThan(order.indexOf(plain));
-    }
+    expect(order).toEqual(["more-posts", "one-post-thumbs", "one-post", "nine-ups", "tied", "thumbs-only"]);
+  });
+
+  it("keeps the shared issue read in evidence order, so only the board's order uses thumbs", async () => {
+    const withThumbs = await board();
+    db.tables.issue_thumbs = [];
+    const withoutThumbs = await board();
+
+    // The column's fact pack and the scanner's count read this list.
+    expect(withThumbs.evidenceOrder).toEqual(EVIDENCE_ORDER);
+    expect(withoutThumbs.evidenceOrder).toEqual(EVIDENCE_ORDER);
+    expect(withoutThumbs.order).toEqual(EVIDENCE_ORDER);
+    expect(withThumbs.data.thumbsAvailable).toBe(true);
+    expect(withoutThumbs.data.thumbsAvailable).toBe(true);
   });
 
   it("never publishes a topic on thumbs alone", async () => {
@@ -141,24 +159,29 @@ describe("thumbs rank bonus", () => {
     expect(JSON.stringify(data)).not.toMatch(/"(?:up|down)":\s*\d/);
   });
 
-  it("ranks on evidence alone, and logs, when thumbs cannot be read", async () => {
+  it("reports thumbs unavailable, orders on evidence alone and logs when they cannot be read", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     db.failures.issue_thumbs = { code: "42501", message: "permission denied for table issue_thumbs" };
 
-    const { byId } = await board();
+    const { data, byId, order } = await board();
 
+    expect(data.thumbsAvailable).toBe(false);
+    expect(data.boardReadFailed).toBe(false);
     expect(byId["one-post-thumbs"]).toMatchObject({ strengthScore: 1, rankScore: 1 });
     expect(byId["thumbs-only"]).toMatchObject({ rankScore: 0 });
-    expect(errorLog).toHaveBeenCalledWith("[thumbs] Current-patch thumbs unavailable; ranking on evidence alone", expect.any(Error));
+    expect(order).toEqual(EVIDENCE_ORDER);
+    expect(errorLog).toHaveBeenCalledWith("[thumbs] Current-patch thumbs unavailable; the board orders on evidence alone", expect.any(Error));
   });
 
-  it("ranks on evidence alone before the thumbs migration, without an error", async () => {
+  it("reports thumbs unavailable before the thumbs migration, without an error log", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     db.failures.issue_thumbs = { code: "PGRST205", message: "Could not find the table 'public.issue_thumbs' in the schema cache" };
 
-    const { byId } = await board();
+    const { data, byId, order } = await board();
 
+    expect(data.thumbsAvailable).toBe(false);
     expect(byId["one-post-thumbs"]).toMatchObject({ rankScore: 1 });
+    expect(order).toEqual(EVIDENCE_ORDER);
     expect(errorLog).not.toHaveBeenCalled();
   });
 });

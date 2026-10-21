@@ -12,6 +12,7 @@ import type { PublicIssueClaim } from "@/lib/publicClaimContext.server";
 import type { BoardWatchRead, BoardWatchSummary } from "@/lib/boardWatch";
 import { MIN_DISTINCT_PLAYER_THREADS } from "@/lib/automation/promote";
 import { CATEGORY_LABELS } from "@/lib/constants";
+import { THUMBS_BONUS_MIN_UPS } from "@/lib/thumbs";
 import { assignIssueArt, type IssueArt } from "@/lib/issueArt";
 
 type BoardView = "published" | "watchlist";
@@ -166,7 +167,7 @@ export function IssueBoard({ published: publicEntries, watchlist: watchEntries, 
     {filtered && otherMatches.length > 0 ? <div className="board-cross-view"><button className="reading-link reading-link--quiet" aria-controls="board-results" onClick={showOtherMatches}><span className="reading-link__label">View {plural(otherMatches.length, otherView === "published" ? "matching published issue" : "matching watchlist topic")}</span><DirectionIcon /></button></div> : null}
     <div id="board-results">{view === "published" ? <div className="player-desk-layout"><div className="player-dispatches">{visible.map((issue) => <PublishedIssue key={issue.id} issue={issue} art={issueArt.get(issue.id)} onSaved={followSavedIssue} wasSaved={issue.id === savedIssue?.id} />)}{emptyBoard}</div>{watchlist.length > 0 ? <WatchIndex watchlist={watchlist} categories={categories} openWatchlist={openWatchlist} /> : null}</div> : <><Watchlist visible={visible} categories={categories} issueArt={issueArt} onSaved={followSavedIssue} savedIssueId={savedIssue?.id} />{emptyBoard}</>}</div>
     {retainedIssue ? <article id={`issue-${retainedIssue.id}`} className="watch-entry" aria-labelledby={`receipt-${retainedIssue.id}`}><h3 id={`receipt-${retainedIssue.id}`}>{retainedIssue.title}</h3><p className="watch-entry-signal">Your check-in receipt. This topic is no longer on the public board.</p><IssueActions issue={retainedIssue} onSaved={followSavedIssue} wasSaved /></article> : null}
-    <details className="board-method"><summary>What the thumbs and check-ins mean</summary><p>Issues come from public player posts and the official notes. A thumb is optional and shows only on your device. The site never shows how many there are, and thumbs never put an issue on the board. One network has one thumb per issue per patch; tap it again to take it back. Answers to an official fix are check-ins and appear as totals. Quiet does not mean fixed. <a href="/about#registers">Read the method</a></p></details>
+    <details className="board-method"><summary>What the thumbs and check-ins mean</summary><p>Issues come from public player posts and the official notes. A thumb is optional and shows only on your device. The site never shows how many there are. Thumbs never put an issue on the board, but {THUMBS_BONUS_MIN_UPS} or more thumbs up, with more ups than downs, move it up a little. One network has one thumb per issue per patch; tap it again to take it back. Answers to an official fix are check-ins and appear as totals. Quiet does not mean fixed. <a href="/about#registers">Read the method</a></p></details>
   </section>;
 }
 

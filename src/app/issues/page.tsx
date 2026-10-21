@@ -8,6 +8,7 @@ import { displayDescription, needsFullIssueCard, splitWatchlistByCandidates } fr
 import { getIssuesData } from "@/lib/queries";
 import { getBoardWatchSummary } from "@/lib/boardWatch.server";
 import { routeMetadata } from "@/lib/site";
+import { boardOrder } from "@/lib/thumbs";
 
 export function generateMetadata(_props: object, parent: ResolvingMetadata) {
   return routeMetadata(
@@ -21,13 +22,14 @@ export function generateMetadata(_props: object, parent: ResolvingMetadata) {
 export const revalidate = 300;
 
 export default async function IssuesPage() {
-  const { clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed = false, officialClaimsByCluster = {}, officialClaimsUnavailable = false, checkinsAvailable = true } = await getIssuesData();
+  const { clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed = false, officialClaimsByCluster = {}, officialClaimsUnavailable = false, checkinsAvailable = true, thumbsAvailable = true } = await getIssuesData();
   if (boardReadFailed) {
     return <PublicShell active="issues"><div className="dispatch-container"><section className="board-empty" aria-labelledby="board-unavailable-title"><h1 id="board-unavailable-title">The issue board is unavailable.</h1><p>The public issue records could not be read. Try again later.</p><ReadingLink href="/patches">Read the patch record</ReadingLink></section></div></PublicShell>;
   }
 
-  const active = clusters.filter(needsFullIssueCard);
-  const watchlist = clusters.filter((cluster) => !needsFullIssueCard(cluster));
+  const ordered = boardOrder(clusters);
+  const active = ordered.filter(needsFullIssueCard);
+  const watchlist = ordered.filter((cluster) => !needsFullIssueCard(cluster));
   const { candidates } = splitWatchlistByCandidates(watchlist);
   const watching = active.length === 0 ? await getBoardWatchSummary(currentPatch) : null;
 
@@ -74,6 +76,7 @@ export default async function IssuesPage() {
         <a className="skip" href="#board">Skip to the issue board</a>
         <section className="board-heading"><ReadingLink variant="quiet" direction="back" className="back-link" href="/">Back to the front page</ReadingLink><div className="board-heading-row"><div><p className="kicker">Issue board · Patch {currentPatch.version}</p><h1>Known issues</h1><p className="board-deck">What players are posting about on this patch, next to the fixes Pearl Abyss lists.</p></div><Link href="/patches" className="board-patch-link"><span>Coming from the patch notes?</span><strong>Read the claims record</strong><span className="reading-cue">Visit the patch desk <DirectionIcon /></span></Link></div></section>
         {!checkinsAvailable ? <p className="np-error" role="status">Answers to official fixes could not be loaded. Everything else on the board is current.</p> : null}
+        {!thumbsAvailable ? <p className="np-error" role="status">Thumbs could not be loaded, so the order below leaves them out.</p> : null}
         <IssueBoard published={active.map(entryFrom)} watchlist={candidates.map(entryFrom)} emptyPatchVersion={currentPatch.version} watching={watching} />
         <div className="article-bottom"><ReadingLink variant="quiet" direction="back" href="/patches">Back to the patch desk</ReadingLink><ReadingLink variant="quiet" direction="up" href="#issues-top">Back to top</ReadingLink></div>
       </div>

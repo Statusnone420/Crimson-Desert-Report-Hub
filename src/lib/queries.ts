@@ -282,16 +282,19 @@ async function readCurrentCheckinContext(supabase: ReturnType<typeof createServi
 }
 
 /**
- * Thumb totals for the rank bonus. They set order only, never what a page shows
- * or publishes, and no page shows a thumb count, so a failed read is logged and
- * the board ranks on evidence alone.
+ * Thumb totals for the issue board's order. A failed read, or a database
+ * without the thumbs table yet, comes back unavailable so the board can say
+ * that its order leaves thumbs out.
  */
-async function readThumbRankContext(supabase: ReturnType<typeof createServiceClient>, patchVersion: string) {
+async function readThumbRankContext(
+  supabase: ReturnType<typeof createServiceClient>,
+  patchVersion: string,
+): Promise<{ byCluster: Record<string, ThumbTally>; available: boolean }> {
   try {
-    return (await readThumbTallies(supabase, patchVersion)).byCluster;
+    return await readThumbTallies(supabase, patchVersion);
   } catch (error) {
-    console.error("[thumbs] Current-patch thumbs unavailable; ranking on evidence alone", error);
-    return {} as Record<string, ThumbTally>;
+    console.error("[thumbs] Current-patch thumbs unavailable; the board orders on evidence alone", error);
+    return { byCluster: {}, available: false };
   }
 }
 
@@ -576,9 +579,9 @@ export type DecoratedCluster = ClusterRow & {
   checkinsAvailable?: boolean;
   reportPlatformCounts: Record<string, number>;
   readout: IssueReadout;
-  /** Evidence only. Whether an issue gets a full card depends on this, never on thumbs. */
+  /** Evidence only. Full cards and every list except the issue board follow this, never thumbs. */
   strengthScore: number;
-  /** Board order: the evidence score plus the small thumbs bonus. */
+  /** The issue board's order: the evidence score plus the small thumbs bonus. Only the board reads thumbs. */
   rankScore: number;
 };
 
@@ -1036,10 +1039,7 @@ async function readDashboardData() {
   });
   const signalRows = filterPublicCurrentPatchSignals(rawSignalRows, currentPatch);
   const currentReportRows = filterPatchFamilyReports(rows, currentPatch);
-  const [checkinContext, thumbTallies] = await Promise.all([
-    readCurrentCheckinContext(supabase, currentPatch.version),
-    readThumbRankContext(supabase, currentPatch.version),
-  ]);
+  const checkinContext = await readCurrentCheckinContext(supabase, currentPatch.version);
   const publicClusters = clusterData as ClusterRow[];
   const fixClaimedAtByCluster = Object.fromEntries(
     publicClusters.map((cluster) => [
@@ -1077,10 +1077,9 @@ async function readDashboardData() {
         checkinsAvailable: checkinContext.available,
         reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
         patchVersion: currentPatch.version,
-        thumbs: thumbTallies[cluster.id],
       }),
     )
-    .sort((a, b) => b.rankScore - a.rankScore);
+    .sort((a, b) => b.strengthScore - a.strengthScore);
 
   return {
     total: currentReportRows.length,
@@ -1174,7 +1173,7 @@ async function getIssuesDataUncached() {
   );
 
   const candidateSignalCounts = await getCandidateSignalCountsByCluster(supabase, currentPatch);
-  const [checkinContext, thumbTallies] = await Promise.all([
+  const [checkinContext, thumbContext] = await Promise.all([
     readCurrentCheckinContext(supabase, currentPatch.version),
     readThumbRankContext(supabase, currentPatch.version),
   ]);
@@ -1204,10 +1203,12 @@ async function getIssuesDataUncached() {
         checkinsAvailable: checkinContext.available,
         reportPlatformCounts: platformCountsByCluster[cluster.id] ?? {},
         patchVersion: currentPatch.version,
-        thumbs: thumbTallies[cluster.id],
+        thumbs: thumbContext.byCluster[cluster.id],
       }),
     )
-    .sort((a, b) => b.rankScore - a.rankScore);
+    // Evidence order: the column's fact pack and the scanner's count read this
+    // list too. The board page alone applies boardOrder.
+    .sort((a, b) => b.strengthScore - a.strengthScore);
 
   const signalsByCluster: Record<string, SignalRow[]> = {};
   for (const signal of signalRows) {
@@ -1243,6 +1244,7 @@ async function getIssuesDataUncached() {
   return {
     clusters, excerptsByCluster, signalsByCluster, currentPatch, boardReadFailed,
     checkinsAvailable: checkinContext.available,
+    thumbsAvailable: thumbContext.available,
     officialClaimsByCluster: claimContext.byCluster,
     officialClaimsUnavailable: claimContext.unavailable,
   };
