@@ -3,6 +3,8 @@ import type { FullConfig } from "@playwright/test";
 export type WarmUpRoutes = {
   /** Public pages and feeds, fetched without a session. */
   pages: string[];
+  /** Pages a spec expects to be missing. They must answer 404. */
+  missingPages?: string[];
   /** Operator pages, fetched with the fixture operator session. */
   operatorPages?: string[];
   /** Route handlers the browser calls. OPTIONS compiles a handler without running it. */
@@ -12,7 +14,7 @@ export type WarmUpRoutes = {
 // Next keys each optimized image by the format it picks from Accept, so match Chromium's header.
 const IMAGE_ACCEPT = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 const REQUEST_TIMEOUT_MS = 120_000;
-const IMAGE_CONCURRENCY = 4;
+const CONCURRENCY = 4;
 
 /**
  * `next dev` compiles each route, and optimizes each image variant, on its first request. On a busy
@@ -27,15 +29,15 @@ export async function warmUp(config: FullConfig, routes: WarmUpRoutes) {
   }
 }
 
-async function warmServer(baseURL: string, { pages, operatorPages = [], apiRoutes = [] }: WarmUpRoutes) {
+async function warmServer(baseURL: string, { pages, missingPages = [], operatorPages = [], apiRoutes = [] }: WarmUpRoutes) {
   const started = performance.now();
   const assets = new Set<string>();
   const images = new Set<string>();
   const timings: Array<[route: string, seconds: number]> = [];
 
-  async function visit(route: string, init?: RequestInit) {
+  async function visit(route: string, init?: RequestInit, expectedStatus?: number) {
     const routeStarted = performance.now();
-    const html = await (await send(baseURL, route, init)).text();
+    const html = await load(baseURL, route, init, expectedStatus);
     timings.push([route, (performance.now() - routeStarted) / 1000]);
     // React writes srcSet and imageSrcSet in camel case.
     for (const [, attribute, value] of html.matchAll(/\s(src|href|srcset|imagesrcset)="([^"]+)"/gi)) {
@@ -47,24 +49,37 @@ async function warmServer(baseURL: string, { pages, operatorPages = [], apiRoute
     }
   }
 
-  for (const route of pages) await visit(route);
-  if (operatorPages.length > 0) {
-    const cookie = await operatorCookie(baseURL);
-    for (const route of operatorPages) await visit(route, { headers: { cookie } });
-  }
-  for (const route of apiRoutes) {
+  // Route handlers go first. On a dev server that has already compiled the pages, compiling the
+  // handlers took the main suite's server from about 6 GB to 19 GB, more than a CI runner has.
+  const cookie = operatorPages.length > 0 ? await operatorCookie(baseURL) : undefined;
+  await inParallel(apiRoutes, async (route) => {
     const routeStarted = performance.now();
-    await (await send(baseURL, route, { method: "OPTIONS" })).arrayBuffer();
+    await load(baseURL, route, { method: "OPTIONS" });
     timings.push([route, (performance.now() - routeStarted) / 1000]);
-  }
-  for (const asset of assets) await (await send(baseURL, asset)).arrayBuffer();
-  await inBatches([...images], IMAGE_CONCURRENCY, (image) => optimize(baseURL, image));
+  });
+  await inParallel(pages, (route) => visit(route));
+  await inParallel(missingPages, (route) => visit(route, undefined, 404));
+  await inParallel(operatorPages, (route) => visit(route, { headers: { cookie: cookie! } }));
+  await inParallel(assets, async (asset) => {
+    await load(baseURL, asset);
+  });
+  await inParallel(images, (image) => optimize(baseURL, image));
 
   const slowest = timings.sort((a, b) => b[1] - a[1]).slice(0, 3).map(([route, seconds]) => `${route} ${seconds.toFixed(1)} s`);
   console.log(
     `Warm-up for ${baseURL} took ${((performance.now() - started) / 1000).toFixed(1)} s: ${timings.length} routes, ` +
       `${assets.size} scripts and styles, ${images.size} image variants. Slowest: ${slowest.join(", ")}.`,
   );
+}
+
+/** Returns the body, or fails unless the route answers 2xx (after redirects) or the expected status. */
+async function load(baseURL: string, route: string, init?: RequestInit, expectedStatus?: number) {
+  const response = await send(baseURL, route, init);
+  const body = await response.text();
+  if (expectedStatus === undefined ? !response.ok : response.status !== expectedStatus) {
+    throw new Error(`Warm-up expected ${init?.method ?? "GET"} ${route} to answer ${expectedStatus ?? "2xx"}; received HTTP ${response.status}.`);
+  }
+  return body;
 }
 
 async function send(baseURL: string, route: string, init?: RequestInit) {
@@ -96,6 +111,10 @@ async function optimize(baseURL: string, image: string) {
   }
 }
 
-async function inBatches<T>(items: T[], size: number, run: (item: T) => Promise<void>) {
-  for (let index = 0; index < items.length; index += size) await Promise.all(items.slice(index, index + size).map(run));
+/** Runs `run` for every item, `CONCURRENCY` at a time. */
+async function inParallel(items: Iterable<string>, run: (item: string) => Promise<void>) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+    for (let item = queue.shift(); item !== undefined; item = queue.shift()) await run(item);
+  }));
 }
