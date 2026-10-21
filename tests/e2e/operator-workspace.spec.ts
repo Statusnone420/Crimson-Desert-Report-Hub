@@ -1,17 +1,9 @@
 import { expect, test, type Route } from "@playwright/test";
 
-import { collectConsoleProblems, expectHealthyPage, signInAsAdmin, waitForHydration } from "./helpers";
+import { collectConsoleProblems, expectHealthyPage, signInAsAdmin, submitAction, waitForHydration } from "./helpers";
 
 const MOCK_SUPABASE_ORIGIN = `http://127.0.0.1:${process.env.PLAYWRIGHT_SUPABASE_PORT ?? 18765}`;
 const MAP_PAIRING = "00000000-0000-4000-8000-000000000201";
-
-async function submitAction(page: Parameters<typeof signInAsAdmin>[0], submit: () => Promise<void>) {
-  const posted = page.waitForResponse(async (response) => response.request().method() === "POST" && Boolean((await response.request().allHeaders())["next-action"]));
-  await submit();
-  const response = await posted;
-  expect(response.status()).toBeLessThan(400);
-  expect(await response.finished(), "server action response did not finish").toBeNull();
-}
 
 async function abortActionBeforeSend(page: Parameters<typeof signInAsAdmin>[0], submit: () => Promise<void>) {
   let aborted = 0;

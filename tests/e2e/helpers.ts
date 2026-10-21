@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
 
 // A next/font file served by the local test server.
 const LOCAL_FONT_FILE = /^http:\/\/127\.0\.0\.1:\d+\/_next\/static\/media\/[^/?#]+\.woff2$/;
@@ -97,6 +97,40 @@ export async function waitForHydration(page: Page, control?: Locator) {
     return;
   }
   await page.waitForFunction(() => Object.keys(document.body).some((key) => key.startsWith("__reactFiber$")), undefined, { timeout: 30_000 });
+}
+
+/**
+ * Wait for the server action's complete POST response. Headers can arrive while
+ * Next.js is still streaming the refreshed UI, before React clears form pending
+ * state. Check the status and stream before starting the DOM assertion timeout.
+ */
+export async function submitAction(page: Page, submit: () => Promise<void>) {
+  const posted = page.waitForResponse(async (response) => {
+    const request = response.request();
+    if (request.method() !== "POST") return false;
+    return Boolean((await request.allHeaders())["next-action"]);
+  });
+  await submit();
+  const response = await posted;
+  expect(response.status(), "server action returned an error status").toBeLessThan(400);
+  // In `next dev` 16.4 the page can cancel an action's request after its last byte has arrived,
+  // when the dev server pushes a build event, and Chromium reports net::ERR_ABORTED.
+  // finished() resolves only for a request that completes, so that cancel also ends the stream.
+  const request = response.request();
+  let stopWaiting = () => {};
+  const cancelled = new Promise<void>((resolve) => {
+    const onFailed = (failed: Request) => {
+      if (failed === request) resolve();
+    };
+    page.on("requestfailed", onFailed);
+    stopWaiting = () => page.off("requestfailed", onFailed);
+  });
+  try {
+    if (!request.failure()) await Promise.race([response.finished(), cancelled]);
+  } finally {
+    stopWaiting();
+  }
+  expect([null, "net::ERR_ABORTED"], "server action response did not finish").toContain(request.failure()?.errorText ?? null);
 }
 
 export async function signInAsAdmin(page: Page) {
