@@ -84,7 +84,10 @@ it("gives an issue without a fix claim a thumb control that carries no count", a
   expect(markup).not.toMatch(/confirmation-checkin|tap-btn__count|Save check-in/);
   const thumbs = markup.match(/<div class="issue-thumbs">[\s\S]*?<p class="issue-thumbs__note"/)?.[0] ?? "";
   expect(thumbs).toContain("Happening to you on 2.02.00?");
-  expect(thumbs.replaceAll("2.02.00", "").replace(/ (?:id|aria-labelledby)="[^"]*"/g, "")).not.toMatch(/\d/);
+  // The thumb drawings are path numbers, not counts; everything else must hold no digit.
+  expect(thumbs).toMatch(/<svg class="issue-thumbs__glyph"/);
+  const withoutDrawings = thumbs.replace(/<svg[\s\S]*?<\/svg>/g, "");
+  expect(withoutDrawings.replaceAll("2.02.00", "").replace(/ (?:id|aria-labelledby)="[^"]*"/g, "")).not.toMatch(/\d/);
 });
 
 

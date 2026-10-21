@@ -54,6 +54,8 @@ test("an issue without a fix claim gets a compact thumb control with no count", 
   }
   // The old full-width panel and its counted buttons are gone.
   await expect(card.locator(".confirmation-checkin")).toHaveCount(0);
+  // Thumbs keep no tally, so the earlier check-in count stays off this card.
+  await expect(card.locator(".checkin-history")).toHaveCount(0);
   await expectNoCount(block);
 });
 
@@ -66,11 +68,14 @@ test("a tap saves after the bot check, can switch, and can be taken back", async
   await up.click();
   await expect(up).toHaveAttribute("aria-pressed", "true");
   await expect(down).toHaveAttribute("aria-pressed", "false");
-  await expect(block.getByRole("status")).toHaveText("Saved on this device. Tap it again to take it back.");
+  await expect(block.getByRole("status")).toHaveText("Saved on this device. Tap again to undo.");
   expect(writes).toEqual([{ cluster_id: FPS_ID, patch_version: "1.13.01", direction: "up", turnstile_token: expect.stringMatching(/^stub-token-/) }]);
-  // Only the person who tapped sees the green thumb.
-  expect(await up.evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe(
-    await down.evaluate((button) => getComputedStyle(button).backgroundColor),
+  // Only the person who tapped sees the green thumb: it is inked, the other stays an outline.
+  await expect(up.locator(".issue-thumbs__ink")).toHaveCSS("opacity", "1");
+  await expect(down.locator(".issue-thumbs__ink")).toHaveCSS("opacity", "0");
+  await page.mouse.move(0, 0);
+  expect(await up.evaluate((button) => getComputedStyle(button).color)).not.toBe(
+    await down.evaluate((button) => getComputedStyle(button).color),
   );
 
   await down.click();
@@ -78,7 +83,7 @@ test("a tap saves after the bot check, can switch, and can be taken back", async
   await expect(up).toHaveAttribute("aria-pressed", "false");
   await down.click();
   await expect(down).toHaveAttribute("aria-pressed", "false");
-  await expect(block.getByRole("status")).toHaveText("Taken back.");
+  await expect(block.getByRole("status")).toHaveText("Undone.");
   expect(writes.map((write) => write.direction)).toEqual(["up", "down", "none"]);
   // Each tap used its own bot check token.
   expect(new Set(writes.map((write) => write.turnstile_token)).size).toBe(3);

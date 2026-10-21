@@ -11,6 +11,31 @@ const LABELS: Record<ThumbDirection, string> = {
   down: "Not happening for me",
 };
 
+// A thumb on a 24-unit grid. The strip left of x = 7 is the cuff.
+const HAND = "M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z";
+
+/** An outlined thumb that fills with ink when chosen. The down thumb is the same drawing turned over. */
+function ThumbGlyph({ direction, gapId }: { direction: ThumbDirection; gapId: string }) {
+  return (
+    <svg className="issue-thumbs__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <defs>
+        {/* Keeps the cuff apart from the hand once the thumb is filled. */}
+        <mask id={gapId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+          <rect width="24" height="24" fill="#fff" />
+          <path d="M7 8v16" stroke="#000" strokeWidth="1.75" />
+        </mask>
+      </defs>
+      <g transform={direction === "down" ? "rotate(180 12 12)" : undefined}>
+        <path className="issue-thumbs__ink" d={HAND} mask={`url(#${gapId})`} />
+        <g className="issue-thumbs__outline">
+          <path d={HAND} />
+          <path d="M7 10v12" />
+        </g>
+      </g>
+    </svg>
+  );
+}
+
 // localStorage as an external store: hydration-safe (the server snapshot is
 // null) and same-tab writes notify subscribers, which plain localStorage does not.
 const thumbListeners = new Set<() => void>();
@@ -67,9 +92,13 @@ export function IssueThumbs({ clusterId, patchVersion }: { clusterId: string; pa
   const [pending, setPending] = useState<{ choice: Choice; attempt: number } | null>(null);
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<{ text: string; failed: boolean } | null>(null);
+  // The thumb this visit just saved: it lands with a short stamp, once.
+  const [stamped, setStamped] = useState<ThumbDirection | null>(null);
   const inFlight = useRef(false);
   const promptId = useId();
+  const gapId = `thumb-gap-${promptId.replace(/[^\w-]/g, "")}`;
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const target = pending?.choice ?? null;
 
   function tap(direction: ThumbDirection) {
     if (inFlight.current) return;
@@ -78,6 +107,7 @@ export function IssueThumbs({ clusterId, patchVersion }: { clusterId: string; pa
       return;
     }
     setNote(null);
+    setStamped(null);
     setPending((current) => ({ choice: saved === direction ? "none" : direction, attempt: (current?.attempt ?? 0) + 1 }));
   }
 
@@ -94,7 +124,8 @@ export function IssueThumbs({ clusterId, patchVersion }: { clusterId: string; pa
       });
       if (response.ok) {
         writeThumb(clusterId, patchVersion, choice);
-        setNote({ text: choice === "none" ? "Taken back." : "Saved on this device. Tap it again to take it back.", failed: false });
+        setStamped(choice === "none" ? null : choice);
+        setNote({ text: choice === "none" ? "Undone." : "Saved on this device. Tap again to undo.", failed: false });
       } else {
         const payload: unknown = await response.json().catch(() => null);
         const code = payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string" ? payload.error : null;
@@ -114,20 +145,26 @@ export function IssueThumbs({ clusterId, patchVersion }: { clusterId: string; pa
       <div className="issue-thumbs__row">
         <span id={promptId} className="issue-thumbs__prompt">Happening to you on {patchVersion}?</span>
         <div className="issue-thumbs__buttons" role="group" aria-labelledby={promptId}>
-          {THUMB_DIRECTIONS.map((direction) => (
-            <button
-              key={direction}
-              type="button"
-              className={`issue-thumbs__button issue-thumbs__button--${direction}`}
-              aria-label={LABELS[direction]}
-              aria-pressed={saved === direction}
-              title={LABELS[direction]}
-              disabled={sending}
-              onClick={() => tap(direction)}
-            >
-              <span className="issue-thumbs__icon" aria-hidden="true" />
-            </button>
-          ))}
+          {THUMB_DIRECTIONS.map((direction) => {
+            const pressed = saved === direction;
+            // While a tap is checked and saved, the thumb it lights or clears shows half-inked.
+            const changing = target === direction ? "on" : target !== null && pressed ? "off" : undefined;
+            return (
+              <button
+                key={direction}
+                type="button"
+                className={`issue-thumbs__button issue-thumbs__button--${direction}`}
+                aria-label={LABELS[direction]}
+                aria-pressed={pressed}
+                data-pending={changing}
+                data-stamped={stamped === direction && pressed ? "" : undefined}
+                disabled={sending}
+                onClick={() => tap(direction)}
+              >
+                <ThumbGlyph direction={direction} gapId={`${gapId}-${direction}`} />
+              </button>
+            );
+          })}
         </div>
       </div>
       {pending && siteKey ? (
