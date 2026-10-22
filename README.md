@@ -124,7 +124,7 @@ GitHub posts are public. Keep passwords, account details and personal informatio
 
 ## Made with AI
 
-This project is proudly built by one person working with AI coding assistants. The AI writes and reviews a lot of the code. Every change still has to pass the same gate before it ships: tests, type checks, a production build, browser tests, and a review.
+This project is proudly built by me and my "assistants"; Claude, Codex, and Grok. The AI does the heavy lifting, and I am the orchestrator. Every change still has to pass the same gate before it ships: tests, type checks, a production build, browser tests, and a review. That way, we're not shipping half-ass vulnerable code and I can sit around and do nothing while my agents manage the site and protect it like Guards of the Citadel.
 
 ## License and credit
 
