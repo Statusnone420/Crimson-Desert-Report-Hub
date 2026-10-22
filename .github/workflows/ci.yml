@@ -105,7 +105,7 @@ jobs:
           package-manager-cache: false
 
       - name: Shared core verification
-        run: npm run verify:core
+        run: npm exec --yes --package=npm@11.12.1 -- npm run verify:run -- --core
 
   # The main browser suite, split four ways by Playwright's --shard. The
   # screenshot baselines are drawn on Windows, where Chromium renders text
@@ -134,7 +134,7 @@ jobs:
           package-manager-cache: false
 
       - name: Shared browser verification, main suite
-        run: npm run verify -- --browser-main --shard=${{ matrix.shard }}/4
+        run: npm exec --yes --package=npm@11.12.1 -- npm run verify:run -- --browser-main --shard=${{ matrix.shard }}/4
 
       # Failure screenshots and error notes only, for one day: the account's
       # free Actions artifact storage is 0.5 GB.
@@ -170,7 +170,7 @@ jobs:
           package-manager-cache: false
 
       - name: Shared browser verification, other suites
-        run: npm run verify -- --browser-other
+        run: npm exec --yes --package=npm@11.12.1 -- npm run verify:run -- --browser-other
 
       # Failure screenshots and error notes only, for one day: the account's
       # free Actions artifact storage is 0.5 GB.
