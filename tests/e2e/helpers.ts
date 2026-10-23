@@ -10,7 +10,9 @@ export function collectConsoleProblems(page: Page, expectedNotFoundUrl?: string)
   const githubWindowsRunner = process.env.GITHUB_ACTIONS === "true" && process.platform === "win32";
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warning") {
-      if (message.text().includes("/_next/webpack-hmr") && message.text().includes("WebSocket connection")) {
+      // Chromium logs this when the dev server's hot-reload socket fails to connect. The path is
+      // where Next's dev client opens that socket; tests/e2eConsoleProblems.test.ts checks it.
+      if (message.text().includes("/_next/hmr") && message.text().includes("WebSocket connection")) {
         return;
       }
       // On GitHub's Windows runners, Chromium sometimes fails one of the font
