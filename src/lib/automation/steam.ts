@@ -129,7 +129,8 @@ export async function fetchSteamReviewBatch({
   fetchImpl?: FetchLike;
 } = {}): Promise<SteamReviewBatch> {
   const url = new URL(STEAM_REVIEW_API_URL);
-  // This method reads its arguments from input_json; plain query parameters fall back to defaults.
+  // Steam's defaults are English reviews from Steam purchasers only, about a
+  // third of the total, so always send languages and purchase_type.
   url.searchParams.set("input_json", JSON.stringify({
     appid: Number(CRIMSON_DESERT_STEAM_APP_ID),
     filter: STEAM_REVIEW_FILTER_UPDATED,
