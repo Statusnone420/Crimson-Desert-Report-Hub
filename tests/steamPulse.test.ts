@@ -12,12 +12,25 @@ function response(body: unknown, status = 200): Response {
   });
 }
 
+/** GetAppReviews wraps its answer in `response` and has no `success` field. */
+function reviewsPage(payload: Record<string, unknown>): Response {
+  return response({ response: payload });
+}
+
 describe("Steam review intake", () => {
+  it("names an HTML answer instead of surfacing a JSON parse error", async () => {
+    // What the retired appreviews URL returns since 22 October 2026: the store home page, status 200.
+    const html = new Response("<!DOCTYPE html><html><head><title>Welcome to Steam</title></head></html>", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=UTF-8" },
+    });
+    await expect(fetchSteamReviewBatch({ fetchImpl: async () => html })).rejects.toThrow("Steam reviews response was not JSON");
+  });
+
   it("uses the keyless updated-review endpoint and emits privacy-bounded candidates", async () => {
     const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       void input;
-      return response({
-        success: 1,
+      return reviewsPage({
         cursor: "next cursor",
         query_summary: { total_reviews: 42, total_positive: 30, total_negative: 12 },
         reviews: [{
@@ -35,16 +48,18 @@ describe("Steam review intake", () => {
       });
     });
 
-    const batch = await fetchSteamReviewBatch({ fetchImpl, cursor: "*", dayRange: 7 });
+    const batch = await fetchSteamReviewBatch({ fetchImpl, cursor: "*" });
     const requested = new URL(String(fetchImpl.mock.calls[0][0]));
-    expect(requested.pathname).toBe("/appreviews/3321460");
-    expect(Object.fromEntries(requested.searchParams)).toMatchObject({
-      json: "1",
-      filter: "updated",
-      language: "all",
-      day_range: "7",
+    expect(requested.origin + requested.pathname).toBe("https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/");
+    expect([...requested.searchParams.keys()]).toEqual(["input_json"]);
+    expect(JSON.parse(requested.searchParams.get("input_json")!)).toEqual({
+      appid: 3321460,
+      filter: 2,
+      languages: ["all"],
       cursor: "*",
-      num_per_page: "100",
+      review_type: 0,
+      purchase_type: 1,
+      num_per_page: 100,
     });
     expect(batch.totals).toEqual({ totalReviews: 42, totalPositive: 30, totalNegative: 12 });
     expect(batch.reviews).toEqual([expect.objectContaining({
@@ -58,13 +73,30 @@ describe("Steam review intake", () => {
     expect(JSON.stringify(batch)).not.toContain("123456789");
   });
 
+  it("hashes a numeric review id the same as its string form and drops inexact ones", async () => {
+    const page = (recommendationid: unknown) => async () => reviewsPage({
+      cursor: null,
+      query_summary: { total_reviews: 1, total_positive: 0, total_negative: 1 },
+      reviews: [{
+        recommendationid,
+        review: "Crashes every time I open the map.",
+        timestamp_created: 1_789_000_000,
+        timestamp_updated: 1_789_000_100,
+        voted_up: false,
+      }],
+    });
+    const asString = await fetchSteamReviewBatch({ fetchImpl: page("123456789") });
+    const asNumber = await fetchSteamReviewBatch({ fetchImpl: page(123456789) });
+    expect(asNumber.reviews[0].recommendationHash).toBe(asString.reviews[0].recommendationHash);
+    expect((await fetchSteamReviewBatch({ fetchImpl: page(2 ** 60) })).reviews).toEqual([]);
+  });
+
   it("keeps first-page totals when a cursor page omits query_summary", async () => {
     const firstPageTotals = { totalReviews: 42, totalPositive: 30, totalNegative: 12 };
     const batch = await fetchSteamReviewBatch({
       cursor: "next cursor",
       fallbackTotals: firstPageTotals,
-      fetchImpl: async () => response({
-        success: 1,
+      fetchImpl: async () => reviewsPage({
         cursor: null,
         reviews: [{
           recommendationid: "cursor-review",
@@ -86,8 +118,7 @@ describe("Steam review intake", () => {
     const batch = await fetchSteamReviewBatch({
       cursor: "next cursor",
       fallbackTotals: firstPageTotals,
-      fetchImpl: async () => response({
-        success: 1,
+      fetchImpl: async () => reviewsPage({
         cursor: null,
         query_summary: { num_reviews: 1 },
         reviews: [{
@@ -106,30 +137,32 @@ describe("Steam review intake", () => {
   });
 
   it("rejects malformed and failed responses", async () => {
-    await expect(fetchSteamReviewBatch({ fetchImpl: async () => response({ success: 0 }) })).rejects.toThrow(
+    // An unknown app answers with an empty `response`.
+    await expect(fetchSteamReviewBatch({ fetchImpl: async () => response({ response: {} }) })).rejects.toThrow(
       "malformed",
     );
+    // The retired endpoint's bare shape is not accepted as a page.
+    await expect(fetchSteamReviewBatch({
+      fetchImpl: async () => response({ success: 1, reviews: [], query_summary: { total_reviews: 1, total_positive: 1, total_negative: 0 } }),
+    })).rejects.toThrow("malformed");
     await expect(fetchSteamReviewBatch({ fetchImpl: async () => response({}, 503) })).rejects.toThrow("503");
     await expect(fetchSteamReviewBatch({
-      fetchImpl: async () => response({ success: 1, reviews: [] }),
+      fetchImpl: async () => reviewsPage({ reviews: [] }),
     })).rejects.toThrow("query_summary");
     await expect(fetchSteamReviewBatch({
-      fetchImpl: async () => response({
-        success: 1,
+      fetchImpl: async () => reviewsPage({
         reviews: [],
         query_summary: { total_reviews: 42, total_positive: "unknown", total_negative: 12 },
       }),
     })).rejects.toThrow("total_positive");
     await expect(fetchSteamReviewBatch({
-      fetchImpl: async () => response({
-        success: 1,
+      fetchImpl: async () => reviewsPage({
         reviews: [],
         query_summary: { total_reviews: null, total_positive: 30, total_negative: 12 },
       }),
     })).rejects.toThrow("total_reviews");
     await expect(fetchSteamReviewBatch({
-      fetchImpl: async () => response({
-        success: 1,
+      fetchImpl: async () => reviewsPage({
         reviews: [],
         query_summary: { total_reviews: 42, total_positive: 30, total_negative: false },
       }),
@@ -158,8 +191,7 @@ describe("Steam review intake", () => {
     ];
 
     const batch = await fetchSteamReviewBatch({
-      fetchImpl: async () => response({
-        success: 1,
+      fetchImpl: async () => reviewsPage({
         cursor: "next",
         query_summary: { total_reviews: 8, total_positive: 0, total_negative: 8 },
         reviews,
