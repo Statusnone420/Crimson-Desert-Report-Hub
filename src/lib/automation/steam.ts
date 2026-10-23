@@ -3,7 +3,13 @@ import { externalIdHash } from "@/lib/crypto";
 export const CRIMSON_DESERT_STEAM_APP_ID = "3321460";
 export const STEAM_REVIEW_SOURCE_URL =
   `https://store.steampowered.com/app/${CRIMSON_DESERT_STEAM_APP_ID}/Crimson_Desert/#app_reviews_hash`;
-const STEAM_REVIEW_API_URL = `https://store.steampowered.com/appreviews/${CRIMSON_DESERT_STEAM_APP_ID}`;
+// Steam retired store.steampowered.com/appreviews/<appid>?json=1 on 22 October
+// 2026; that URL now answers 200 with the store's HTML home page. Its keyless
+// replacement takes every argument as one input_json blob and uses numeric enums.
+const STEAM_REVIEW_API_URL = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/";
+const STEAM_REVIEW_FILTER_UPDATED = 2;
+const STEAM_REVIEW_TYPE_ALL = 0;
+const STEAM_PURCHASE_TYPE_ALL = 1;
 const MAX_REVIEWS_PER_FETCH = 100;
 
 export type SteamPlayerReading = { capturedAt: string; playerCount: number };
@@ -62,7 +68,6 @@ type SteamApiReview = {
 };
 
 type SteamApiResponse = {
-  success?: unknown;
   cursor?: unknown;
   query_summary?: {
     total_reviews?: unknown;
@@ -88,7 +93,11 @@ function unixSecondsToIso(value: unknown): string | null {
 function parseReview(value: unknown): SteamReviewCandidate | null {
   if (!value || typeof value !== "object") return null;
   const row = value as SteamApiReview;
-  const recommendationId = typeof row.recommendationid === "string" ? row.recommendationid.trim() : "";
+  // uint64 ids arrive as strings; a bare number is kept only while it is exact,
+  // so a review keeps the same hash it had under the retired endpoint.
+  const recommendationId = typeof row.recommendationid === "string" ? row.recommendationid.trim()
+    : typeof row.recommendationid === "number" && Number.isSafeInteger(row.recommendationid) && row.recommendationid > 0
+      ? String(row.recommendationid) : "";
   const reviewText = typeof row.review === "string" ? row.review.trim() : "";
   const sourceCreatedAt = unixSecondsToIso(row.timestamp_created);
   const sourceUpdatedAt = unixSecondsToIso(row.timestamp_updated) ?? sourceCreatedAt;
@@ -112,24 +121,24 @@ function parseReview(value: unknown): SteamReviewCandidate | null {
 
 export async function fetchSteamReviewBatch({
   cursor = "*",
-  dayRange = 14,
   fallbackTotals,
   fetchImpl = fetch,
 }: {
   cursor?: string;
-  dayRange?: number;
   fallbackTotals?: SteamReviewTotals;
   fetchImpl?: FetchLike;
 } = {}): Promise<SteamReviewBatch> {
   const url = new URL(STEAM_REVIEW_API_URL);
-  url.searchParams.set("json", "1");
-  url.searchParams.set("filter", "updated");
-  url.searchParams.set("language", "all");
-  url.searchParams.set("day_range", String(Math.max(1, Math.min(365, Math.floor(dayRange)))));
-  url.searchParams.set("cursor", cursor);
-  url.searchParams.set("review_type", "all");
-  url.searchParams.set("purchase_type", "all");
-  url.searchParams.set("num_per_page", String(MAX_REVIEWS_PER_FETCH));
+  // This method reads its arguments from input_json; plain query parameters fall back to defaults.
+  url.searchParams.set("input_json", JSON.stringify({
+    appid: Number(CRIMSON_DESERT_STEAM_APP_ID),
+    filter: STEAM_REVIEW_FILTER_UPDATED,
+    languages: ["all"],
+    cursor,
+    review_type: STEAM_REVIEW_TYPE_ALL,
+    purchase_type: STEAM_PURCHASE_TYPE_ALL,
+    num_per_page: MAX_REVIEWS_PER_FETCH,
+  }));
 
   const response = await fetchImpl(url, {
     headers: { accept: "application/json" },
@@ -137,8 +146,15 @@ export async function fetchSteamReviewBatch({
   });
   if (!response.ok) throw new Error(`Steam reviews request failed (${response.status})`);
 
-  const payload = (await response.json()) as SteamApiResponse;
-  if (payload.success !== 1 || !Array.isArray(payload.reviews)) {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("Steam reviews response was not JSON");
+  }
+  const wrapped = body && typeof body === "object" ? (body as { response?: unknown }).response : undefined;
+  const payload = (wrapped && typeof wrapped === "object" ? wrapped : {}) as SteamApiResponse;
+  if (!Array.isArray(payload.reviews)) {
     throw new Error("Steam reviews response was malformed");
   }
 
